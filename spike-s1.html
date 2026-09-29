@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spike S1: browser ingest</title>
+    <style>
+      :root { color-scheme: dark; font: 15px/1.4 system-ui, -apple-system, sans-serif; }
+      body { margin: 0; background: #09090b; color: #e4e4e7; }
+      main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+      h1 { font-size: 1.25rem; margin: 0 0 4px; }
+      p.sub { margin: 0 0 16px; color: #a1a1aa; }
+      section { background: #18181b; border: 1px solid #27272a; border-radius: 10px; padding: 12px; margin-bottom: 12px; }
+      h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: #a1a1aa; margin: 0 0 8px; }
+      .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; }
+      label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: #a1a1aa; }
+      input, select, button { font: inherit; font-size: 16px; min-height: 44px; border-radius: 8px; border: 1px solid #3f3f46; background: #09090b; color: inherit; padding: 0 12px; }
+      input { width: 7.5em; }
+      button { background: #27272a; cursor: pointer; }
+      button.primary { background: #dc2626; border-color: #dc2626; color: white; font-weight: 600; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .bar { height: 8px; background: #27272a; border-radius: 4px; overflow: hidden; margin: 8px 0; }
+      .bar > div { height: 100%; width: 0; background: #dc2626; transition: width 0.2s; }
+      #status { font-variant-numeric: tabular-nums; }
+      #log { max-height: 9em; overflow: auto; font: 12px/1.4 ui-monospace, monospace; color: #a1a1aa; white-space: pre-wrap; margin: 8px 0 0; }
+      .scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      table { border-collapse: collapse; width: 100%; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+      th, td { padding: 6px 8px; border-bottom: 1px solid #27272a; text-align: right; white-space: nowrap; }
+      th:first-child, td:first-child, th.l, td.l { text-align: left; }
+      th { color: #a1a1aa; font-weight: 500; }
+      dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; font-size: 0.85rem; }
+      dt { color: #a1a1aa; }
+      dd { margin: 0; word-break: break-word; }
+      .ok { color: #4ade80; } .bad { color: #f87171; } .warn { color: #fbbf24; }
+      a { color: #f87171; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Spike S1: browser ingest</h1>
+      <p class="sub">Runs the real ingest pipeline (normalize + quali) in a Web Worker, stores raw and processed data in this browser's storage (OPFS), then loads the replay UI from it.</p>
+
+      <section>
+        <h2>Run</h2>
+        <div class="row">
+          <label>Session key <input id="key" type="number" inputmode="numeric" value="11234" /></label>
+          <label>Mode
+            <select id="mode">
+              <option value="compute">compute-only (raw files from this dev server)</option>
+              <option value="network">network (OpenF1 free tier, about 2.5 min)</option>
+            </select>
+          </label>
+          <button id="run" class="primary">Run</button>
+          <button id="ui">Compare replay load</button>
+          <button id="clear">Clear OPFS</button>
+          <button id="copy">Copy results as JSON</button>
+        </div>
+        <div class="bar"><div id="progress"></div></div>
+        <div id="status">Idle.</div>
+        <pre id="log"></pre>
+      </section>
+
+      <section>
+        <h2>Results (ms)</h2>
+        <div class="scroll"><table id="results"></table></div>
+        <div class="scroll"><table id="uiResults" style="margin-top: 8px"></table></div>
+      </section>
+
+      <section>
+        <h2>This browser</h2>
+        <dl id="env"></dl>
+      </section>
+    </main>
+    <script type="module" src="/spikes/s1/main.ts"></script>
+  </body>
+</html>

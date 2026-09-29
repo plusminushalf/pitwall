@@ -1,0 +1,34 @@
+{
+  "name": "f1-replay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "bun test",
+    "races": "bun scripts/list-races.ts",
+    "ingest": "bun scripts/ingest.ts",
+    "ingest:season": "bun scripts/ingest-season.ts",
+    "check:quali": "bun scripts/check-quali.ts",
+    "live": "bun server/live.ts",
+    "live:sim": "LIVE_SIMULATE=11377 bun server/live.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/bun": "^1.4.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "tailwindcss": "^4.3.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.1"
+  },
+  "dependencies": {
+    "mqtt": "^5.16.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zustand": "^5.0.15"
+  }
+}

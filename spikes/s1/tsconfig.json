@@ -1,0 +1,14 @@
+{
+  // Spike S1 browser code (page + worker): `bunx tsc -p spikes/s1/tsconfig.json`. bench.ts runs under node.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "DOM.AsyncIterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["vite/client"],
+    "noEmit": true
+  },
+  "include": ["main.ts", "worker.ts", "protocol.ts"]
+}

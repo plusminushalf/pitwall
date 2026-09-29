@@ -1,0 +1,10 @@
+node_modules/
+data/raw/
+dist/
+.DS_Store
+.env
+.env.local
+
+# Processed race data (F1 timing data is © Formula One World Championship Limited; not redistributable).
+# Everyone generates their own copy locally with `bun run ingest` or the in-app downloader.
+public/sessions/

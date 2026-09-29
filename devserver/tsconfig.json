@@ -1,0 +1,17 @@
+{
+  // Node code of the dev server (Vite runs under node): `bunx tsc --noEmit -p devserver/tsconfig.json`.
+  // Tests run under `bun test` and are left out (they need Bun's types).
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["."],
+  "exclude": ["*.test.ts"]
+}

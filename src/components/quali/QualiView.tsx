@@ -1,0 +1,268 @@
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { miniSectors } from "../../engine/compare";
+import { useCompare, type CompareEntry } from "../../hooks/useCompare";
+import { lapTime } from "../../lib/format";
+import { ghost, GHOST_SPEEDS, useQuali } from "../../qualiStore";
+import { useReplay } from "../../store";
+import type { SessionMeta } from "../../types";
+import { SessionPicker } from "../Header";
+import { RacesButton } from "../RacePicker";
+import { CompareBar } from "./CompareBar";
+import { CompareCharts, Swatch } from "./CompareCharts";
+import { CompareMap } from "./CompareMap";
+import { GhostBar } from "./GhostBar";
+import { QualiBoard } from "./QualiBoard";
+import { SectorTable } from "./SectorTable";
+
+const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+const MINI_SECTOR_COUNTS = [12, 25, 50];
+const PUBLISH_EVERY_MS = 100;
+
+const SHORTCUTS: [string, string][] = [
+  ["P / hold space", "Play the ghost laps"],
+  ["← / →", "Ghost back / forward 1 s (shift: 5 s)"],
+  ["Home", "Ghost back to the line"],
+  ["− / +", "Slower / faster ghost"],
+  ["Drag / wheel", "Zoom the charts"],
+  ["Double-click", "Reset zoom"],
+  ["Esc", "Clear the comparison"],
+];
+
+function Help() {
+  return (
+    <div className="group relative">
+      <button className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 text-xs font-bold text-zinc-400 hover:border-zinc-500 hover:text-zinc-100" aria-label="Keyboard shortcuts">
+        ?
+      </button>
+      <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-72 rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl group-focus-within:block group-hover:block">
+        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Compare shortcuts</p>
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
+          {SHORTCUTS.map(([key, action]) => (
+            <div key={key} className="contents">
+              <dt>
+                <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200">{key}</kbd>
+              </dt>
+              <dd className="text-zinc-400">{action}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+function QualiHeader({ meta }: { meta: SessionMeta }) {
+  const q = meta.quali!;
+  const pole = q.results[0];
+  const poleInfo = meta.drivers.find((d) => d.number === pole?.driver);
+  const poleTime = pole ? ([...pole.times].reverse().find((t) => t != null) ?? null) : null;
+  return (
+    <header className="grid h-[52px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4">
+      <div className="flex min-w-0 items-center gap-3">
+        <RacesButton />
+        <SessionPicker meta={meta} />
+      </div>
+      <div className="flex items-center gap-5">
+        <span className="text-xl font-black uppercase tracking-tight">{meta.sessionName}</span>
+        <div className="flex items-center gap-3">
+          {q.segments.map((s) => (
+            <span key={s.number} className="flex flex-col leading-tight" title={`${s.name}: ${Math.round((s.end - s.start) / 60_000)} minutes${s.advance ? `, top ${s.advance} go through` : ""}`}>
+              <span className={LABEL}>{s.name}</span>
+              <span className="text-xs tabular-nums text-zinc-300">{lapTime(Math.min(...q.results.map((r) => r.times[s.number - 1] ?? Infinity)))}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="flex items-center justify-end gap-4">
+        {poleInfo && poleTime != null && (
+          <span className="flex flex-col items-end leading-tight">
+            <span className={LABEL}>Pole</span>
+            <span className="text-sm tabular-nums text-zinc-100">
+              <span className="font-bold">{poleInfo.acronym}</span> {lapTime(poleTime)}
+            </span>
+          </span>
+        )}
+        <Help />
+      </div>
+    </header>
+  );
+}
+
+/** Advances the ghost clock while the replay store is playing (space / P / the play button). */
+function useGhostLoop(maxDuration: number) {
+  const max = useRef(maxDuration);
+  max.current = maxDuration;
+  useEffect(() => {
+    let raf = 0;
+    let last = performance.now();
+    let lastPublish = 0;
+    let wasPlaying = false;
+    const frame = (now: number) => {
+      const dt = now - last;
+      last = now;
+      const { playing, setPlaying } = useReplay.getState();
+      const { ghostSpeed } = useQuali.getState();
+      if (playing && max.current > 0) {
+        if (!wasPlaying && ghost.t >= max.current) ghost.t = 0; // play at the end restarts the laps
+        ghost.t = Math.min(ghost.t + dt * ghostSpeed, max.current);
+        if (ghost.t >= max.current) {
+          setPlaying(false);
+          useQuali.setState({ ghostT: ghost.t });
+        } else if (now - lastPublish >= PUBLISH_EVERY_MS) {
+          lastPublish = now;
+          useQuali.setState({ ghostT: ghost.t });
+        }
+      }
+      wasPlaying = playing;
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+}
+
+/** Ghost keys (the replay's own handler also sees them, harmlessly: its clock isn't shown here). */
+function useGhostKeys() {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const { seekGhost, ghostSpeed, setGhostSpeed } = useQuali.getState();
+      const i = GHOST_SPEEDS.indexOf(ghostSpeed as (typeof GHOST_SPEEDS)[number]);
+      if (e.key === "ArrowLeft") seekGhost(ghost.t - (e.shiftKey ? 5_000 : 1_000));
+      else if (e.key === "ArrowRight") seekGhost(ghost.t + (e.shiftKey ? 5_000 : 1_000));
+      else if (e.key === "Home") seekGhost(0);
+      else if (e.key === "-") setGhostSpeed(GHOST_SPEEDS[Math.max(0, i - 1)]);
+      else if (e.key === "+" || e.key === "=") setGhostSpeed(GHOST_SPEEDS[Math.min(GHOST_SPEEDS.length - 1, i + 1)]);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+}
+
+function Dominance({ entries, sectors }: { entries: CompareEntry[]; sectors: ReturnType<typeof miniSectors> }) {
+  const withTrace = entries.filter((e) => e.trace);
+  const wins = withTrace.map((_, i) => sectors.filter((s) => s.winner === i).length);
+  if (withTrace.length < 2) return <span className="text-[11px] text-zinc-600">Add a second driver to see who is faster where</span>;
+  return (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums">
+      {withTrace.map((e, i) => (
+        <span key={e.driver} className="flex items-center gap-1" title={`${e.info.acronym} is fastest in ${wins[i]} of ${sectors.length} mini-sectors`}>
+          <Swatch color={e.style.color} dashed={e.style.dash.length > 0} width={12} />
+          <span className="font-bold text-zinc-200">{e.info.acronym}</span>
+          <span className="text-zinc-400">{wins[i]}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+export function QualiView({ overlay }: { overlay?: ReactNode }) {
+  const session = useReplay((s) => s.session)!;
+  const meta = session.meta;
+  const q = meta.quali!;
+  const entries = useCompare();
+  const zoom = useQuali((s) => s.zoom);
+  const [miniCount, setMiniCount] = useState(25);
+
+  // A fresh session: reset the compare state, and start with pole vs P2 unless a link picked drivers.
+  useEffect(() => {
+    useQuali.getState().reset(meta.sessionKey);
+    const { selected } = useReplay.getState();
+    if (selected.length === 0) {
+      const top = q.results.slice(0, 2).map((r) => r.driver);
+      useReplay.setState({ selected: top });
+    }
+  }, [meta.sessionKey, q]);
+
+  const withTrace = useMemo(() => entries.filter((e) => e.trace), [entries]);
+  const maxDuration = Math.max(0, ...withTrace.map((e) => e.trace!.duration));
+  useGhostLoop(maxDuration);
+  useGhostKeys();
+
+  const sectors = useMemo(() => miniSectors(withTrace.map((e) => e.trace!), miniCount), [withTrace, miniCount]);
+
+  // Corner numbers along the lap, from the reference lap's path.
+  const corners = useMemo(() => {
+    const ref = withTrace[0]?.trace;
+    if (!ref) return [];
+    return meta.track.corners.map((c) => {
+      let best = 0;
+      let bestD = Infinity;
+      for (let i = 0; i < ref.d.length; i++) {
+        const dd = (ref.x[i] - c.x) ** 2 + (ref.y[i] - c.y) ** 2;
+        if (dd < bestD) {
+          bestD = dd;
+          best = i;
+        }
+      }
+      return { number: c.number, d: ref.d[best] };
+    });
+  }, [withTrace, meta]);
+
+  const ref = entries[0];
+  return (
+    <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
+      <QualiHeader meta={meta} />
+      <div className="grid min-h-0 grid-cols-[360px_minmax(0,1fr)_400px]">
+        <aside className="min-h-0 border-r border-zinc-800">
+          <QualiBoard />
+        </aside>
+        <main className="flex min-h-0 min-w-0 flex-col">
+          <CompareBar meta={meta} entries={entries} />
+          <div className="flex h-7 shrink-0 items-center justify-between px-3 text-[11px] text-zinc-500">
+            <span>
+              {ref && entries.length > 1 ? (
+                <>
+                  Delta = time behind <span className="font-semibold text-zinc-300">{ref.info.acronym}</span> at the same point of the lap (up = slower)
+                </>
+              ) : (
+                "Speed, throttle, brake and gear against distance from the timing line"
+              )}
+            </span>
+            <span className="flex items-center gap-2">
+              {zoom ? (
+                <>
+                  <span className="tabular-nums">
+                    {Math.round(zoom[0])}–{Math.round(zoom[1])} m
+                  </span>
+                  <button onClick={() => useQuali.getState().setZoom(null)} className="rounded px-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white">
+                    Reset zoom
+                  </button>
+                </>
+              ) : (
+                <span className="text-zinc-600">Drag or scroll to zoom</span>
+              )}
+            </span>
+          </div>
+          {withTrace.length ? (
+            <CompareCharts entries={entries} lapLength={q.lapLength} sectorDistances={q.sectorDistances} corners={corners} />
+          ) : (
+            <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
+              {entries.some((e) => e.loading) ? "Loading lap telemetry…" : "Pick drivers on the timing board to compare their laps"}
+            </div>
+          )}
+        </main>
+        <aside className="flex min-h-0 flex-col border-l border-zinc-800">
+          <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
+            <span className={LABEL}>Fastest per mini-sector</span>
+            <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
+              {MINI_SECTOR_COUNTS.map((n) => (
+                <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="shrink-0 px-3 pt-1">
+            <Dominance entries={entries} sectors={sectors} />
+          </div>
+          <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} />
+          <p className="shrink-0 px-3 pb-1 text-[10px] text-zinc-600">Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
+          <SectorTable entries={entries} />
+        </aside>
+      </div>
+      <GhostBar entries={entries} maxDuration={maxDuration} />
+      {overlay}
+    </div>
+  );
+}

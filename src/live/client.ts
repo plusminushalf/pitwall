@@ -1,0 +1,76 @@
+// Browser side of the live relay's WebSocket (server/live.ts; protocol in ./protocol.ts).
+
+import type { LiveMessage } from "./protocol";
+
+const RETRY_MIN_MS = 1_000;
+const RETRY_MAX_MS = 10_000;
+
+export interface LiveHandlers {
+  onOpen: () => void;
+  onMessage: (msg: LiveMessage) => void;
+  /** The socket failed to connect or dropped (relay not running, network...). It retries by itself. */
+  onDown: () => void;
+}
+
+export interface LiveConnection {
+  close: () => void;
+}
+
+/** `/live` on the page's own origin (the Vite dev server proxies it to the relay). */
+export function liveUrl(): string {
+  return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/live`;
+}
+
+/** Connects to the relay and stays connected (reconnecting with backoff) until `close()`. */
+export function connectLive(handlers: LiveHandlers, url = liveUrl()): LiveConnection {
+  let ws: WebSocket | null = null;
+  let retry: ReturnType<typeof setTimeout> | null = null;
+  let failures = 0;
+  let closed = false;
+
+  const open = () => {
+    retry = null;
+    if (closed) return;
+    const socket = new WebSocket(url);
+    ws = socket;
+    socket.onopen = () => {
+      if (ws !== socket) return;
+      failures = 0;
+      handlers.onOpen();
+    };
+    socket.onmessage = (e) => {
+      if (ws !== socket || typeof e.data !== "string") return;
+      let msg: LiveMessage;
+      try {
+        msg = JSON.parse(e.data) as LiveMessage;
+      } catch {
+        return; // not ours
+      }
+      if (msg && typeof msg === "object" && "type" in msg) handlers.onMessage(msg);
+    };
+    // A failed connection fires `error` then `close`: handle it once, on close.
+    socket.onclose = () => {
+      if (ws !== socket) return;
+      ws = null;
+      if (closed) return;
+      handlers.onDown();
+      const delay = Math.min(RETRY_MIN_MS * 2 ** failures, RETRY_MAX_MS);
+      failures++;
+      retry = setTimeout(open, delay);
+    };
+  };
+
+  open();
+  return {
+    close: () => {
+      closed = true;
+      if (retry) clearTimeout(retry);
+      const socket = ws;
+      ws = null;
+      if (socket) {
+        socket.onopen = socket.onmessage = socket.onclose = null;
+        socket.close();
+      }
+    },
+  };
+}
