@@ -1,7 +1,11 @@
 // Ingest one session, independent of platform: download every endpoint (raw cache first), normalize,
 // encode and write the processed replay format (src/types.ts). All I/O goes through an IngestIO adapter:
-// the Bun CLI (scripts/ingest.ts) uses files under data/raw and public/sessions, the browser worker
-// (spikes/s1/worker.ts) uses OPFS, CompressionStream and fetch.
+// the Bun CLI (scripts/ingest.ts) uses files under data/raw and data/sessions, the browser worker
+// (src/ingest/worker.ts) uses the browser's session store (OPFS), CompressionStream and fetch.
+//
+// Freshly downloaded responses are normalized from memory; the raw cache is written in the background
+// (for resuming an interrupted download and re-processing offline) and only read back for files that
+// were already cached.
 
 import type {
   RawCarData,
@@ -26,14 +30,16 @@ import { encodeTelemetry, normalize, type RawSessionData } from "./normalize";
 import { buildQuali, prepareQualiLaps } from "./quali";
 import { readCache, writeCache, type RawCacheIO } from "./rawCache";
 
+export { FORMAT_VERSION } from "./formatVersion";
+
 export interface IngestIO extends RawCacheIO {
   fetchEndpoint<T>(endpoint: string, params: Record<string, string | number>): Promise<T[]>;
   fetchCircuit(url: string): Promise<RawCircuit>;
   /** Write one processed JSON file; resolves to its gzipped size in bytes. */
   writeOutput(path: string, json: string): Promise<number>;
-  /** The session index, or undefined if there is none yet. */
-  readIndex(path: string): Promise<SessionIndexEntry[] | undefined>;
-  writeIndex(path: string, text: string): Promise<void>;
+  /** The session index, or undefined if there is none yet. Without readIndex / writeIndex no index is kept. */
+  readIndex?(path: string): Promise<SessionIndexEntry[] | undefined>;
+  writeIndex?(path: string, text: string): Promise<void>;
   log(line: string): void;
   warn(line: string): void;
 }
@@ -41,7 +47,7 @@ export interface IngestIO extends RawCacheIO {
 export interface IngestPaths {
   /** Raw cache directory for this session, e.g. `data/raw/11377`. */
   rawDir: string;
-  /** Processed sessions directory (holds index.json and <key>/), e.g. `public/sessions`. */
+  /** Processed sessions directory (holds index.json and <key>/), e.g. `data/sessions`. */
   sessionsDir: string;
 }
 
@@ -49,7 +55,7 @@ export interface IngestPaths {
 export interface IngestTimings {
   /** Network requests (OpenF1 + MultiViewer), including parsing the response. */
   fetch: number;
-  /** Gzip + write of freshly downloaded responses into the raw cache. */
+  /** Gzip + write of freshly downloaded responses into the raw cache (in the background, overlapping fetches). */
   rawWrite: number;
   /** Read + gunzip + JSON.parse of cached raw responses. */
   cacheRead: number;
@@ -62,7 +68,10 @@ export interface IngestTimings {
 }
 
 export type IngestEvent =
+  /** A raw file is in memory: read from the cache, or downloaded (its cache write may still be running). */
   | { kind: "raw"; name: string; source: "cache" | "network"; ms: number }
+  /** The session's driver numbers, in the order their car_data / location files are requested. */
+  | { kind: "drivers"; numbers: number[] }
   | { kind: "phase"; phase: "download" | "normalize" | "write" | "done" };
 
 const now = () => performance.now();
@@ -73,7 +82,15 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   const outDir = `${sessionsDir}/${sessionKey}`;
   const timings: IngestTimings = { fetch: 0, rawWrite: 0, cacheRead: 0, normalize: 0, encode: 0, write: 0 };
 
+  // Cache writes run in the background while the next request is under way; a failed one fails the ingest.
+  const pendingWrites: Promise<void>[] = [];
+  let writeError: { error: unknown } | null = null;
+  const rethrowWriteError = () => {
+    if (writeError) throw writeError.error;
+  };
+
   async function cached<T>(name: string, fetcher: () => Promise<T>): Promise<T | undefined> {
+    rethrowWriteError();
     const file = `${rawDir}/${name}.json`;
     const t0 = now();
     const hit = await readCache<T>(io, file);
@@ -83,12 +100,23 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
       return hit;
     }
     const t1 = now();
-    const data = await fetcher();
+    let data: T;
+    try {
+      data = await fetcher();
+    } catch (e) {
+      // Keep what was downloaded so far (a later run resumes from it).
+      await Promise.allSettled(pendingWrites);
+      throw e;
+    }
     const t2 = now();
     timings.fetch += t2 - t1;
-    await writeCache(io, file, data);
-    timings.rawWrite += now() - t2;
-    onEvent?.({ kind: "raw", name, source: "network", ms: now() - t1 });
+    pendingWrites.push(
+      writeCache(io, file, data).then(
+        () => void (timings.rawWrite += now() - t2),
+        (error) => void (writeError ??= { error }),
+      ),
+    );
+    onEvent?.({ kind: "raw", name, source: "network", ms: t2 - t1 });
     return data;
   }
 
@@ -146,12 +174,16 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   const rawResults = await get<RawResult>("session_result");
 
   const driverNumbers = [...new Set(rawDrivers.map((d) => d.driver_number))].sort((a, b) => a - b);
+  onEvent?.({ kind: "drivers", numbers: driverNumbers });
   const rawCar = new Map<number, RawCarData[]>();
   const rawLoc = new Map<number, RawLocation[]>();
   for (const n of driverNumbers) {
     rawCar.set(n, await get<RawCarData>("car_data", { driver_number: n }));
     rawLoc.set(n, await get<RawLocation>("location", { driver_number: n }));
   }
+
+  await Promise.all(pendingWrites);
+  rethrowWriteError();
 
   // ---------------------------------------------------------------- process
 
@@ -205,8 +237,6 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   if (quali) for (const tr of quali.traces.values()) await writeJson(`${outDir}/laps/${tr.driver}.json`, () => tr);
 
   const tIndex = now();
-  const indexFile = `${sessionsDir}/index.json`;
-  const index = (await io.readIndex(indexFile)) ?? [];
   const entry: SessionIndexEntry = {
     sessionKey,
     meetingName: meta.meetingName,
@@ -217,14 +247,18 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     dateStart: session.date_start,
     sessionType: isQuali ? "Qualifying" : "Race",
   };
-  const nextIndex = [...index.filter((e) => e.sessionKey !== sessionKey), entry].sort((a, b) =>
-    a.dateStart.localeCompare(b.dateStart),
-  );
-  await io.writeIndex(indexFile, JSON.stringify(nextIndex, null, 2) + "\n");
+  if (io.readIndex && io.writeIndex) {
+    const indexFile = `${sessionsDir}/index.json`;
+    const index = (await io.readIndex(indexFile)) ?? [];
+    const nextIndex = [...index.filter((e) => e.sessionKey !== sessionKey), entry].sort((a, b) =>
+      a.dateStart.localeCompare(b.dateStart),
+    );
+    await io.writeIndex(indexFile, JSON.stringify(nextIndex, null, 2) + "\n");
+  }
   timings.write += now() - tIndex;
   onEvent?.({ kind: "phase", phase: "done" });
 
-  return { session, meta, telemetry, report, quali, driverNumbers, sizes, outDir, timings };
+  return { session, meta, telemetry, report, quali, driverNumbers, sizes, outDir, timings, entry };
 }
 
 export type IngestResult = Awaited<ReturnType<typeof runIngest>>;

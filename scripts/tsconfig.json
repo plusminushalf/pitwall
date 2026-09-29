@@ -9,5 +9,15 @@
     "types": ["bun"],
     "noEmit": true
   },
-  "include": [".", "../server", "../src/types.ts", "../src/live/protocol.ts", "../src/data", "../src/engine"]
+  "include": [
+    ".",
+    "../server",
+    "../src/types.ts",
+    "../src/live/protocol.ts",
+    "../src/data",
+    "../src/engine",
+    "../src/ingest/eta.ts",
+    "../src/ingest/catalog.ts",
+    "../src/ingest/*.test.ts"
+  ]
 }

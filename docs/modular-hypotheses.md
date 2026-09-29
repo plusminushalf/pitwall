@@ -189,7 +189,7 @@ If the API only passes serialisable data and columnar typed arrays from day one 
     - Replay loads from OPFS at the same speed as HTTP.
     - Firefox and WebKit are **not tested**: system libraries are missing and there's no sudo.
     - Surprise: reading raw back (gunzip+parse, 7.3 s) costs more than normalize (3.3 s).
-    - Machine: 2-vCPU shared server VM. Code is in `spikes/s1/` and `scripts/lib/ingestCore.ts`.
+    - Machine: 2-vCPU shared server VM. The spike (`spikes/s1/`, removed since; see commit bf4a0a2) became the app's in-browser downloader: `src/ingest/`, `src/storage/` and `scripts/lib/ingestCore.ts`.
 - **S2: dogfooding the module API.** Build `core/api` plus dockview, and rebuild TrackMap, TimingTower and Timeline on it. Open two TrackMaps plus a popout. Add one contribution-point feature: a pit-rejoin ghost (signal, map layer and tower column). Benchmark it. Checks H3.1 to H3.6.
 - **S3: live in the browser.** Token and MQTT inside a worker, plus a simulate mode that replays cached raw data inside the worker. Checks H2.4 and H2.5.
 - **S4: streaming normalize** for phone memory. Checks H2.8.

@@ -1,102 +1,27 @@
+// Download cost model and live ETA (eta.ts), and the job tracker that feeds it from worker events (runner.ts).
+
 import { describe, expect, test } from "bun:test";
 import {
-  errorFromStderr,
+  cacheProgress,
   estimate,
   EWMA_ALPHA,
   etaSeconds,
+  expectedRawFiles,
   fileForFetch,
   fileSeconds,
+  nextProcessingS,
   nextRatio,
-  parseLogLine,
   PROCESSING_PRIOR_S,
   progressOf,
   retryNotice,
-  sanitize,
   sizeScale,
   STARTUP_S,
   stepLabel,
-} from "./ingestCore";
-import { cacheProgress, expectedRawFiles } from "./ingestPlugin";
+} from "./eta";
+import { JobTracker, type JobInfo } from "./runner";
 
 const DRIVERS_2026 = [1, 3, 5, 6, 10, 11, 12, 14, 16, 18, 22, 23, 27, 30, 31, 41, 43, 44, 55, 63, 77, 87];
-const cachedOf = (names: string[], size = 100) => new Map(names.map((n) => [n, { size }]));
-
-describe("log lines", () => {
-  test("fetch lines with params", () => {
-    expect(parseLogLine("  fetching laps session_key=11234")).toEqual({ kind: "fetch", endpoint: "laps", params: { session_key: "11234" } });
-    expect(parseLogLine("  fetching car_data session_key=11234 driver_number=44")).toEqual({
-      kind: "fetch",
-      endpoint: "car_data",
-      params: { session_key: "11234", driver_number: "44" },
-    });
-    expect(parseLogLine("  fetching meetings meeting_key=1279")?.kind).toBe("fetch");
-    expect(parseLogLine("  fetching circuit info https://api.multiviewer.app/api/v1/circuits/10/2026")).toEqual({ kind: "fetch", endpoint: "circuit", params: {} });
-  });
-
-  test("retry and circuit lines; other output ignored", () => {
-    expect(parseLogLine("  429 on location, retrying in 10s")).toEqual({ kind: "retry", status: 429, endpoint: "location", seconds: 10 });
-    expect(parseLogLine("\x1b[33m  502 on laps, retrying in 2.5s\x1b[0m")).toEqual({ kind: "retry", status: 502, endpoint: "laps", seconds: 2.5 });
-    expect(parseLogLine("  circuit info unavailable (Error: HTTP 500); map will have no rotation")).toEqual({ kind: "circuit-unavailable" });
-    expect(parseLogLine("Ingesting session 11234")).toBeNull();
-    expect(parseLogLine("track status:")).toBeNull();
-    expect(parseLogLine("")).toBeNull();
-  });
-
-  test("cache file per fetch", () => {
-    expect(fileForFetch("meetings", { meeting_key: "1" })).toBe("meeting");
-    expect(fileForFetch("car_data", { session_key: "1", driver_number: "44" })).toBe("car_data_44");
-    expect(fileForFetch("session_result", { session_key: "1" })).toBe("session_result");
-    expect(fileForFetch("circuit", {})).toBe("circuit");
-  });
-
-  test("step labels", () => {
-    expect(stepLabel("car_data", { driver_number: "44" }, DRIVERS_2026)).toBe("Car telemetry · #44 (18/22)");
-    expect(stepLabel("location", { driver_number: "1" }, DRIVERS_2026)).toBe("Track positions · #1 (1/22)");
-    expect(stepLabel("car_data", { driver_number: "44" }, null)).toBe("Car telemetry · #44");
-    expect(stepLabel("laps", { session_key: "1" }, DRIVERS_2026)).toBe("Lap times");
-    expect(stepLabel("brand_new_endpoint", {}, null)).toBe("brand new endpoint");
-  });
-
-  test("retry notices", () => {
-    expect(retryNotice(429, 10)).toBe("Rate-limited, retrying in 10s");
-    expect(retryNotice(429, 4.2)).toBe("Rate-limited, retrying in 5s");
-    expect(retryNotice(503, 20)).toBe("OpenF1 error 503, retrying in 20s");
-  });
-});
-
-describe("errors", () => {
-  test("Bun's uncaught error output", () => {
-    const stderr = [
-      "  circuit info unavailable (Error: HTTP 500); map will have no rotation",
-      '54 | if (session.session_type !== "Race") {',
-      '55 |   throw new Error(`Session ${sessionKey} is "${session.session_name}"`);',
-      "            ^",
-      'error: Session 9 is "Practice 1" (Practice); only races, sprints and qualifying are supported',
-      "      at /repo/scripts/ingest.ts:55:9",
-      "",
-      "Bun v1.4.2 (Linux x64)",
-    ];
-    expect(errorFromStderr(stderr, 1)).toBe('Session 9 is "Practice 1" (Practice); only races, sprints and qualifying are supported');
-    expect(errorFromStderr(["AuthError: OpenF1 rejected the credentials (HTTP 401)", "      at x", "Bun v1.4.2 (Linux x64)"], 1)).toBe(
-      "OpenF1 rejected the credentials (HTTP 401)",
-    );
-  });
-
-  test("falls back to the last meaningful line, or the exit code", () => {
-    expect(errorFromStderr(["something odd happened", "Bun v1.4.2 (Linux x64)"], 3)).toBe("something odd happened");
-    expect(errorFromStderr([], 137)).toBe("ingest exited with code 137");
-  });
-
-  test("credentials never pass through", () => {
-    expect(sanitize("GET failed with Authorization: Bearer eyJhbGciOi.abc-123")).toBe("GET failed with Authorization: Bearer [redacted]");
-    expect(sanitize("POST username=me@x.io&password=hunter2 failed")).toBe("POST username=[redacted]&password=[redacted] failed");
-    expect(sanitize('{"access_token":"abc","expires_in":3600}')).toBe('{"access_token":"[redacted]","expires_in":3600}');
-    expect(sanitize("env OPENF1_PASSWORD=hunter2 set")).toBe("env [redacted] set");
-    // Session keys are not credentials.
-    expect(sanitize("OpenF1 429 for https://api.openf1.org/v1/laps?session_key=11234")).toContain("session_key=11234");
-    expect(sanitize("x".repeat(500)).length).toBe(200);
-  });
-});
+const cachedOf = (names: string[], size = 100) => new Map(names.map((n) => [n, size]));
 
 describe("expected raw files", () => {
   test("a race: 14 session files (circuit optional) + car_data/location per driver", () => {
@@ -209,11 +134,12 @@ describe("ETA", () => {
   });
 
   test("progress", () => {
-    expect(progressOf({ phase: "downloading", totalS: 96, remainingS: 96, currentS: 1, inFlight: 0 })).toBe(0);
-    expect(progressOf({ phase: "downloading", totalS: 96, remainingS: 48, currentS: 1, inFlight: 0 })).toBe(0.48);
-    expect(progressOf({ phase: "processing", totalS: 96, remainingS: 0, currentS: 0, inFlight: 0, processingS: 0 })).toBe(0.96);
-    expect(progressOf({ phase: "processing", totalS: 96, remainingS: 0, currentS: 0, inFlight: 0, processingS: 99 })).toBeLessThan(1);
-    expect(progressOf({ phase: "done", totalS: 96, remainingS: 96, currentS: 0, inFlight: 0 })).toBe(1);
+    const totalS = 100 - PROCESSING_PRIOR_S; // downloading + processing = 100 s
+    expect(progressOf({ phase: "downloading", totalS, remainingS: totalS, currentS: 1, inFlight: 0 })).toBe(0);
+    expect(progressOf({ phase: "downloading", totalS, remainingS: totalS - 48, currentS: 1, inFlight: 0 })).toBeCloseTo(0.48);
+    expect(progressOf({ phase: "processing", totalS, remainingS: 0, currentS: 0, inFlight: 0, processingS: 0 })).toBeCloseTo(totalS / 100);
+    expect(progressOf({ phase: "processing", totalS, remainingS: 0, currentS: 0, inFlight: 0, processingS: 99 })).toBeLessThan(1);
+    expect(progressOf({ phase: "done", totalS, remainingS: totalS, currentS: 0, inFlight: 0 })).toBe(1);
   });
 
   // Replays a download second by second, as the plugin sees it (files landing, ratio updated per file).
@@ -264,5 +190,81 @@ describe("ETA", () => {
     const etas = simulate((i) => 2 * fileSeconds(files[i], "sponsor", 1), "sponsor");
     const mid = etas[Math.floor(etas.length / 2)];
     expect(Math.abs(mid.eta - mid.actual) / mid.actual).toBeLessThan(0.15);
+  });
+});
+
+describe("labels", () => {
+  test("raw file per request", () => {
+    expect(fileForFetch("meetings", { meeting_key: 1 })).toBe("meeting");
+    expect(fileForFetch("car_data", { session_key: 1, driver_number: 44 })).toBe("car_data_44");
+    expect(fileForFetch("session_result", { session_key: 1 })).toBe("session_result");
+    expect(fileForFetch("circuit", {})).toBe("circuit");
+  });
+
+  test("step labels and retry notices", () => {
+    expect(stepLabel("car_data", { driver_number: 44 }, DRIVERS_2026)).toBe("Car telemetry · #44 (18/22)");
+    expect(stepLabel("location", { driver_number: "1" }, DRIVERS_2026)).toBe("Track positions · #1 (1/22)");
+    expect(stepLabel("car_data", { driver_number: 44 }, null)).toBe("Car telemetry · #44");
+    expect(stepLabel("laps", { session_key: 1 }, DRIVERS_2026)).toBe("Lap times");
+    expect(stepLabel("brand_new_endpoint", {}, null)).toBe("brand new endpoint");
+    expect(retryNotice(429, 4.2)).toBe("Rate-limited by OpenF1, retrying in 5s");
+    expect(retryNotice(503, 20)).toBe("OpenF1 error 503, retrying in 20s");
+  });
+});
+
+describe("job tracker", () => {
+  const info: JobInfo = {
+    key: 11377,
+    label: "Azerbaijan Grand Prix · Race",
+    sessionType: "Race",
+    year: 2026,
+    dateStart: "2026-09-27T11:00:00+00:00",
+    dateEnd: "2026-09-27T13:00:00+00:00",
+    mode: "download",
+  };
+  const learned = () => ({ ratio: 1, processingS: PROCESSING_PRIOR_S, reprocessS: 15 });
+
+  test("resumes: files stored earlier count as done", () => {
+    const t = new JobTracker(info, learned(), 0);
+    t.onMessage({ type: "start", cached: { sessions: 300, meeting: 400, circuit: 6000, drivers: 1600 }, drivers: DRIVERS_2026 }, 0);
+    const v = t.view(0);
+    expect(v.cachedFiles).toBe(4);
+    expect(v.expectedFiles).toBe(58);
+    expect(v.cachedBytes).toBe(8300);
+    expect(v.phase).toBe("downloading");
+    expect(v.progress).toBeGreaterThan(0);
+    expect(v.progress).toBeLessThan(0.1);
+  });
+
+  test("counts down as files arrive, learns the speed, then processes", () => {
+    const l = learned();
+    const t = new JobTracker(info, l, 0);
+    t.onMessage({ type: "start", cached: {}, drivers: null }, 0);
+    const first = t.view(0).etaSeconds;
+    t.onMessage({ type: "fetch", file: "sessions", endpoint: "sessions", params: { session_key: 11377 } }, 0);
+    // Twice as slow as predicted (2.2 s interval): the ratio goes up and the ETA follows.
+    t.onMessage({ type: "fetched", file: "sessions", source: "network", ms: 4400 }, 4400);
+    t.onMessage({ type: "stored", file: "sessions", bytes: 310 }, 4500);
+    expect(l.ratio).toBeGreaterThan(1);
+    const v = t.view(4500);
+    expect(v.cachedFiles).toBe(1);
+    expect(v.cachedBytes).toBe(310);
+    expect(v.step).toBe("Session info");
+    expect(v.etaSeconds).toBeGreaterThan(first - 5);
+    // A rate-limit wait shows up as a notice and in the ETA.
+    t.onMessage({ type: "retry", status: 429, waitMs: 10_000 }, 5000);
+    expect(t.view(5000).notice).toBe("Rate-limited by OpenF1, retrying in 10s");
+    expect(t.view(5000).etaSeconds).toBeGreaterThan(v.etaSeconds + 5);
+    t.onMessage({ type: "phase", phase: "normalize" }, 200_000);
+    const p = t.view(201_000);
+    expect(p.phase).toBe("processing");
+    expect(p.etaSeconds).toBe(PROCESSING_PRIOR_S - 1);
+    expect(p.progress).toBeGreaterThan(0.9);
+  });
+
+  test("processing time is learned, within bounds", () => {
+    expect(nextProcessingS(8, 18)).toBe(11);
+    expect(nextProcessingS(8, 0)).toBe(8);
+    expect(nextProcessingS(100, 10_000)).toBe(120);
   });
 });

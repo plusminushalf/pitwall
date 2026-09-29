@@ -1,33 +1,43 @@
 # F1 Race Replay
 
-Replay any past F1 race (2023+) from [OpenF1](https://openf1.org) data: car positions (~4 Hz), telemetry, timing, pit stops, tyres, race control, weather and team radio on one timeline.
+Replay any past F1 race, sprint or qualifying session (2023+) from [OpenF1](https://openf1.org) data: car positions (~4 Hz), telemetry, timing, pit stops, tyres, race control, weather and team radio on one timeline.
 
-## Data
+It's a static site with no server of ours: each visitor browses OpenF1's calendar and downloads races straight from OpenF1 into their own browser, where they're processed and kept for replay. No F1 data is hosted, bundled or relayed. Data: OpenF1, [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (non-commercial).
 
 ```sh
 bun install
-bun run races 2026          # list race/sprint sessions and their keys
-bun run ingest 11377        # download + process one race (~2.5 min, free tier)
-bun run ingest:season 2026  # every completed race + sprint not ingested yet, one after another
-bun run ingest:season 2026 --force   # re-process all of them (from cache where available)
+bun run dev                  # http://localhost:5173
+bun run build                # static site in dist/ (~0.5 MB): serve it from any static host
+bunx serve dist              # or `bun run preview`, or any plain static server
 ```
 
-- `ingest:season` skips cancelled, not-yet-run and already-ingested sessions, keeps going past failures, prints a summary table at the end (flagging lap-count mismatches from ingest's sanity check), and stops if free disk space drops below 1.5 GB.
-- Ingest repairs known OpenF1 glitches and lists them under `repairs:` in its summary: lap-line crossings OpenF1 missed (found in the location trace, laps/pits/stints renumbered), mis-dated lap starts and duplicate pit records, 2026 race-control wording (`VSC DEPLOYED`, `RED FLAG - RACE SUSPENDED`), and location-feed gaps (cars dead-reckoned along the track outline from their speed trace; e.g. 2026 Monaco, whose feed stops 6 minutes in).
-- Raw OpenF1 responses are cached gzip-compressed in `data/raw/<key>/*.json.gz` (gitignored; ~15 MB per race instead of ~220 MB of JSON), so re-running ingest is instant and needs no network. Legacy uncompressed `*.json` cache files are still read.
-- Processed output goes to `public/sessions/<key>/` (listed in `public/sessions/index.json`, sorted by date): `meta.json` (timing, events, track outline) and `drivers/<number>.json` (columnar location + car telemetry). The format is typed in `src/types.ts`; all times are ms since `meta.t0`.
-- OpenF1's free tier is blocked from 30 min before to 30 min after live sessions, so ingest outside race weekends' session times. With sponsor credentials in `.env` (see Live mode) ingest works any time and runs at the faster sponsor rate limit.
-- The raw → processed logic lives in `scripts/lib/normalize.ts` (pure, no I/O), shared by ingest and the live relay.
+- **Races** (header) opens your library and every season's calendar. A download takes ~2.5 min for a race on OpenF1's free tier (one request every 2.2 s, no login) and stores ~13 MB of raw responses plus ~5 MB processed. One download runs at a time, also across tabs (Web Lock); cancel any time, and a reload or a later Resume only fetches what's missing.
+- **Links** (`?session=<key>&t=<s>&drivers=…`) to a race the recipient doesn't have offer "Download this race" and open at `t` when it's ready.
+- **Free-tier lockout:** OpenF1 blocks free users from 30 min before to 30 min after live sessions. Downloads then wait and start by themselves.
+- **Storage:** everything lives in the browser's origin-private file system (`src/storage/`, behind a `SessionStore` interface): raw OpenF1 responses (`raw/<key>/`, for resuming and re-processing) and the processed replay format (`sessions/<key>/`). The first download asks for persistent storage; the picker shows usage and whether it's persistent. Each session records the processing format version (`scripts/lib/formatVersion.ts`); after an app update that changes it, "Update" re-processes from the stored raw data without the network.
+- **How:** a worker (`src/ingest/worker.ts`) runs the same pipeline as the CLI (`scripts/lib/ingestCore.ts`, pure `normalize.ts` / `quali.ts`) and writes byte-identical output. It needs a secure context (https or localhost).
+- Ingest repairs known OpenF1 glitches: lap-line crossings OpenF1 missed (found in the location trace, laps/pits/stints renumbered), mis-dated lap starts and duplicate pit records, 2026 race-control wording (`VSC DEPLOYED`, `RED FLAG - RACE SUSPENDED`), and location-feed gaps (cars dead-reckoned along the track outline from their speed trace; e.g. 2026 Monaco, whose feed stops 6 minutes in). Early-2023 races have no pit-stop records on OpenF1 (tyre stints are there).
+
+## CLI (optional, for development)
+
+The same ingest runs on the command line, into `data/` (gitignored): the tests read `data/sessions/11377`, and the live simulator replays `data/raw/<key>`. The app itself never reads it.
+
+```sh
+bun run races 2026          # list race/sprint sessions and their keys (--quali: qualifying too)
+bun run ingest 11377        # download + process one session into data/sessions/11377
+bun run ingest:season 2026  # every completed race + sprint not ingested yet (--force, --quali)
+bun test                    # data-dependent tests skip without data/sessions/11377
+```
+
+- Raw responses are cached gzip-compressed in `data/raw/<key>/*.json.gz` (~15 MB per race instead of ~220 MB of JSON), so re-running ingest needs no network. Output goes to `data/sessions/<key>/` (listed in `data/sessions/index.json`): `meta.json` (timing, events, track outline) and `drivers/<number>.json` (columnar location + car telemetry). The format is typed in `src/types.ts`; all times are ms since `meta.t0`.
+- With sponsor credentials in `.env` (see Live mode) the CLI works during live windows and at the faster sponsor rate limit.
 
 ## Qualifying
 
 Qualifying, sprint qualifying and sprint shootout sessions open in a lap comparison view: a timing board (Q1/Q2/Q3 times, per-segment standings with gaps, deleted laps and the knock-out lines) and a compare mode for up to 4 drivers, each on any of their laps (default: their fastest; or every driver's best Q1/Q2/Q3 lap). Speed, delta, throttle, brake and gear share one distance axis with a synced cursor (drag or scroll to zoom); the track map shows who is fastest in each mini-sector and plays the chosen laps as ghosts, starting together at the line.
 
 ```sh
-bun run races 2026 --quali            # also list qualifying sessions
-bun run ingest 11373                  # 2026 Baku qualifying (same raw cache files as a race)
-bun run ingest:season 2026 --quali    # races, sprints and qualifying sessions
-bun run check:quali                   # sanity-check every ingested qualifying session
+bun run check:quali                   # CLI: sanity-check every qualifying session in data/sessions
 ```
 
 - `scripts/lib/quali.ts` runs on top of `normalize()`: segments from race control (`SESSION STARTED`/`FINISHED` per qualifying phase), laps attributed to the segment they started in, deleted lap times (race control's `... DELETED` messages, matched by lap time or incident time), the classification (who went out in which segment) and one track-status flag per segment. Pit-out laps get no lap time (OpenF1 times them from the previous pit-lane crossing, garage time included).
@@ -35,9 +45,9 @@ bun run check:quali                   # sanity-check every ingested qualifying s
 - Every full timed lap gets a trace in `laps/<number>.json` (`LapTrace` in `src/types.ts`): the car samples from line to line with a distance each. Distance is the integrated speed trace, pinned at the line and the two sector boundaries (exact from the official sector times) and scaled to fit in between; stuck car-data samples (every channel repeating for over a second while moving) are dropped and their gap filled from the sector length. GPS positions projected onto the track outline agree with it to ~5 m RMS.
 - In the app, the compared drivers are the normal driver selection (`?drivers=` in the URL, Esc clears it) and the ghosts follow the normal play controls (P / hold space).
 
-## Live mode
+## Live mode (dev only for now)
 
-Follow a race or sprint while it happens, in the same app: a small relay (`server/live.ts`) turns OpenF1's live feed into the replay format and streams it to the browser over a WebSocket (`/live`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`).
+Follow a race or sprint while it happens, in the same app: a small relay (`server/live.ts`) turns OpenF1's live feed into the replay format and streams it to the browser over a WebSocket (`/live`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`). A static build has no relay, so it hides live mode (build with `VITE_LIVE_RELAY=1` for a host that serves the relay at `/live`); moving live into the browser is spike S3.
 
 ```sh
 cp .env.example .env        # then fill in OPENF1_USERNAME / OPENF1_PASSWORD
@@ -59,4 +69,4 @@ LIVE_SIMULATE=11299 LIVE_SIMULATE_SPEED=10 LIVE_SIMULATE_START=1800 bun server/l
 
 `LIVE_SIMULATE` is a session key with a raw cache (`bun run ingest <key>` first), `LIVE_SIMULATE_SPEED` a speed factor (1), `LIVE_SIMULATE_START` the start in seconds from lights out (-60). The relay reports `ended` when the data runs out.
 
-**From live to replay.** When a live session ends (or you stop the relay with Ctrl-C during one), the relay writes everything it received to `data/raw/<key>/` in ingest's cache format, so `bun run ingest <key>` turns it into a replay right away, offline. To pick up later corrections from OpenF1 (e.g. final results, stewards' decisions), delete `data/raw/<key>/` and ingest again.
+**From live to replay.** When a live session ends (or you stop the relay with Ctrl-C during one), the relay writes everything it received to `data/raw/<key>/` in ingest's cache format (for `bun run ingest <key>` and the simulator). The app doesn't read `data/`: download the session from the calendar once OpenF1's free tier opens up again, 30 min after it ends.

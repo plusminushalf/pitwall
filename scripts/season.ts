@@ -1,11 +1,13 @@
 // Race and sprint sessions of a season (optionally qualifying too), with whether each can be / has been ingested.
+// The selection rules live in lib/season.ts, shared with the in-browser catalogue.
 
 import { fetchEndpoint, type RawSession } from "./openf1";
+import { seasonStatus, type SeasonStatus } from "./lib/season";
 import type { SessionIndexEntry } from "../src/types";
 
-export const INDEX_FILE = "public/sessions/index.json";
+export const INDEX_FILE = "data/sessions/index.json";
 
-export type SeasonStatus = "cancelled" | "not run yet" | "ingested" | "pending";
+export type { SeasonStatus };
 
 export interface SeasonSession {
   session: RawSession;
@@ -29,14 +31,5 @@ export async function seasonSessions(year: number, opts: { quali?: boolean } = {
   const now = Date.now();
   return sessions
     .sort((a, b) => a.date_start.localeCompare(b.date_start))
-    .map((session) => ({
-      session,
-      status: session.is_cancelled
-        ? "cancelled"
-        : Date.parse(session.date_end) > now
-          ? "not run yet"
-          : ingested.has(session.session_key)
-            ? "ingested"
-            : "pending",
-    }));
+    .map((session) => ({ session, status: seasonStatus(session, now, ingested) }));
 }

@@ -1,7 +1,7 @@
 // OpenF1 client auth without the network: fetch is mocked, credentials are fake.
 
 import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { AuthError, TOKEN_URL, accessToken, credentials, fetchEndpoint, invalidateToken, setRequestInterval } from "./openf1";
+import { AuthError, LiveWindowError, TOKEN_URL, accessToken, credentials, fetchEndpoint, invalidateToken, setRequestInterval } from "./openf1";
 
 const saved = { user: process.env.OPENF1_USERNAME, pass: process.env.OPENF1_PASSWORD };
 const realFetch = globalThis.fetch;
@@ -66,6 +66,16 @@ describe("without credentials (free tier)", () => {
     expect(calls).toHaveLength(1);
     expect(calls[0].url).toBe("https://api.openf1.org/v1/sessions?session_key=1");
     expect(calls[0].auth).toBeNull();
+  });
+
+  test("a 401 during a live session is a LiveWindowError, not retried", async () => {
+    setCreds();
+    respond = () => json({ detail: "Live F1 session in progress: historical data is available again 30 minutes after it ends" }, 401);
+    const err = await fetchEndpoint("laps", { session_key: 1 }).catch((e) => e);
+    expect(err).toBeInstanceOf(LiveWindowError);
+    expect(err.status).toBe(401);
+    expect(err.detail).toStartWith("Live F1 session in progress");
+    expect(calls).toHaveLength(1);
   });
 
   test("a blank username counts as missing", () => {

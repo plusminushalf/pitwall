@@ -2,7 +2,8 @@
 //
 //   bun scripts/ingest.ts <session_key>        (find keys with: bun run races <year>)
 //
-// Raw responses are cached (gzipped) in data/raw/<key>/, output goes to public/sessions/<key>/.
+// Raw responses are cached (gzipped) in data/raw/<key>/, output goes to data/sessions/<key>/ (used by the tests
+// and the live simulator; the app itself downloads races into the browser, see src/ingest/).
 
 import { bunCacheIO, fetchCircuit, fetchEndpoint } from "./openf1";
 import type { Ms, SessionIndexEntry } from "../src/types";
@@ -36,7 +37,7 @@ const io: IngestIO = {
 
 const { meta, telemetry, report, quali, sizes, outDir: OUT_DIR } = await runIngest(sessionKey, io, {
   rawDir: `data/raw/${sessionKey}`,
-  sessionsDir: "public/sessions",
+  sessionsDir: "data/sessions",
 });
 const { duration, lightsOut, chequered, totalLaps, trackStatus, pits, results, drivers, track } = meta;
 const { outline, pitLane, corners, marshalSectors, pitLoss } = track;

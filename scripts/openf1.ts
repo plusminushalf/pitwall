@@ -13,6 +13,7 @@ import { readCache as readCacheWith, writeCache as writeCacheWith, type RawCache
 // The HTTP client (throttling, retries, tokens) is platform-agnostic and shared with the browser worker.
 export {
   AuthError,
+  LiveWindowError,
   TOKEN_URL,
   accessToken,
   fetchCircuit,

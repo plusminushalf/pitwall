@@ -1,10 +1,10 @@
 import { create } from "zustand";
-import { fetchIndex, fetchSession } from "./data/fetch";
 import { LiveEdge } from "./data/liveEdge";
 import { appendTelemetry, buildSession, withMeta, type Session } from "./data/session";
 import { raceStateAt, timeForLap, type RaceState } from "./engine/raceState";
-import { connectLive, type LiveConnection } from "./live/client";
+import { connectLive, LIVE_RELAY, type LiveConnection } from "./live/client";
 import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
+import { fetchSession, listPlayable } from "./storage/load";
 import type { SessionIndexEntry } from "./types";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
@@ -68,6 +68,7 @@ export interface LiveOpts {
 }
 
 interface ReplayState {
+  /** Sessions in the library that can be opened (downloaded into this browser), by date. */
   index: SessionIndexEntry[];
   session: Session | null;
   loading: { key: number; progress: number } | null;
@@ -96,6 +97,8 @@ interface ReplayState {
 
   loadIndex: () => Promise<void>;
   loadSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => Promise<void>;
+  /** Stop showing the current session (it was deleted): open the latest one left, if any. */
+  closeSession: () => void;
   publish: () => void;
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
@@ -204,9 +207,9 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     loadIndex: async () => {
       try {
-        set({ index: await fetchIndex() });
+        set({ index: await listPlayable() });
       } catch (e) {
-        set({ error: `No sessions found. Run \`bun run ingest <session_key>\` first. (${e})` });
+        set({ error: `Couldn't read the races stored in this browser (${e})` });
       }
     },
 
@@ -233,6 +236,13 @@ export const useReplay = create<ReplayState>((set, get) => {
       } catch (e) {
         if (token === loadToken) set({ loading: null, error: `Failed to load session ${key}: ${e}` });
       }
+    },
+
+    closeSession: () => {
+      loadToken++;
+      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false });
+      const key = get().index.at(-1)?.sessionKey;
+      if (key != null) void get().loadSession(key);
     },
 
     publish: () => {
@@ -329,6 +339,8 @@ export const useReplay = create<ReplayState>((set, get) => {
         selected: [],
         focused: null,
       });
+      // No relay behind this site (a static build): LiveScreen explains, nothing to connect to.
+      if (!LIVE_RELAY) return;
       live = connectLive({
         onOpen: () => set({ live: { ...get().live, connected: true, offline: false } }),
         onDown: () => set({ live: { ...get().live, connected: false, offline: true } }),
@@ -349,9 +361,9 @@ export const useReplay = create<ReplayState>((set, get) => {
         return;
       }
       set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false });
+      // Back to the latest replay; with none downloaded the app shows the race picker.
       const key = get().index.at(-1)?.sessionKey;
       if (key != null) get().loadSession(key);
-      else set({ error: "No sessions found. Run `bun run ingest <session_key>` first." });
     },
 
     goLive: () => {

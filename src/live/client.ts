@@ -2,6 +2,13 @@
 
 import type { LiveMessage } from "./protocol";
 
+/**
+ * Whether this build has a live relay behind it: the dev server (proxying /live to `bun run live`), or a
+ * build made with VITE_LIVE_RELAY=1 for a host that serves the relay at /live. A plain static build has
+ * none, so live mode is hidden.
+ */
+export const LIVE_RELAY = import.meta.env.DEV || import.meta.env.VITE_LIVE_RELAY === "1";
+
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 10_000;
 

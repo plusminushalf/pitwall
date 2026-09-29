@@ -36,7 +36,7 @@ describe("clusterEvents", () => {
   });
 });
 
-const dir = new URL("../../public/sessions/11377/", import.meta.url).pathname;
+const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
 const available = existsSync(`${dir}meta.json`);
 
 describe.skipIf(!available)("Baku 2026 timeline events", () => {

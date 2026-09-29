@@ -1,33 +1,6 @@
-// Qualifying lap traces (laps/<driver>.json), fetched on demand and decoded once per session.
+// Qualifying lap choices: which lap to compare for a driver. Lap traces are loaded by src/storage/load.ts.
 
-import { decodeLapTrace, type DecodedLap } from "../engine/compare";
-import type { DriverLapTraces, QualiData, QualiLap, SessionMeta } from "../types";
-import { source } from "./fetch";
-
-const base = `${import.meta.env.BASE_URL}sessions`;
-const cache = new Map<string, Promise<Map<number, DecodedLap>>>();
-
-/** Every traced lap of one driver, by lap number. */
-export function fetchLapTraces(sessionKey: number, driver: number): Promise<Map<number, DecodedLap>> {
-  const key = `${sessionKey}:${driver}`;
-  let p = cache.get(key);
-  if (!p) {
-    const url = `${base}/${sessionKey}/laps/${driver}.json`;
-    // Spike S1: `?source=opfs` reads from browser storage (see ./fetch.ts).
-    p = (
-      source === "opfs"
-        ? import("./opfs").then((m) => m.opfsJson<DriverLapTraces>(url))
-        : fetch(url).then((res) => {
-            if (!res.ok) throw new Error(`${res.status} loading lap traces for #${driver}`);
-            return res.json() as Promise<DriverLapTraces>;
-          })
-    )
-      .then((tr) => new Map(tr.laps.map((l) => [l.lap, decodeLapTrace(driver, l)])));
-    p.catch(() => cache.delete(key));
-    cache.set(key, p);
-  }
-  return p;
-}
+import type { QualiData, QualiLap, SessionMeta } from "../types";
 
 export type LapPreset = "best" | number; // fastest counting lap overall, or in segment n
 

@@ -1,6 +1,7 @@
 // Live mode UI: the header control (LIVE / Go live / relay status, and the switch between live and
 // replays), the Go live button, and the screen shown while there's no live session to display.
 
+import { LIVE_RELAY } from "../live/client";
 import { liveTarget, useReplay, type LiveInfo } from "../store";
 import { raceClock } from "../lib/format";
 
@@ -32,6 +33,7 @@ interface Status {
 
 /** The relay's situation in words, or null when there's nothing to say (streaming normally). */
 function statusText(live: LiveInfo, hasSession: boolean): Status | null {
+  if (!LIVE_RELAY) return { text: "Live timing isn't available on this site yet: it needs a live relay, which this static build doesn't have.", tone: "muted" };
   if (live.offline && !live.connected) return { text: "Live relay offline — run", code: "bun run live", tone: "error" };
   if (live.state === "error") return { text: `Live relay error: ${live.detail ?? "unknown error"}`, tone: "error" };
   if (hasSession) return null;
@@ -124,6 +126,8 @@ export function LiveControl() {
   const exitLive = useReplay((s) => s.exitLive);
 
   if (mode === "replay") {
+    // A static build has no relay to follow a session with: no way into live mode.
+    if (!LIVE_RELAY) return null;
     return (
       <button
         onClick={(e) => {

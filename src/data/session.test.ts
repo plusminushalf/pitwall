@@ -6,7 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { DriverTelemetry, SessionMeta } from "../types";
 import { appendTelemetry, buildSession, withMeta, type DriverData, type Session } from "./session";
 
-const dir = new URL("../../public/sessions/11377/", import.meta.url).pathname;
+const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
 const available = existsSync(`${dir}meta.json`);
 
 function decode(deltas: number[]): number[] {

@@ -3,7 +3,8 @@
 // play state (space / P); everything specific to comparing laps lives here.
 
 import { create } from "zustand";
-import { fetchLapTraces, type LapPreset } from "./data/quali";
+import type { LapPreset } from "./data/quali";
+import { fetchLapTraces } from "./storage/load";
 import type { DecodedLap } from "./engine/compare";
 
 export const MAX_COMPARE = 4;

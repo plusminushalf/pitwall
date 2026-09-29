@@ -1,7 +1,7 @@
 // Platform-agnostic OpenF1 HTTP client (fetch only, no file system, no process.env): rate-limited to
 // stay under OpenF1's limits, retries on 429/5xx, optional OAuth bearer token. Shared by the Bun
 // scripts (via scripts/openf1.ts, which supplies credentials from the environment) and the browser
-// ingest worker (spikes/s1, free tier: no credential source).
+// ingest worker (src/ingest/worker.ts, free tier: no credential source).
 //
 // Without credentials it uses the free tier (30 req/min, 3 req/s). With credentials (paid "sponsor"
 // tier, needed for live sessions) requests carry a bearer token and may go faster (60 req/min, 6 req/s).
@@ -48,6 +48,35 @@ export function setRequestObserver(observer: ((e: RequestEvent) => void) | null)
 /** Thrown when OpenF1 refuses the credentials (bad username/password or no sponsor tier). */
 export class AuthError extends Error {
   override name = "AuthError";
+}
+
+/**
+ * OpenF1 refused an anonymous (free-tier) request with 401/403: it locks free users out of every endpoint
+ * while a session is live (from 30 min before it to 30 min after; the body says e.g. "Live F1 session in
+ * progress"). Not worth retrying until the window is over.
+ */
+export class LiveWindowError extends Error {
+  override name = "LiveWindowError";
+  constructor(
+    readonly status: number,
+    readonly detail: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/** A request that will be retried after a 429 / 5xx, and how long until then. */
+export interface RetryEvent {
+  endpoint: string;
+  status: number;
+  waitMs: number;
+}
+let retryObserver: ((e: RetryEvent) => void) | null = null;
+
+/** Observe retry waits (rate limits, server errors); null to stop. */
+export function setRetryObserver(observer: ((e: RetryEvent) => void) | null): void {
+  retryObserver = observer;
 }
 
 let token: { value: string; expiresAt: number; username: string } | null = null;
@@ -143,6 +172,14 @@ export async function fetchEndpoint<T>(
       attempt--;
       continue;
     }
+    if (!bearer && (res.status === 401 || res.status === 403)) {
+      let detail = body.slice(0, 200);
+      try {
+        const parsed = JSON.parse(body) as { detail?: unknown; message?: unknown };
+        detail = String(parsed.detail ?? parsed.message ?? detail);
+      } catch {}
+      throw new LiveWindowError(res.status, detail, `OpenF1 ${res.status} for ${url}: ${body.slice(0, 300)}`);
+    }
     const retryable = res.status === 429 || res.status >= 500;
     if (!retryable || attempt >= MAX_RETRIES) {
       throw new Error(`OpenF1 ${res.status} for ${url}: ${body.slice(0, 300)}`);
@@ -151,6 +188,7 @@ export async function fetchEndpoint<T>(
     const retryAfter = Number(res.headers.get("retry-after"));
     const backoff = retryAfter > 0 ? retryAfter * 1000 : 5_000 * 2 ** attempt;
     console.warn(`  ${res.status} on ${endpoint}, retrying in ${backoff / 1000}s`);
+    retryObserver?.({ endpoint, status: res.status, waitMs: backoff });
     await sleep(backoff);
   }
 }

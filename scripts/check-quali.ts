@@ -7,7 +7,7 @@
 import { decodeLapTrace, deltaAt, type DecodedLap } from "../src/engine/compare";
 import type { DriverLapTraces, SessionIndexEntry, SessionMeta } from "../src/types";
 
-const DIR = "public/sessions";
+const DIR = "data/sessions";
 const TOLERANCE_S = 0.05;
 
 const args = process.argv.slice(2).map(Number).filter(Number.isInteger);

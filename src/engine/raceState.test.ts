@@ -6,7 +6,7 @@ import { buildSession, type Session } from "../data/session";
 import type { DriverTelemetry, SessionMeta } from "../types";
 import { carPositionAt, driverStateAt, feedAt, leaderLapAt, mapOpacity, raceStateAt, telemetryAt } from "./raceState";
 
-const dir = new URL("../../public/sessions/11377/", import.meta.url).pathname;
+const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
 const available = existsSync(`${dir}meta.json`);
 
 function load(): Session {
