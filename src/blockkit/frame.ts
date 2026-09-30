@@ -16,10 +16,14 @@ export interface Frame {
 export type DrawFn = (frame: Frame) => void;
 
 /**
- * A draw taking longer than this skips the next frame(s) in proportion (10 ms: two frames), so a slow
- * block drops its own frames and the others keep theirs. Half the 8 ms whole-screen budget (H3.6).
+ * A block whose draws typically take longer than this skips the next frame(s) in proportion (10 ms: two
+ * frames), so a slow block drops its own frames and the others keep theirs. Half the 8 ms whole-screen
+ * budget (H3.6). Typically: the median of its last DRAW_SAMPLES draws, so one slow draw (a GC pause, a
+ * first-time font load) skips nothing, while a block that is slow draw after draw is throttled.
  */
 export const FRAME_BUDGET_MS = 4;
+/** How many recent draws the skip looks at. */
+const DRAW_SAMPLES = 5;
 /** A slow block still draws at least a few times a second. */
 const MAX_SKIP = 20;
 /** A draw that throws is retried about once a second. */
@@ -29,15 +33,26 @@ interface Entry {
   draw: { readonly current: DrawFn };
   visible: () => boolean;
   skip: number;
+  /** The last DRAW_SAMPLES draw durations in ms, a ring starting at zeros (a new block isn't slow yet). */
+  times: Float64Array;
+  next: number;
 }
 
 const entries = new Set<Entry>();
 
 /** Registers a draw callback (read through the ref, so re-renders don't re-subscribe). Returns the unsubscribe. */
 export function addFrameCallback(draw: { readonly current: DrawFn }, visible: () => boolean = () => true): () => void {
-  const entry: Entry = { draw, visible, skip: 0 };
+  const entry: Entry = { draw, visible, skip: 0, times: new Float64Array(DRAW_SAMPLES), next: 0 };
   entries.add(entry);
   return () => entries.delete(entry);
+}
+
+const sorted = new Float64Array(DRAW_SAMPLES);
+/** Median of an entry's recent draw times, without allocating. */
+function typicalDraw(e: Entry): number {
+  sorted.set(e.times);
+  sorted.sort();
+  return sorted[DRAW_SAMPLES >> 1];
 }
 
 function makeFrame(session: Session, t: number): Frame {
@@ -72,7 +87,9 @@ export function runFrames(): void {
     const start = performance.now();
     try {
       e.draw.current(frame);
-      e.skip = Math.min(Math.floor((performance.now() - start) / FRAME_BUDGET_MS), MAX_SKIP);
+      e.times[e.next] = performance.now() - start;
+      e.next = (e.next + 1) % DRAW_SAMPLES;
+      e.skip = Math.min(Math.floor(typicalDraw(e) / FRAME_BUDGET_MS), MAX_SKIP);
     } catch (err) {
       console.error("Block draw failed", err);
       e.skip = ERROR_SKIP;
