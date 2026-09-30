@@ -198,6 +198,7 @@ function RaceFeed() {
 export default defineBlock({
   id: "race-feed",
   name: "Race feed",
+  description: "Race control messages, overtakes, pit stops and team radio as they happen.",
   version: "1.0.0",
   // Fills its column and scrolls inside, so the layout never jumps as items arrive.
   height: { min: 150 },

@@ -32,6 +32,7 @@ function Weather() {
 export default defineBlock({
   id: "weather",
   name: "Weather",
+  description: "Air and track temperature, humidity and wind at the circuit.",
   version: "1.0.0",
   height: 72,
   width: { min: 8, default: 10, max: 25 },

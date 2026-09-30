@@ -47,6 +47,7 @@ function SpeedGear() {
 export default defineBlock({
   id: "speed-gear",
   name: "Speed & gear",
+  description: "The driver's speed, gear and DRS.",
   version: "1.0.0",
   // pt-2.5 and a 60 px row: the height of the bars beside it (throttle-brake-rpm).
   height: 70,

@@ -51,6 +51,7 @@ function LapTimes() {
 export default defineBlock({
   id: "lap-times",
   name: "Lap times",
+  description: "The lap the driver is on, and their last and best lap times.",
   version: "1.0.0",
   // pt-2, a label line and a 24 px time (the sectors block under it has the bottom padding).
   height: 8 + LINE_10 + 24,

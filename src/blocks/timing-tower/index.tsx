@@ -202,11 +202,22 @@ function TimingTower() {
 export default defineBlock({
   id: "timing-tower",
   name: "Timing tower",
+  description: "Every driver's position, gap, last lap, tyre and pit stops.",
   version: "1.0.0",
   // Fills its column; the rows scroll inside when they don't all fit.
   height: { min: HEAD_H + 5 * ROW_H },
   width: { min: 22, default: 24, max: 40 },
   sessions: ["race"],
   settings: { gapMode: "leader" as GapMode },
+  fields: {
+    gapMode: {
+      kind: "choice",
+      label: "Gap",
+      options: [
+        { value: "leader", label: "Gap to leader" },
+        { value: "interval", label: "Interval" },
+      ],
+    },
+  },
   Component: TimingTower,
 });

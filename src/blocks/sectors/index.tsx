@@ -68,6 +68,7 @@ function Sectors() {
 export default defineBlock({
   id: "sectors",
   name: "Sectors",
+  description: "The driver's last lap by sector and mini-sector: purple for the fastest, green for a personal best.",
   version: "1.0.0",
   height: 8 + CELL_H + 8,
   width: { min: 12, default: 21, max: 40 },

@@ -24,6 +24,14 @@ export interface HeightInput<S extends BlockSettings = BlockSettings> {
   settings: S;
 }
 
+/** How the generic settings editor shows one setting. */
+export type SettingField =
+  | { kind: "choice"; label: string; options: readonly { value: string | number | boolean; label: string }[] }
+  /** "Follow selection" or pinned to one of the session's drivers. */
+  | { kind: "driver"; label?: string }
+  | { kind: "toggle"; label: string }
+  | { kind: "number"; label: string; min?: number; max?: number; step?: number };
+
 /** CSS px, or CSS px worked out from the height input. */
 export type Px<S extends BlockSettings = BlockSettings> = number | ((input: HeightInput<S>) => number);
 
@@ -43,6 +51,13 @@ export interface BlockDefinition<S extends BlockSettings = BlockSettings> {
   sessions: readonly SessionKind[];
   /** Defaults; the layout stores the user's changes on top. */
   settings: S;
+  /** One line for the block picker. */
+  description?: string;
+  /**
+   * How the settings editor shows each setting. Without an entry: `driver` -> a driver field, booleans ->
+   * toggle, numbers -> number; other settings aren't shown.
+   */
+  fields?: { [K in keyof NoInfer<S>]?: SettingField };
   Component: ComponentType;
 }
 
@@ -51,6 +66,24 @@ const SEMVER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 
 /** Whether the block stretches to fill its column. */
 export const stretches = (block: Pick<BlockDefinition, "height">): block is { height: { min: Px } } => typeof block.height === "object";
+
+/** "gapMode" -> "Gap mode". */
+const labelOf = (key: string) => {
+  const words = key.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[-_]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/** The field the settings editor uses for `key` (declared, else inferred as above), or null if it isn't shown. */
+export function settingField(block: BlockDefinition<any>, key: string): SettingField | null {
+  if (!Object.hasOwn(block.settings, key)) return null;
+  const declared = block.fields?.[key];
+  if (declared) return declared;
+  if (key === "driver") return { kind: "driver" };
+  const value = block.settings[key];
+  if (typeof value === "boolean") return { kind: "toggle", label: labelOf(key) };
+  if (typeof value === "number") return { kind: "number", label: labelOf(key) };
+  return null;
+}
 
 /** Checks and returns a block definition (the checks H3.15's CI runs on submissions start here). */
 export function defineBlock<S extends BlockSettings>(def: BlockDefinition<S>): BlockDefinition<S> {
@@ -67,5 +100,11 @@ export function defineBlock<S extends BlockSettings>(def: BlockDefinition<S>): B
   const px = typeof def.height === "object" ? def.height.min : def.height;
   if (typeof px === "number" && !(px >= 0 && Number.isFinite(px))) fail("height must be a non-negative number of px");
   if (def.sessions.length === 0) fail("sessions is empty");
+  for (const [key, field] of Object.entries(def.fields ?? {}) as [string, SettingField | undefined][]) {
+    if (!Object.hasOwn(def.settings, key)) fail(`fields.${key} isn't a setting`);
+    if (field?.kind === "choice" && !field.options.some((o) => o.value === def.settings[key])) {
+      fail(`fields.${key}: the default ${JSON.stringify(def.settings[key])} isn't one of its options`);
+    }
+  }
   return def;
 }

@@ -181,6 +181,7 @@ function SpeedTrace() {
 export default defineBlock({
   id: "speed-trace",
   name: "Last 60 s",
+  description: "The last 60 seconds of the driver's speed, throttle and braking.",
   version: "1.0.0",
   // The title line and the chart, padded: pt-2.5, mb-1 and pb-2.
   height: 10 + LINE_10 + 4 + CHART_H + 8,

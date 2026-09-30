@@ -150,6 +150,7 @@ function DriverHeader() {
 export default defineBlock({
   id: "driver-header",
   name: "Driver",
+  description: "Headshot, name, team and position of the driver it shows, with focus chips for the selection.",
   version: "1.0.0",
   // The focus chips with a selection; the hint unless a focused or pinned driver is shown.
   height: ({ selection: { selected, focused }, settings }) =>
