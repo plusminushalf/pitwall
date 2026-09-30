@@ -1,0 +1,105 @@
+import { describe, expect, test } from "bun:test";
+import { isHello, isReady, LIMITS, LIVE_TOPICS, parseRequest } from "./protocol";
+
+const ok = (x: unknown, ports = 0) => parseRequest(x, ports).ok;
+const err = (x: unknown, ports = 0) => {
+  const p = parseRequest(x, ports);
+  if (p.ok) throw new Error("expected invalid");
+  return p;
+};
+
+describe("handshake messages", () => {
+  test("ready and hello", () => {
+    expect(isReady({ v: 1, type: "ready" })).toBe(true);
+    expect(isReady({ v: 2, type: "ready" })).toBe(false);
+    expect(isReady({ v: 1, type: "ready", x: 1 })).toBe(false);
+    expect(isHello({ v: 1, type: "hello" }, 1)).toBe(true);
+    expect(isHello({ v: 1, type: "hello" }, 0)).toBe(false);
+    expect(isHello({ v: 1, type: "hello" }, 2)).toBe(false);
+    expect(isHello({ v: 1, type: "hello", token: "x" }, 1)).toBe(false);
+    expect(isHello("hello", 1)).toBe(false);
+    expect(isHello(null, 1)).toBe(false);
+  });
+});
+
+describe("parseRequest", () => {
+  test("valid requests", () => {
+    expect(ok({ v: 1, id: 0, type: "status" })).toBe(true);
+    expect(ok({ v: 1, id: 7, type: "connect" })).toBe(true);
+    expect(ok({ v: 1, id: 7, type: "disconnect" })).toBe(true);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["laps", "car_data"] })).toBe(true);
+    expect(ok({ v: 1, id: 1, type: "unsubscribe", topics: [...LIVE_TOPICS] })).toBe(true);
+    expect(ok({ v: 1, id: 2, type: "get", endpoint: "laps", params: { session_key: 11377, driver_number: 1 } })).toBe(true);
+    expect(ok({ v: 1, id: 2, type: "get", endpoint: "sessions", params: {} })).toBe(true);
+    expect(ok({ v: 1, id: 2, type: "get", endpoint: "sessions", params: { year: 2026, session_type: "Race" } })).toBe(true);
+    expect(ok({ v: 1, id: 2, type: "get", endpoint: "location", params: { "date>": "2024-03-02T15:00:00+00:00", "date<=": "2024-03-02T15:10:00.5" } })).toBe(true);
+    expect(ok({ v: 1, id: 3, type: "openPort" }, 1)).toBe(true);
+    expect(ok(Object.assign(Object.create(null), { v: 1, id: 0, type: "status" }))).toBe(true);
+  });
+
+  test("no id: dropped", () => {
+    for (const x of [null, undefined, 1, "status", [], { v: 1, type: "status" }, { v: 1, id: -1, type: "status" }, { v: 1, id: 1.5, type: "status" }, { v: 1, id: "1", type: "status" }, { v: 1, id: LIMITS.id, type: "status" }]) {
+      expect(err(x).id).toBe(null);
+    }
+  });
+
+  test("usable id: an error to answer", () => {
+    const e = err({ v: 1, id: 5, type: "token" });
+    expect(e.id).toBe(5);
+    expect(e.error.code).toBe("bad_request");
+    expect(err({ v: 2, id: 5, type: "status" }).id).toBe(5);
+    expect(err({ v: 1, id: 5, type: "__proto__" }).id).toBe(5);
+    expect(err({ v: 1, id: 5, type: "toString" }).id).toBe(5);
+  });
+
+  test("unknown types, including anything asking for secrets", () => {
+    for (const type of ["token", "getToken", "password", "credentials", "hello", "ready", "event", ""]) expect(ok({ v: 1, id: 1, type })).toBe(false);
+  });
+
+  test("extra or missing fields", () => {
+    expect(ok({ v: 1, id: 1, type: "status", extra: true })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "status", topics: ["laps"] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe" })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps" })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: {}, url: "https://evil" })).toBe(false);
+  });
+
+  test("wrong types", () => {
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: "laps" })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: [1] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: [] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["laps", "laps"] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["v1/laps"] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["#"] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: [] })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: null })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: new Date() })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: { session_key: true } })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: { session_key: NaN } })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: { session_key: { a: 1 } } })).toBe(false);
+  });
+
+  test("endpoints and params outside the allowlist", () => {
+    for (const endpoint of ["token", "../token", "laps?x=1", "LAPS", "championship_drivers", ""]) {
+      expect(ok({ v: 1, id: 1, type: "get", endpoint, params: {} })).toBe(false);
+    }
+    for (const params of [{ foo: 1 }, { "session_key&x": 1 }, { "date>>": "x" }, { "date=": "x" }, { session_key: "1&x=2" }, { session_key: "a/b" }, { session_key: "a\nb" }, { "": 1 }]) {
+      expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params })).toBe(false);
+    }
+  });
+
+  test("oversize", () => {
+    const nine = { session_key: 1, meeting_key: 1, driver_number: 1, year: 1, session_type: "a", session_name: "a", date: "a", date_start: "a", lap_number: 1 };
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: nine })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: { session_name: "a".repeat(LIMITS.paramValue) } })).toBe(true);
+    expect(ok({ v: 1, id: 1, type: "get", endpoint: "laps", params: { session_name: "a".repeat(LIMITS.paramValue + 1) } })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: Array(LIMITS.topics + 1).fill("laps") })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["x".repeat(1e6)] })).toBe(false);
+  });
+
+  test("ports: only openPort takes one", () => {
+    expect(ok({ v: 1, id: 1, type: "status" }, 1)).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "openPort" }, 0)).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "openPort" }, 2)).toBe(false);
+  });
+});

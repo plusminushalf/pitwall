@@ -1,0 +1,17 @@
+{
+  // The vault's build tooling, local server and tests (Bun). Browser code: tsconfig.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    // DOM for e2e.ts, whose page.evaluate() callbacks run in the browser.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "types": ["bun"],
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["*.ts", "src/**/*.test.ts"]
+}

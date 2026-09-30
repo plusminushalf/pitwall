@@ -15,6 +15,7 @@ import { LiveControl, LiveDot } from "../LiveControl";
 import { Action, approx, Attribution, clockTime, estimateText, LABEL, left, mb, relativeDay, RowDetails, sessionDot, size, useNow, useRowState } from "./common";
 import { Calendar, Chip, resumeClocks } from "./Calendar";
 import { Library } from "./Library";
+import { VaultStatus } from "../vault/VaultStatus";
 
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 
@@ -498,6 +499,7 @@ export function Home() {
           <h1 className="text-lg font-black tracking-tight text-zinc-100">F1 Race Replay</h1>
           <span className="hidden text-xs text-zinc-500 md:inline">Every race, sprint and qualifying since {FIRST_YEAR}, replayed from OpenF1 data</span>
           <span className="flex-1" />
+          <VaultStatus />
           <LiveControl />
         </div>
         <Banners />
