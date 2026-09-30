@@ -24,6 +24,7 @@ import type {
   RawStint,
   RawWeather,
 } from "./openf1Types";
+import { venueCountry } from "./season";
 import type {
   DriverInfo,
   DriverTelemetry,
@@ -1326,7 +1327,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     sessionName: session.session_name,
     year: session.year,
     circuit: session.circuit_short_name,
-    country: session.country_name,
+    country: venueCountry(session),
     gmtOffset: session.gmt_offset,
     t0: new Date(t0).toISOString(),
     duration,

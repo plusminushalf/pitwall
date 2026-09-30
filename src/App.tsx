@@ -1,17 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { DriverPanel } from "./components/DriverPanel";
 import { DownloadPrompt } from "./components/DownloadPrompt";
 import { EventFeed } from "./components/EventFeed";
 import { Header } from "./components/Header";
-import { LiveControl, LiveScreen } from "./components/LiveControl";
+import { LiveScreen } from "./components/LiveControl";
+import { ReadyToast } from "./components/Navigation";
 import { Timeline } from "./components/Timeline";
 import { TimingTower } from "./components/TimingTower";
 import { TrackMap } from "./components/TrackMap";
 import { QualiView } from "./components/quali/QualiView";
-import { RacePicker } from "./components/RacePicker";
+import { Home } from "./components/home/Home";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useReplayLoop } from "./hooks/useReplayLoop";
-import { readUrlState, useUrlSync } from "./hooks/useUrlState";
+import { applyUrl, useHistoryNav, useUrlSync } from "./hooks/useUrlState";
 import { useLibrary } from "./library";
 import { useReplay } from "./store";
 
@@ -24,10 +25,10 @@ function LoadingScreen() {
         <div className="max-w-lg text-center">
           <p className="text-red-400">{error}</p>
           <button
-            onClick={() => useLibrary.getState().openPicker()}
+            onClick={() => useReplay.getState().goHome()}
             className="mt-3 rounded border border-zinc-700 px-2.5 py-1 text-xs font-semibold text-zinc-200 hover:border-zinc-500 hover:text-white"
           >
-            Browse races
+            ← All races
           </button>
         </div>
       ) : (
@@ -60,81 +61,36 @@ export function App() {
   useReplayLoop();
   useKeyboard();
   useUrlSync();
+  useHistoryNav();
+  const view = useReplay((s) => s.view);
   const session = useReplay((s) => s.session);
   const loading = useReplay((s) => s.loading);
-  const indexSize = useReplay((s) => s.index.length);
-  const pickerOpen = useLibrary((s) => s.open);
   const supported = useLibrary((s) => s.supported);
   const link = useLibrary((s) => s.link);
   const live = useReplay((s) => s.mode === "live");
-  // The library has been read (or failed to be): until then an empty index doesn't mean a first run.
-  const [indexChecked, setIndexChecked] = useState(false);
 
   useEffect(() => {
-    const { loadIndex, loadSession, enterLive } = useReplay.getState();
     void (async () => {
       await useLibrary.getState().init();
-      await loadIndex();
-      setIndexChecked(true);
-      const url = readUrlState();
-      if (url.live) return enterLive({ session: url.session, t: url.t, drivers: url.drivers, focus: url.focus });
-      const opts = { t: url.t, drivers: url.drivers, focus: url.focus };
-      const index = useReplay.getState().index;
-      if (url.session != null) {
-        // A shared link: open it if it's here, otherwise offer to download it (then open it at `t`).
-        if (index.some((e) => e.sessionKey === url.session)) loadSession(url.session, opts);
-        else useLibrary.getState().setLink({ key: url.session, opts });
-        return;
-      }
-      const key = index.at(-1)?.sessionKey;
-      if (key != null) loadSession(key);
+      await useReplay.getState().loadIndex();
+      // Home, unless the link opens a session (or offers to download it) or live mode.
+      applyUrl();
     })();
   }, []);
 
-  const picker = pickerOpen && <RacePicker />;
   if (!supported) return <Unsupported />;
+  if (view === "home") return <Home />;
   // Live mode before there's a live session to show: connecting, relay offline, or no race right now.
-  if (!session && live) {
-    return (
-      <>
-        <LiveScreen />
-        {picker}
-      </>
-    );
-  }
-  if (!session && link && !loading) {
-    return (
-      <>
-        <DownloadPrompt sessionKey={link.key} />
-        {picker}
-      </>
-    );
-  }
-  // First run (nothing downloaded yet): the race picker is the whole app (live mode still works).
-  if (!session && indexChecked && !loading && indexSize === 0) {
-    return (
-      <>
-        <RacePicker firstRun />
-        <div className="fixed right-4 top-4">
-          <LiveControl />
-        </div>
-      </>
-    );
-  }
-  if (!session) {
-    return (
-      <>
-        <LoadingScreen />
-        {picker}
-      </>
-    );
-  }
+  if (!session && live) return <LiveScreen />;
+  // A shared link to a session that isn't downloaded: offer to.
+  if (link && !live && !loading && session?.meta.sessionKey !== link.key) return <DownloadPrompt sessionKey={link.key} />;
+  if (!session) return <LoadingScreen />;
   // Qualifying sessions open in the lap comparison view.
   if (session.meta.quali) {
     return (
       <>
         <QualiView overlay={loading && <div className="absolute inset-0 z-10 bg-zinc-950/80"><LoadingScreen /></div>} />
-        {picker}
+        <ReadyToast />
       </>
     );
   }
@@ -160,7 +116,7 @@ export function App() {
           <LoadingScreen />
         </div>
       )}
-      {picker}
+      <ReadyToast />
     </div>
   );
 }

@@ -15,6 +15,14 @@ export const INGESTIBLE_TYPES: readonly string[] = ["Race", "Qualifying"];
 
 export const isIngestible = (s: { session_type: string }) => INGESTIBLE_TYPES.includes(s.session_type);
 
+/**
+ * Session types the live relay follows (server/openf1Source.ts): races and sprints. Qualifying isn't streamed live;
+ * it can be downloaded once it's over.
+ */
+export const LIVE_TYPES: readonly string[] = ["Race"];
+
+export const isFollowedLive = (s: { session_type: string }) => LIVE_TYPES.includes(s.session_type);
+
 export type SeasonStatus = "cancelled" | "not run yet" | "ingested" | "pending";
 
 /** Cancelled, not run yet (still to finish at `now`), already ingested, or ready to ingest. */
@@ -23,6 +31,43 @@ export function seasonStatus(s: RawSession, now: number, ingested: ReadonlySet<n
   if (Date.parse(s.date_end) > now) return "not run yet";
   return ingested.has(s.session_key) ? "ingested" : "pending";
 }
+
+/**
+ * The country each circuit is in, by OpenF1 circuit_key. OpenF1's country_name is the Grand Prix's nation, not
+ * the venue's: the 2026 Bahrain Grand Prix, moved to Sepang, is circuit "Kuala Lumpur" with country "Bahrain".
+ */
+const CIRCUIT_COUNTRY: Record<number, string> = {
+  2: "United Kingdom", // Silverstone
+  4: "Hungary", // Hungaroring
+  6: "Italy", // Imola
+  7: "Belgium", // Spa-Francorchamps
+  9: "United States", // Austin
+  10: "Australia", // Melbourne
+  12: "Malaysia", // Sepang ("Kuala Lumpur")
+  14: "Brazil", // Interlagos
+  15: "Spain", // Catalunya
+  19: "Austria", // Spielberg
+  22: "Monaco", // Monte Carlo
+  23: "Canada", // Montreal
+  39: "Italy", // Monza
+  46: "Japan", // Suzuka
+  49: "China", // Shanghai
+  55: "Netherlands", // Zandvoort
+  61: "Singapore", // Marina Bay
+  63: "Bahrain", // Sakhir
+  65: "Mexico", // Mexico City
+  70: "United Arab Emirates", // Yas Marina
+  144: "Azerbaijan", // Baku
+  149: "Saudi Arabia", // Jeddah
+  150: "Qatar", // Lusail
+  151: "United States", // Miami
+  152: "United States", // Las Vegas
+  153: "Spain", // Madring
+};
+
+/** Where a session is held, for "circuit · country" labels (OpenF1's country_name for circuits not listed). */
+export const venueCountry = (s: Pick<RawSession, "circuit_key" | "country_name">): string =>
+  (s.circuit_key != null ? CIRCUIT_COUNTRY[s.circuit_key] : undefined) ?? s.country_name;
 
 /** Championship round of each meeting: meetings with a race that went ahead, in date order. */
 export function championshipRounds(sessions: readonly RawSession[]): Map<number, number> {

@@ -6,7 +6,7 @@ import { ghost, GHOST_SPEEDS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
 import type { SessionMeta } from "../../types";
 import { SessionPicker } from "../Header";
-import { RacesButton } from "../RacePicker";
+import { RacesButton } from "../Navigation";
 import { CompareBar } from "./CompareBar";
 import { CompareCharts, Swatch } from "./CompareCharts";
 import { CompareMap } from "./CompareMap";

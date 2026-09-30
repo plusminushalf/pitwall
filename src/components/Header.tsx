@@ -4,7 +4,7 @@ import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useReplay } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
 import { LiveControl } from "./LiveControl";
-import { RacesButton } from "./RacePicker";
+import { RacesButton } from "./Navigation";
 
 const SHORTCUTS: [string, string][] = [
   ["Hold space", "Play (release to pause)"],

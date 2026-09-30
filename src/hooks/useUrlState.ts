@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import { useReplay } from "../store";
+import { useLibrary } from "../library";
+import { saveWatched, useReplay } from "../store";
 
 /** Browsers rate-limit history.replaceState (Safari throws past ~100 calls per 30 s). */
 const MIN_WRITE_INTERVAL_MS = 1_000;
@@ -32,7 +33,39 @@ export function readUrlState() {
   };
 }
 
+/**
+ * Show what the URL says: live mode, a session (or the offer to download it), or Home. On startup (once the
+ * library is read) and on the browser's Back / Forward; never adds a history entry.
+ */
+export function applyUrl() {
+  const url = readUrlState();
+  const library = useLibrary.getState();
+  if (!url.live && url.session == null) {
+    library.setLink(null);
+    return useReplay.getState().showHome();
+  }
+  // Off Home already, so opening doesn't push an entry.
+  useReplay.setState({ view: "replay" });
+  const opts = { t: url.t, drivers: url.drivers, focus: url.focus };
+  if (url.live) {
+    library.setLink(null);
+    return useReplay.getState().enterLive({ session: url.session, ...opts });
+  }
+  // A shared link: open it if it's here, otherwise offer to download it (then open it at `t`).
+  if (useReplay.getState().index.some((e) => e.sessionKey === url.session)) library.watchNow(url.session!, opts);
+  else library.setLink({ key: url.session!, opts });
+}
+
+/** Back / Forward between Home and the replay. */
+export function useHistoryNav() {
+  useEffect(() => {
+    window.addEventListener("popstate", applyUrl);
+    return () => window.removeEventListener("popstate", applyUrl);
+  }, []);
+}
+
 export function useUrlSync() {
+  const view = useReplay((s) => s.view);
   const session = useReplay((s) => s.session?.meta.sessionKey);
   const live = useReplay((s) => s.mode === "live");
   // Following live, the link just says live (no time): -1 keeps this from changing every second.
@@ -40,17 +73,16 @@ export function useUrlSync() {
   const selected = useReplay((s) => s.selected);
   const focused = useReplay((s) => s.focused);
   const lastWrite = useRef(0);
-  const wasLive = useRef(false);
 
   useEffect(() => {
-    // Left live mode with no replay to show (none downloaded): don't leave a link that goes live again.
-    if (wasLive.current && !live && session == null) history.replaceState(null, "", location.pathname);
-    wasLive.current = live;
-  }, [live, session]);
-
-  useEffect(() => {
-    if (session == null && !live) return;
+    // Home's URL is its own (goHome / Back set it).
+    if (view !== "replay" || (session == null && !live)) return;
     const write = () => {
+      if (useReplay.getState().view !== "replay") return;
+      const s = useReplay.getState();
+      if (!live && session != null && s.session) {
+        saveWatched(session, { t: second * 1000, raceTime: s.race?.raceTime ?? null, frac: Math.min(1, (second * 1000) / s.session.meta.duration) });
+      }
       // Built by hand (all values are numbers) so the driver list keeps readable commas instead of %2C.
       const q = live ? ["live=1"] : [];
       if (session != null && second >= 0) q.push(`session=${session}`, `t=${second}`);
@@ -59,7 +91,8 @@ export function useUrlSync() {
       const search = `?${q.join("&")}`;
       if (search === location.search) return;
       lastWrite.current = performance.now();
-      history.replaceState(null, "", search);
+      // Keeps the entry's state (whether it was opened from Home).
+      history.replaceState(history.state, "", search);
     };
     // During fast playback `second` changes ~10×/s: write at most once per interval, always ending on the latest state.
     const wait = lastWrite.current + MIN_WRITE_INTERVAL_MS - performance.now();
@@ -69,5 +102,5 @@ export function useUrlSync() {
     }
     const id = setTimeout(write, wait);
     return () => clearTimeout(id);
-  }, [session, live, second, selected, focused]);
+  }, [view, session, live, second, selected, focused]);
 }

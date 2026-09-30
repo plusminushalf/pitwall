@@ -14,6 +14,7 @@ import {
   type RawMeeting,
   type RawSession,
 } from "../scripts/openf1";
+import { isFollowedLive } from "../scripts/lib/season";
 import type { LiveStatus } from "../src/live/protocol";
 import type { Hub } from "./hub";
 import { LiveStore, TOPICS, type Topic } from "./store";
@@ -50,7 +51,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const iso = (t: number) => new Date(t).toISOString();
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-export const isRaceSession = (s: RawSession) => s.session_type === "Race" && !s.is_cancelled;
+export const isRaceSession = (s: RawSession) => isFollowedLive(s) && !s.is_cancelled;
 
 /** Within [scheduled start - 15 min, scheduled end + 30 min]. */
 export function inLiveWindow(s: RawSession, now: number): boolean {

@@ -1,12 +1,12 @@
 # Modular rewrite: hypotheses
 
-Draft for discussion, 2026-09-29. Nothing here is built yet. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
+Draft for discussion, 2026-09-29; module marketplace added 2026-09-30. Want 1 and most of want 2 are now built for historical replay (commit 49515e4); want 3 is not started. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
 
 ## The three wants
 
 1. **Install and use from the web** with little or no command line.
 2. **Bring your own data.** Each user fetches from OpenF1 with their own access. We never host, resell or pass along F1 data.
-3. **Everything is a module.** The dashboard is just modules placed on a layout the user chooses.
+3. **Everything is a module, and anyone can publish one.** The dashboard is just modules placed on a layout the user chooses. Anyone can add a module by opening a PR, and users install the ones they want from an in-app marketplace and drop them into their layout.
 
 ## What we checked (facts)
 
@@ -25,14 +25,15 @@ Draft for discussion, 2026-09-29. Nothing here is built yet. Facts come from res
 | Normalizing one race: about 8 s total, **600–730 MB peak memory** | measured, races 11377 and 11234 |
 | One race: 57 OpenF1 requests + 1 MultiViewer request, about 2 min at today's one-at-a-time pace (about 1 min possible on sponsor tier with parallel requests) | measured |
 | Storage: about 5 MB gzipped processed per race (110–150 MB per season); raw data 10–16 MB gzipped per race. Browser quotas are in the GBs; the risk is the browser deleting data, not size (Safari's 7-day rule unless added to the Home Screen) | du; MDN, WebKit |
-| No F1 tool combines user-arranged layouts, a plugin API and a synced replay timeline | see "Does anyone do this?" |
+| No F1 tool combines user-arranged layouts, a plugin API and a synced replay timeline, let alone a community marketplace | see "Does anyone do this?" |
 
 ## Want 1: install and access
 
 **H1.1: A hosted static web app (installable as a PWA) can do the full historical replay with nothing to install and no server of ours.**
 - Every source we need works from a browser, and the pipeline is pure.
 - Bonus: OpenF1 rate limits are per IP, so every user's browser gets its own quota. A central server shares one quota and gets blocked, which is what killed f1-dash.
-- *Wrong if:* ingest won't finish in Safari or Firefox (memory), OpenF1 starts rejecting browser requests, or the first-run wait is unacceptable. Tested by spike S1.
+- **Scope (2026-09-30): Chromium only for now.** Firefox and Safari are deferred.
+- *Wrong if:* ingest won't finish in Chromium (memory), OpenF1 starts rejecting browser requests, or the first-run wait is unacceptable. Tested by spike S1.
 
 **H1.2: One core, several shells.** The UI talks to a `SessionSource` / backend interface. Possible implementations:
 1. A browser worker (the default).
@@ -71,7 +72,7 @@ I believe their "must be backend" rule is aimed at developers shipping their own
 **H2.6: Surviving browser cleanup.**
 - Call `navigator.storage.persist()`, and nudge Safari users to install the app.
 - Show "stored on this device: X MB".
-- Offer export and import of your own library as a file, for backup.
+- ~~Offer export and import of your own library as a file, for backup.~~ Dropped (2026-09-30): data just lives in the browser.
 - If data is lost anyway, download it again.
 
 **H2.7: Radio streams from F1's CDN in `<audio>`, with no offline radio.** We accept that. We do not run a hosted proxy for it.
@@ -85,7 +86,7 @@ I believe their "must be backend" rule is aimed at developers shipping their own
 - We show OpenF1 attribution and keep the project non-commercial.
 - Any money-making plan means talking to OpenF1 first.
 
-## Want 3: everything is a module
+## Want 3: everything is a module, and anyone can publish one
 
 ### Does anyone do this?
 
@@ -96,6 +97,7 @@ No. The nearest attempts:
 - **f1telemetry.com:** 8 fixed widgets you can drag, saved in a cookie.
 - **IAmTomShaw/f1-race-replay:** an extension base class plus a one-way telemetry stream to other programs.
 - **None of them let you open the same panel twice.**
+- **None of them have a place where the community publishes panels for others to install.**
 
 The closest match anywhere is **Foxglove / Lichtblick**, a robotics log viewer (Lichtblick is the MPL-2.0 fork). It has:
 - `registerPanel`, with a panel context offering `watch("currentTime")`, `subscribe(topics)`, `onRender(state, done)`, `saveState` and a declarative settings tree;
@@ -103,6 +105,11 @@ The closest match anywhere is **Foxglove / Lichtblick**, a robotics log viewer (
 - data sources that run in workers.
 
 Its extensions run in-page with no sandbox.
+
+For the marketplace itself, the useful precedents are outside F1 (from memory, not re-checked):
+- **Raycast:** every extension's source lives in one public monorepo. Authors open a PR, the Raycast team reviews it, and their CI builds and publishes it to the store.
+- **Obsidian:** code lives in the author's own repo. A PR adds one entry to a central `community-plugins.json`; the app downloads the files from the author's GitHub release. Review happens once, at first listing.
+- **VS Code / Grafana:** a hosted marketplace with publisher accounts. That needs a backend, which we don't want.
 
 ### Hypotheses
 
@@ -163,11 +170,51 @@ Examples that need more than panels:
 - **P2:** trusted third-party ES modules loaded from a URL, with the user's consent and a pinned hash ("developer mode"). This is only safe because of H2.5.
 - **P3:** modules in sandboxed iframes with a message-only API, the Figma model.
 
+The marketplace (H3.12) starts at P2: reviewed modules, installed with consent, pinned by hash. P3 has to land before we loosen review (e.g. auto-merge or unreviewed updates).
+
 If the API only passes serialisable data and columnar typed arrays from day one (our driver data is already columnar), then P3 is an adapter rather than a rewrite.
 
 **H3.10: Copy Lichtblick's API design, but build our own shell.** Lichtblick would give us layouts, extensions and playback today. But its UI is built for robotics (topics, ROS), it's on React 18, it runs extensions in-page, and the look would be theirs. Looks are what sets us apart.
 
 **H3.11: Data sources are modules too**: OpenF1 historical, OpenF1 live over MQTT, simulate, and file import, all behind `SessionSource`. Normalize and the repairs stay in the core, so data quality has one source of truth.
+- Data-source modules touch the network and credentials, so they stay first-party at first. The marketplace carries display and analysis modules (panels, layers, columns, signals).
+
+### The marketplace
+
+**H3.12: The marketplace is a git repo, not a service.** Follow the Raycast model:
+- Community modules live in a `modules/` folder of a public repo (ours, or a dedicated `f1-modules` repo). Submitting a module means opening a PR.
+- On merge, CI builds each module into a content-hashed ES bundle and regenerates a static `registry.json` (id, name, author, version, API version, hash, manifest, screenshots). Both are served from the same static host as the app.
+- No accounts, no database, no backend. It fits want 1.
+- Why not the Obsidian model: if code is fetched from the author's own release, what we reviewed is not necessarily what users run. Building from reviewed source closes that gap.
+- *Wrong if:* review becomes the bottleneck (too many PRs for the maintainers), or authors want to ship updates without waiting for review.
+
+**H3.13: CI does most of the review.** A submission PR must pass, automatically:
+- manifest schema check, and the API version must be one we support;
+- imports only from the public module API (`core/api`); no `fetch`, `WebSocket`, `eval`, or DOM access outside the module's own root;
+- a bundle size budget;
+- the H3.4 frame budget, run against a fixture session with the module mounted;
+- a licence that allows redistribution (the code licence; the data stays under OpenF1's non-commercial terms).
+
+A human reviewer then only checks intent and quality. Updates go through the same PR path.
+
+**H3.14: Installing is per browser, and needs the user's say.**
+- The app reads `registry.json` and shows a marketplace view: search, filter by contribution point and session type, screenshots, and what the module `requires`.
+- Install downloads the bundle, checks its hash against the registry, stores it in browser storage next to the race library, and registers its manifest. It works offline from then on.
+- Installed modules appear in the "add panel" menu (and in map layers, tower columns and so on, per H3.2) exactly like built-in ones.
+- Updates are offered, not forced. A layout pins `moduleVersion`, so an update never silently changes a saved layout.
+- Our own modules (today's 7 components) are listed in the same marketplace and come preinstalled. If the built-ins can be expressed as marketplace entries, the API is good enough.
+
+**H3.15: Shared layouts can ask for modules, but never install them by themselves.** This refines H3.7.
+- A layout lists the modules and versions it uses. Opening one with missing modules shows "This layout uses X and Y from the marketplace. Install?"
+- Only modules in the registry can be offered this way. A layout can never point at an arbitrary URL; that stays behind developer mode (P2).
+- Declining still opens the layout, with placeholders where the missing panels would be.
+
+**H3.16: A kill switch lives in the registry.** A version can be marked revoked in `registry.json`. The app checks the registry on start (when online) and disables revoked versions, telling the user why.
+
+**H3.17: Writing a module should take one command and no F1 data setup.**
+- A template (`bun create f1-module`) with a dev server, types for the module API, and a bundled fixture session, so authors don't need an OpenF1 account or a downloaded race.
+- The app's developer mode loads a module straight from `localhost` for live reloading.
+- The same CI checks run locally (`bun run check`), so authors know before opening a PR.
 
 ## Where the wants collide
 
@@ -176,6 +223,9 @@ If the API only passes serialisable data and columnar typed arrays from day one 
 - **Browser-only and share links.** The recipient waits about 2 minutes on first open (H1.4).
 - **Fast data sharing with iframes.** `SharedArrayBuffer` needs COOP/COEP headers, which can block cross-origin media such as team radio. Use transferables until it's truly needed.
 - **The free-tier live blackout.** The library must detect it, pause, and explain why.
+- **Open submissions and in-page code.** Until P3, a malicious module that slips past review runs in the same page as everything else. H2.5 keeps credentials out of its reach, but it could still mess with the UI. Review, hash pinning and the kill switch are the defence until sandboxing lands.
+- **A marketplace and a static site with no backend.** No install counts, ratings or reviews without a server. GitHub stars or reactions on the module's folder could stand in.
+- **Marketplace and API stability.** Once other people's modules depend on `core/api`, breaking it breaks them. The API needs semver from the first public module, and the registry hides modules that need a newer or older API than the app has.
 
 ## Spikes, cheapest first
 
@@ -187,18 +237,21 @@ If the API only passes serialisable data and columnar typed arrays from day one 
     - Output identical to the CLI in all 28 runs.
     - No main-thread long tasks.
     - Replay loads from OPFS at the same speed as HTTP.
-    - Firefox and WebKit are **not tested**: system libraries are missing and there's no sudo.
+    - Firefox and WebKit are **not tested**: system libraries are missing and there's no sudo. Deferred: we target Chromium for now.
     - Surprise: reading raw back (gunzip+parse, 7.3 s) costs more than normalize (3.3 s).
     - Machine: 2-vCPU shared server VM. The spike (`spikes/s1/`, removed since; see commit bf4a0a2) became the app's in-browser downloader: `src/ingest/`, `src/storage/` and `scripts/lib/ingestCore.ts`.
 - **S2: dogfooding the module API.** Build `core/api` plus dockview, and rebuild TrackMap, TimingTower and Timeline on it. Open two TrackMaps plus a popout. Add one contribution-point feature: a pit-rejoin ghost (signal, map layer and tower column). Benchmark it. Checks H3.1 to H3.6.
 - **S3: live in the browser.** Token and MQTT inside a worker, plus a simulate mode that replays cached raw data inside the worker. Checks H2.4 and H2.5.
 - **S4: streaming normalize** for phone memory. Checks H2.8.
+- **S5: marketplace end to end.** Move one built-in module (e.g. the timing tower) into `modules/`, have CI build it and emit `registry.json`, then uninstall and reinstall it from the in-app marketplace, and open a shared layout that asks for it. Then have someone outside the project write and submit a small module using only the template. Checks H3.12 to H3.17. Depends on S2.
 - **Not code: email OpenF1** about logging in with your own key in the browser, and about the non-commercial scope.
 
 ## Open questions
 
-1. Are third-party modules a day-one goal or a later phase? This decides how strict the API has to be now.
-2. Are phones first-class or desktop-first?
-3. Could this ever be commercial? The OpenF1 licence is non-commercial.
-4. Should we contact OpenF1 before building?
-5. Do we keep the Bun server as an optional companion, or retire it?
+1. ~~Are third-party modules a day-one goal or a later phase?~~ They're a goal (the marketplace), so the module API has to be public, versioned and strict from S2 onward. Still open: do we open submissions at launch, or after the built-ins have proved the API?
+2. Marketplace in this repo or a separate `f1-modules` repo? Separate keeps app PRs and module PRs apart, but CI and API types then have to be shared across repos.
+3. Who reviews submissions, and what's the quality bar for listing (does it just have to be safe, or also useful and polished)?
+4. Are phones first-class or desktop-first?
+5. Could this ever be commercial? The OpenF1 licence is non-commercial, and paid marketplace modules would run into it too.
+6. Should we contact OpenF1 before building?
+7. Do we keep the Bun server as an optional companion, or retire it?

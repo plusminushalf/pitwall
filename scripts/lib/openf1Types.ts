@@ -8,7 +8,10 @@ export interface RawSession {
   date_start: string;
   date_end: string;
   year: number;
+  /** OpenF1's circuit id (stable across seasons). */
+  circuit_key?: number;
   circuit_short_name: string;
+  /** The Grand Prix's nation, not necessarily where the circuit is (see venueCountry in season.ts). */
   country_name: string;
   location: string;
   gmt_offset: string;

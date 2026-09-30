@@ -66,7 +66,6 @@ export interface Lookup {
   error: string | null;
 }
 
-export type PickerTab = "library" | number;
 /** Session types shown in the calendar: everything, races + sprints, or (sprint) qualifying. */
 export type RaceFilter = "all" | "Race" | "Qualifying";
 
@@ -98,8 +97,8 @@ interface LibraryState {
   /** OpenF1 refused us with its live-window lockout, until about then. */
   blocked: { until: number; label: string } | null;
   usage: StorageUsage | null;
-  open: boolean;
-  tab: PickerTab;
+  /** The season shown in Home's calendar. */
+  calendarYear: number;
   filter: RaceFilter;
   confirmDelete: number | null;
   /** Open this session when its job is done. */
@@ -107,13 +106,13 @@ interface LibraryState {
   /** A shared link to a session that isn't in the library (yet). */
   link: { key: number; opts: WatchOpts } | null;
   lookups: Record<number, Lookup>;
+  /** A download finished while a replay was on screen: offer to watch it. */
+  toast: { key: number; label: string } | null;
 
   init: () => Promise<void>;
   refreshLibrary: () => Promise<void>;
   refreshUsage: () => Promise<void>;
-  openPicker: (tab?: PickerTab) => void;
-  closePicker: () => void;
-  setTab: (tab: PickerTab) => void;
+  setCalendarYear: (year: number) => void;
   setFilter: (filter: RaceFilter) => void;
   loadYear: (year: number, opts?: { force?: boolean }) => Promise<void>;
   lookup: (key: number) => Promise<void>;
@@ -124,8 +123,9 @@ interface LibraryState {
   askDelete: (key: number | null) => void;
   remove: (key: number) => Promise<void>;
   setWatch: (key: number | null) => void;
-  /** Open a downloaded session and close the picker. */
-  watchNow: (key: number) => void;
+  /** Open a downloaded session (useReplay's openSession). */
+  watchNow: (key: number, opts?: WatchOpts) => void;
+  dismissToast: () => void;
 }
 
 // ---------------------------------------------------------------- helpers
@@ -464,13 +464,17 @@ export const useLibrary = create<LibraryState>((set, get) => {
     const watch = get().watch?.key === key ? get().watch : null;
     const opts = { ...link?.opts, ...watch?.opts };
     const shown = useReplay.getState();
-    if (shown.session?.meta.sessionKey === key) {
-      // Re-processed the session on screen: reload it where it was.
+    const prompted = link != null && shown.view === "replay" && shown.mode === "replay";
+    if (shown.session?.meta.sessionKey === key && shown.mode === "replay") {
+      // Re-processed the loaded session: reload it where it was.
       void shown.loadSession(key, { t: clock.t, drivers: shown.selected, focus: shown.focused });
-    } else if (watch || link || (!shown.session && !shown.loading && shown.mode === "replay")) {
-      // Open it if asked to, or if nothing is on screen yet (first run).
-      set({ watch: null, link: null, open: false });
-      void useReplay.getState().loadSession(key, opts);
+    } else if (watch || prompted) {
+      // Asked to open when ready, or it's the shared link on screen.
+      set({ watch: null });
+      get().watchNow(key, opts);
+    } else if (shown.view === "replay") {
+      // On Home its card just turns into Watch; over a replay, say so.
+      set({ toast: { key, label: labelOf(entry) } });
     }
     if (get().watch?.key === key) set({ watch: null });
     console.debug(`[library] ${labelOf(entry)} ready (format ${entry.format})`);
@@ -530,13 +534,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
     otherTab: false,
     blocked: null,
     usage: null,
-    open: false,
-    tab: "library",
+    calendarYear: currentYear(),
     filter: "all",
     confirmDelete: null,
     watch: null,
     link: null,
     lookups: {},
+    toast: null,
 
     init: async () => {
       if (initialized) return;
@@ -593,18 +597,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ usage: await store().usage() });
     },
 
-    openPicker: (tab) => {
-      const hasAny = Object.keys(get().entries).length > 0 || get().queue.length > 0;
-      const t = tab ?? (hasAny ? get().tab : currentYear());
-      set({ open: true, tab: t, confirmDelete: null });
-      if (typeof t === "number") void get().loadYear(t);
-      void get().refreshUsage();
-    },
-    closePicker: () => set({ open: false, confirmDelete: null }),
-    setTab: (tab) => {
-      set({ tab, confirmDelete: null });
-      if (typeof tab === "number") void get().loadYear(tab);
-      else void get().refreshUsage();
+    setCalendarYear: (year) => {
+      set({ calendarYear: year, confirmDelete: null });
+      void get().loadYear(year);
     },
     setFilter: (filter) => set({ filter }),
 
@@ -723,10 +718,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     setWatch: (key) => set({ watch: key == null ? null : { key, opts: {} } }),
 
-    watchNow: (key) => {
-      set({ open: false, link: null });
-      void useReplay.getState().loadSession(key);
+    watchNow: (key, opts) => {
+      set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
+      useReplay.getState().openSession(key, opts);
     },
+
+    dismissToast: () => set({ toast: null }),
   };
 });
 

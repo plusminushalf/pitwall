@@ -17,7 +17,8 @@ export function useKeyboard() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const s = useReplay.getState();
-      if (!s.session) return;
+      // Nothing to control on Home (the session left there stays paused).
+      if (!s.session || s.view !== "replay") return;
       // Don't let space/arrows also activate whatever button was clicked last.
       if (e.target instanceof HTMLButtonElement) e.target.blur();
       const speedIndex = SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);

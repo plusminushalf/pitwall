@@ -20,6 +20,55 @@ export type GapMode = "leader" | "interval";
 /** Watching a stored replay, or a session streamed live by the relay (server/live.ts). */
 export type Mode = "replay" | "live";
 
+/** The Home page (library + calendar), or the session on screen (a replay, live mode, or the offer to download a linked one). */
+export type View = "home" | "replay";
+
+/** Home, unless the link opens a session or live mode. */
+const initialView = (): View => (typeof location !== "undefined" && /[?&](session|live)=/.test(location.search) ? "replay" : "home");
+
+/** History entries opened from Home: the Races button goes back to it rather than stacking another one. */
+const pushFromHome = (search: string) => history.pushState({ fromHome: true }, "", search);
+
+/** Where a session was left off (to resume it, and for Home's library order and progress). */
+export interface Watched {
+  t: number;
+  /** Race clock (ms from lights out) and share of the session watched, for display. */
+  raceTime: number | null;
+  frac: number;
+  /** When it was last watched (ms since epoch). */
+  at: number;
+}
+
+const WATCHED_KEY = "f1-replay:watched";
+const MAX_WATCHED = 200;
+
+/** Every session watched in this browser, by session key. */
+export function watchHistory(): Record<number, Watched> {
+  try {
+    // Before per-session history only the last session was kept.
+    const old = localStorage.getItem("f1-replay:last");
+    if (old && !localStorage.getItem(WATCHED_KEY)) {
+      const { key, ...v } = JSON.parse(old);
+      if (typeof key === "number") localStorage.setItem(WATCHED_KEY, JSON.stringify({ [key]: { ...v, at: Date.now() } }));
+    }
+    localStorage.removeItem("f1-replay:last");
+    const v = JSON.parse(localStorage.getItem(WATCHED_KEY) ?? "{}") as Record<number, Watched> | null;
+    return v && typeof v === "object" ? v : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveWatched(key: number, v: Omit<Watched, "at">) {
+  const all = { ...watchHistory(), [key]: { ...v, at: Date.now() } };
+  const keep = Object.entries(all)
+    .sort((a, b) => b[1].at - a[1].at)
+    .slice(0, MAX_WATCHED);
+  try {
+    localStorage.setItem(WATCHED_KEY, JSON.stringify(Object.fromEntries(keep)));
+  } catch {}
+}
+
 export interface LiveInfo {
   /** The relay's state; null until its first status message. */
   state: LiveState | null;
@@ -55,6 +104,8 @@ function endOf(s: { mode: Mode; session: Session | null }): number {
 let live: LiveConnection | null = null;
 /** The replay being watched when live mode was entered, brought back by exitLive(). */
 let replayStash: { session: Session; t: number; selected: number[]; focused: number | null } | null = null;
+/** Live mode was entered from Home: leaving it goes back there. */
+let liveFromHome = false;
 /** From a shared live link: applied to the first live snapshot (`t` only if it's the same session). */
 let liveOpts: LiveOpts | null = null;
 /** Bumped by every session load / mode switch, so a load that finishes late doesn't clobber a newer choice. */
@@ -89,6 +140,7 @@ interface ReplayState {
   focused: number | null;
   gapMode: GapMode;
   mode: Mode;
+  view: View;
   live: LiveInfo;
   /** Latest live edge from the relay (ms since meta.t0), updated with every message. */
   liveEdge: number;
@@ -97,8 +149,17 @@ interface ReplayState {
 
   loadIndex: () => Promise<void>;
   loadSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => Promise<void>;
-  /** Stop showing the current session (it was deleted): open the latest one left, if any. */
+  /** Stop showing the current session (it was deleted); back to Home if it was on screen. */
   closeSession: () => void;
+  /**
+   * Show a downloaded session: instantly if it's the one loaded (left for Home), else loaded (at `opts`, or where
+   * it was last watched). From Home it's a new history entry, so the browser's Back returns there.
+   */
+  openSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => void;
+  /** Back to Home (and in history): playback stops, the replay stays loaded; live mode is left. */
+  goHome: () => void;
+  /** goHome() without touching history (Back / Forward already moved it). */
+  showHome: () => void;
   publish: () => void;
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
@@ -116,7 +177,7 @@ interface ReplayState {
   toggleGapMode: () => void;
   /** Switch to live mode: connect to the relay and follow whatever it streams. */
   enterLive: (opts?: LiveOpts) => void;
-  /** Back to replays: disconnect and bring back the replay watched before (or the latest one). */
+  /** Back to replays: disconnect and bring back the replay watched before (or Home). */
   exitLive: () => void;
   /** Jump to the live edge and follow it. */
   goLive: () => void;
@@ -129,6 +190,22 @@ export const useReplay = create<ReplayState>((set, get) => {
     live = null;
     liveOpts = null;
     set({ mode: "replay", live: NO_LIVE, liveEdge: 0, followLive: false });
+  };
+
+  /** Leave live mode, bringing back the replay watched before it (if any). Whether there was one. */
+  const restoreReplay = (): boolean => {
+    disconnect();
+    const stash = replayStash;
+    replayStash = null;
+    loadToken++;
+    if (!stash) {
+      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false });
+      return false;
+    }
+    clock.t = stash.t;
+    set({ session: stash.session, selected: stash.selected, focused: stash.focused, playing: false, latched: false, error: null });
+    get().publish();
+    return true;
   };
 
   const onLiveMessage = (msg: LiveMessage) => {
@@ -201,6 +278,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     focused: null,
     gapMode: "leader",
     mode: "replay",
+    view: initialView(),
     live: NO_LIVE,
     liveEdge: 0,
     followLive: false,
@@ -221,6 +299,8 @@ export const useReplay = create<ReplayState>((set, get) => {
       }
       const token = ++loadToken;
       set({ loading: { key, progress: 0 }, error: null, playing: false, latched: false });
+      const last = watchHistory()[key];
+      if (opts.t == null && last) opts = { ...opts, t: last.t };
       try {
         const session = await fetchSession(key, (progress) => {
           if (token === loadToken) set({ loading: { key, progress } });
@@ -241,8 +321,28 @@ export const useReplay = create<ReplayState>((set, get) => {
     closeSession: () => {
       loadToken++;
       set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false });
-      const key = get().index.at(-1)?.sessionKey;
-      if (key != null) void get().loadSession(key);
+      get().goHome();
+    },
+
+    openSession: (key, opts) => {
+      const s = get();
+      if (s.view === "home") pushFromHome(`?session=${key}`);
+      set({ view: "replay" });
+      const loaded = s.mode === "replay" && (s.loading ? s.loading.key === key : s.session?.meta.sessionKey === key && !s.error);
+      if (!loaded) void get().loadSession(key, opts);
+    },
+
+    goHome: () => {
+      if (get().view === "home") return;
+      get().showHome();
+      // Back to the Home entry this was opened from, or a new one (it was opened from a link).
+      if (history.state?.fromHome) history.back();
+      else history.pushState(null, "", location.pathname);
+    },
+
+    showHome: () => {
+      if (get().mode === "live") restoreReplay();
+      set({ view: "home", playing: false, latched: false });
     },
 
     publish: () => {
@@ -321,12 +421,15 @@ export const useReplay = create<ReplayState>((set, get) => {
     enterLive: (opts = {}) => {
       const s = get();
       if (s.mode === "live") return;
+      liveFromHome = s.view === "home";
+      if (liveFromHome) pushFromHome("?live=1");
       loadToken++; // a replay still loading is no longer wanted
       if (s.session) replayStash = { session: s.session, t: clock.t, selected: s.selected, focused: s.focused };
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
       set({
         mode: "live",
+        view: "replay",
         live: NO_LIVE,
         liveEdge: 0,
         followLive: true,
@@ -350,20 +453,7 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     exitLive: () => {
       if (get().mode !== "live") return;
-      disconnect();
-      const stash = replayStash;
-      replayStash = null;
-      if (stash) {
-        loadToken++;
-        clock.t = stash.t;
-        set({ session: stash.session, selected: stash.selected, focused: stash.focused, playing: false, latched: false, error: null });
-        get().publish();
-        return;
-      }
-      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false });
-      // Back to the latest replay; with none downloaded the app shows the race picker.
-      const key = get().index.at(-1)?.sessionKey;
-      if (key != null) get().loadSession(key);
+      if (liveFromHome || !restoreReplay()) get().goHome();
     },
 
     goLive: () => {

@@ -3,7 +3,7 @@
 
 import { fetchEndpoint } from "../../scripts/lib/openf1Http";
 import type { RawMeeting, RawSession } from "../../scripts/lib/openf1Types";
-import { championshipRounds, isIngestible, liveWindowAt, type LiveWindow } from "../../scripts/lib/season";
+import { championshipRounds, isIngestible, liveWindowAt, venueCountry, type LiveWindow } from "../../scripts/lib/season";
 
 export interface CatalogRow {
   sessionKey: number;
@@ -44,6 +44,7 @@ const slim = (s: RawSession): RawSession => ({
   date_start: s.date_start,
   date_end: s.date_end,
   year: s.year,
+  circuit_key: s.circuit_key,
   circuit_short_name: s.circuit_short_name,
   country_name: s.country_name,
   location: s.location,
@@ -67,11 +68,41 @@ export function buildCatalog(year: number, sessions: RawSession[], meetings: Raw
       dateStart: s.date_start,
       dateEnd: s.date_end,
       circuit: s.circuit_short_name,
-      country: s.country_name,
+      country: venueCountry(s),
       cancelled: s.is_cancelled ?? false,
     }),
   );
   return { year, fetchedAt, rows, sessions: sorted.map(slim) };
+}
+
+/** How long before a weekend's next session it takes over Home's lead spot from the latest race. */
+export const HERO_WINDOW_MS = 72 * 60 * 60_000;
+
+/** The sessions of the next weekend still to finish (the one under way, if any), or null after the season's last. */
+export function nextWeekend(rows: readonly CatalogRow[], now: number): CatalogRow[] | null {
+  const live = rows.filter((r) => !r.cancelled);
+  const first = live.find((r) => Date.parse(r.dateEnd) > now);
+  return first ? live.filter((r) => r.meetingKey === first.meetingKey) : null;
+}
+
+/** A weekend's session under way at `now`, or else the next one to start (null once they're all over). */
+export const nextSession = (weekend: readonly CatalogRow[], now: number): CatalogRow | null => weekend.find((r) => Date.parse(r.dateEnd) > now) ?? null;
+
+export const isLive = (r: CatalogRow, now: number) => Date.parse(r.dateStart) <= now && now < Date.parse(r.dateEnd);
+
+/**
+ * The weekend that leads Home instead of the latest race (its rows): from `windowMs` before its first session still
+ * to finish (practice included, from `sessions`) until its last session ends. Null outside that window.
+ */
+export function heroWeekend(c: Pick<Catalog, "rows" | "sessions">, now: number, windowMs = HERO_WINDOW_MS): CatalogRow[] | null {
+  const weekend = nextWeekend(c.rows, now);
+  if (!weekend) return null;
+  const meeting = weekend[0].meetingKey;
+  const starts = [
+    ...weekend.filter((r) => Date.parse(r.dateEnd) > now).map((r) => Date.parse(r.dateStart)),
+    ...c.sessions.filter((s) => s.meeting_key === meeting && !s.is_cancelled && Date.parse(s.date_end) > now).map((s) => Date.parse(s.date_start)),
+  ];
+  return now >= Math.min(...starts) - windowMs ? weekend : null;
 }
 
 /** A season from OpenF1 (two requests, one after the other: the client spaces them out). */

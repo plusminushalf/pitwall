@@ -4,14 +4,15 @@
 import { useEffect, type ReactNode } from "react";
 import { useLibrary } from "../library";
 import { raceClock } from "../lib/format";
-import { Action, approx, Attribution, JobProgress, SECONDARY, useRowState } from "./RacePicker";
+import { useReplay } from "../store";
+import { Action, approx, Attribution, JobProgress, SECONDARY, useRowState } from "./home/common";
 
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 
 export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
   const lookup = useLibrary((s) => s.lookups[sessionKey]);
   const link = useLibrary((s) => s.link);
-  const openPicker = useLibrary((s) => s.openPicker);
+  const goHome = useReplay((s) => s.goHome);
   const row = lookup?.row ?? null;
   const state = useRowState(row);
 
@@ -58,7 +59,7 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
                   Download this race
                 </button>
               ) : (
-                <Action row={row} state={state} current={false} compact />
+                <Action row={row} state={state} compact />
               )}
             </div>
             {state.kind === "job" && state.job.phase === "failed" && <p className="mt-2 text-xs text-red-400">{state.job.error}</p>}
@@ -75,8 +76,8 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
       <div className="w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
         {body}
         <div className="mt-5 flex items-center gap-3 border-t border-zinc-800 pt-3">
-          <button onClick={() => openPicker()} className={SECONDARY}>
-            Browse races
+          <button onClick={goHome} className={SECONDARY}>
+            ← All races
           </button>
           <span className="flex-1" />
         </div>
