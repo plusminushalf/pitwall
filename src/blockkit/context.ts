@@ -30,11 +30,11 @@ export function createVisibility(): Visibility {
   };
 }
 
-/** In layout px (CSS px inside the block). */
+/** The block's size in CSS px (whole px, rounded down). */
 export interface BlockSize {
   width: number;
   height: number;
-  /** API gap: device pixels per layout px, including the grid's scale, for sharp canvases. */
+  /** API gap: the display's device px per CSS px, for sharp canvases (changes with browser zoom and screens). */
   pixelRatio: number;
 }
 
@@ -46,5 +46,3 @@ export interface SettingsValue {
 export const VisibilityContext = createContext<Visibility | null>(null);
 export const SettingsContext = createContext<SettingsValue | null>(null);
 export const SizeContext = createContext<BlockSize | null>(null);
-/** Screen px per layout px (the grid's zoom). */
-export const ScaleContext = createContext(1);

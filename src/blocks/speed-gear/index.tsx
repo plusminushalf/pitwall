@@ -24,18 +24,21 @@ function SpeedGear() {
   const tel = useCar(n, (c) => ({ speed: Math.round(c.speed), gear: c.gear, drs: c.drs }));
   const out = useDriver(n, (d) => d.status === "OUT");
   return (
-    <div className={`flex h-full flex-col justify-center px-3 ${out ? "opacity-40" : ""}`}>
-      <div className="flex items-baseline gap-1">
-        <span className="w-[3ch] text-right text-3xl font-bold leading-none tabular-nums">{tel ? tel.speed : "—"}</span>
-        <span className="text-[10px] font-semibold uppercase text-zinc-500">km/h</span>
-      </div>
-      <div className="mt-2 flex items-center gap-1.5">
-        <span className="flex h-5 items-center gap-1 rounded bg-zinc-800 px-1.5">
-          <span className="text-[9px] font-semibold uppercase text-zinc-500">Gear</span>
-          <span className="w-[1ch] text-center text-xs font-bold tabular-nums">{tel ? (tel.gear === 0 ? "N" : tel.gear) : "–"}</span>
-        </span>
-        {/* No DRS channel from 2026 on. */}
-        {tel?.drs != null && <DrsPill code={tel.drs} />}
+    // No right padding: the throttle, brake and RPM bars sit just right of "km/h" (109 px in).
+    <div className={`h-full pl-3 pt-2.5 text-sm ${out ? "opacity-40" : ""}`}>
+      <div className="flex h-[60px] flex-col justify-center">
+        <div className="flex items-baseline gap-1">
+          <span className="w-[3ch] text-right text-3xl font-bold leading-none tabular-nums">{tel ? tel.speed : "—"}</span>
+          <span className="text-[10px] font-semibold uppercase text-zinc-500">km/h</span>
+        </div>
+        <div className="mt-2 flex items-center gap-1.5">
+          <span className="flex h-5 items-center gap-1 rounded bg-zinc-800 px-1.5">
+            <span className="text-[9px] font-semibold uppercase text-zinc-500">Gear</span>
+            <span className="w-[1ch] text-center text-xs font-bold tabular-nums">{tel ? (tel.gear === 0 ? "N" : tel.gear) : "–"}</span>
+          </span>
+          {/* No DRS channel from 2026 on. */}
+          {tel?.drs != null && <DrsPill code={tel.drs} />}
+        </div>
       </div>
     </div>
   );
@@ -45,8 +48,9 @@ export default defineBlock({
   id: "speed-gear",
   name: "Speed & gear",
   version: "1.0.0",
-  shape: 2,
-  width: { min: 1, default: 1, max: 2 },
+  // pt-2.5 and a 60 px row: the height of the bars beside it (throttle-brake-rpm).
+  height: 70,
+  width: { min: 7, default: 7, max: 12 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: SpeedGear,

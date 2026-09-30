@@ -3,7 +3,7 @@
 
 import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useReplay } from "../store";
-import { createVisibility, ScaleContext, SettingsContext, SizeContext, VisibilityContext, type BlockSize, type SettingsValue } from "./context";
+import { createVisibility, SettingsContext, SizeContext, VisibilityContext, type BlockSize, type SettingsValue } from "./context";
 import type { BlockDefinition, BlockSettings } from "./defineBlock";
 import { sessionKind } from "./select";
 
@@ -14,11 +14,6 @@ export interface BlockHostProps {
   settings?: Partial<BlockSettings>;
   /** Called with the user's settings (not the defaults) whenever the block changes them, for the layout to store. */
   onSettingsChange?: (settings: Partial<BlockSettings>) => void;
-  /**
-   * Layout px to screen px: the block is laid out at its size / scale and zoomed to fill it, so its
-   * contents scale with its width (H3.8). The grid sets it; 1 by default.
-   */
-  scale?: number;
   className?: string;
   style?: CSSProperties;
 }
@@ -41,17 +36,10 @@ class Boundary extends Component<{ name: string; resetKey: string; children: Rea
   }
 }
 
-/** Screen size of the host in CSS px, and the display's device pixel ratio. */
-interface Measured {
-  width: number;
-  height: number;
-  dpr: number;
-}
-
-export function BlockHost({ block, settings: initial, onSettingsChange, scale = 1, className, style }: BlockHostProps) {
+export function BlockHost({ block, settings: initial, onSettingsChange, className, style }: BlockHostProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visibility] = useState(createVisibility);
-  const [measured, setMeasured] = useState<Measured>({ width: 0, height: 0, dpr: 1 });
+  const [size, setSize] = useState<BlockSize>({ width: 0, height: 0, pixelRatio: 1 });
   const [overrides, setOverrides] = useState<Partial<BlockSettings>>(initial ?? {});
   // New settings from the host (the layout reset, or edited elsewhere) replace the block's.
   const initialKey = JSON.stringify(initial ?? {});
@@ -66,12 +54,14 @@ export function BlockHost({ block, settings: initial, onSettingsChange, scale = 
   // Browser zoom (and moving to another screen) changes the pixel ratio and fires a resize.
   useLayoutEffect(() => {
     const el = ref.current!;
-    const measure = (width = el.clientWidth, height = el.clientHeight) => {
-      const dpr = window.devicePixelRatio || 1;
-      setMeasured((m) => (m.width === width && m.height === height && m.dpr === dpr ? m : { width, height, dpr }));
+    const measure = (box: { width: number; height: number } = el.getBoundingClientRect()) => {
+      const width = Math.floor(box.width);
+      const height = Math.floor(box.height);
+      const pixelRatio = window.devicePixelRatio || 1;
+      setSize((m) => (m.width === width && m.height === height && m.pixelRatio === pixelRatio ? m : { width, height, pixelRatio }));
     };
     measure();
-    const ro = new ResizeObserver(([entry]) => measure(entry.contentRect.width, entry.contentRect.height));
+    const ro = new ResizeObserver(([entry]) => measure(entry.contentRect));
     ro.observe(el);
     const onResize = () => measure();
     window.addEventListener("resize", onResize);
@@ -80,12 +70,6 @@ export function BlockHost({ block, settings: initial, onSettingsChange, scale = 
       window.removeEventListener("resize", onResize);
     };
   }, []);
-  // Layout px: what the block sees. In the grid, the same at every screen size.
-  const size = useMemo<BlockSize>(
-    () => ({ width: Math.round(measured.width / scale), height: Math.round(measured.height / scale), pixelRatio: measured.dpr * scale }),
-    [measured, scale],
-  );
-
   useEffect(() => {
     const io = new IntersectionObserver(([entry]) => visibility.set(entry.isIntersecting));
     io.observe(ref.current!);
@@ -111,19 +95,15 @@ export function BlockHost({ block, settings: initial, onSettingsChange, scale = 
   return (
     <div ref={ref} className={className} style={style}>
       {kind && block.sessions.includes(kind) && size.width > 0 && (
-        <div style={{ width: size.width, height: size.height, zoom: scale === 1 ? undefined : scale }}>
-          <VisibilityContext.Provider value={visibility}>
-            <SettingsContext.Provider value={settingsValue}>
-              <SizeContext.Provider value={size}>
-                <ScaleContext.Provider value={scale}>
-                  <Boundary name={block.name} resetKey={resetKey}>
-                    {content}
-                  </Boundary>
-                </ScaleContext.Provider>
-              </SizeContext.Provider>
-            </SettingsContext.Provider>
-          </VisibilityContext.Provider>
-        </div>
+        <VisibilityContext.Provider value={visibility}>
+          <SettingsContext.Provider value={settingsValue}>
+            <SizeContext.Provider value={size}>
+              <Boundary name={block.name} resetKey={resetKey}>
+                {content}
+              </Boundary>
+            </SizeContext.Provider>
+          </SettingsContext.Provider>
+        </VisibilityContext.Provider>
       )}
     </div>
   );

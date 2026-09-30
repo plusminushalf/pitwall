@@ -1,6 +1,5 @@
 import { memo, useMemo } from "react";
 import {
-  COLUMN_WIDTH,
   defineBlock,
   gap,
   lapTime,
@@ -22,10 +21,9 @@ import {
 type GapMode = "leader" | "interval";
 type Settings = { gapMode: GapMode };
 
-const ROW_H = 28;
-/** The selection line and the column titles. */
-const HEAD_H = 60;
-const WIDTH = 3 * COLUMN_WIDTH;
+const ROW_H = 30;
+/** The selection line and the column titles (about 56 px). */
+const HEAD_H = 56;
 const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_58px_40px_20px]";
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
@@ -167,7 +165,7 @@ function TimingTower() {
           <span className="text-zinc-600">Click drivers to show only them on the track map</span>
         )}
       </div>
-      <div className={`grid h-8 shrink-0 ${COLS} items-center gap-1 border-b border-zinc-800 ${PAD} text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}>
+      <div className={`grid shrink-0 ${COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}>
         <span>Pos</span>
         <span />
         <span>Driver</span>
@@ -205,9 +203,9 @@ export default defineBlock({
   id: "timing-tower",
   name: "Timing tower",
   version: "1.0.0",
-  // Every driver's row fits: tall and thin.
-  shape: ({ drivers }) => WIDTH / (HEAD_H + Math.max(drivers.length, 1) * ROW_H),
-  width: { min: 2, default: 3, max: 4 },
+  // Fills its column; the rows scroll inside when they don't all fit.
+  height: { min: HEAD_H + 5 * ROW_H },
+  width: { min: 22, default: 24, max: 40 },
   sessions: ["race"],
   settings: { gapMode: "leader" as GapMode },
   Component: TimingTower,

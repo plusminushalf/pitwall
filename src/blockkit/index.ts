@@ -1,6 +1,8 @@
 // block-kit: the public API for blocks (docs/modular-hypotheses.md, want 3). Blocks import only
 // this ("block-kit") and React; everything else in src/blockkit/ is the core's side.
 //
+// Blocks are drawn at a fixed type size in CSS px: a wider block gets more room, not bigger contents.
+//
 // Every hook returns data up to the current replay time only (spoiler-free), except useWholeSession().
 // React hooks update at most 10 times a second and only when their own data changed; useFrame draws
 // every animation frame. Off-screen blocks pause.
@@ -9,7 +11,12 @@
 // select(value) and re-renders only when that result changes (compared structurally), e.g.
 // useDriver(n, d => d.position) or useFeed(f => f.length). Selectors see the same spoiler-free value.
 //
-//   defineBlock(def)             id, name, version, shape, width, sessions, settings, Component
+//   defineBlock(def)             id, name, version, height, width, sessions, settings, Component
+//     height                     px (fixed: what the contents take at the fixed type size), or a function
+//                                of HeightInput (session info, selection, the block's settings; never
+//                                live data); { min } to stretch: the last stretching block in each grid
+//                                column fills it to the bottom of the screen
+//     width                      { min, default, max } in percent of the grid's width, snapped to columns
 //
 //   Time and playback
 //     useTime(select?)           replay time, 10 Hz
@@ -40,27 +47,24 @@
 //     useSelectedDriver()        pinned by settings, else focused, else best-placed selected, else leader
 //   The block itself
 //     useSettings()              [settings, update]
-//     useBlockSize()             { width, height, pixelRatio } in layout px
-//     useLayoutPoint()           pointer event -> { x, y } in layout px
+//     useBlockSize()             { width, height } in CSS px, and the display's pixelRatio
 //   Media
 //     useRadio(select?)          playing, unavailable, play(url), stop()
 //   Opt-out
 //     useWholeSession(select?)   the whole session, future included
 //
 //   API gaps found rebuilding today's screen (step 2), marked "API gap" where they're defined:
-//     COLUMN_WIDTH               layout px per column, so a shape can come from content in px
-//     useBlockSize().pixelRatio  device px per layout px (the grid scales blocks), for canvases
+//     useBlockSize().pixelRatio  device px per CSS px, for sharp canvases (redraw when it changes)
 //     usePositions()             every car's position at once (map labels)
 //     useBestSectors()           fastest sector times by anyone so far
 //     useFeed() entries          `id` (stable key, kept across live rebuilds) and `postRace`
-//     useLayoutPoint()           pointer events to layout px (clickable canvases in a zoomed block)
 //     useRadio()                 team radio played by the core, one clip at a time app-wide
 //
 //   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track
-//   projection and aspect, and TyreBadge, lifted as they are from the core.
+//   projection, and TyreBadge, lifted as they are from the core.
 
-export { COLUMN_WIDTH, defineBlock } from "./defineBlock";
-export type { BlockDefinition, BlockSettings, DriverSetting, SettingValue, ShapeInput } from "./defineBlock";
+export { defineBlock } from "./defineBlock";
+export type { BlockDefinition, BlockSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineBlock";
 
 export {
   useBestSectors,
@@ -73,7 +77,6 @@ export {
   useFeed,
   useFrame,
   useLaps,
-  useLayoutPoint,
   useLeaderLap,
   usePlayback,
   usePositions,
@@ -106,5 +109,5 @@ export type { DriverInfo, Lap, SessionMeta, Stint, TrackStatus, WeatherSample } 
 export { COMPOUND, gap, lapTime, raceClock, shortTeam, teamColor, textOn, TRACK_STATUS } from "../lib/format";
 export { drsEligible, drsOpen } from "../engine/raceState";
 /** Track coordinates to canvas px: rotated to the circuit's usual orientation and fitted with padding. */
-export { makeTrackTransform as trackTransform, trackAspect, type TrackTransform } from "../lib/trackTransform";
+export { makeTrackTransform as trackTransform, type TrackTransform } from "../lib/trackTransform";
 export { TyreBadge } from "./provisional/TyreBadge";

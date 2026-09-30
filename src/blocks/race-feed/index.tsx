@@ -185,9 +185,9 @@ export default defineBlock({
   id: "race-feed",
   name: "Race feed",
   version: "1.0.0",
-  // Fixed: it scrolls inside, so the layout never jumps as items arrive. 11 rows at 3 columns.
-  shape: 12 / 11,
-  width: { min: 2, default: 3, max: 4 },
+  // Fills its column and scrolls inside, so the layout never jumps as items arrive.
+  height: { min: 150 },
+  width: { min: 15, default: 21, max: 40 },
   sessions: ["race"],
   settings: {},
   Component: RaceFeed,

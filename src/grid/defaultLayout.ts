@@ -1,24 +1,41 @@
-// Today's screen as blocks (H3.12): tower on the left, map in the middle with the 60 s trace under it,
-// the driver blocks stacked on the right above the feed, weather under the tower.
+// The default race screen as blocks (H3.12), laid out like the screen before blocks: the tower on the
+// left, the map filling the middle, and the driver panel on the right (header, speed and gear beside the
+// bars, the 60 s trace, lap times and sectors, tyres) with the race feed filling the rest. Weather is in
+// the top bar, so its block isn't placed.
+//
+// That screen had fixed-width sides (tower 410 px, panel 360 px, the bars 112 px into it); here the sides
+// are the nearest whole number of columns at REFERENCE_WIDTH, so on wider or narrower screens they grow
+// and shrink with it. The speed column is the fewest columns its contents (109 px) fit in at MIN_WIDTH.
 
-import { COLUMNS, type Layout } from "./layout";
+import { COLUMNS, type Layout, type LayoutEntry } from "./layout";
 
-const at = (x: number, y: number, width: number) => ({ blockVersion: "1.0.0", x, y, width, settings: {} });
+/** The screen width (CSS px) the default layout matches the old widths at: the user's window. */
+export const REFERENCE_WIDTH = 1720;
+/** The narrowest screen the default layout keeps every block's contents whole at. */
+export const MIN_WIDTH = 1440;
+
+const cols = (px: number) => Math.max(1, Math.round((px * COLUMNS) / REFERENCE_WIDTH));
+const TOWER = cols(410);
+const PANEL = cols(360);
+const SPEED = Math.ceil((109 * COLUMNS) / MIN_WIDTH);
+const MAP = COLUMNS - TOWER - PANEL;
+const RIGHT = COLUMNS - PANEL;
+
+const at = (x: number, y: number, width: number, group?: string): LayoutEntry => ({ blockVersion: "1.0.0", x, y, width, ...(group && { group }), settings: {} });
 
 export const DEFAULT_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
   blocks: {
-    "timing-tower": at(0, 0, 3),
-    weather: at(0, 19, 1),
-    "track-map": at(3, 0, 4),
-    "speed-trace": at(3, 13, 4),
-    "driver-header": at(7, 0, 3),
-    "speed-gear": at(7, 3, 1),
-    "throttle-brake-rpm": at(8, 3, 2),
-    "lap-times": at(7, 5, 3),
-    sectors: at(7, 7, 3),
-    "tyre-strip": at(7, 8, 3),
-    "race-feed": at(7, 10, 3),
+    "timing-tower": at(0, 0, TOWER),
+    "track-map": at(TOWER, 0, MAP),
+    "driver-header": at(RIGHT, 0, PANEL),
+    "speed-gear": at(RIGHT, 1, SPEED, "telemetry"),
+    "throttle-brake-rpm": at(RIGHT + SPEED, 1, PANEL - SPEED, "telemetry"),
+    "speed-trace": at(RIGHT, 2, PANEL, "telemetry"),
+    "lap-times": at(RIGHT, 3, PANEL, "laps"),
+    sectors: at(RIGHT, 4, PANEL, "laps"),
+    "tyre-strip": at(RIGHT, 5, PANEL),
+    "race-feed": at(RIGHT, 6, PANEL),
   },
 };

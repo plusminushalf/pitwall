@@ -2,6 +2,8 @@ import type { ReactNode } from "react";
 import { defineBlock, lapTime, useDriver, useFastestLap, useSelectedDriver, useSessionInfo, useTotalLaps, type DriverSetting, type Lap } from "block-kit";
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+/** A line of 10 px text in a text-sm block (line height 20/14). */
+const LINE_10 = (10 * 20) / 14;
 
 function Stat({ label, value, className = "text-zinc-200" }: { label: string; value: ReactNode; className?: string }) {
   return (
@@ -25,8 +27,8 @@ function LapTimes() {
   const bestColor = !best ? "text-zinc-600" : isFastest(best) ? "text-fuchsia-400" : "text-zinc-200";
 
   return (
-    <div className="flex h-full items-center px-3">
-      <div className="grid w-full grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-2">
+    <div className="h-full px-3 pt-2 text-sm">
+      <div className="grid grid-cols-[64px_minmax(0,1fr)_minmax(0,1fr)] gap-2">
         <Stat
           label="Lap"
           value={
@@ -50,8 +52,9 @@ export default defineBlock({
   id: "lap-times",
   name: "Lap times",
   version: "1.0.0",
-  shape: 6,
-  width: { min: 2, default: 3, max: 4 },
+  // pt-2, a label line and a 24 px time (the sectors block under it has the bottom padding).
+  height: 8 + LINE_10 + 24,
+  width: { min: 12, default: 21, max: 40 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: LapTimes,

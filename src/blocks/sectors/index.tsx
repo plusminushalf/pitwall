@@ -2,6 +2,8 @@ import { defineBlock, lapTime, useBestSectors, useDriver, useLaps, useSelectedDr
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 const EPS = 1e-6;
+/** A sector's time (a 10 px label and a 12 px time on one baseline: 16.28 px, measured) and its mini-sector bar. */
+const CELL_H = 16.28 + 4 + 4;
 
 // Mini-sector status codes: 2048 yellow, 2049 green, 2051 purple, 2064 pit lane.
 const SEGMENT_COLOR: Record<number, string> = {
@@ -55,7 +57,7 @@ function Sectors() {
   const personal = useLaps(n, (laps) => personalBestSectors(laps, last));
   const overall = useBestSectors();
   return (
-    <div className="grid h-full grid-cols-3 items-center gap-3 px-3">
+    <div className="grid h-full grid-cols-3 content-start gap-3 px-3 py-2 text-sm">
       {[0, 1, 2].map((k) => (
         <SectorCell key={k} index={k} lap={last} personal={personal[k]} overall={overall[k] ?? Infinity} />
       ))}
@@ -67,8 +69,8 @@ export default defineBlock({
   id: "sectors",
   name: "Sectors",
   version: "1.0.0",
-  shape: 12,
-  width: { min: 2, default: 3, max: 4 },
+  height: 8 + CELL_H + 8,
+  width: { min: 12, default: 21, max: 40 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: Sectors,

@@ -32,12 +32,6 @@ function rotated(track: Outline) {
   return { rotate, minX, maxX, minY, maxY };
 }
 
-/** Width : height of the circuit (outline and pit lane) as drawn, in its usual orientation. */
-export function trackAspect(track: Outline): number {
-  const { minX, maxX, minY, maxY } = rotated(track);
-  return (maxX - minX) / (maxY - minY) || 1;
-}
-
 /**
  * Map track coordinates to canvas pixels: rotate by the circuit's rotation
  * (counter-clockwise, y up), fit into the box with padding, and flip y for the screen.

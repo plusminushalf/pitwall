@@ -28,21 +28,24 @@ function ThrottleBrakeRpm() {
   const throttle = tel?.throttle ?? 0;
   const braking = tel?.braking ?? false;
   return (
-    <div className={`flex h-full flex-col justify-center gap-1.5 px-3 ${out ? "opacity-40" : ""}`}>
-      <Bar
-        label="RPM"
-        pct={(rpm / RPM_MAX) * 100}
-        color={rpm >= RPM_HIGH ? "#f59e0b" : "#a1a1aa"}
-        value={tel ? rpm.toLocaleString("en-US") : "—"}
-      />
-      <Bar label="Throttle" pct={throttle} color="#22c55e" value={tel ? `${throttle}%` : "—"} />
-      <Bar
-        label="Brake"
-        pct={braking ? 100 : 0}
-        color="#ef4444"
-        value={tel ? (braking ? "ON" : "OFF") : "—"}
-        valueClass={braking ? "font-semibold text-red-400" : "text-zinc-600"}
-      />
+    // No left padding: made to sit right of speed & gear, whose right side has the gap.
+    <div className={`h-full pr-3 pt-2.5 text-sm ${out ? "opacity-40" : ""}`}>
+      <div className="flex h-[60px] flex-col justify-center gap-1.5">
+        <Bar
+          label="RPM"
+          pct={(rpm / RPM_MAX) * 100}
+          color={rpm >= RPM_HIGH ? "#f59e0b" : "#a1a1aa"}
+          value={tel ? rpm.toLocaleString("en-US") : "—"}
+        />
+        <Bar label="Throttle" pct={throttle} color="#22c55e" value={tel ? `${throttle}%` : "—"} />
+        <Bar
+          label="Brake"
+          pct={braking ? 100 : 0}
+          color="#ef4444"
+          value={tel ? (braking ? "ON" : "OFF") : "—"}
+          valueClass={braking ? "font-semibold text-red-400" : "text-zinc-600"}
+        />
+      </div>
     </div>
   );
 }
@@ -51,8 +54,9 @@ export default defineBlock({
   id: "throttle-brake-rpm",
   name: "Throttle, brake & RPM",
   version: "1.0.0",
-  shape: 4,
-  width: { min: 2, default: 2, max: 3 },
+  // pt-2.5 and three 16 px bars 6 px apart.
+  height: 70,
+  width: { min: 10, default: 15, max: 30 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: ThrottleBrakeRpm,

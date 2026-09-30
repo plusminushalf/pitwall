@@ -8,9 +8,11 @@ const MAX_BRAKE_SPAN_MS = 1_000; // a single brake sample never paints more than
 const BRAKE_H = 3;
 const FONT = "9px ui-sans-serif, system-ui, sans-serif";
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
-/** Padding around the chart (px-3 pt-2.5 pb-2) and the title line above it (h-4 mb-1). */
+/** The chart's height, and the padding beside it (px-3). */
+const CHART_H = 68;
 const PAD_X = 24;
-const CHROME_Y = 10 + 8 + 16 + 4;
+/** A line of 10 px text in a text-sm block (line height 20/14). */
+const LINE_10 = (10 * 20) / 14;
 
 function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, h: number, dpr: number) {
   const pw = Math.round(w * dpr);
@@ -141,7 +143,7 @@ function SpeedTrace() {
   const size = useBlockSize();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const w = size.width - PAD_X;
-  const h = size.height - CHROME_Y;
+  const h = CHART_H;
 
   // Redrawn on the next animation frame, not in React's commit, and only when something changed.
   const drawn = useRef<unknown[]>([]);
@@ -154,8 +156,8 @@ function SpeedTrace() {
   });
 
   return (
-    <div className={`h-full px-3 pb-2 pt-2.5 ${out ? "opacity-40" : ""}`}>
-      <div className="mb-1 flex h-4 items-center justify-between">
+    <div className={`h-full px-3 pb-2 pt-2.5 text-sm ${out ? "opacity-40" : ""}`}>
+      <div className="mb-1 flex items-center justify-between">
         <span className={LABEL}>Last 60 s</span>
         <span className="flex items-center gap-2.5 text-[10px] text-zinc-500">
           <Legend swatch="h-0.5 w-3 bg-zinc-100" label="Speed" />
@@ -180,8 +182,9 @@ export default defineBlock({
   id: "speed-trace",
   name: "Last 60 s",
   version: "1.0.0",
-  shape: 2,
-  width: { min: 2, default: 4, max: 6 },
+  // The title line and the chart, padded: pt-2.5, mb-1 and pb-2.
+  height: 10 + LINE_10 + 4 + CHART_H + 8,
+  width: { min: 12, default: 21, max: 60 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: SpeedTrace,

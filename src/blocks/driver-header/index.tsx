@@ -14,6 +14,15 @@ import {
   type DriverStatus,
 } from "block-kit";
 
+/** Lines of text in a text-sm block (line height 20/14 of the font size). */
+const line = (fontSize: number) => (fontSize * 20) / 14;
+/** The focus chips' row: py-1.5, a 20 px chip and the hairline under it. */
+const CHIPS_H = 12 + 20 + 1;
+/** py-2 around the headshot's 48 px, or the name (text-lg, tight), full name (text-xs) and team if taller. */
+const HEAD_H = 16 + Math.max(48, 18 * 1.25 + 16 + line(11));
+/** The hint under the header: mt-1 and lines of 10 px text (the hints with a selection take two). */
+const hintHeight = (lines: number) => 4 + lines * line(10);
+
 const STATUS_PILL: Record<Exclude<DriverStatus, "RUNNING">, string> = {
   PIT: "bg-zinc-200 text-zinc-900",
   OUT: "bg-red-500/20 text-red-400",
@@ -59,7 +68,7 @@ function Position({ s }: { s: Pick<DriverState, "status" | "position" | "gridPos
 /** Focuses one of the selected drivers (ringed on the map, shown here); clicking the active chip unfocuses. */
 function FocusChips({ drivers, selected, focused, onFocus }: { drivers: readonly DriverInfo[]; selected: readonly number[]; focused: number | null; onFocus: (n: number | null) => void }) {
   return (
-    <div className="flex h-[26px] shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-800 px-3">
+    <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-zinc-800 px-3 py-1.5 [scrollbar-width:none]">
       {selected.map((n) => {
         const info = drivers.find((d) => d.number === n);
         if (!info) return null;
@@ -91,10 +100,10 @@ function DriverHeader() {
   const info = drivers.find((d) => d.number === n);
   if (!s || !info) return null;
 
-  const pinned = typeof setting === "number" && setting === s.driver;
   const following = focused === s.driver;
+  // The same test as the block's height (below), so there's room for it exactly when it's shown.
   const hint =
-    following || pinned
+    focused != null || typeof setting === "number"
       ? null
       : selected.length === 0
         ? "Showing the leader · click a car or row to select drivers"
@@ -107,6 +116,7 @@ function DriverHeader() {
   return (
     <section className="flex h-full flex-col text-sm">
       {selected.length > 0 && <FocusChips drivers={drivers} selected={selected} focused={focused} onFocus={focus} />}
+      {/* Flat: the screen before blocks faded this from the team colour (no gradients now). */}
       <div className="min-h-0 flex-1 border-l-[3px] px-3 py-2" style={{ borderLeftColor: color, background: `${color}1f` }}>
         <div className="flex items-center gap-3">
           <Headshot key={info.number} url={info.headshotUrl} color={color} />
@@ -131,7 +141,7 @@ function DriverHeader() {
             </button>
           )}
         </div>
-        {hint && <p className="mt-0.5 truncate text-[10px] text-zinc-500">{hint}</p>}
+        {hint && <p className={`mt-1 text-[10px] text-zinc-500 ${selected.length > 0 ? "line-clamp-2" : "truncate"}`}>{hint}</p>}
       </div>
     </section>
   );
@@ -141,8 +151,10 @@ export default defineBlock({
   id: "driver-header",
   name: "Driver",
   version: "1.0.0",
-  shape: 4,
-  width: { min: 2, default: 3, max: 4 },
+  // The focus chips with a selection; the hint unless a focused or pinned driver is shown.
+  height: ({ selection: { selected, focused }, settings }) =>
+    (selected.length > 0 ? CHIPS_H : 0) + HEAD_H + (focused != null || typeof settings.driver === "number" ? 0 : hintHeight(selected.length > 0 ? 2 : 1)),
+  width: { min: 15, default: 21, max: 40 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: DriverHeader,

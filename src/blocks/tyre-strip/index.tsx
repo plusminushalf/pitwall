@@ -33,7 +33,7 @@ function TyreStrip() {
   const pct = (laps: number) => `${(Math.max(laps, 0) / total) * 100}%`;
 
   return (
-    <div className="flex h-full flex-col justify-center px-3">
+    <div className="h-full px-3 py-2 text-sm">
       <div className="mb-1.5 flex items-center justify-between">
         <span className={LABEL}>
           Tyres <span className="font-normal normal-case tracking-normal text-zinc-600">· {totalLapsEstimated ? "~" : ""}{total} laps</span>
@@ -74,8 +74,9 @@ export default defineBlock({
   id: "tyre-strip",
   name: "Tyres",
   version: "1.0.0",
-  shape: 6,
-  width: { min: 2, default: 3, max: 4 },
+  // py-2, the title line (16 px, the tyre badge) and the 14 px strip 6 px below it.
+  height: 8 + 16 + 6 + 14 + 8,
+  width: { min: 12, default: 21, max: 60 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: TyreStrip,

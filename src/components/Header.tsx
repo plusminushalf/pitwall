@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { RaceState } from "../engine/raceState";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useReplay } from "../store";
-import type { SessionMeta } from "../types";
+import type { SessionMeta, WeatherSample } from "../types";
 import { LiveControl } from "./LiveControl";
 import { RacesButton } from "./Navigation";
 
@@ -78,6 +78,31 @@ function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
   );
 }
 
+function Weather({ w }: { w: WeatherSample | null }) {
+  if (!w) return <span className="text-xs text-zinc-600">No weather data</span>;
+  const items: [string, string, string?][] = [
+    ["Air", `${w.airTemp.toFixed(1)}°`],
+    ["Track", `${w.trackTemp.toFixed(1)}°`],
+    ["Hum", `${Math.round(w.humidity)}%`],
+    ["Wind", `${w.windSpeed.toFixed(1)} m/s`, `Wind ${w.windSpeed.toFixed(1)} m/s from ${Math.round(w.windDirection)}°`],
+  ];
+  return (
+    <div className="flex items-center gap-3">
+      {w.rainfall > 0 && (
+        <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-sky-300" title="Rainfall reported">
+          🌧 Rain
+        </span>
+      )}
+      {items.map(([label, value, title]) => (
+        <span key={label} className="flex flex-col items-end leading-tight" title={title}>
+          <Label>{label}</Label>
+          <span className="text-xs tabular-nums text-zinc-200">{value}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
 function ShortcutsHelp() {
   return (
     <div className="group relative">
@@ -136,6 +161,7 @@ export function Header() {
       </div>
 
       <div className="flex items-center justify-end gap-4">
+        <Weather w={race?.weather ?? null} />
         <ShortcutsHelp />
       </div>
     </header>

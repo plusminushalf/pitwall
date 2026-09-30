@@ -167,13 +167,13 @@ const feedEntriesOf = cached((session: Session): FeedEntry[] => {
 /** Feed items up to index `end` (from feedEndAt), newest first. */
 export const feedUpTo = (session: Session, end: number): FeedEntry[] => feedEntriesOf(session).slice(0, end + 1).reverse();
 
-/** Shape inputs of a session; the previous object while they're unchanged (a live session is rebuilt often). */
-let lastShapeInput: { info: SessionInfo; drivers: DriverInfo[]; track: Track } | null = null;
+/** The session part of the height input (HeightInput); the previous object while they're unchanged (a live session is rebuilt often). */
+let lastHeightInput: { info: SessionInfo; drivers: DriverInfo[]; track: Track } | null = null;
 
-export function shapeInputOf(session: Session): { info: SessionInfo; drivers: DriverInfo[]; track: Track } {
+export function heightInputOf(session: Session): { info: SessionInfo; drivers: DriverInfo[]; track: Track } {
   const next = { info: sessionInfoOf(session.meta), drivers: driversOf(session), track: trackOf(session.meta.track) };
-  if (lastShapeInput && deepEqual(lastShapeInput, next)) return lastShapeInput;
-  return (lastShapeInput = next);
+  if (lastHeightInput && deepEqual(lastHeightInput, next)) return lastHeightInput;
+  return (lastHeightInput = next);
 }
 
 /** Car telemetry samples, columnar: copies, so nothing past t is reachable (not even via `.buffer`). */

@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { buildSession, withMeta } from "../data/session";
 import type { DriverTelemetry, SessionMeta } from "../types";
-import { feedEndAt, feedUpTo, shapeInputOf } from "./select";
+import { feedEndAt, feedUpTo, heightInputOf } from "./select";
 
 const rc = (t: number, message: string) => ({ t, lap: 1, category: "Other", flag: null, scope: null, sector: null, driver: null, message });
 
@@ -43,11 +43,11 @@ describe("live rebuilds", () => {
   const first = buildSession(meta([rc(10_000, "A"), rc(20_000, "B")]), telemetry);
   const visible = (s: ReturnType<typeof buildSession>, t: number) => feedUpTo(s, feedEndAt(s, t));
 
-  test("shape inputs stay the same object while they don't change", () => {
-    const a = shapeInputOf(first);
+  test("height inputs stay the same object while they don't change", () => {
+    const a = heightInputOf(first);
     const rebuilt = withMeta(first, meta([rc(10_000, "A"), rc(20_000, "B")], 120_000));
     expect(rebuilt).not.toBe(first);
-    expect(shapeInputOf(rebuilt)).toBe(a);
+    expect(heightInputOf(rebuilt)).toBe(a);
   });
 
   test("feed entries keep identity and id across a rebuild; new items get new ids", () => {

@@ -8,7 +8,7 @@ import type { Session } from "../data/session";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, Lap, TrackStatus, WeatherSample } from "../types";
-import { ScaleContext, SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
+import { SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
 import type { BlockSettings } from "./defineBlock";
 import { deepEqual } from "./equal";
 import { addFrameCallback, type DrawFn } from "./frame";
@@ -346,26 +346,11 @@ export function useSettings<S extends BlockSettings = BlockSettings>(): [S, (pat
   return [ctx.settings as S, ctx.update as (patch: Partial<S>) => void];
 }
 
-/** The block's size in layout px (CSS px inside the block; the grid zooms blocks to fit), and its pixel ratio. */
+/** The block's size in CSS px, and the display's pixel ratio. */
 export function useBlockSize(): BlockSize {
   const size = useContext(SizeContext);
   if (!size) throw new Error("useBlockSize() must be used inside a BlockHost");
   return size;
-}
-
-/**
- * API gap: turns a pointer event into layout px relative to the element it's on. The grid zooms blocks,
- * so screen px (clientX, getBoundingClientRect) aren't the px a block draws in.
- */
-export function useLayoutPoint(): (e: { clientX: number; clientY: number; currentTarget: Element }) => { x: number; y: number } {
-  const scale = useContext(ScaleContext);
-  return useCallback(
-    (e) => {
-      const rect = e.currentTarget.getBoundingClientRect();
-      return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
-    },
-    [scale],
-  );
 }
 
 // ---------------------------------------------------------------- media

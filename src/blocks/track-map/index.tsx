@@ -1,15 +1,12 @@
 import { useEffect, useMemo, useRef, type MouseEvent } from "react";
 import {
-  COLUMN_WIDTH,
   defineBlock,
   teamColor,
   TRACK_STATUS,
-  trackAspect,
   trackTransform,
   useBlockSize,
   useDrivers,
   useFrame,
-  useLayoutPoint,
   usePositions,
   useRunningOrder,
   useSectorFlags,
@@ -26,11 +23,6 @@ const PADDING = 56;
 const HIT_RADIUS = 14;
 const LABEL_H = 16;
 const FLAG_COLORS: Record<SectorFlag, string> = { YELLOW: "#facc15", "DOUBLE YELLOW": "#f97316", RED: "#ef4444" };
-
-const WIDTH = 4 * COLUMN_WIDTH;
-/** Between a tall-ish and a wide box: very tall or very wide circuits are fitted with more padding. */
-const MIN_SHAPE = 16 / 13; // 13 rows at 4 columns
-const MAX_SHAPE = 1.6; // 10 rows
 
 interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -141,7 +133,6 @@ function TrackMap() {
   const sectorFlags = useSectorFlags();
   const { selected, focused, toggle } = useSelection();
   const { width: w, height: h, pixelRatio } = useBlockSize();
-  const toLayout = useLayoutPoint();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const carsOnScreen = useRef<{ driver: number; x: number; y: number }[]>([]);
   const labelSlots = useRef(new Map<number, number>()); // driver -> label corner used last frame
@@ -275,7 +266,9 @@ function TrackMap() {
   });
 
   const onClick = (e: MouseEvent<HTMLCanvasElement>) => {
-    const { x: mx, y: my } = toLayout(e);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
     let best: { driver: number; d: number } | null = null;
     for (const c of carsOnScreen.current) {
       const d = Math.hypot(c.x - mx, c.y - my);
@@ -303,12 +296,9 @@ export default defineBlock({
   id: "track-map",
   name: "Track map",
   version: "1.0.0",
-  // The outline fitted inside the padding, kept between MIN_SHAPE and MAX_SHAPE.
-  shape: ({ track }) => {
-    const fitted = WIDTH / ((WIDTH - 2 * PADDING) / trackAspect(track) + 2 * PADDING);
-    return Math.min(Math.max(fitted, MIN_SHAPE), MAX_SHAPE);
-  },
-  width: { min: 3, default: 4, max: 6 },
+  // Fills its column; the circuit is fitted inside, whatever the box's shape.
+  height: { min: 200 },
+  width: { min: 20, default: 55, max: 80 },
   sessions: ["race"],
   settings: {},
   Component: TrackMap,
