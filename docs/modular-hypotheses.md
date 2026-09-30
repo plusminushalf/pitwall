@@ -1,12 +1,12 @@
 # Modular rewrite: hypotheses
 
-Draft for discussion, 2026-09-29; module marketplace added 2026-09-30. Want 1 and most of want 2 are now built for historical replay (commit 49515e4); want 3 is not started. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
+Draft for discussion, 2026-09-29; module marketplace added 2026-09-30; want 3 redesigned around UI blocks on 2026-09-30. Want 1 and most of want 2 are now built for historical replay (commit 49515e4); want 3 is designed but not started. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
 
 ## The three wants
 
 1. **Install and use from the web** with little or no command line.
 2. **Bring your own data.** Each user fetches from OpenF1 with their own access. We never host, resell or pass along F1 data.
-3. **Everything is a module, and anyone can publish one.** The dashboard is just modules placed on a layout the user chooses. Anyone can add a module by opening a PR, and users install the ones they want from an in-app marketplace and drop them into their layout.
+3. **Everything is a block, and anyone can publish one.** Everything between the top bar and the timeline is a UI block that reads the shared race data and decides what to show and how. Users arrange blocks on a snap grid. Anyone can add a block by opening a PR, and users install the ones they want from an in-app marketplace.
 
 ## What we checked (facts)
 
@@ -62,13 +62,13 @@ Build shells 2 and 3 only when a spike shows we need them.
 
 **H2.4: Credentials live in a vault on a separate site.** Revised 2026-09-30 for the goals: users bring their own OpenF1 login, set it up once in the website, watch live without interruption (we refresh tokens ourselves, with nothing asked of the user), and downloads use the login when present because it's faster.
 - *Assumption to verify:* `POST /token` returns an access token that lasts about an hour, and there is no refresh token. Getting a new token means sending the username and password again, so silent refresh means the password must be available to code without a user gesture.
-- Anything that can decrypt the password without asking can also leak it. Encryption can't protect it from code running on the same origin, whether that's a bug, a compromised npm package or a marketplace module. The browser's origin boundary can. So the password and tokens never touch the app's origin.
+- Anything that can decrypt the password without asking can also leak it. Encryption can't protect it from code running on the same origin, whether that's a bug, a compromised npm package or a marketplace block. The browser's origin boundary can. So the password and tokens never touch the app's origin.
 - **The vault** is a tiny page on a different *site* from the app (e.g. app `f1replay.app`, vault `f1vault.dev`). A different registrable domain gives process isolation as well as storage isolation; a subdomain would only give the second.
   - It is the only code that sees the password or a token. It does login, token refresh, MQTT and authenticated REST fetches, and hands the app data only.
   - It is embedded in the app as a hidden iframe, so it runs for as long as the app is open.
   - Tiny and audited: its own folder, its own deploy, no npm dependencies beyond an MQTT client (or a hand-written MQTT-over-WebSocket subset).
   - Served with a strict CSP (`default-src 'none'`, scripts only from itself, `connect-src` only `api.openf1.org` and `mqtt.openf1.org`) and `frame-ancestors` set to the app's origin only, so no other site can embed it or talk to it.
-- **Setup happens in a popup on the vault's own origin**, never in a form inside the app. The user sees the vault's address in the URL bar, and the browser's password manager autofills there. Rule we tell users: *the app never asks for your password inside its own pages*. That defeats a malicious module drawing a fake login form. The vault checks the login once with `POST /token`, then stores the password encrypted.
+- **Setup happens in a popup on the vault's own origin**, never in a form inside the app. The user sees the vault's address in the URL bar, and the browser's password manager autofills there. Rule we tell users: *the app never asks for your password inside its own pages*. That defeats a malicious block drawing a fake login form. The vault checks the login once with `POST /token`, then stores the password encrypted.
 - **Storage, user's choice:**
   - *Stay connected on this device* (default): the password is encrypted with a non-extractable AES key, both in the vault's IndexedDB. Fully silent, even after a browser restart. App code can't reach it; someone with the whole browser profile could.
   - *Unlock with passkey*: the password is encrypted with a key derived from a passkey (WebAuthn PRF: Touch ID, Windows Hello, a security key). One tap when the app opens, then silent refresh for as long as the tab is open. A copied profile isn't enough.
@@ -77,10 +77,10 @@ Build shells 2 and 3 only when a spike shows we need them.
 - *Rejected:* a relay server of ours (we'd hold every user's password, all users would share one IP's rate limit, and we'd be passing along F1 data); the Credential Management API on its own (returning the password without a click means any app code can get it; still useful for autofill in the popup); a token broker the user deploys (the browser then needs a credential to talk to the broker, which moves the problem rather than solving it).
 - *Wrong if:* OpenF1 objects to user-held credentials in the browser, Chrome's storage partitioning or third-party iframe rules break the embedded vault, or passkey PRF support is too patchy to offer.
 
-**H2.5: The app talks to the vault through a narrow, capability-only protocol.** Modules get data, never tokens (the core sits between modules and the vault). This is what makes third-party modules possible later (H3.9).
+**H2.5: The app talks to the vault through a narrow, capability-only protocol.** Blocks get data, never tokens (the core sits between blocks and the vault). This is what makes third-party blocks possible (H3.13).
 - The vault accepts `postMessage` only from the configured app origin and validates every message against a schema.
 - It offers: `status`, `connect` (opens the setup popup), `subscribe(topics)`, `get(endpoint, params)` for a fixed list of OpenF1 read endpoints, and `disconnect`. There is no "give me the token".
-- It caps request rates, so a misbehaving module can't burn the user's quota or get the account flagged.
+- It caps request rates, so a bug in the app can't burn the user's quota or get the account flagged.
 - Correction to the earlier draft: a separate *worker* is not an isolation boundary. A worker on the same origin shares storage with the page, so any page code could read a saved password. Only a separate origin is.
 
 **H2.10: Live streams survive token expiry without the viewer noticing.**
@@ -114,147 +114,174 @@ Build shells 2 and 3 only when a spike shows we need them.
 - We show OpenF1 attribution and keep the project non-commercial.
 - Any money-making plan means talking to OpenF1 first.
 
-## Want 3: everything is a module, and anyone can publish one
+## Want 3: everything is a block, and anyone can publish one
+
+Rewritten 2026-09-30 after a design discussion. The earlier draft treated modules as plugins that could publish their own data streams for each other, with nine contribution points (map layers, tower columns, timeline markers and so on) and dockview as the layout engine. That is dropped. A module is now simply a **UI block**: it reads the one shared data stream and decides what to show and how. The user arranges blocks on a grid.
 
 ### Does anyone do this?
 
-No. The nearest attempts:
+No F1 tool does. The nearest attempts:
 - **MultiViewer (closed):** saved window layouts plus a local API, but all third-party code runs outside the app.
 - **Grafana-based f1-live-data:** arrangeable panels and plugins, but no replay clock.
 - **Delta:** a fixed grid where panels can collapse, maximise or pop out.
 - **f1telemetry.com:** 8 fixed widgets you can drag, saved in a cookie.
 - **IAmTomShaw/f1-race-replay:** an extension base class plus a one-way telemetry stream to other programs.
-- **None of them let you open the same panel twice.**
-- **None of them have a place where the community publishes panels for others to install.**
+- **None of them have a place where the community publishes blocks for others to install.**
 
-The closest match anywhere is **Foxglove / Lichtblick**, a robotics log viewer (Lichtblick is the MPL-2.0 fork). It has:
-- `registerPanel`, with a panel context offering `watch("currentTime")`, `subscribe(topics)`, `onRender(state, done)`, `saveState` and a declarative settings tree;
-- layouts saved as `{configById, layout tree, variables, playbackConfig}`;
-- data sources that run in workers.
+Precedents outside F1:
+- **Layout: iPhone home-screen widgets and Grafana dashboards.** An invisible grid that blocks snap into, with blocks settling upwards so there are no holes. iPhone widgets also show more detail at larger sizes.
+- **Block API: Foxglove / Lichtblick** (robotics log viewers): panels read a shared clock and shared data through a small context API. Its extensions run in-page with no sandbox.
+- **Marketplace: Raycast** (from memory, not re-checked). Every extension's source lives in one public repo; authors open a PR, the team reviews it, and CI builds and publishes it. Obsidian (code in the author's own repo, fetched from their release) and VS Code / Grafana (hosted marketplace with accounts) are the rejected alternatives.
 
-Its extensions run in-page with no sandbox.
+### What a block is
 
-For the marketplace itself, the useful precedents are outside F1 (from memory, not re-checked):
-- **Raycast:** every extension's source lives in one public monorepo. Authors open a PR, the Raycast team reviews it, and their CI builds and publishes it to the store.
-- **Obsidian:** code lives in the author's own repo. A PR adds one entry to a central `community-plugins.json`; the app downloads the files from the author's GitHub release. Review happens once, at first listing.
-- **VS Code / Grafana:** a hosted marketplace with publisher accounts. That needs a backend, which we don't want.
+**H3.1: A block is a UI piece over one shared data stream.**
+- The core owns the data: the downloaded race or the live feed, the clock, and which drivers are selected.
+- A block only reads. It never fetches data, stores data, or publishes data for other blocks. Blocks never import each other.
+- Data sources (OpenF1 historical, live over MQTT, simulate) and normalize stay in the core, so data quality has one source of truth.
+- What-if scenarios become a core feature that produces an alternative stream; blocks display whichever stream they're given.
+- *Test:* rebuild every part of today's screen as blocks using only the public hooks. Any need to reach into internals shows a gap in the API.
 
-### Hypotheses
+**H3.2: Blocks are React components that read data through hooks.** Not a component handed the whole stream as a prop.
 
-**H3.1: A small core, with everything else a module, including today's 7 components.**
-- The core covers: the clock (t, play, speed, seek, hover time), the session data API, selection and link groups, the layout manager, the module registry, persistence, and data sources.
-- *Test:* rebuild every current component using only the public API. Any need to reach into internals shows a gap in the API.
+```tsx
+export default defineBlock({
+  id: "speed-gear",
+  name: "Speed & gear",
+  shape: 1,                    // width : height, or a function of session info
+  width: { min: 1, default: 1, max: 3 },
+  sessions: ["race"],
+  settings: { driver: "follow-selection" },
+  Component: () => {
+    const car = useCar(useSelectedDriver());
+    return <Stat value={car.speed} unit="km/h" />;
+  },
+});
+```
 
-**H3.2: Panels alone aren't enough; we need contribution points.** These are the places a module can add to the app, VS Code style:
-- panels
-- track-map layers
-- timing-tower columns
-- timeline markers and bands
-- event-feed items
-- derived signals
-- commands and shortcuts
-- header chips
-- settings
+- *Why hooks:* the core knows exactly what each block reads, so it only re-renders blocks whose data changed, caps update rates and pauses off-screen blocks. The hooks are the contract, not how data gets delivered, so moving blocks into a sandbox later (H3.13) changes nothing for authors. And the API is simply the list of hooks, which is easy to document, version and check in CI.
+- *Cost:* authors must use React, and the app's copy of it (bundles mark React as external). A low-level "mount into this element" escape hatch for other frameworks can be added underneath later if anyone needs it.
 
-Examples that need more than panels:
-- A pit-rejoin ghost is a signal, plus a map layer, plus a tower column.
-- DRS zones are a map layer.
-- What-if scenarios feed several panels at once.
+**H3.3: Version 1 hooks.** Taken from an inventory of what today's UI reads.
+- *Time and playback:* `useTime()` (10 Hz); `useFrame(draw)` for canvas blocks, called every animation frame with the exact time and no React re-render; `usePlayback()` for play, pause, seek, jump to lap and speed.
+- *Session info, fixed for the session:* `useDrivers()` (names, teams, colours, headshots), `useTrack()` (outline, pit lane, corners, sector marks), `useSessionInfo()` (circuit, session name, total laps, local time).
+- *The race at t:* `useRace()` (track status, flags, weather, fastest lap, running order), `useDriver(n)` (position, gap, interval, tyres, laps, status), `useCar(n)` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory(n, windowMs)`, `useLaps(n)`, `useStints(n)`, `useFeed()`.
+- *Selection:* `useSelection()` (selected and focused drivers, plus setters), and `useSelectedDriver()`, which applies today's rule (focused, else best-placed selected, else leader) unless the block's settings pin a driver.
+- *The block itself:* `useSettings()` (e.g. the tower's gap/interval toggle, which is app-wide state today but belongs to one block) and `useBlockSize()`.
 
-**H3.3: Modules talk through named, typed signals (Foxglove's "topics").**
-- The core publishes `clock`, `race.state`, `car.location`, `car.telemetry` and `events.*`.
-- Modules publish derived signals such as `strategy.pitRejoin` and `scenario.<id>.raceState`.
-- Modules never import each other.
-- A what-if scenario is then just a module that publishes an alternative race state, and any panel can show either the real feed or a scenario feed. **The scenarios feature is the acceptance test for this architecture.**
+**H3.4: Hooks are spoiler-free by default.** Every hook returns data up to the current time only, as the tyre strip already does by hand, so no community block can spoil a race by accident. Blocks that genuinely need the whole session (the timeline's safety-car bands and event markers) ask for it explicitly through `useWholeSession()`, and the marketplace shows that the block uses it.
 
-**H3.4: Two update rates are part of the contract**, as they are today:
-- Race state is computed once at 10 Hz and shared.
-- Canvas modules draw every animation frame, reading the clock directly.
-- Tables update at most 10 Hz, and hidden panels pause.
-- Don't copy Foxglove's `done()` rule, which lets one slow panel stall playback for everyone. Drop that panel's frames instead.
-- *Test:* 12 panels, including 3 track maps and 4 telemetry charts, at 60 fps within 8 ms per frame on a mid-range laptop.
+**H3.5: Race first.** Each block declares the session types it supports. Version 1 hooks cover race sessions only. Qualifying works differently (a second ghost-lap clock, and hover and zoom measured in metres along the lap, not seconds), so it gets its own small set of hooks once the race set has settled.
 
-**H3.5: Use dockview as the layout engine.** It's MIT, 89 KB, supports React 19, and has tabs, docking, floating panels and serialisation via `toJSON` with per-panel params.
-- Its popout windows are React portals that share one store, so one clock drives every monitor of a multi-screen pit wall.
-- Runner-up: FlexLayout.
-- Watch out: canvas code that listens on `document` breaks inside popouts.
+**H3.6: Two update rates are part of the contract**, as they are today.
+- Race state is computed once at 10 Hz and shared; React hooks update at most that often.
+- `useFrame` blocks draw every animation frame, reading the clock directly.
+- Off-screen blocks pause.
+- A slow block drops its own frames; it never stalls playback for everyone else (don't copy Foxglove's `done()` rule).
+- *Test:* today's full screen as blocks at 60 fps within 8 ms per frame on a mid-range laptop.
 
-**H3.6: Multiple instances, each with its own config, plus link groups.**
-- Each panel instance has its own config, e.g. driver = "follow focus" or "pinned: #16".
-- Colour-coded link groups share a selection, so two telemetry panels can follow two different drivers side by side.
+**H3.7: A shared UI kit.** `Stat`, `Bar`, `Sparkline`, `DriverTag`, team colours, fonts and the theme, so community blocks look like they belong in the app. Looks are what sets us apart, so this matters almost as much as the hooks.
 
-**H3.7: Layouts are data.**
-- Format: `{version, panels: {id: {module, moduleVersion, config}}, tree, linkGroups}`.
-- Shared as a compressed URL or a file.
-- Presets per device class: pit wall, laptop, phone stack, broadcast.
-- **A shared layout never installs code.**
+### Layout
 
-**H3.8: Modules have declarative manifests** listing id, version, API version, `contributes` and `requires` (data channels, session types).
-- The app can list modules, and hide ones that don't fit (e.g. qualifying-only panels during a race), without running them.
-- It only loads data that active modules need.
+**H3.8: A snap grid, with each block's shape set by the block.**
+- The grid is a fixed number of columns wide with unlimited rows. **10 columns is a placeholder**; the right number comes from trying layouts on real screen sizes.
+- Each block declares its **shape** (a width-to-height ratio) and a minimum, default and maximum width in columns. The user only sets the width; the shape sets the height. Contents scale with the block's width.
+- A shape can depend on session info but never on live data. The tower's shape comes from the driver count, and the track map's from the circuit outline. The race feed has a fixed shape and scrolls inside it, so the layout never jumps.
+- Heights rarely land on whole rows, so the vertical snap step is fine-grained (around a quarter of a column's width).
+- Blocks settle upwards, so removing one never leaves a hole.
+- Cells grow with the screen, so every block scales with it. The minimum width keeps text readable. Narrow screens (fewer columns, blocks repacked into a stack) come later; we're desktop-first.
+- *Wrong if:* blocks with different shapes won't pack without ugly gaps, or text-scales-with-width makes blocks unreadable on common laptop sizes.
 
-**H3.9: Trust for third-party modules comes in phases.**
-- **P1:** first-party modules compiled into the app. A lint rule enforces the boundary: modules may only import `core/api`.
-- **P2:** trusted third-party ES modules loaded from a URL, with the user's consent and a pinned hash ("developer mode"). This is only safe because credentials live on the vault's separate origin (H2.4, H2.5).
-- **P3:** modules in sandboxed iframes with a message-only API, the Figma model.
+**H3.9: The top bar and the timeline are fixed.** Blocks fill everything between them, and only that middle area scrolls. Play and seek are always reachable, and no layout can end up without them. The default layout should fit a normal laptop screen without scrolling.
 
-The marketplace (H3.12) starts at P2: reviewed modules, installed with consent, pinned by hash. P3 has to land before we loosen review (e.g. auto-merge or unreviewed updates).
+**H3.10: Normal mode and edit mode**, like the iPhone home screen.
+- *Normal mode:* blocks are locked. Clicking a car or row selects a driver as today, and nothing moves by accident.
+- *Edit mode*, from an "Edit layout" button in the top bar: the grid becomes visible; drag to move (other blocks slide out of the way); drag a corner to change width a column at a time; ✕ removes a block and ⚙ opens its settings; **+** opens the block picker (installed blocks, plus a link to the marketplace); **Done** saves and **Reset** restores the default.
+- The race keeps playing while editing if performance allows. If re-rendering during drags costs too much, playback pauses in edit mode.
 
-If the API only passes serialisable data and columnar typed arrays from day one (our driver data is already columnar), then P3 is an adapter rather than a rewrite.
+**H3.11: One layout per browser, and each block at most once.**
+- Stored in the browser. No multiple saved layouts and no share links for now.
+- A block can be placed only once, so its id also identifies it in the layout and the picker hides blocks already placed. "Pinned to #16" still works for a single block.
+- Format: `{version, columns, blocks: {blockId: {blockVersion, x, y, width, settings}}}`. Heights are derived from shapes.
 
-**H3.10: Copy Lichtblick's API design, but build our own shell.** Lichtblick would give us layouts, extensions and playback today. But its UI is built for robotics (topics, ROS), it's on React 18, it runs extensions in-page, and the look would be theirs. Looks are what sets us apart.
+**H3.12: The default layout is today's screen, split into blocks.** New users see what they see now.
 
-**H3.11: Data sources are modules too**: OpenF1 historical, OpenF1 live over MQTT, simulate, and file import, all behind `SessionSource`. Normalize and the repairs stay in the core, so data quality has one source of truth.
-- Data-source modules touch the network and credentials, so they stay first-party. Authenticated sources are only ever reached through the vault (H2.5). The marketplace carries display and analysis modules (panels, layers, columns, signals).
+| Block | Shape | Min width |
+|---|---|---|
+| Timing tower | from the driver count (tall and thin) | 2 |
+| Track map | from the circuit outline | 3 |
+| Driver header (headshot, name, position, places gained) | wide strip, about 4:1 | 2 |
+| Speed and gear | square-ish | 1 |
+| Throttle, brake and RPM bars | wide strip | 2 |
+| Last-60 s trace | about 2:1 | 2 |
+| Lap times (lap, last, best) | wide strip | 2 |
+| Sectors with mini-sectors | wide strip | 2 |
+| Tyre strip | thin strip | 2 |
+| Race feed | fixed and tall, scrolls inside | 2 |
+| Weather (moved out of the top bar) | small | 1 |
 
-### The marketplace
+All the driver blocks follow the selected driver by default, so stacked together they look like today's driver panel.
 
-**H3.12: The marketplace is a git repo, not a service.** Follow the Raycast model:
-- Community modules live in a `modules/` folder of a public repo (ours, or a dedicated `f1-modules` repo). Submitting a module means opening a PR.
-- On merge, CI builds each module into a content-hashed ES bundle and regenerates a static `registry.json` (id, name, author, version, API version, hash, manifest, screenshots). Both are served from the same static host as the app.
-- No accounts, no database, no backend. It fits want 1.
-- Why not the Obsidian model: if code is fetched from the author's own release, what we reviewed is not necessarily what users run. Building from reviewed source closes that gap.
-- *Wrong if:* review becomes the bottleneck (too many PRs for the maintainers), or authors want to ship updates without waiting for review.
+### Trust and the marketplace
 
-**H3.13: CI does most of the review.** A submission PR must pass, automatically:
-- manifest schema check, and the API version must be one we support;
-- imports only from the public module API (`core/api`); no `fetch`, `WebSocket`, `eval`, or DOM access outside the module's own root;
+**H3.13: Trust comes in phases.**
+- **P1:** our own blocks, compiled into the app. A lint rule enforces the boundary: blocks may only import React and the block kit.
+- **P2:** reviewed marketplace blocks, installed with the user's consent, pinned by hash, running in-page.
+- **P3:** blocks in sandboxed iframes, with the hooks backed by a message channel instead of memory. Authors' code doesn't change.
+- *Why P2 is acceptable for a long time:* with credentials in the vault's separate origin (H2.4, H2.5), a malicious in-page block can only draw fake UI (countered by "passwords only in the vault's popup"), tamper with the race library (re-downloadable), track the user, or waste CPU. F1 data isn't secret. P3 has to land before review is loosened (auto-merge or unreviewed updates), not before submissions open.
+
+**H3.14: The marketplace is a folder in this repo, not a service.**
+- Community blocks live in `blocks/` in this repo. Submitting a block means opening a PR. A separate repo can come later if block PRs crowd out app PRs.
+- On merge, CI builds each block into a content-hashed ES bundle and regenerates a static `registry.json` (id, name, author, version, block-kit version, hash, shape, sessions, screenshots, whether it uses `useWholeSession`). Both are served from the same static host as the app. No accounts, database or backend.
+- Building from reviewed source means users run exactly the code that was reviewed, unlike the Obsidian model.
+- *Wrong if:* review becomes the bottleneck, or authors want to ship updates without waiting for review.
+
+**H3.15: CI checks mistakes; the maintainer reviews.** A submission must pass automatically:
+- a valid block definition, and a block-kit version the app supports;
+- imports only from React and the block kit;
 - a bundle size budget;
-- the H3.4 frame budget, run against a fixture session with the module mounted;
-- a licence that allows redistribution (the code licence; the data stays under OpenF1's non-commercial terms).
+- the H3.6 frame budget, against a fixture session with the block mounted;
+- a licence that allows redistribution (the data stays under OpenF1's non-commercial terms).
 
-A human reviewer then only checks intent and quality. Updates go through the same PR path.
+Static checks catch mistakes, not a determined attacker (e.g. building the name `fetch` at runtime), so human review is the real gate. **The repo maintainer reviews every submission.** A short published checklist tells authors what to expect: only React and the block kit, works at its default and minimum width, no noticeable frame-rate cost, not a near-copy of an existing block. Whether it's polished enough is the reviewer's call on top. Updates go through the same PR path.
 
-**H3.14: Installing is per browser, and needs the user's say.**
-- The app reads `registry.json` and shows a marketplace view: search, filter by contribution point and session type, screenshots, and what the module `requires`.
-- Install downloads the bundle, checks its hash against the registry, stores it in browser storage next to the race library, and registers its manifest. It works offline from then on.
-- Installed modules appear in the "add panel" menu (and in map layers, tower columns and so on, per H3.2) exactly like built-in ones.
-- Updates are offered, not forced. A layout pins `moduleVersion`, so an update never silently changes a saved layout.
-- Our own modules (today's 7 components) are listed in the same marketplace and come preinstalled. If the built-ins can be expressed as marketplace entries, the API is good enough.
+**H3.16: Installing is per browser, and needs the user's say.**
+- The app reads `registry.json` and shows a marketplace view: search, screenshots, supported sessions, and whether the block sees the whole session.
+- Install downloads the bundle, checks its hash against the registry, stores it in browser storage next to the race library, and adds it to the block picker. It works offline from then on.
+- Updates are offered, not forced. The layout pins `blockVersion`.
+- Our own blocks are listed in the same marketplace and come preinstalled.
+- **Kill switch:** a version can be marked revoked in `registry.json`. The app checks on start (when online), disables revoked versions and tells the user why.
 
-**H3.15: Shared layouts can ask for modules, but never install them by themselves.** This refines H3.7.
-- A layout lists the modules and versions it uses. Opening one with missing modules shows "This layout uses X and Y from the marketplace. Install?"
-- Only modules in the registry can be offered this way. A layout can never point at an arbitrary URL; that stays behind developer mode (P2).
-- Declining still opens the layout, with placeholders where the missing panels would be.
+**H3.17: Writing a block takes one command and no F1 data setup.**
+- A template (`bun create f1-block`) with a dev server, block-kit types and a bundled fixture race, so authors need no OpenF1 account or downloaded race.
+- The app's developer mode loads a block straight from `localhost` with live reload.
+- The same CI checks run locally (`bun run check`).
 
-**H3.16: A kill switch lives in the registry.** A version can be marked revoked in `registry.json`. The app checks the registry on start (when online) and disables revoked versions, telling the user why.
+**H3.18: Submissions open only after our own blocks have proved the API.** The block kit is the compatibility promise: it's versioned with semver from the first public block, each block declares the version it needs, and the app hides blocks it can't run.
 
-**H3.17: Writing a module should take one command and no F1 data setup.**
-- A template (`bun create f1-module`) with a dev server, types for the module API, and a bundled fixture session, so authors don't need an OpenF1 account or a downloaded race.
-- The app's developer mode loads a module straight from `localhost` for live reloading.
-- The same CI checks run locally (`bun run check`), so authors know before opening a PR.
+### Build order
+
+1. **Block kit:** the hooks and `defineBlock`, built on the current store. Nothing visible changes.
+2. **Today's screen as blocks:** split the driver panel into its sections and place everything in a fixed default layout on the grid. Check performance with everything on screen.
+3. **Grid and edit mode:** dragging, width resizing, the block picker, saving the layout. Tune the column count here.
+4. **Shared UI kit:** pull the common pieces out of the rebuilt blocks.
+5. **Marketplace:** the `blocks/` folder, CI build and import check, `registry.json`, install and update in the app, the template with a fixture race, developer mode.
+6. **Open submissions.**
+
+Steps 1–3 prove the idea: if our own blocks can be built using only the hooks, the API is good enough to offer to others.
 
 ## Where the wants collide
 
 - **Credentials and third-party code on the same website.** Solved by putting credentials on a separate site (H2.4). The vault must exist before P2.
 - **Browser-only and 700 MB normalize.** Phones may not be able to download races (H2.8).
 - **Browser-only and share links.** The recipient waits about 2 minutes on first open (H1.4).
-- **Fast data sharing with iframes.** `SharedArrayBuffer` needs COOP/COEP headers, which can block cross-origin media such as team radio. Use transferables until it's truly needed.
+- **Fast data sharing with sandboxed blocks.** `SharedArrayBuffer` needs COOP/COEP headers, which can block cross-origin media such as team radio. Use transferables until it's truly needed.
 - **The vault iframe and cross-origin isolation.** If the app ever turns on COOP/COEP for `SharedArrayBuffer`, the vault must send matching `Cross-Origin-Resource-Policy` / COEP headers or it won't load.
 - **The free-tier live blackout.** The library must detect it, pause, and explain why.
-- **Open submissions and in-page code.** Until P3, a malicious module that slips past review runs in the same page as everything else. The vault's separate origin keeps credentials out of its reach, but it could still mess with the UI, including drawing a fake login form (hence setup only ever in the vault's popup). Review, hash pinning and the kill switch are the defence until sandboxing lands.
-- **A marketplace and a static site with no backend.** No install counts, ratings or reviews without a server. GitHub stars or reactions on the module's folder could stand in.
-- **Marketplace and API stability.** Once other people's modules depend on `core/api`, breaking it breaks them. The API needs semver from the first public module, and the registry hides modules that need a newer or older API than the app has.
+- **Open submissions and in-page code.** Until P3, a malicious block that slips past review runs in the same page as everything else. The vault's separate origin keeps credentials out of its reach, but it could still mess with the UI, including drawing a fake login form (hence setup only ever in the vault's popup). Review, hash pinning and the kill switch are the defence until sandboxing lands.
+- **A marketplace and a static site with no backend.** No install counts, ratings or reviews without a server. GitHub stars or reactions on the block's folder could stand in.
+- **Marketplace and API stability.** Once other people's blocks depend on the block kit, breaking it breaks them. The block kit needs semver from the first public block, and the app hides blocks that need a newer or older block kit than it has.
 
 ## Spikes, cheapest first
 
@@ -269,7 +296,7 @@ A human reviewer then only checks intent and quality. Updates go through the sam
     - Firefox and WebKit are **not tested**: system libraries are missing and there's no sudo. Deferred: we target Chromium for now.
     - Surprise: reading raw back (gunzip+parse, 7.3 s) costs more than normalize (3.3 s).
     - Machine: 2-vCPU shared server VM. The spike (`spikes/s1/`, removed since; see commit bf4a0a2) became the app's in-browser downloader: `src/ingest/`, `src/storage/` and `scripts/lib/ingestCore.ts`.
-- **S2: dogfooding the module API.** Build `core/api` plus dockview, and rebuild TrackMap, TimingTower and Timeline on it. Open two TrackMaps plus a popout. Add one contribution-point feature: a pit-rejoin ghost (signal, map layer and tower column). Benchmark it. Checks H3.1 to H3.6.
+- **S2: blocks on the current store.** Build the block kit (hooks and `defineBlock`), rebuild today's screen as blocks in a fixed default layout on the grid, then add edit mode and try column counts. Benchmark the full screen. This is build steps 1–3 and checks H3.1 to H3.12.
 - **S3: the vault.** A second-origin vault (two local ports are enough to start, a separate domain before release) with:
   - popup login and both storage modes, including passkey PRF unlock;
   - silent refresh on a shortened token lifetime (fake a 2-minute `expires_in`) to exercise the schedule, the backoff and the 401 path;
@@ -280,16 +307,18 @@ A human reviewer then only checks intent and quality. Updates go through the sam
   - Success: a simulated 3-hour session across two tabs with no visible gap, and no password or token readable from the app's origin (checked from DevTools on the app's origin).
   - Checks H2.4, H2.5, H2.10 and H2.11. First confirm the token lifetime, the refresh-token question, and whether two MQTT sessions per account are allowed.
 - **S4: streaming normalize** for phone memory. Checks H2.8.
-- **S5: marketplace end to end.** Move one built-in module (e.g. the timing tower) into `modules/`, have CI build it and emit `registry.json`, then uninstall and reinstall it from the in-app marketplace, and open a shared layout that asks for it. Then have someone outside the project write and submit a small module using only the template. Checks H3.12 to H3.17. Depends on S2.
+- **S5: marketplace end to end.** Move one built-in block (e.g. the timing tower) into `blocks/`, have CI build it and emit `registry.json`, then uninstall and reinstall it from the in-app marketplace. Then have someone outside the project write and submit a small block using only the template. Checks H3.14 to H3.18. Depends on S2.
 - **Not code: email OpenF1** about logging in with your own key in the browser, refresh tokens or scoped API keys, two concurrent MQTT sessions per account, and the non-commercial scope.
 
 ## Open questions
 
-1. ~~Are third-party modules a day-one goal or a later phase?~~ They're a goal (the marketplace), so the module API has to be public, versioned and strict from S2 onward. Still open: do we open submissions at launch, or after the built-ins have proved the API?
-2. Marketplace in this repo or a separate `f1-modules` repo? Separate keeps app PRs and module PRs apart, but CI and API types then have to be shared across repos.
-3. Who reviews submissions, and what's the quality bar for listing (does it just have to be safe, or also useful and polished)?
+1. ~~Are third-party modules a day-one goal or a later phase?~~ Resolved 2026-09-30: they're a goal, but submissions open only after our own blocks have proved the API (H3.18).
+2. ~~Marketplace in this repo or a separate repo?~~ Resolved 2026-09-30: this repo, in `blocks/`, for now (H3.14).
+3. ~~Who reviews submissions, and what's the bar?~~ Resolved 2026-09-30: the repo maintainer, against a published checklist, with polish as the reviewer's call (H3.15).
 4. Are phones first-class or desktop-first?
-5. Could this ever be commercial? The OpenF1 licence is non-commercial, and paid marketplace modules would run into it too.
+5. Could this ever be commercial? The OpenF1 licence is non-commercial, and paid marketplace blocks would run into it too.
 6. Should we contact OpenF1 before building? Two questions for them: is a user's own login held in their own browser acceptable, and would they offer refresh tokens or scoped API keys (H2.4)?
 7. Do we keep the Bun server as an optional companion, or retire it? With the vault handling live data in the browser, its only remaining role would be local caching of team radio.
 8. Which domain hosts the vault, and who holds its deploy credentials?
+9. How many grid columns, and how fine a vertical step? 10 columns is a placeholder; settle it by trying layouts on real screens (H3.8).
+10. What do the qualifying hooks look like (ghost clock, distance axis, compared laps)? Deferred until the race hooks have settled (H3.5).
