@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
+import { useLayout } from "../grid/store";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useReplay } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
@@ -132,6 +133,69 @@ function ShortcutsHelp() {
   );
 }
 
+const TOP_BUTTON = "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold";
+
+/** "Edit layout", or in edit mode what edit mode needs (H3.10). */
+function LayoutControls() {
+  const editing = useLayout((s) => s.editing);
+  const pickerOpen = useLayout((s) => s.picker != null && s.picker.slot == null);
+  const blur = (e: { currentTarget: HTMLButtonElement }) => e.currentTarget.blur();
+  if (!editing) {
+    return (
+      <button
+        type="button"
+        onClick={(e) => {
+          blur(e);
+          useLayout.getState().startEdit();
+        }}
+        className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
+        title="Move, resize, add and remove blocks"
+      >
+        Edit layout
+      </button>
+    );
+  }
+  const s = useLayout.getState();
+  return (
+    <div className="flex items-center gap-1.5">
+      <button
+        type="button"
+        data-picker-toggle=""
+        onClick={(e) => {
+          blur(e);
+          if (pickerOpen) s.closePicker();
+          else s.openPicker();
+        }}
+        className={`${TOP_BUTTON} ${pickerOpen ? "bg-zinc-700 text-white" : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"}`}
+      >
+        + Add block
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          blur(e);
+          s.reset();
+        }}
+        className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
+        title="Back to the default layout (saved on Done)"
+      >
+        Reset
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          blur(e);
+          s.done();
+        }}
+        className={`${TOP_BUTTON} bg-zinc-100 text-zinc-950 hover:bg-white`}
+        title="Save the layout"
+      >
+        Done
+      </button>
+    </div>
+  );
+}
+
 export function Header() {
   const session = useReplay((s) => s.session);
   const race = useReplay((s) => s.race);
@@ -165,6 +229,7 @@ export function Header() {
 
       <div className="flex items-center justify-end gap-4">
         <Weather w={race?.weather ?? null} />
+        {!meta.quali && <LayoutControls />}
         <ShortcutsHelp />
       </div>
     </header>
