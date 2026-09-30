@@ -13,6 +13,7 @@ const SHORTCUTS: [string, string][] = [
   ["Shift ← / →", "Back / forward 30 s"],
   ["[ / ]", "Previous / next lap"],
   ["− / +", "Slower / faster"],
+  ["1 – 7", "Speed 1× · 2× · 4× … 64×"],
   ["Esc", "Clear selection"],
 ];
 

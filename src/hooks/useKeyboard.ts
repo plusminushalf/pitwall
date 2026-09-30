@@ -3,7 +3,7 @@ import { SPEEDS, useReplay } from "../store";
 
 /**
  * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap
- * - / +: slower/faster · esc: clear selection
+ * - / +: slower/faster · 1–7: 1× to 64× · esc: clear selection
  */
 export function useKeyboard() {
   useEffect(() => {
@@ -57,8 +57,12 @@ export function useKeyboard() {
         case "Escape":
           s.clearSelection();
           break;
-        default:
-          return;
+        default: {
+          // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×.
+          const n = Number(e.key);
+          if (!Number.isInteger(n) || n < 1 || n > SPEEDS.length || e.ctrlKey || e.metaKey || e.altKey) return;
+          s.setSpeed(SPEEDS[n - 1]);
+        }
       }
       e.preventDefault();
     };
