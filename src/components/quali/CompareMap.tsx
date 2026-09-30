@@ -31,6 +31,39 @@ function strokeRange(ctx: CanvasRenderingContext2D, tf: TrackTransform, lap: Dec
   ctx.stroke();
 }
 
+/** Stroke each mini-sector in its winner's colour, clipped to [from, to]. */
+function strokeSectors(ctx: CanvasRenderingContext2D, tf: TrackTransform, lap: DecodedLap, sectors: MiniSector[], withTrace: CompareEntry[], from: number, to: number) {
+  ctx.lineCap = "butt";
+  ctx.lineWidth = 5;
+  for (const s of sectors) {
+    const style = withTrace[s.winner]?.style;
+    const a = Math.max(s.from, from);
+    const b = Math.min(s.to, to);
+    if (!style || b <= a) continue;
+    ctx.strokeStyle = style.color;
+    ctx.setLineDash(style.dash.length ? [5, 3] : []);
+    strokeRange(ctx, tf, lap, a, b);
+  }
+  ctx.setLineDash([]);
+}
+
+/** Short line across the track at a distance along the lap. */
+function tick(ctx: CanvasRenderingContext2D, tf: TrackTransform, lap: DecodedLap, d: number, half: number) {
+  const p = positionAtDistance(lap, Math.min(d, lap.length - 8));
+  const q = positionAtDistance(lap, Math.min(d, lap.length - 8) + 8);
+  const [ax0, ay0] = tf(p.x, p.y);
+  const [bx, by] = tf(q.x, q.y);
+  const len = Math.hypot(bx - ax0, by - ay0) || 1;
+  const nx = -(by - ay0) / len;
+  const ny = (bx - ax0) / len;
+  const at = positionAtDistance(lap, d);
+  const [ax, ay] = tf(at.x, at.y);
+  ctx.beginPath();
+  ctx.moveTo(ax - nx * half, ay - ny * half);
+  ctx.lineTo(ax + nx * half, ay + ny * half);
+  ctx.stroke();
+}
+
 export function CompareMap({ track, entries, sectors }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,32 +106,11 @@ export function CompareMap({ track, entries, sectors }: Props) {
     ctx.stroke();
 
     if (ref && sectors.length) {
-      ctx.lineCap = "butt";
-      ctx.lineWidth = 5;
-      for (const s of sectors) {
-        const style = withTrace[s.winner]?.style;
-        if (!style) continue;
-        ctx.strokeStyle = style.color;
-        ctx.setLineDash(style.dash.length ? [5, 3] : []);
-        strokeRange(ctx, tf, ref, s.from, s.to);
-      }
-      ctx.setLineDash([]);
+      strokeSectors(ctx, tf, ref, sectors, withTrace, 0, ref.length);
       // Mini-sector boundaries: thin dark ticks.
       ctx.strokeStyle = "#09090b";
       ctx.lineWidth = 1.5;
-      for (const s of sectors) {
-        const p = positionAtDistance(ref, s.from);
-        const q = positionAtDistance(ref, Math.min(s.from + 8, ref.length));
-        const [ax, ay] = tf(p.x, p.y);
-        const [bx, by] = tf(q.x, q.y);
-        const len = Math.hypot(bx - ax, by - ay) || 1;
-        const nx = -(by - ay) / len;
-        const ny = (bx - ax) / len;
-        ctx.beginPath();
-        ctx.moveTo(ax - nx * 4, ay - ny * 4);
-        ctx.lineTo(ax + nx * 4, ay + ny * 4);
-        ctx.stroke();
-      }
+      for (const s of sectors) tick(ctx, tf, ref, s.from, 4);
     }
 
     // Start / finish line.
@@ -144,7 +156,33 @@ export function CompareMap({ track, entries, sectors }: Props) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.drawImage(layer.canvas, 0, 0);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const { hover } = useQuali.getState();
+      const { hover, zoom } = useQuali.getState();
+      // Charts zoomed: dim the map, then redraw the zoomed stretch at full strength with an outline.
+      if (zoom && ref) {
+        const [z0, z1] = [Math.max(0, zoom[0]), Math.min(ref.length, zoom[1])];
+        ctx.fillStyle = "rgba(9,9,11,0.6)";
+        ctx.fillRect(0, 0, cssW, cssH);
+        ctx.lineJoin = "round";
+        ctx.lineCap = "round";
+        ctx.strokeStyle = "#e4e4e7";
+        ctx.lineWidth = 12;
+        strokeRange(ctx, tf, ref, z0, z1);
+        ctx.strokeStyle = "#18181b";
+        ctx.lineWidth = 9;
+        strokeRange(ctx, tf, ref, z0, z1);
+        ctx.strokeStyle = "#3f3f46";
+        ctx.lineWidth = 8;
+        strokeRange(ctx, tf, ref, z0, z1);
+        strokeSectors(ctx, tf, ref, sectors, withTrace, z0, z1);
+        ctx.strokeStyle = "#09090b";
+        ctx.lineWidth = 1.5;
+        for (const s of sectors) if (s.from > z0 && s.from < z1) tick(ctx, tf, ref, s.from, 4);
+        ctx.strokeStyle = "#fafafa";
+        ctx.lineWidth = 2;
+        ctx.lineCap = "butt";
+        tick(ctx, tf, ref, z0, 9);
+        tick(ctx, tf, ref, z1, 9);
+      }
       if (hover != null) {
         for (const e of withTrace) {
           const p = positionAtDistance(e.trace!, hover);
@@ -201,7 +239,7 @@ export function CompareMap({ track, entries, sectors }: Props) {
     };
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [layer, withTrace, ref]);
+  }, [layer, withTrace, ref, sectors]);
 
   /** Distance along the reference lap nearest to a point on the map, if close enough. */
   const nearest = (mx: number, my: number): number | null => {
