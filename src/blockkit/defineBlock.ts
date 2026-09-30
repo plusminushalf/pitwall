@@ -4,6 +4,12 @@ import type { ComponentType } from "react";
 import type { DriverInfo } from "../types";
 import type { SessionInfo, SessionKind, Track } from "./select";
 
+/**
+ * API gap: layout px per grid column. A block is laid out at its default width in columns times this,
+ * at every screen size and width (the grid zooms it to fit), so a shape can come from content in px.
+ */
+export const COLUMN_WIDTH = 144;
+
 /** Settings are stored in the layout (H3.11), so they're plain JSON. */
 export type SettingValue = string | number | boolean | null | SettingValue[] | { [key: string]: SettingValue };
 export type BlockSettings = Record<string, SettingValue>;

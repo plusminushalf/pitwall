@@ -1,15 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import type { CarSeries } from "../data/session";
-import { indexAtOrBefore } from "../engine/lookup";
+import { useEffect, useRef } from "react";
+import { defineBlock, useBlockSize, useCarHistory, useDriver, useSelectedDriver, useTime, type CarHistory, type DriverSetting } from "block-kit";
 
+const WINDOW_MS = 60_000;
 const MAX_SPEED = 360; // km/h at the top of the chart
 const GAP_MS = 2_000; // break the trace across telemetry dropouts
 const MAX_BRAKE_SPAN_MS = 1_000; // a single brake sample never paints more than this
 const BRAKE_H = 3;
 const FONT = "9px ui-sans-serif, system-ui, sans-serif";
+const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+/** Padding around the chart (px-3 pt-2.5 pb-2) and the title line above it (h-4 mb-1). */
+const PAD_X = 24;
+const CHROME_Y = 10 + 8 + 16 + 4;
 
-function draw(canvas: HTMLCanvasElement, car: CarSeries, t: number, windowMs: number, w: number, h: number) {
-  const dpr = window.devicePixelRatio || 1;
+function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, h: number, dpr: number) {
   const pw = Math.round(w * dpr);
   const ph = Math.round(h * dpr);
   if (canvas.width !== pw || canvas.height !== ph) {
@@ -24,8 +27,8 @@ function draw(canvas: HTMLCanvasElement, car: CarSeries, t: number, windowMs: nu
   const plotTop = 3;
   const plotBottom = h - BRAKE_H - 3;
   const plotH = plotBottom - plotTop;
-  const from = t - windowMs;
-  const xOf = (ts: number) => ((ts - from) / windowMs) * w;
+  const from = t - WINDOW_MS;
+  const xOf = (ts: number) => ((ts - from) / WINDOW_MS) * w;
   const ySpeed = (v: number) => plotBottom - (Math.min(Math.max(v, 0), MAX_SPEED) / MAX_SPEED) * plotH;
   const yThrottle = (v: number) => plotBottom - (Math.min(Math.max(v, 0), 100) / 100) * plotH;
 
@@ -55,10 +58,11 @@ function draw(canvas: HTMLCanvasElement, car: CarSeries, t: number, windowMs: nu
   ctx.lineTo(w, Math.round(plotBottom) + 0.5);
   ctx.stroke();
 
+  // The samples in the window, from the block kit: [t - window, t].
   const ts = car.t;
-  const end = indexAtOrBefore(ts, t);
-  if (end < 0 || ts[end] < from) return;
-  const start = Math.max(0, indexAtOrBefore(ts, from));
+  const end = ts.length - 1;
+  if (end < 0) return;
+  const start = 0;
 
   // Contiguous runs of samples (split at dropouts).
   const runs: [number, number][] = [];
@@ -119,33 +123,61 @@ function draw(canvas: HTMLCanvasElement, car: CarSeries, t: number, windowMs: nu
   ctx.restore();
 }
 
-/** Rolling chart of the last `windowMs` of speed (line), throttle (area) and braking (bottom marks). */
-export function TelemetryChart({ car, t, windowMs = 60_000, height = 68 }: { car: CarSeries; t: number; windowMs?: number; height?: number }) {
-  const wrapRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [width, setWidth] = useState(0);
+function Legend({ swatch, label }: { swatch: string; label: string }) {
+  return (
+    <span className="flex items-center gap-1">
+      <span className={`inline-block rounded-[1px] ${swatch}`} />
+      {label}
+    </span>
+  );
+}
 
-  useEffect(() => {
-    const el = wrapRef.current!;
-    const ro = new ResizeObserver(([entry]) => setWidth(Math.floor(entry.contentRect.width)));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
+/** Rolling chart of the last 60 s of speed (line), throttle (area) and braking (bottom marks). */
+function SpeedTrace() {
+  const n = useSelectedDriver();
+  const car = useCarHistory(n, WINDOW_MS);
+  const t = useTime();
+  const out = useDriver(n)?.status === "OUT";
+  const size = useBlockSize();
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const w = size.width - PAD_X;
+  const h = size.height - CHROME_Y;
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (canvas && width > 0) draw(canvas, car, t, windowMs, width, height);
-  }, [car, t, windowMs, width, height]);
+    if (canvas && w > 0 && h > 0) draw(canvas, car, t, w, h, size.pixelRatio);
+  }, [car, t, w, h, size.pixelRatio]);
 
   return (
-    <div ref={wrapRef} className="overflow-hidden rounded bg-zinc-900/60" style={{ height }}>
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label={`Speed, throttle and brake over the last ${Math.round(windowMs / 1000)} seconds`}
-        className="block"
-        style={{ width: "100%", height }}
-      />
+    <div className={`h-full px-3 pb-2 pt-2.5 ${out ? "opacity-40" : ""}`}>
+      <div className="mb-1 flex h-4 items-center justify-between">
+        <span className={LABEL}>Last 60 s</span>
+        <span className="flex items-center gap-2.5 text-[10px] text-zinc-500">
+          <Legend swatch="h-0.5 w-3 bg-zinc-100" label="Speed" />
+          <Legend swatch="h-2 w-2 bg-green-500/40" label="Throttle" />
+          <Legend swatch="h-1 w-2.5 bg-red-500" label="Brake" />
+        </span>
+      </div>
+      <div className="overflow-hidden rounded bg-zinc-900/60" style={{ height: h }}>
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label="Speed, throttle and brake over the last 60 seconds"
+          className="block"
+          style={{ width: w, height: h }}
+        />
+      </div>
     </div>
   );
 }
+
+export default defineBlock({
+  id: "speed-trace",
+  name: "Last 60 s",
+  version: "1.0.0",
+  shape: 2,
+  width: { min: 2, default: 4, max: 6 },
+  sessions: ["race"],
+  settings: { driver: "follow-selection" as DriverSetting },
+  Component: SpeedTrace,
+});

@@ -15,8 +15,6 @@ export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
  */
 export const clock = { t: 0 };
 
-export type GapMode = "leader" | "interval";
-
 /** Watching a stored replay, or a session streamed live by the relay (server/live.ts). */
 export type Mode = "replay" | "live";
 
@@ -138,7 +136,6 @@ interface ReplayState {
    * driver, or the leader.
    */
   focused: number | null;
-  gapMode: GapMode;
   mode: Mode;
   view: View;
   live: LiveInfo;
@@ -174,7 +171,6 @@ interface ReplayState {
   toggleSelected: (driver: number) => void;
   focus: (driver: number | null) => void;
   clearSelection: () => void;
-  toggleGapMode: () => void;
   /** Switch to live mode: connect to the relay and follow whatever it streams. */
   enterLive: (opts?: LiveOpts) => void;
   /** Back to replays: disconnect and bring back the replay watched before (or Home). */
@@ -276,7 +272,6 @@ export const useReplay = create<ReplayState>((set, get) => {
     speed: 1,
     selected: [],
     focused: null,
-    gapMode: "leader",
     mode: "replay",
     view: initialView(),
     live: NO_LIVE,
@@ -416,7 +411,6 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     focus: (driver) => set({ focused: driver }),
     clearSelection: () => set({ selected: [], focused: null }),
-    toggleGapMode: () => set({ gapMode: get().gapMode === "leader" ? "interval" : "leader" }),
 
     enterLive: (opts = {}) => {
       const s = get();

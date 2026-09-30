@@ -1,9 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FeedItem, FeedKind, Session } from "../data/session";
-import { feedAt } from "../engine/raceState";
-import { indexAtOrBefore } from "../engine/lookup";
-import { raceClock, teamColor, textOn } from "../lib/format";
-import { useReplay } from "../store";
+import { useMemo, useState } from "react";
+import {
+  defineBlock,
+  raceClock,
+  teamColor,
+  textOn,
+  useDrivers,
+  useFeed,
+  usePlayback,
+  useRadio,
+  useSelection,
+  useSessionInfo,
+  type DriverInfo,
+  type FeedEntry,
+  type FeedKind,
+} from "block-kit";
 
 const LIMIT = 150;
 
@@ -40,7 +50,7 @@ const FLAG_TAG: Record<string, { label: string; className: string }> = {
   "BLACK AND WHITE": { label: "Black/white", className: "bg-zinc-200 text-black" },
 };
 
-function kindTag(item: FeedItem): { label: string; className: string } {
+function kindTag(item: FeedEntry): { label: string; className: string } {
   switch (item.kind) {
     case "flag":
       return FLAG_TAG[item.flag ?? ""] ?? { label: "Flag", className: "bg-zinc-700 text-zinc-100" };
@@ -61,74 +71,7 @@ function kindTag(item: FeedItem): { label: string; className: string } {
   }
 }
 
-/**
- * Index of the newest feed item visible at t (the feed only changes when this does).
- * At the very end of the replay, post-race items are included too.
- */
-function feedEnd(session: Session, t: number): number {
-  return t >= session.meta.duration ? session.feed.length : indexAtOrBefore(session.feedTimes, t);
-}
-
-/** One radio clip at a time; clips that fail to load are remembered as unavailable. */
-function useRadio(sessionKey: number | null) {
-  const current = useRef<{ audio: HTMLAudioElement; url: string } | null>(null);
-  const [playing, setPlaying] = useState<string | null>(null);
-  const [unavailable, setUnavailable] = useState<ReadonlySet<string>>(() => new Set());
-
-  const stop = useCallback(() => {
-    current.current?.audio.pause();
-    current.current = null;
-    setPlaying(null);
-  }, []);
-
-  const toggle = useCallback(
-    (url: string) => {
-      const wasPlaying = current.current?.url === url;
-      stop();
-      if (wasPlaying) return;
-
-      const audio = new Audio(url);
-      const entry = { audio, url };
-      current.current = entry;
-      setPlaying(url);
-
-      const release = () => {
-        if (current.current !== entry) return;
-        current.current = null;
-        setPlaying(null);
-      };
-      const fail = () => {
-        release();
-        setUnavailable((s) => new Set(s).add(url));
-      };
-      audio.addEventListener("ended", release);
-      audio.addEventListener("error", fail);
-      audio.play().catch((e: unknown) => {
-        // AbortError: stopped (or another clip started) before playback began; not a failure.
-        if (e instanceof DOMException && e.name === "AbortError") return;
-        if (current.current === entry) fail();
-      });
-    },
-    [stop],
-  );
-
-  // Stop playback when the session changes or the feed unmounts (not on live updates of the same session).
-  useEffect(() => stop, [sessionKey, stop]);
-
-  return { playing, unavailable, toggle };
-}
-
-function RadioButton({
-  url,
-  playing,
-  unavailable,
-  onToggle,
-}: {
-  url: string;
-  playing: boolean;
-  unavailable: boolean;
-  onToggle: (url: string) => void;
-}) {
+function RadioButton({ url, playing, unavailable, onToggle }: { url: string; playing: boolean; unavailable: boolean; onToggle: (url: string) => void }) {
   if (unavailable) return <span className="shrink-0 pt-0.5 text-[10px] uppercase tracking-wide text-zinc-600">unavailable</span>;
   return (
     <button
@@ -144,36 +87,25 @@ function RadioButton({
   );
 }
 
-export function EventFeed() {
-  const session = useReplay((s) => s.session);
-  // Subscribing to the derived index (not `t`) means this only re-renders when the feed actually changes.
-  const end = useReplay((s) => (s.session ? feedEnd(s.session, s.t) : -1));
-  const seek = useReplay((s) => s.seek);
-  const focus = useReplay((s) => s.focus);
+function RaceFeed() {
+  const feed = useFeed();
+  const drivers = useDrivers();
+  const { lightsOut } = useSessionInfo();
+  const { seek } = usePlayback();
+  const { focus } = useSelection();
   const [groups, setGroups] = useState(ALL_ON);
-  const radio = useRadio(session?.meta.sessionKey ?? null);
+  const radio = useRadio();
+  const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
+  const items = useMemo(() => feed.slice(0, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]), [feed, groups]);
 
-  // Stable row keys: an item's position in the full session feed.
-  const keys = useMemo(() => new Map(session?.feed.map((item, i) => [item, i])), [session]);
-
-  const items = useMemo(() => {
-    if (!session || end < 0) return [];
-    // A representative time with the same feed contents as the current `t`.
-    const at = end >= session.feed.length ? session.meta.duration : session.feedTimes[end];
-    return feedAt(session, at, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]);
-  }, [session, end, groups]);
-
-  if (!session) return null;
-  const { meta } = session;
-
-  const onItem = (item: FeedItem) => {
+  const onItem = (item: FeedEntry) => {
     seek(item.t - 5_000);
     // Focus only: the track map filter (selection) stays as it is.
     if (item.driver != null) focus(item.driver);
   };
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col border-t border-zinc-800 text-sm first:border-t-0">
+    <section className="flex h-full flex-col text-sm">
       <div className="border-b border-zinc-800 px-3 py-1.5">
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Race feed</h2>
         <div className="mt-1 flex flex-wrap gap-1">
@@ -199,27 +131,24 @@ export function EventFeed() {
         {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-zinc-600">No events yet</li>}
         {items.map((item) => {
           const tag = kindTag(item);
-          const info = item.driver != null ? session.drivers.get(item.driver)?.info : undefined;
-          const postRace = item.t > meta.duration;
+          const d = item.driver != null ? info.get(item.driver) : undefined;
           return (
-            <li key={keys.get(item)} className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
+            <li key={item.id} className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
               <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 text-left" title="Jump to 5 s before this">
-                <span className="pt-0.5 text-[11px] tabular-nums text-zinc-500">{raceClock(item.t - meta.lightsOut)}</span>
+                <span className="pt-0.5 text-[11px] tabular-nums text-zinc-500">{raceClock(item.t - lightsOut)}</span>
                 <span className="text-xs leading-5 text-zinc-300">
-                  {postRace && (
+                  {item.postRace && (
                     <span className="mr-1 inline-block rounded border border-zinc-700 px-1 align-middle text-[10px] font-semibold uppercase leading-4 text-zinc-400">
                       post-race
                     </span>
                   )}
-                  <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>
-                    {tag.label}
-                  </span>
+                  <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
                   {item.driver != null && (
                     <span
-                      className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${info ? "" : "bg-zinc-700 text-zinc-100"}`}
-                      style={info ? { background: teamColor(info.teamColour), color: textOn(info.teamColour) } : undefined}
+                      className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
+                      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
                     >
-                      {info?.acronym ?? `#${item.driver}`}
+                      {d?.acronym ?? `#${item.driver}`}
                     </span>
                   )}
                   <span className="align-middle">{item.text}</span>
@@ -230,7 +159,7 @@ export function EventFeed() {
                   url={item.url}
                   playing={radio.playing === item.url}
                   unavailable={radio.unavailable.has(item.url)}
-                  onToggle={radio.toggle}
+                  onToggle={(url) => (radio.playing === url ? radio.stop() : radio.play(url))}
                 />
               )}
             </li>
@@ -240,3 +169,15 @@ export function EventFeed() {
     </section>
   );
 }
+
+export default defineBlock({
+  id: "race-feed",
+  name: "Race feed",
+  version: "1.0.0",
+  // Fixed: it scrolls inside, so the layout never jumps as items arrive. 11 rows at 3 columns.
+  shape: 12 / 11,
+  width: { min: 2, default: 3, max: 4 },
+  sessions: ["race"],
+  settings: {},
+  Component: RaceFeed,
+});

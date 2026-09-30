@@ -6,6 +6,7 @@ import type { CarSeries, DriverData, FeedItem, Session } from "../data/session";
 import { indexAtOrBefore } from "../engine/lookup";
 import { carPositionAt, mapOpacity, type RaceState, type SectorFlag } from "../engine/raceState";
 import type { DriverInfo, Lap, SessionMeta, Stint, TrackGeometry, TrackStatus, WeatherSample } from "../types";
+import { deepEqual } from "./equal";
 
 export type SessionKind = "race" | "qualifying";
 
@@ -83,6 +84,8 @@ export interface RaceView {
   fastestLap: Lap | null;
   /** Driver numbers in timing-tower order (retired cars last). */
   order: readonly number[];
+  /** API gap: each car's position (the track map labels every car; useDriver can't be called in a loop). */
+  positions: ReadonlyMap<number, number | null>;
 }
 
 export const raceViewOf = cached(
@@ -94,6 +97,7 @@ export const raceViewOf = cached(
     weather: race.weather,
     fastestLap: race.fastestLap,
     order: race.drivers.map((d) => d.driver),
+    positions: new Map(race.drivers.map((d) => [d.driver, d.position])),
   }),
 );
 
@@ -117,13 +121,82 @@ export function stintsAt(d: DriverData, lap: number): StintView[] {
   return started.map((s, i) => ({ ...s, lapEnd: Math.min(s.lapEnd, upTo), open: i === started.length - 1 }));
 }
 
+/** Every completed lap in the session by end time, with the running best per sector. */
+interface SectorIndex {
+  ends: Float64Array;
+  best: Float64Array[]; // best[k][i] = fastest sector k among the first i + 1 laps to finish
+}
+
+const sectorIndex = cached((meta: SessionMeta): SectorIndex => {
+  const laps = meta.laps.filter((l) => l.end != null).sort((a, b) => a.end! - b.end!);
+  const best = [0, 1, 2].map((k) => {
+    const out = new Float64Array(laps.length);
+    let min = Infinity;
+    for (let i = 0; i < laps.length; i++) {
+      const v = laps[i].sectors[k];
+      if (v != null && v < min) min = v;
+      out[i] = min;
+    }
+    return out;
+  });
+  return { ends: Float64Array.from(laps, (l) => l.end!), best };
+});
+
+/** Fastest time in each sector (seconds) by anyone, among laps finished by t; null before any. */
+export function bestSectorsAt(session: Session, t: number): [number | null, number | null, number | null] {
+  const { ends, best } = sectorIndex(session.meta);
+  const i = indexAtOrBefore(ends, t);
+  const at = (k: number) => (i >= 0 && Number.isFinite(best[k][i]) ? best[k][i] : null);
+  return [at(0), at(1), at(2)];
+}
+
 /** Index of the newest feed item shown at t. At the end of the replay, includes post-race items. */
 export function feedEndAt(session: Session, t: number): number {
   return t >= session.meta.duration ? session.feed.length - 1 : indexAtOrBefore(session.feedTimes, t);
 }
 
+/** A feed item as blocks see it. */
+export interface FeedEntry extends FeedItem {
+  /** API gap: stable key, kept while the item stays the same (live sessions are rebuilt as data arrives). */
+  id: number;
+  /** API gap: after the replay window (stewards' decisions, only shown at the very end). */
+  postRace: boolean;
+}
+
+const contentKey = (f: FeedItem, postRace: boolean) => `${f.t}|${f.kind}|${f.driver}|${f.flag ?? ""}|${f.url ?? ""}|${postRace}|${f.text}`;
+
+/** The last session's entries by content, so a rebuilt (live) session reuses them: same identity, same id. */
+let reuse: { sessionKey: number; byKey: Map<string, FeedEntry[]>; nextId: number } | null = null;
+
+const feedEntriesOf = cached((session: Session): FeedEntry[] => {
+  const { sessionKey, duration } = session.meta;
+  const prev = reuse?.sessionKey === sessionKey ? reuse : null;
+  const byKey = new Map<string, FeedEntry[]>();
+  let nextId = prev?.nextId ?? 0;
+  const entries = session.feed.map((f) => {
+    const postRace = f.t > duration;
+    const key = contentKey(f, postRace);
+    const entry = prev?.byKey.get(key)?.shift() ?? { ...f, id: nextId++, postRace };
+    const same = byKey.get(key);
+    if (same) same.push(entry);
+    else byKey.set(key, [entry]);
+    return entry;
+  });
+  reuse = { sessionKey, byKey, nextId };
+  return entries;
+});
+
 /** Feed items up to index `end` (from feedEndAt), newest first. */
-export const feedUpTo = (session: Session, end: number): FeedItem[] => session.feed.slice(0, end + 1).reverse();
+export const feedUpTo = (session: Session, end: number): FeedEntry[] => feedEntriesOf(session).slice(0, end + 1).reverse();
+
+/** Shape inputs of a session; the previous object while they're unchanged (a live session is rebuilt often). */
+let lastShapeInput: { info: SessionInfo; drivers: DriverInfo[]; track: Track } | null = null;
+
+export function shapeInputOf(session: Session): { info: SessionInfo; drivers: DriverInfo[]; track: Track } {
+  const next = { info: sessionInfoOf(session.meta), drivers: driversOf(session), track: trackOf(session.meta.track) };
+  if (lastShapeInput && deepEqual(lastShapeInput, next)) return lastShapeInput;
+  return (lastShapeInput = next);
+}
 
 /** Car telemetry samples, columnar: copies, so nothing past t is reachable (not even via `.buffer`). */
 export interface CarHistory {

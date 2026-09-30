@@ -1,5 +1,6 @@
-import { COMPOUND } from "../lib/format";
+import { COMPOUND } from "../../lib/format";
 
+/** Compound circle with the tyre age next to it. */
 export function TyreBadge({ compound, age, size = 18 }: { compound: string | null; age?: number | null; size?: number }) {
   const c = COMPOUND[compound ?? "UNKNOWN"] ?? COMPOUND.UNKNOWN;
   return (

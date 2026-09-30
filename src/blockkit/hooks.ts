@@ -3,14 +3,15 @@
 // when its own data changed, and not at all while it's off screen.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
-import type { FeedItem, Session } from "../data/session";
+import type { Session } from "../data/session";
 import { telemetryAt, type DriverState, type RaceState, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, Lap } from "../types";
-import { SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
+import { ScaleContext, SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
 import type { BlockSettings } from "./defineBlock";
 import { deepEqual, shallowEqual } from "./equal";
 import { addFrameCallback, type DrawFn } from "./frame";
+import { playRadio, stopRadio, useRadioState } from "./radio";
 import {
   driversOf,
   feedEndAt,
@@ -24,7 +25,9 @@ import {
   stintsAt,
   trackOf,
   wholeSessionOf,
+  bestSectorsAt,
   type CarHistory,
+  type FeedEntry,
   type RaceView,
   type SessionInfo,
   type StintView,
@@ -199,6 +202,11 @@ export function useCarHistory(n: number | null, windowMs: number): CarHistory {
   return useMemo(() => (range ? historySlice(range.car, range.from, range.to) : NO_HISTORY), [range]);
 }
 
+/** API gap: the fastest time in each sector by anyone so far (seconds), for purple sector times. */
+export function useBestSectors(): readonly [number | null, number | null, number | null] {
+  return useKit((s) => bestSectorsAt(s.session, s.t), shallowEqual);
+}
+
 const NO_LAPS: readonly Lap[] = [];
 const NO_STINTS: readonly StintView[] = [];
 
@@ -207,7 +215,8 @@ export function useLaps(n: number | null): readonly Lap[] {
   return useKit((s) => {
     const d = n == null ? undefined : s.session.drivers.get(n);
     return d ? lapsAt(d, s.t) : NO_LAPS;
-  }, shallowEqual);
+    // Structural: a live session's rebuilt meta brings new Lap objects for the same laps.
+  }, deepEqual);
 }
 
 /** Car n's stints started by t; the current one is `open`, cut at the current lap. */
@@ -220,9 +229,9 @@ export function useStints(n: number | null): readonly StintView[] {
 }
 
 /** Race feed items up to t, newest first (race control, overtakes, pits, retirements, radio). */
-export function useFeed(): readonly FeedItem[] {
-  const at = useKit((s) => ({ session: s.session, end: feedEndAt(s.session, s.t) }), shallowEqual);
-  return useMemo(() => feedUpTo(at.session, at.end), [at]);
+export function useFeed(): readonly FeedEntry[] {
+  // Entries keep their identity across live rebuilds, so an unchanged feed is the same list.
+  return useKit((s) => feedUpTo(s.session, feedEndAt(s.session, s.t)), shallowEqual);
 }
 
 // ---------------------------------------------------------------- selection
@@ -268,11 +277,45 @@ export function useSettings<S extends BlockSettings = BlockSettings>(): [S, (pat
   return [ctx.settings as S, ctx.update as (patch: Partial<S>) => void];
 }
 
-/** The block's size in CSS pixels. */
+/** The block's size in layout px (CSS px inside the block; the grid zooms blocks to fit), and its pixel ratio. */
 export function useBlockSize(): BlockSize {
   const size = useContext(SizeContext);
   if (!size) throw new Error("useBlockSize() must be used inside a BlockHost");
   return size;
+}
+
+/**
+ * API gap: turns a pointer event into layout px relative to the element it's on. The grid zooms blocks,
+ * so screen px (clientX, getBoundingClientRect) aren't the px a block draws in.
+ */
+export function useLayoutPoint(): (e: { clientX: number; clientY: number; currentTarget: Element }) => { x: number; y: number } {
+  const scale = useContext(ScaleContext);
+  return useCallback(
+    (e) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      return { x: (e.clientX - rect.left) / scale, y: (e.clientY - rect.top) / scale };
+    },
+    [scale],
+  );
+}
+
+// ---------------------------------------------------------------- media
+
+export interface Radio {
+  /** The clip playing (its url), if any. */
+  playing: string | null;
+  /** Clips that failed to load. */
+  unavailable: ReadonlySet<string>;
+  /** Plays a clip, stopping whatever was playing (one clip at a time, app-wide). */
+  play: (url: string) => void;
+  stop: () => void;
+}
+
+/** API gap: team radio playback. The core plays the clip; it stops when the session changes. */
+export function useRadio(): Radio {
+  const playing = useRadioState((s) => s.playing);
+  const unavailable = useRadioState((s) => s.unavailable);
+  return useMemo(() => ({ playing, unavailable, play: playRadio, stop: stopRadio }), [playing, unavailable]);
 }
 
 // ---------------------------------------------------------------- opt-out

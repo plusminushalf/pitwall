@@ -1,0 +1,18 @@
+// The blocks that ship with the app (compiled in: trust phase P1, H3.13).
+
+import type { BlockDefinition } from "../blockkit/defineBlock";
+import driverHeader from "../blocks/driver-header";
+import lapTimes from "../blocks/lap-times";
+import raceFeed from "../blocks/race-feed";
+import sectors from "../blocks/sectors";
+import speedGear from "../blocks/speed-gear";
+import speedTrace from "../blocks/speed-trace";
+import throttleBrakeRpm from "../blocks/throttle-brake-rpm";
+import timingTower from "../blocks/timing-tower";
+import trackMap from "../blocks/track-map";
+import tyreStrip from "../blocks/tyre-strip";
+import weather from "../blocks/weather";
+
+const ALL: BlockDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather];
+
+export const BUILTIN_BLOCKS: ReadonlyMap<string, BlockDefinition> = new Map(ALL.map((b) => [b.id, b as BlockDefinition]));

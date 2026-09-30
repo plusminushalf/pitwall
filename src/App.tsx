@@ -1,15 +1,12 @@
 import { useEffect } from "react";
-import { DriverPanel } from "./components/DriverPanel";
 import { DownloadPrompt } from "./components/DownloadPrompt";
-import { EventFeed } from "./components/EventFeed";
 import { Header } from "./components/Header";
 import { LiveScreen } from "./components/LiveControl";
 import { ReadyToast } from "./components/Navigation";
 import { Timeline } from "./components/Timeline";
-import { TimingTower } from "./components/TimingTower";
-import { TrackMap } from "./components/TrackMap";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
+import { Grid } from "./grid/Grid";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useReplayLoop } from "./hooks/useReplayLoop";
 import { applyUrl, useHistoryNav, useUrlSync } from "./hooks/useUrlState";
@@ -98,18 +95,7 @@ export function App() {
   return (
     <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
       <Header />
-      <div className="grid min-h-0 grid-cols-[410px_minmax(0,1fr)_360px]">
-        <aside className="min-h-0 border-r border-zinc-800">
-          <TimingTower />
-        </aside>
-        <main className="min-h-0">
-          <TrackMap />
-        </main>
-        <aside className="flex min-h-0 flex-col border-l border-zinc-800">
-          <DriverPanel />
-          <EventFeed />
-        </aside>
-      </div>
+      <Grid />
       <Timeline />
       {loading && (
         <div className="absolute inset-0 z-10 bg-zinc-950/80">
