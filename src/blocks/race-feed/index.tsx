@@ -89,15 +89,31 @@ function RadioButton({ url }: { url: string }) {
   );
 }
 
+/** A driver's team-coloured acronym. */
+function DriverChip({ n, d, title }: { n: number; d: DriverInfo | undefined; title?: string }) {
+  return (
+    <span
+      className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
+      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
+      title={title}
+    >
+      {d?.acronym ?? `#${n}`}
+    </span>
+  );
+}
+
+/** The car a row is about: the one race control named, else the first inferred from telemetry. */
+const driverOf = (item: FeedEntry) => item.driver ?? item.inferred?.[0] ?? null;
+
 /** One feed item: memoised on the entry (stable across ticks and live rebuilds), so old rows never re-render. */
 const FeedRow = memo(function FeedRow({
   item,
-  d,
+  info,
   lightsOut,
   onItem,
 }: {
   item: FeedEntry;
-  d: DriverInfo | undefined;
+  info: Map<number, DriverInfo>;
   lightsOut: number;
   onItem: (item: FeedEntry) => void;
 }) {
@@ -113,13 +129,10 @@ const FeedRow = memo(function FeedRow({
             </span>
           )}
           <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
-          {item.driver != null && (
-            <span
-              className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
-              style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
-            >
-              {d?.acronym ?? `#${item.driver}`}
-            </span>
+          {item.driver != null ? (
+            <DriverChip n={item.driver} d={info.get(item.driver)} />
+          ) : (
+            item.inferred?.map((n) => <DriverChip key={n} n={n} d={info.get(n)} title="Inferred from telemetry" />)
           )}
           <span className="align-middle">{item.text}</span>
         </span>
@@ -143,7 +156,8 @@ function RaceFeed() {
     (item: FeedEntry) => {
       seek(item.t - 5_000);
       // Focus only: the track map filter (selection) stays as it is.
-      if (item.driver != null) focus(item.driver);
+      const n = driverOf(item);
+      if (n != null) focus(n);
     },
     [seek, focus],
   );
@@ -174,7 +188,7 @@ function RaceFeed() {
       <ol className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-zinc-600">No events yet</li>}
         {items.map((item) => (
-          <FeedRow key={item.id} item={item} d={item.driver != null ? info.get(item.driver) : undefined} lightsOut={lightsOut} onItem={onItem} />
+          <FeedRow key={item.id} item={item} info={info} lightsOut={lightsOut} onItem={onItem} />
         ))}
       </ol>
     </section>

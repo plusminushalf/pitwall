@@ -13,6 +13,7 @@ import type {
   SessionMeta,
   Stint,
 } from "../types";
+import { yellowCulprits } from "../engine/yellowCause";
 
 export interface LocSeries {
   t: Float64Array;
@@ -55,6 +56,8 @@ export interface FeedItem {
   driver: number | null;
   flag?: string | null;
   url?: string;
+  /** Sector yellows (race control names nobody): the cars inferred from telemetry to have caused it, when clear. */
+  inferred?: number[];
 }
 
 /** One driver's decoded location + car streams. */
@@ -116,13 +119,13 @@ function byDriver<T extends { driver: number }>(items: T[]): Map<number, T[]> {
   return out;
 }
 
-function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string): FeedItem[] {
+function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string, culprits: Map<number, number[]>): FeedItem[] {
   const feed: FeedItem[] = [];
-  for (const m of meta.raceControl) {
+  meta.raceControl.forEach((m, i) => {
     // Per-sector "CLEAR" messages are noise in a feed; the map shows sector flags instead.
-    if (m.category === "Flag" && m.flag === "CLEAR" && m.scope === "Sector") continue;
+    if (m.category === "Flag" && m.flag === "CLEAR" && m.scope === "Sector") return;
     // After the replay window only stewards' decisions matter (not cool-down lap flags).
-    if (m.t > meta.duration && !m.message.startsWith("FIA STEWARDS")) continue;
+    if (m.t > meta.duration && !m.message.startsWith("FIA STEWARDS")) return;
     const kind: FeedKind =
       m.category === "SafetyCar"
         ? "safety-car"
@@ -131,8 +134,9 @@ function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string): Fe
           : m.category === "Flag"
             ? "flag"
             : "control";
-    feed.push({ t: m.t, kind, text: m.message, driver: m.driver, flag: m.flag });
-  }
+    const inferred = culprits.get(i);
+    feed.push({ t: m.t, kind, text: m.message, driver: m.driver, flag: m.flag, ...(inferred && { inferred }) });
+  });
   for (const o of meta.overtakes) {
     feed.push({
       t: o.t,
@@ -201,7 +205,7 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>): Session
   }
 
   const acronym = (n: number | null) => (n != null ? (drivers.get(n)?.info.acronym ?? `#${n}`) : "");
-  const feed = buildFeed(meta, acronym);
+  const feed = buildFeed(meta, acronym, yellowCulprits(meta, drivers));
 
   return {
     meta,

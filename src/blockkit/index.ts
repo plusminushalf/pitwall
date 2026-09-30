@@ -58,6 +58,7 @@
 //     usePositions()             every car's position at once (map labels)
 //     useBestSectors()           fastest sector times by anyone so far
 //     useFeed() entries          `id` (stable key, kept across live rebuilds) and `postRace`
+//     useFeed() entries          `inferred`: cars that caused a sector yellow, inferred from telemetry
 //     useRadio()                 team radio played by the core, one clip at a time app-wide
 //
 //   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track

@@ -141,7 +141,8 @@ export interface FeedEntry extends FeedItem {
   postRace: boolean;
 }
 
-const contentKey = (f: FeedItem, postRace: boolean) => `${f.t}|${f.kind}|${f.driver}|${f.flag ?? ""}|${f.url ?? ""}|${postRace}|${f.text}`;
+const contentKey = (f: FeedItem, postRace: boolean) =>
+  `${f.t}|${f.kind}|${f.driver}|${f.flag ?? ""}|${f.url ?? ""}|${postRace}|${f.inferred?.join(",") ?? ""}|${f.text}`;
 
 /** The last session's entries by content, so a rebuilt (live) session reuses them: same identity, same id. */
 let reuse: { sessionKey: number; byKey: Map<string, FeedEntry[]>; nextId: number } | null = null;
