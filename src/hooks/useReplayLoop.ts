@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { runFrames } from "../blockkit/frame";
 import { followStep } from "../data/liveEdge";
 import { clock, liveEdge, useReplay } from "../store";
 
@@ -42,6 +43,8 @@ export function useReplayLoop() {
         lastPublish = now;
         publish();
       }
+      // Canvas blocks draw this frame's time (block kit useFrame).
+      runFrames();
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);

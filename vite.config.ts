@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
@@ -12,6 +13,8 @@ const livePort = process.env.LIVE_PORT || loadEnv("", process.cwd(), "").LIVE_PO
 export default defineConfig({
   base: "./",
   plugins: [react(), tailwindcss()],
+  // Blocks import the block kit like a package (also in tsconfig.json's paths).
+  resolve: { alias: [{ find: /^block-kit$/, replacement: fileURLToPath(new URL("./src/blockkit/index.ts", import.meta.url)) }] },
   worker: { format: "es" },
   server: {
     host: true,
