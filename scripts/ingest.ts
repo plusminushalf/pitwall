@@ -20,6 +20,8 @@ const io: IngestIO = {
   ...bunCacheIO,
   fetchEndpoint,
   fetchCircuit,
+  // A few requests at once: the client's pacing (free tier, or the sponsor tier with a login) is the limit.
+  concurrency: 4,
   async writeOutput(path, json) {
     await Bun.write(path, json);
     return Bun.gzipSync(json).length;

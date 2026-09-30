@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { corrupt, DevKnobs } from "./debug";
 import { loginError, type Token } from "./openf1";
-import { ANON_LIMIT, AUTH_LIMIT, Pacer, Rest, RestError, restUrl, type RestFetch, type TokenSource } from "./rest";
+import { FakeClock } from "../testkit";
+import { Budget } from "./budget";
+import { RETRIES_429, Rest, RestError, restUrl, retryAfterMs, type RestFetch, type TokenSource } from "./rest";
 import { TokenScheduler } from "./scheduler";
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -80,22 +82,19 @@ describe("Rest", () => {
     expect(api.seen.length).toBe(2);
   });
 
-  test("one request at a time, in order", async () => {
+  test("requests run in parallel (the budget, when there is one, decides when each starts)", async () => {
     let active = 0;
     let peak = 0;
-    const order: string[] = [];
-    const fetch: RestFetch = async (url) => {
+    const fetch: RestFetch = async () => {
       active++;
       peak = Math.max(peak, active);
       await new Promise((r) => setTimeout(r, 2));
       active--;
-      order.push(url.split("?")[1]!);
       return { status: 200, arrayBuffer: async () => buf("[]") };
     };
     const rest = new Rest(fetch, { current: () => null, onUnauthorized: async () => "give_up" });
     await Promise.all([1, 2, 3, 4].map((k) => rest.get("laps", { session_key: k })));
-    expect(peak).toBe(1);
-    expect(order).toEqual(["session_key=1", "session_key=2", "session_key=3", "session_key=4"]);
+    expect(peak).toBe(4);
   });
 
   test("a network failure rejects with RestError and doesn't block the queue", async () => {
@@ -207,43 +206,64 @@ describe("dev knobs (debug.ts) with a real scheduler", () => {
   });
 });
 
-describe("Pacer (the REST budget)", () => {
-  const clockAt = () => {
-    let t = 0;
-    const sleeps: number[] = [];
-    return { now: () => t, sleep: async (ms: number) => void (sleeps.push(ms), (t += ms)), sleeps, get t() { return t; } };
+describe("Rest with the budget", () => {
+  const budgeted = (fetch: RestFetch, token: () => string | null = () => "good", onUnauthorized: TokenSource["onUnauthorized"] = async () => "give_up") => {
+    const clock = new FakeClock();
+    const budget = new Budget({ now: clock.now, setTimeout: clock.setTimeout, clearTimeout: clock.clearTimeout, random: () => 0.5, authenticated: () => token() !== null });
+    return { clock, budget, rest: new Rest(fetch, { current: token, onUnauthorized }, undefined, budget) };
   };
-  test("spaces request starts 1/perSecond apart: no bursts", async () => {
-    const c = clockAt();
-    const p = new Pacer(c);
-    const starts: number[] = [];
-    for (let i = 0; i < 7; i++) {
-      await p.take(AUTH_LIMIT);
-      starts.push(c.now());
-    }
-    const gaps = starts.slice(1).map((x, i) => x - starts[i]!);
-    expect(gaps.every((g) => g >= 1000 / 6 - 1)).toBe(true);
-    // Never more than 6 starts in any second.
-    for (const s of starts) expect(starts.filter((x) => x >= s && x < s + 1000).length).toBeLessThanOrEqual(6);
-  });
-  test("at most perMinute starts in any 60 s; unauthenticated is half", async () => {
-    const c = clockAt();
-    const p = new Pacer(c);
-    const starts: number[] = [];
-    for (let i = 0; i < 35; i++) {
-      await p.take(ANON_LIMIT);
-      starts.push(c.now());
-    }
-    for (const s of starts) expect(starts.filter((x) => x >= s && x < s + 60_000).length).toBeLessThanOrEqual(30);
-    expect(starts[30]! - starts[0]!).toBeGreaterThanOrEqual(60_000);
-  });
-  test("Rest waits for the budget before each request (the 401 retry too)", async () => {
-    const c = clockAt();
-    const api = fakeApi(new Set(["good"]));
+
+  test("each request (the 401 retry too) waits for the budget; the token is read once it may start", async () => {
+    const api = fakeApi(new Set(["new"]));
+    let tok = "old";
     const at: number[] = [];
-    const rest = new Rest(async (u, i) => (at.push(c.now()), api.fetch(u, i)), { current: () => "good", onUnauthorized: async () => "give_up" }, undefined, new Pacer(c));
-    await Promise.all([rest.get("laps", {}), rest.get("laps", {}), rest.get("laps", {})]);
-    expect(at.length).toBe(3);
-    expect(at[2]! - at[0]!).toBeGreaterThanOrEqual(2 * (1000 / 6) - 1);
+    const x = budgeted(
+      async (u, i) => (at.push(x.clock.t), api.fetch(u, i)),
+      () => tok,
+      async () => ((tok = "new"), "retry"),
+    );
+    const all = Promise.all([x.rest.get("laps", {}, { caller: "a" }), x.rest.get("laps", {}, { caller: "a" })]);
+    await x.clock.advance(5_000);
+    const rs = await all;
+    expect(rs.map((r) => r.status)).toEqual([200, 200]);
+    expect(at.length).toBeGreaterThanOrEqual(3);
+    const gaps = at.slice(1).map((t, i) => t - at[i]!);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(Math.floor(1150 / 6));
+    expect(x.budget.status().started).toBe(at.length);
+  });
+
+  test("a 429 pauses the budget and is retried after it; a persistent one goes back to the caller", async () => {
+    let n = 0;
+    const x = budgeted(async () => ({ status: ++n <= 1 ? 429 : 200, arrayBuffer: async () => buf("[]") }));
+    const r = x.rest.get("laps", {}, { caller: "a" });
+    await x.clock.advance(10_000);
+    expect((await r).status).toBe(200);
+    expect(n).toBe(2);
+    expect(x.budget.status().rateLimited).toBe(1);
+    const always = budgeted(async () => ({ status: 429, arrayBuffer: async () => buf("") }));
+    const r2 = always.rest.get("laps", {}, { caller: "a" });
+    await always.clock.advance(600_000);
+    expect((await r2).status).toBe(429);
+    expect(always.budget.status().rateLimited).toBe(RETRIES_429 + 1);
+  });
+
+  test("Retry-After (seconds or a date) when the response lets us read it", async () => {
+    expect(retryAfterMs("3")).toBe(3000);
+    expect(retryAfterMs(null)).toBeUndefined();
+    expect(retryAfterMs("0")).toBeUndefined();
+    expect(retryAfterMs(new Date(10_000).toUTCString(), 4_000)).toBe(6_000);
+    const x = budgeted(async () => ({ status: 429, arrayBuffer: async () => buf(""), headers: { get: (h: string) => (h === "retry-after" ? "9" : null) } }));
+    const t0 = x.clock.t;
+    void x.rest.get("laps", {}, { caller: "a" }).catch(() => {});
+    await x.clock.advance(1);
+    expect(x.budget.status().pausedUntil).toBe(t0 + 9_000);
+  });
+
+  test("the request timeout reaches fetch (live gap-fills get a short one)", async () => {
+    const seen: number[] = [];
+    const rest = new Rest(async (_u, i) => (seen.push(i.timeoutMs), { status: 200, arrayBuffer: async () => buf("[]") }), { current: () => null, onUnauthorized: async () => "give_up" });
+    await rest.get("laps", {}, { caller: "live", priority: "live", timeoutMs: 30_000 });
+    await rest.get("laps", {});
+    expect(seen).toEqual([30_000, 120_000]);
   });
 });

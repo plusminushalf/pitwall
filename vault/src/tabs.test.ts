@@ -6,7 +6,8 @@ import type { Fetch } from "./openf1";
 import type { LiveTopic, PopupMessage, VaultStatus } from "./protocol";
 import { MemoryStore } from "./storage";
 import { FreezeGate } from "./freeze";
-import { FRAME_LOCK, HEARTBEAT_MS, LEADER_LOCK, LEASE_MS, PROVISIONAL_MS, TAKEOVER_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
+import { Budget } from "./budget";
+import { FORWARD_TIMEOUT_MS, FRAME_LOCK, HEARTBEAT_MS, LEADER_LOCK, LEASE_MS, PROVISIONAL_MS, TAKEOVER_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
 
 const USER = "someone@example.com";
 const PASS = "correct horse battery staple";
@@ -92,7 +93,7 @@ function world() {
     return { status: 200, text: async () => JSON.stringify({ access_token: `eyJhbGciOiJIUzI1NiJ9.tok${tokens}.sig`, token_type: "bearer", expires_in: "3600" }) };
   };
   let seq = 0;
-  function frame(opts: { gate?: boolean; visible?: () => boolean } = {}) {
+  function frame(opts: { gate?: boolean; visible?: () => boolean; budget?: boolean; restDelay?: number } = {}) {
     const id = `frame${++seq}`;
     const gate = opts.gate ? new FreezeGate(clock) : null;
     const timers = gate ? gate.timers() : clock;
@@ -117,10 +118,16 @@ function world() {
       onShared: (s) => node?.onShared(s),
       onToken: () => live?.onToken(),
     });
+    const budget = opts.budget ? new Budget({ ...timers, random: () => 0.5, authenticated: () => core.token() !== null }) : null;
+    const callers: string[] = [];
     const rest = {
-      get: async (endpoint: string, params: Record<string, string | number>) => {
+      get: async (endpoint: string, params: Record<string, string | number>, o?: { caller: string; priority?: "live" | "normal" }) => {
+        const slot = budget ? await budget.acquire(o?.caller ?? "?", o?.priority) : null;
         gets.push(`${id}:${endpoint}`);
+        callers.push(o?.caller ?? "?");
+        if (opts.restDelay) await new Promise((r) => timers.setTimeout(() => r(null), opts.restDelay!));
         const r = await broker.rest(endpoint, params);
+        slot?.release({ status: r.status });
         return { ...r, auth: core.token() !== null };
       },
     };
@@ -133,7 +140,7 @@ function world() {
       socket: gate ? (u, p) => gate.socket(broker.socket(u, p)) : broker.socket,
       token: () => core.liveToken(),
       refresh: () => core.scheduler.refresh(),
-      rest: (e, p) => (gate ? gate.hold(rest.get(e, p)) : rest.get(e, p)),
+      rest: (e, p) => (gate ? gate.hold(rest.get(e, p, { caller: "live", priority: "live" })) : rest.get(e, p, { caller: "live", priority: "live" })),
       emit: (b) => node?.onLiveData(b),
       onStatus: () => node?.pushStatus(),
       lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
@@ -144,6 +151,7 @@ function world() {
       core,
       live,
       rest: rest as never,
+      ...(budget && { budget }),
       channel,
       locks: gate ? gate.locks(frameLocks) : frameLocks,
       timers,
@@ -161,6 +169,8 @@ function world() {
       statuses,
       got,
       gets,
+      callers,
+      budget,
       status: () => node!.status(),
       ns: () => got.flatMap((b) => b.messages.map((m) => m.n as number)),
       /** The tab closes. */
@@ -277,11 +287,92 @@ describe("VaultNode: one leader among the vault frames", () => {
     const b = w.frame();
     await b.node.start();
     await w.run();
-    const p = b.node.get("sessions", { session_key: "latest" });
+    const p = b.node.get("sessions", { session_key: "latest" }, "p0");
     await w.run();
     expect((await p).status).toBe(200);
     expect(a.gets).toEqual(["frame1:sessions"]);
     expect(b.gets).toEqual([]);
+    // The budget's caller: the follower frame's port.
+    expect(a.callers).toEqual(["frame2/p0"]);
+    await a.node.get("laps", {}, "p1");
+    expect(a.callers.at(-1)).toBe("frame1/p1");
+  });
+
+  test("one budget across tabs: a follower's gets queue in the leader's budget and wait there for minutes while the leader lives", async () => {
+    const w = world();
+    const a = w.frame({ budget: true, restDelay: 2_000 });
+    await a.node.start();
+    const b = w.frame({ budget: true });
+    await b.node.start();
+    await w.run();
+    // 70 gets without a token (30/min): the last ones wait more than two minutes in the leader's budget.
+    const ps = Array.from({ length: 70 }, (_, i) => b.node.get("laps", { session_key: i }, "p1"));
+    const done: number[] = [];
+    ps.forEach((p, i) => p.then(() => done.push(i), () => done.push(-1)));
+    await w.run(30_000);
+    expect(a.budget!.status()).toMatchObject({ auth: false, callers: 1 });
+    expect(a.budget!.status().usedThisMinute).toBeLessThanOrEqual(30);
+    await w.run(150_000);
+    expect(done.length).toBe(70);
+    expect(done.includes(-1)).toBe(false);
+    expect(b.budget!.status().started).toBe(0); // the follower spent none of its own
+  });
+
+  test("a forwarded get fails once the leader has gone quiet (a hidden follower doesn't steal)", async () => {
+    const w = world();
+    const a = w.frame({ gate: true });
+    await a.node.start();
+    const b = w.frame({ visible: () => false });
+    await b.node.start();
+    await w.run();
+    a.gate!.freeze(120_000);
+    const p = b.node.get("laps", {}, "p0").then(() => "ok", (e: Error) => e.message);
+    await w.run(FORWARD_TIMEOUT_MS - 5_000);
+    const r: { v: string | null } = { v: null };
+    void p.then((x) => (r.v = x));
+    await w.run();
+    expect(r.v).toBeNull();
+    await w.run(10_000);
+    expect(r.v).toBe("the leader frame didn't answer");
+    expect(b.node.role).toBe("follower");
+  });
+
+  test("a closed port's queued gets are dropped, at the leader too", async () => {
+    const w = world();
+    const a = w.frame({ budget: true, restDelay: 1_000 });
+    await a.node.start();
+    const b = w.frame({ budget: true });
+    await b.node.start();
+    await w.run();
+    const results: string[] = [];
+    for (let i = 0; i < 40; i++) b.node.get("laps", { session_key: i }, "p2").then(() => results.push("ok"), (e) => results.push(e.code ?? e.message));
+    await w.run(5_000);
+    const started = a.budget!.status().started;
+    b.node.dropCaller("p2");
+    await w.run(120_000);
+    expect(results.filter((r) => r === "cancelled").length).toBe(40 - results.filter((r) => r === "ok").length);
+    expect(a.budget!.status()).toMatchObject({ queued: 0, inFlight: 0 });
+    expect(a.budget!.status().started).toBeLessThanOrEqual(started + 6); // only what was already in flight
+  });
+
+  test("takeover: the new leader counts the old leader's last minute of requests (its heartbeat carried them)", async () => {
+    const w = world();
+    const a = w.frame({ budget: true });
+    await a.node.start();
+    const b = w.frame({ budget: true });
+    await b.node.start();
+    await w.run();
+    for (let i = 0; i < 25; i++) void a.node.get("laps", { session_key: i }, "p0");
+    await w.run(12_000);
+    expect(a.budget!.status().usedThisMinute).toBe(25);
+    a.kill();
+    await w.run(1_000);
+    expect(b.node.role).toBe("leader");
+    expect(b.budget!.status().usedThisMinute).toBe(25);
+    // So without a token it has 5 left this minute, not 30.
+    for (let i = 0; i < 10; i++) void b.node.get("laps", { session_key: i }, "p0");
+    await w.run(10_000);
+    expect(b.budget!.status().started).toBe(5);
   });
 
   test("subscriptions are the union across frames; the data reaches each frame", async () => {
@@ -356,7 +447,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     // The leader goes before answering.
     const ch = [...w.bus.channels][0]!;
     ch.onmessage = null;
-    const p = b.node.get("laps", {});
+    const p = b.node.get("laps", {}, "p0");
     await w.run();
     a.kill();
     await w.run();

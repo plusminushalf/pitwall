@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { FakeClock, MemBroker, settle } from "../testkit";
-import { FLUSH_MS, LIMIT_BASE_MS, LiveManager, LiveState, OVERLAP_MS, SEEN_PER_TOPIC, byDate, canonical, identity, isoDate, type Batch, type LiveToken } from "./live";
+import { FLUSH_MS, GAP_FILL, GAP_MARGIN_MS, LIMIT_BASE_MS, LiveManager, LiveState, OVERLAP_MS, SEEN_PER_TOPIC, byDate, canonical, gapParams, identity, isoDate, type Batch, type LiveToken } from "./live";
 import type { LiveMessage, LiveTopic } from "./protocol";
 
 function setup(opts: { token?: LiveToken | null; state?: LiveState } = {}) {
@@ -283,7 +283,7 @@ describe("LiveManager", () => {
     expect(x.broker.clients.at(-1)!.password).toBe("tok-2");
   });
 
-  test("a drop: reconnect with backoff, gap-fill over REST (date>=lastSeen), in order, before live resumes; no loss, no duplicates", async () => {
+  test("a drop: reconnect with backoff, gap-fill over REST (date>=lastSeen - overlap, or whole), in order, before live resumes; no loss, no duplicates", async () => {
     const x = await streaming(["car_data", "position", "laps"]);
     for (let i = 0; i < 6; i++) x.pub(i % 2 ? "position" : "car_data");
     await x.clock.advance(FLUSH_MS);
@@ -300,7 +300,8 @@ describe("LiveManager", () => {
     for (let i = 0; i < 4; i++) x.pub("car_data");
     await x.clock.advance(FLUSH_MS);
     const car = x.restCalls.find(([e]) => e === "car_data")!;
-    expect(car[1]).toEqual({ session_key: 9999, "date>=": lastCar });
+    expect(car[1]).toEqual({ session_key: 9999, "date>=": isoDate(Date.parse(lastCar) - (GAP_FILL.car_data as number)) });
+    expect(x.restCalls.find(([e]) => e === "position")![1]).toEqual({ session_key: 9999 });
     expect(x.restCalls.find(([e]) => e === "laps")![1]).toEqual({ session_key: 9999 });
     expect([...x.ns()].sort((a, b) => a - b)).toEqual(range(1, 17));
     // Each topic in order (gap-filled before live).
@@ -311,8 +312,52 @@ describe("LiveManager", () => {
     const st = x.live.status();
     expect(st.phase).toBe("connected");
     expect(st.gapFilled).toBe(7);
-    expect(st.duplicates).toBeGreaterThanOrEqual(1); // the lastSeen row itself (date>=)
+    expect(st.duplicates).toBeGreaterThanOrEqual(6); // the overlap: every car_data and position row delivered before the drop
     expect(x.broker.max).toBe(1);
+  });
+
+  test("a record published during the outage but dated before lastSeen (a pit stop, a lagging driver) is gap-filled", async () => {
+    const x = await streaming(["pit", "car_data", "location"]);
+    // Pit stops: A enters the pit lane first and is published last (a slow stop); B, dated later, is out first.
+    const entryA = x.clock.t + 1;
+    x.clock.t = entryA + 5_000;
+    x.pub("pit", { date: isoDate(x.clock.t), driver_number: 44, lane_duration: 20 }); // B, delivered live
+    // Telemetry: driver 1 is up to date, driver 81's samples lag 5 s behind at the broker.
+    x.pub("car_data", { driver_number: 1 });
+    x.pub("location", { driver_number: 1 });
+    await x.clock.advance(FLUSH_MS);
+    const seen = x.live.status().lastSeen;
+    expect(Date.parse(seen.pit!)).toBe(entryA + 5_000);
+    x.broker.dropAll();
+    await settle();
+    // During the outage: A, dated before lastSeen (pit); driver 81's lagging samples, dated before lastSeen (telemetry).
+    const lateA = x.pub("pit", { date: isoDate(entryA), driver_number: 1, lane_duration: 40 }) as { n?: number };
+    const late81 = x.pub("car_data", { driver_number: 81, date: isoDate(Date.parse(seen.car_data!) - 5_000) }) as { n?: number };
+    const late81loc = x.pub("location", { driver_number: 81, date: isoDate(Date.parse(seen.location!) - 5_000) }) as { n?: number };
+    await x.clock.advance(1_000);
+    expect(x.live.status().phase).toBe("connected");
+    expect(x.restCalls.find(([e]) => e === "pit")![1]).toEqual({ session_key: 9999 }); // whole: no date filter
+    expect(x.ns("pit")).toEqual([1, lateA.n as number]);
+    expect(x.ns("car_data")).toEqual([late81.n as number, 2].sort((a, b) => a - b));
+    expect(x.ns("location")).toContain(late81loc.n as number);
+    // Nothing twice: the whole refetch's pit B and the overlap's rows were dropped as duplicates.
+    const all = x.ns();
+    expect(new Set(all).size).toBe(all.length);
+    expect(x.live.status().gapFilled).toBe(3);
+  });
+
+  test("gapParams: whole or lastSeen - overlap; a topic that never delivered anything starts from `since` minus the larger margin", () => {
+    const at = Date.parse("2026-09-30T12:00:00.000Z");
+    const lastSeen = { car_data: isoDate(at), intervals: isoDate(at), pit: isoDate(at) };
+    const since = { car_data: at - 600_000, location: at - 600_000, weather: at - 600_000 };
+    expect(gapParams("car_data", 9, { lastSeen, since })).toEqual({ session_key: 9, "date>=": isoDate(at - 30_000) });
+    expect(gapParams("intervals", 9, { lastSeen, since })).toEqual({ session_key: 9, "date>=": isoDate(at - 60_000) });
+    expect(gapParams("location", "latest", { lastSeen, since })).toEqual({ session_key: "latest", "date>=": isoDate(at - 600_000 - Math.max(30_000, GAP_MARGIN_MS)) });
+    expect(gapParams("pit", 9, { lastSeen, since })).toEqual({ session_key: 9 });
+    expect(gapParams("weather", 9, { lastSeen, since })).toEqual({ session_key: 9 });
+    expect(gapParams("race_control", 9, { lastSeen, since })).toBeNull(); // never streamed
+    // Every overlap stays well inside the dedupe window (~2 min of car_data at 22 cars x 3.7 Hz x 2 keys).
+    for (const v of Object.values(GAP_FILL)) if (typeof v === "number") expect(v).toBeLessThan((SEEN_PER_TOPIC / (22 * 3.7 * 2)) * 1000 * 0.5);
   });
 
   test("live messages that arrive during the gap-fill are held back and follow it", async () => {
@@ -338,14 +383,18 @@ describe("LiveManager", () => {
     expect(x.ns()).toEqual([1, 2, 3]);
   });
 
-  test("a topic with nothing delivered yet is gap-filled from when it started streaming (minus a margin)", async () => {
-    const x = await streaming(["race_control"]);
-    const since = x.live.status().since.race_control!;
+  test("a topic with nothing delivered yet is gap-filled from when it started streaming (minus a margin), or whole", async () => {
+    const x = await streaming(["car_data", "race_control"]);
+    const since = x.live.status().since.car_data!;
     x.broker.dropAll();
+    x.pub("car_data");
     x.pub("race_control");
     await x.clock.advance(1_000);
-    expect(x.restCalls[0]).toEqual(["race_control", { session_key: "latest", "date>=": isoDate(since - 30_000) }]);
-    expect(x.ns()).toEqual([1]);
+    expect(x.restCalls).toEqual([
+      ["car_data", { session_key: "latest", "date>=": isoDate(since - 30_000) }],
+      ["race_control", { session_key: "latest" }],
+    ]);
+    expect(x.ns()).toEqual([1, 2]);
   });
 
   test("a failed gap-fill is retried, then reported (the stream carries on)", async () => {

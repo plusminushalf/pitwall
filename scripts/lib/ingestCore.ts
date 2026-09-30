@@ -6,6 +6,12 @@
 // Freshly downloaded responses are normalized from memory; the raw cache is written in the background
 // (for resuming an interrupted download and re-processing offline) and only read back for files that
 // were already cached.
+//
+// Requests run concurrently (IngestIO.concurrency at once; the rate limiter behind fetchEndpoint is the real
+// limit), started in the order they always were: sessions, then meeting (and the circuit map as soon as the
+// meeting says where it is), drivers and the other session files, then car_data / location per driver once
+// the drivers are known. A failure stops new requests; the ones in flight finish and are cached, so the
+// next run resumes from there. The processed output doesn't depend on the order responses arrive in.
 
 import type {
   RawCarData,
@@ -34,6 +40,8 @@ export { FORMAT_VERSION } from "./formatVersion";
 
 export interface IngestIO extends RawCacheIO {
   fetchEndpoint<T>(endpoint: string, params: Record<string, string | number>): Promise<T[]>;
+  /** Requests (and cache reads) at once. Default 1: one after the other. */
+  concurrency?: number;
   fetchCircuit(url: string): Promise<RawCircuit>;
   /** Write one processed JSON file; resolves to its gzipped size in bytes. */
   writeOutput(path: string, json: string): Promise<number>;
@@ -53,7 +61,7 @@ export interface IngestPaths {
 
 /** Milliseconds spent per phase. */
 export interface IngestTimings {
-  /** Network requests (OpenF1 + MultiViewer), including parsing the response. */
+  /** Network requests (OpenF1 + MultiViewer), including parsing the response: wall time with any in flight. */
   fetch: number;
   /** Gzip + write of freshly downloaded responses into the raw cache (in the background, overlapping fetches). */
   rawWrite: number;
@@ -76,6 +84,44 @@ export type IngestEvent =
 
 const now = () => performance.now();
 
+/** Thrown into the requests still queued once one has failed: they never start. */
+class Stopped extends Error {}
+
+/** At most `limit` tasks at once, started in submission order (`front`: before the queued ones). */
+function limiter(limit: number) {
+  let active = 0;
+  const queue: (() => void)[] = [];
+  let stopped = false;
+  const next = () => {
+    while (active < limit && queue.length) queue.shift()!();
+  };
+  function run<T>(task: () => Promise<T>, front = false): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const start = () => {
+        if (stopped) return reject(new Stopped());
+        active++;
+        task()
+          .then(resolve, reject)
+          .finally(() => {
+            active--;
+            next();
+          });
+      };
+      if (front) queue.unshift(start);
+      else queue.push(start);
+      next();
+    });
+  }
+  return {
+    run,
+    /** No more starts: everything queued (now or later) rejects with Stopped. */
+    stop() {
+      stopped = true;
+      for (const start of queue.splice(0)) start();
+    },
+  };
+}
+
 /** Download (or read from cache), normalize and write one session. Throws on unsupported sessions. */
 export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestPaths, onEvent?: (e: IngestEvent) => void) {
   const { rawDir, sessionsDir } = paths;
@@ -87,6 +133,14 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   let writeError: { error: unknown } | null = null;
   const rethrowWriteError = () => {
     if (writeError) throw writeError.error;
+  };
+
+  // Wall time with at least one request in flight.
+  let inFlight = 0;
+  let fetchSince = 0;
+  const fetching = (on: boolean) => {
+    if (on && inFlight++ === 0) fetchSince = now();
+    if (!on && --inFlight === 0) timings.fetch += now() - fetchSince;
   };
 
   async function cached<T>(name: string, fetcher: () => Promise<T>): Promise<T | undefined> {
@@ -101,15 +155,13 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     }
     const t1 = now();
     let data: T;
+    fetching(true);
     try {
       data = await fetcher();
-    } catch (e) {
-      // Keep what was downloaded so far (a later run resumes from it).
-      await Promise.allSettled(pendingWrites);
-      throw e;
+    } finally {
+      fetching(false);
     }
     const t2 = now();
-    timings.fetch += t2 - t1;
     pendingWrites.push(
       writeCache(io, file, data).then(
         () => void (timings.rawWrite += now() - t2),
@@ -133,6 +185,36 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     return endpoint<T>(`${ep}${suffix ? `_${suffix}` : ""}`, ep, { session_key: sessionKey, ...extra });
   }
 
+  // Every request goes through the limiter; the first failure stops the ones not started yet.
+  const limit = limiter(Math.max(1, Math.floor(io.concurrency ?? 1)));
+  const tasks: Promise<unknown>[] = [];
+  let failure: { error: unknown } | null = null;
+  function task<T>(fn: () => Promise<T>, front = false): Promise<T> {
+    const p = limit.run(fn, front);
+    tasks.push(
+      p.catch((error) => {
+        if (error instanceof Stopped) return;
+        failure ??= { error };
+        limit.stop();
+      }),
+    );
+    return p;
+  }
+  /** Wait for every request, including the ones started while waiting (the per-driver files). */
+  async function settled() {
+    for (let n = -1; n !== tasks.length; ) {
+      n = tasks.length;
+      await Promise.all(tasks.slice());
+    }
+  }
+  /** After a failure: let what's in flight finish and be cached (a later run resumes from it), then throw. */
+  async function rethrowFailure() {
+    if (!failure) return;
+    await settled();
+    await Promise.allSettled(pendingWrites);
+    throw failure.error;
+  }
+
   // ---------------------------------------------------------------- download
 
   io.log(`Ingesting session ${sessionKey}`);
@@ -142,44 +224,76 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   if (session.session_type !== "Race" && session.session_type !== "Qualifying") {
     throw new Error(`Session ${sessionKey} is "${session.session_name}" (${session.session_type}); only races, sprints and qualifying are supported`);
   }
-  const [meeting] = await endpoint<RawMeeting>("meeting", "meetings", { meeting_key: session.meeting_key });
 
-  async function circuitInfo(): Promise<RawCircuit | null> {
+  async function circuitInfo(meeting: RawMeeting | undefined): Promise<RawCircuit | null> {
     const url = meeting?.circuit_info_url;
     if (!url) return null;
     try {
+      // Next (ahead of the queue), and not through task(): it isn't an OpenF1 request, and its failure is only
+      // a warning, so it doesn't stop the others.
       return (
-        (await cached<RawCircuit>("circuit", () => {
-          io.log(`  fetching circuit info ${url}`);
-          return io.fetchCircuit(url);
-        })) ?? null
+        (await limit.run(
+          () =>
+            cached<RawCircuit>("circuit", () => {
+              io.log(`  fetching circuit info ${url}`);
+              return io.fetchCircuit(url);
+            }),
+          true,
+        )) ?? null
       );
     } catch (e) {
+      if (e instanceof Stopped) throw e;
       io.warn(`  circuit info unavailable (${e}); map will have no rotation, corners or marshal sectors`);
       return null;
     }
   }
-  const circuit = await circuitInfo();
+  const meetingP = task(() => endpoint<RawMeeting>("meeting", "meetings", { meeting_key: session.meeting_key }));
+  // The circuit map as soon as the meeting says where it is.
+  const circuitP = meetingP.then(([meeting]) => circuitInfo(meeting));
+  const driversP = task(() => get<RawDriver>("drivers"));
+  const lapsP = task(() => get<RawLap>("laps"));
+  const stintsP = task(() => get<RawStint>("stints"));
+  const pitsP = task(() => get<RawPit>("pit"));
+  const positionsP = task(() => get<RawPosition>("position"));
+  const intervalsP = task(() => get<RawInterval>("intervals"));
+  const raceControlP = task(() => get<RawRaceControl>("race_control"));
+  const weatherP = task(() => get<RawWeather>("weather"));
+  const radioP = task(() => get<RawRadio>("team_radio"));
+  const overtakesP = task(() => get<RawOvertake>("overtakes"));
+  const resultsP = task(() => get<RawResult>("session_result"));
 
-  const rawDrivers = await get<RawDriver>("drivers");
-  const rawLaps = await get<RawLap>("laps");
-  const rawStints = await get<RawStint>("stints");
-  const rawPits = await get<RawPit>("pit");
-  const rawPositions = await get<RawPosition>("position");
-  const rawIntervals = await get<RawInterval>("intervals");
-  const rawRaceControl = await get<RawRaceControl>("race_control");
-  const rawWeather = await get<RawWeather>("weather");
-  const rawRadio = await get<RawRadio>("team_radio");
-  const rawOvertakes = await get<RawOvertake>("overtakes");
-  const rawResults = await get<RawResult>("session_result");
+  // Per driver, once the drivers are known: queued behind the session files.
+  const perDriverP = driversP.then((drivers) => {
+    const numbers = [...new Set(drivers.map((d) => d.driver_number))].sort((a, b) => a - b);
+    onEvent?.({ kind: "drivers", numbers });
+    return numbers.map((n) => ({ n, car: task(() => get<RawCarData>("car_data", { driver_number: n })), loc: task(() => get<RawLocation>("location", { driver_number: n })) }));
+  });
+  perDriverP.catch(() => {});
+  tasks.push(circuitP.catch(() => {}), perDriverP.catch(() => {}));
 
-  const driverNumbers = [...new Set(rawDrivers.map((d) => d.driver_number))].sort((a, b) => a - b);
-  onEvent?.({ kind: "drivers", numbers: driverNumbers });
+  await settled();
+  await rethrowFailure();
+  const [meeting] = await meetingP;
+  const circuit = await circuitP;
+  const rawDrivers = await driversP;
+  const rawLaps = await lapsP;
+  const rawStints = await stintsP;
+  const rawPits = await pitsP;
+  const rawPositions = await positionsP;
+  const rawIntervals = await intervalsP;
+  const rawRaceControl = await raceControlP;
+  const rawWeather = await weatherP;
+  const rawRadio = await radioP;
+  const rawOvertakes = await overtakesP;
+  const rawResults = await resultsP;
+  const perDriver = await perDriverP;
+  const driverNumbers = perDriver.map((d) => d.n);
+  // In driver order, whatever order they arrived in (normalize iterates these maps).
   const rawCar = new Map<number, RawCarData[]>();
   const rawLoc = new Map<number, RawLocation[]>();
-  for (const n of driverNumbers) {
-    rawCar.set(n, await get<RawCarData>("car_data", { driver_number: n }));
-    rawLoc.set(n, await get<RawLocation>("location", { driver_number: n }));
+  for (const d of perDriver) {
+    rawCar.set(d.n, await d.car);
+    rawLoc.set(d.n, await d.loc);
   }
 
   await Promise.all(pendingWrites);

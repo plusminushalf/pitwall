@@ -12,9 +12,11 @@
 //   cap. With a token that is still valid locally it's the cap: keep A, keep the token, back off, phase
 //   "connection-limit". With an expired one: refresh first, then retry.
 // - An unexpected drop: reconnect with backoff (a fresh token first if needed), then fill the gap over REST
-//   per topic with `date>=lastSeen` (>=, not >: several records share a timestamp, and dedupe drops the one we
-//   had), merged through the same dedupe and emitted in order before live resumes. Live messages that arrive
-//   meanwhile are held back and follow.
+//   per topic (GAP_FILL): the small, low-rate topics are refetched whole; the high-rate ones from
+//   `date>=lastSeen - overlap`, because a record can be published after later-dated ones (a pit stop when the
+//   car leaves the pit lane, dated when it entered; on the real broker, a lagging driver's telemetry). Merged
+//   through the same dedupe (which drops what we had) and emitted in order before live resumes. Live messages
+//   that arrive meanwhile are held back and follow.
 // - Identity: OpenF1's `_id` when present (MQTT), and always topic + date + a hash of the content without
 //   `_id` / `_key` (REST rows have neither). A message is a duplicate if either key was seen. Bounded memory:
 //   the newest SEEN_PER_TOPIC keys of each topic.
@@ -41,16 +43,50 @@ export const LIMIT_CAP_MS = 120_000;
 export const JITTER = 0.2;
 /**
  * Dedupe memory: this many keys per topic. An MQTT message takes two (`_id` and content), so for car_data
- * (~4 Hz x 20 drivers) about 2 minutes: far more than any overlap needs (gap-fill starts at lastSeen).
+ * (~3.7 Hz x 22 drivers) about 2 minutes: four times the gap-fill's 30 s overlap (GAP_FILL). The topics refetched
+ * whole have at most a few thousand keys a session, so all of theirs stay.
  */
 export const SEEN_PER_TOPIC = 20_000;
-/** A topic with nothing delivered yet is gap-filled from when it started streaming, minus this. */
+/** A topic with nothing delivered yet is gap-filled from when it started streaming, minus this (or its overlap). */
 export const GAP_MARGIN_MS = 30_000;
 /** Gap-fill attempts per topic before giving up on it (the gap is then reported in lastError). */
 export const GAP_TRIES = 3;
 
-/** Topics whose records carry a `date`: gap-filled with date>=lastSeen. The others are refetched whole (small). */
-export const DATED: ReadonlySet<LiveTopic> = new Set<LiveTopic>(["car_data", "intervals", "location", "overtakes", "pit", "position", "race_control", "team_radio", "weather"]);
+/**
+ * How each topic's gap is filled after an outage: "whole" (the session's rows again; dedupe drops what was
+ * delivered) or a number: `date>=lastSeen - that many ms`. Why not `date>=lastSeen`: a record can be published
+ * after later-dated ones, and then it falls below lastSeen. Measured on the cached races (data/raw, 25 sessions,
+ * 924 pit stops, 2026-09-30):
+ * - pit: published when the car leaves the pit lane, dated when it entered. Lane times: median 24 s, but up to
+ *   2158 s (36 min: cars held in the pit lane under a red flag). 14 of the 25 sessions have a stop published
+ *   after a later-dated one (up to 35 min after it). No overlap is safe, so whole: at most 101 stops a session.
+ * - drivers, laps, stints, session_result, sessions: no `date`; whole (at most ~1,500 rows: laps).
+ * - position, race_control, weather, team_radio, overtakes: dated, but at most 1,301 / 333 / 208 / 40 / 334 rows
+ *   a session: whole is cheap (one request either way) and immune to any publish lag.
+ * - car_data, location (~80 messages/s with 22 cars), intervals (~3.5/s): too big to refetch whole. Their late
+ *   records are a lagging driver's (the real broker); the REST cache can't show that lag (rows come back sorted
+ *   by date, with no publish time), so the overlap is a chosen margin, not a measurement: 30 s of telemetry
+ *   (~2,400 rows, a quarter of the dedupe window: SEEN_PER_TOPIC holds ~2 minutes of car_data, so every
+ *   overlapping row is still recognised) and 60 s of intervals (~200 rows).
+ * The overlap's rows are dropped by content identity, so this relies on a REST row having the same content as
+ * the MQTT message (without `_id` / `_key`), as `date>=lastSeen` already did for the rows at lastSeen.
+ */
+export const GAP_FILL: Record<LiveTopic, "whole" | number> = {
+  car_data: 30_000,
+  location: 30_000,
+  intervals: 60_000,
+  drivers: "whole",
+  laps: "whole",
+  overtakes: "whole",
+  pit: "whole",
+  position: "whole",
+  race_control: "whole",
+  session_result: "whole",
+  sessions: "whole",
+  stints: "whole",
+  team_radio: "whole",
+  weather: "whole",
+};
 
 // ---------------------------------------------------------------- identity
 
@@ -645,12 +681,8 @@ export class LiveManager {
     const failed: string[] = [];
     for (const topic of [...this.topics]) {
       if (gen !== this.gen) return;
-      const params: Params = { session_key: key };
-      if (DATED.has(topic)) {
-        const from = this.state.lastSeen[topic] ?? (this.state.since[topic] !== undefined ? isoDate(this.state.since[topic]! - GAP_MARGIN_MS) : undefined);
-        if (from === undefined) continue; // never streamed: nothing to fill
-        params["date>="] = from;
-      } else if (this.state.since[topic] === undefined) continue;
+      const params = gapParams(topic, key, this.state);
+      if (!params) continue; // never streamed: nothing to fill
       const rows = await this.fetchRows(topic, params, gen);
       if (!(await this.leading(gen))) return;
       if (!rows) {
@@ -690,6 +722,22 @@ export class LiveManager {
     }
     return null;
   }
+}
+
+/**
+ * The REST query that fills one topic's gap (GAP_FILL), or null if it never streamed. Overlap topics: from
+ * lastSeen minus the overlap, or (nothing delivered yet) from when it started streaming minus the larger of
+ * the overlap and GAP_MARGIN_MS.
+ */
+export function gapParams(topic: LiveTopic, sessionKey: number | "latest", state: Pick<LiveState, "lastSeen" | "since">): Params | null {
+  const rule = GAP_FILL[topic];
+  const last = state.lastSeen[topic];
+  const since = state.since[topic];
+  if (last === undefined && since === undefined) return null;
+  if (rule === "whole") return { session_key: sessionKey };
+  const lastMs = last !== undefined ? Date.parse(last) : NaN;
+  const from = Number.isFinite(lastMs) ? lastMs - rule : since! - Math.max(rule, GAP_MARGIN_MS);
+  return { session_key: sessionKey, "date>=": isoDate(from) };
 }
 
 /** A local time as OpenF1 writes dates: `2025-03-22T02:18:36.428000+00:00`. */

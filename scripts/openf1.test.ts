@@ -78,6 +78,21 @@ describe("without credentials (free tier)", () => {
     expect(calls).toHaveLength(1);
   });
 
+  test("concurrent requests keep the tier's spacing (each reserves its own slot)", async () => {
+    setCreds();
+    const starts: number[] = [];
+    respond = () => (starts.push(Date.now()), json([]));
+    setRequestInterval(40);
+    try {
+      await Promise.all([1, 2, 3, 4].map((k) => fetchEndpoint("laps", { session_key: k })));
+    } finally {
+      setRequestInterval(0);
+    }
+    expect(starts.length).toBe(4);
+    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
+    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(35);
+  });
+
   test("a blank username counts as missing", () => {
     setCreds("  ", "secret");
     expect(credentials()).toBeNull();
@@ -132,6 +147,14 @@ describe("with credentials (sponsor tier)", () => {
     };
     expect(await fetchEndpoint("laps", { session_key: 1 })).toEqual([{ ok: true }]);
     expect(calls.map((c) => c.auth ?? c.method)).toEqual(["POST", "Bearer tok-1", "POST", "Bearer tok-2"]);
+  });
+
+  test("concurrent 401s refresh the token once", async () => {
+    setCreds("u", "p");
+    respond = (c) => (c.url === TOKEN_URL ? tokenOk() : c.auth === "Bearer tok-1" ? json({ detail: "expired" }, 401) : json([{ ok: true }]));
+    const rows = await Promise.all([1, 2, 3].map((k) => fetchEndpoint("laps", { session_key: k })));
+    expect(rows).toEqual([[{ ok: true }], [{ ok: true }], [{ ok: true }]]);
+    expect(calls.filter((c) => c.url === TOKEN_URL)).toHaveLength(2);
   });
 
   test("a persistent 401 fails instead of looping", async () => {

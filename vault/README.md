@@ -5,11 +5,12 @@ code ever to see a user's OpenF1 password or access token. The app embeds it as 
 data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
-Status: spike S3, step 5 of 6. The handshake, the protocol, the headers, the popup login, both storage
-modes (stay connected, passkey PRF), silent token refresh, a one-at-a-time paced `get`, the live MQTT stream
-(token handover, reconnect + REST gap-fill), the cross-tab leader (with heartbeat takeover from a frozen leader)
-and the simulate mode (a cached session replayed as live, dev only) work, and the S3 success check runs as
-`bun run vault:e2e --s3`. Parallel downloads are the last step.
+Status: spike S3, all 6 steps. The handshake, the protocol, the headers, the popup login, both storage
+modes (stay connected, passkey PRF), silent token refresh, `get` in parallel within one REST budget per browser,
+the live MQTT stream (token handover, reconnect + REST gap-fill), the cross-tab leader (with heartbeat takeover
+from a frozen leader), the simulate mode (a cached session replayed as live, dev only) and signed-in downloads
+(the download worker talks to the vault over its own port, and falls back to the free tier on its own) work.
+The S3 success check runs as `bun run vault:e2e --s3`, the download check as `bun run vault:e2e --downloads`.
 
 ## What's here
 
@@ -22,7 +23,8 @@ and the simulate mode (a cached session replayed as live, dev only) work, and th
 | `src/storage.ts` | What's stored and how: the swappable `Secret`, AES-GCM sealing (device key / passkey PRF), IndexedDB |
 | `src/openf1.ts` | `POST /token` and parsing its response |
 | `src/scheduler.ts` | The token refresh schedule (pure: injected clock, timers, `/token`) |
-| `src/rest.ts` | `get`: OpenF1 REST reads, authenticated when there's a token, retried once after a 401 |
+| `src/rest.ts` | `get`: OpenF1 REST reads, authenticated when there's a token, retried once after a 401, a 429 after the budget's pause |
+| `src/budget.ts` | The REST budget: OpenF1's rate limits, parallel requests, live gap-fills first, callers taking turns, 429 backoff (pure) |
 | `src/mqtt.ts` | A hand-written MQTT 3.1.1-over-WebSocket client (the subset the vault needs; no dependencies) |
 | `src/live.ts` | The live stream: sessions, handover, CONNACK 5, reconnect, REST gap-fill, dedupe, batching (pure) |
 | `src/tabs.ts` | The cross-tab leader (Web Locks) and the BroadcastChannel among vault frames (pure) |
@@ -42,6 +44,7 @@ and the simulate mode (a cached session replayed as live, dev only) work, and th
 | `simdata.ts` | Dev/test only: data/raw/<key> turned into the timeline a live session publishes (server/simulate.ts's rules), and REST over it |
 | `simserver.ts` | Dev only: the vault dev server's `/__sim/` endpoints (feed, REST, /token, sessions, faults) |
 | `s3.ts` | The S3 success check (`vault:e2e --s3`) |
+| `downloads.ts` | The download check (`vault:e2e --downloads`, also in the full run): direct vs through the vault vs the vault gone mid-download |
 
 The build is unminified, so the deployed JavaScript reads like this source.
 
@@ -52,7 +55,8 @@ bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite cli
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
 bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
-bun run vault:e2e --s3  # only the S3 success check: a simulated session in two tabs, ~25 min (needs data/raw/11377)
+bun run vault:e2e --s3  # only the S3 success check: a simulated session in two tabs, ~22 min (needs data/raw/11291)
+bun run vault:e2e --downloads  # only the download check, ~6 min (the real login from .env; race 11377 three times)
 bun vault/fakebroker.ts # a local fake OpenF1 broker on :5191 (see "The live stream")
 ```
 
@@ -93,14 +97,15 @@ All in `src/protocol.ts`. Version `v: 1` on every message.
 
 | Method | Arguments | Result |
 | --- | --- | --- |
-| `status` | | `{state, mode?, account?, error?, live, version, stream?, tab?}` plus the refresh status (below) |
+| `status` | | `{state, mode?, account?, error?, live, version, stream?, tab?, budget?}` plus the refresh status (below) |
 | `connect` | `ticket` | status. The app has just opened the popup with this ticket; the frame expects it |
 | `unlock` | `ticket` | status. The same, for a passkey-locked login (state `locked` only) |
 | `cancel` | `ticket` | status. The popup closed: stop expecting it, drop a half-done passkey setup |
 | `disconnect` | | status. Wipes storage and memory, and the frames in other tabs |
 | `subscribe` / `unsubscribe` | `topics`: 1–32 distinct names from `LIVE_TOPICS` | `{topics}`: this port's topics after the change |
-| `get` | `endpoint` from `REST_ENDPOINTS`, `params` (≤ 8, names from `PARAM_KEYS` with optional `>`, `<`, `>=`, `<=`; finite numbers or ≤ 64 chars of `[A-Za-z0-9 :.+_-]`) | `{status, body: ArrayBuffer, auth}` (body transferred); `network` error if OpenF1 can't be reached |
-| `openPort` | one transferred `MessagePort` | `{}`; the port then speaks this protocol too (≤ 8 ports) |
+| `get` | `endpoint` from `REST_ENDPOINTS`, `params` (≤ 8, names from `PARAM_KEYS` with optional `>`, `<`, `>=`, `<=`; finite numbers or ≤ 64 chars of `[A-Za-z0-9 :.+_-]`) | `{status, body: ArrayBuffer, auth}` (body transferred); `network` error if OpenF1 can't be reached, `rate_limited` if this port has 128 queued already. Runs in parallel within the REST budget (below) |
+| `openPort` | one transferred `MessagePort` | `{}`; the port then speaks this protocol too (≤ 8 ports; at the cap the `openPort` port idle longest, with nothing pending, is dropped for the new one) |
+| `close` | | `{}`, then nothing more on this port: its queued gets are dropped, its subscriptions removed (MessagePorts have no close event: measured in Chrome 153, not even when the other end's worker is terminated) |
 
 There is no method that returns a password or a token, and there never will be. Status changes are pushed
 as `{v:1, type:"event", event:"status", status}`. Live data is pushed as `{v:1, type:"event", event:"data",
@@ -144,8 +149,58 @@ password grant again; new tokens don't invalidate old ones; REST 401s from the f
 
 `get` without a valid token (no login, locked, expired while refreshes fail, rejected) is sent
 unauthenticated: historical data is free (3 req/s, 30/min), so the app keeps working, and `auth: false`
-says so. Live windows need the login. One request at a time for now, paced under the rate caps (`Pacer`);
-step 6 adds parallel requests within them.
+says so. Live windows need the login. Every `get` goes through the REST budget (below).
+
+## The REST budget
+
+`src/budget.ts`, owned by the leader frame (followers forward their gets, so it is one budget per browser and
+account; see "Tabs"). Pure, tested with a fake clock (`budget.test.ts`).
+
+- **Limits**: OpenF1's (docs/modular-hypotheses.md, facts): 6 requests/s and 60/min with a token (sponsor tier),
+  3/s and 30/min without, whichever applies when a request may start. Starts are spaced 1.15 / perSecond apart
+  (no bursts; the 15% is for network jitter, measured against the simulation's limiter) and at most perMinute
+  start in any 60 s. Within that, requests run **in parallel**: at most 8 in flight.
+- **Priorities**: live gap-fills first (caller `live`, priority `live`). While the stream runs, everything else
+  leaves 14 of each minute's requests (one per topic) for them, so a gap-fill after a drop never waits for a
+  download's minute to roll over.
+- **Fairness**: each app port is a caller (`<frame id>/p<n>`: the app's main port, the download worker's, one per
+  future module); callers take turns, one start each (round robin), none has more than 6 in flight or 128
+  queued (then `rate_limited`). So one busy or misbehaving caller can't starve the others, and whatever it asks,
+  the account stays under OpenF1's limits. A closed port (`close`), a dropped one (the cap) or a closed tab
+  (its frame lock gone, or its `bye`) has its queued gets dropped.
+- **429**: everything pauses (Retry-After if the response lets us read it, which cross-origin it usually
+  doesn't; else 2 s doubling to 60 s, jittered) and the limits are halved for a minute; the request is retried
+  up to 3 times after the pause, then its 429 goes back to the caller.
+- **401**: the refresh-and-retry-once path above, the retry through the budget too.
+- **Takeover**: the leader's heartbeat carries its request starts of the last minute; a frame that takes over
+  counts them against its own minute.
+- **Timeouts**: 120 s per request (a download's telemetry is ~5 MB), 30 s for gap-fills. A forwarded get waits
+  as long as it needs in the leader's queue while the leader is alive (a download's worth of requests can be
+  ahead of it), and fails once the leader has been silent for 35 s (or after 10 minutes in all).
+- `status.budget`: `{auth, perSecond, perMinute, inFlight, queued, usedThisMinute, callers, reserve, started,
+  rateLimited, pausedUntil?, shrunkUntil?}`, pushed at most every 500 ms; the debug panel shows it.
+
+## Downloads through the vault
+
+The app's download worker (`src/ingest/worker.ts`) gets its own port: the page creates a MessageChannel, hands one
+end to the vault (`openPort`) and transfers the other to the worker (`src/ingest/runner.ts`), so requests go
+worker <-> vault with nothing relayed on the main thread. The worker asks the vault's `status`
+(`src/ingest/vaultPort.ts`): signed in with a working token, its requests go through the vault's `get` (the
+account's limits, 6 at a time in the ingest core); otherwise (no login, locked, no vault) straight to OpenF1 at
+the free tier's pace as before. If the vault stops answering mid-download (the worker pings `status` every 2 s
+while requests are pending; 5 s without an answer and it's down) or loses its token (an `auth: false` answer),
+the rest of the download, requests in flight included, goes direct: no failure, no prompt. The worker only ever
+receives response bodies (the protocol has no message that carries a token); `vault:e2e --downloads` searches
+its heap mid-download for the password and `eyJhbGciOi`. The worker sends `close` when it's done; on cancel the
+page tells it first and terminates it 200 ms later. The Library's progress line says "fast (signed in)" or
+"free tier". The ingest core (`scripts/lib/ingestCore.ts`) runs its requests concurrently (6 through the vault, 3
+direct, 4 in the CLI) in the order it always did, keeps what's downloaded when one fails, and resumes from it.
+
+Measured by `vault:e2e --downloads` (race 11377, 57 OpenF1 requests, 2026-09-30, this 2-vCPU VM): direct 144 s,
+through the vault 36 s (6 in flight, 57 requests in 34 s), the vault gone after 18 requests 113 s; no 429 in
+any run; the processed output identical in all three and to the CLI's. The direct path's pacing went from 2.2 s
+to 2.5 s between requests (~24/min): at 2.2 s with requests in parallel, a download hit a 429 once the page's own
+calendar requests counted in the same minute.
 
 ## The live stream
 
@@ -171,14 +226,22 @@ CONNECT).
   off (5 s doubling to 2 min), phase `connection-limit` ("connection limit reached"). With an expired token:
   refresh, then retry.
 - **An unexpected drop** (close, error, ping timeout): reconnect with backoff (0.5 s doubling to 30 s; a fresh
-  token first if needed), then **gap-fill** over REST per topic before live resumes: `date>=lastSeen` (`>=`,
-  not `>`: several records share a timestamp) for the dated topics, the whole session's rows for the small
-  undated ones (drivers, laps, stints, session_result, sessions), `session_key` = the live session's (from the
-  messages) or `latest`. A topic with nothing delivered yet is filled from when it started streaming, minus
-  30 s. Rows go through the same dedupe, in date order; live messages that arrive meanwhile are held back and
-  follow. A topic whose gap-fill fails 3 times is reported in `lastError`. The requests go through `get`'s
-  budget (`Pacer` in rest.ts: starts spaced 1.15 s / 6 apart with a token, / 3 without, at most 60 / 30 a
-  minute), so a gap-fill of 14 topics never bursts; step 6 generalises it.
+  token first if needed), then **gap-fill** over REST per topic before live resumes (`GAP_FILL` in live.ts),
+  `session_key` = the live session's (from the messages) or `latest`. Not `date>=lastSeen`: a record can be
+  published after later-dated ones and then falls below lastSeen. Pit stops are published when the car leaves
+  the pit lane but dated when it entered: in the 25 cached sessions (data/raw) lane times reach 36 minutes (a
+  red flag) and 14 sessions have a stop published after a later-dated one. On the real broker a lagging
+  driver's telemetry does the same. So the small, low-rate topics are refetched **whole** (pit, position,
+  race_control, weather, team_radio, overtakes, and the undated drivers, laps, stints, session_result,
+  sessions: at most ~1,500 rows a session), and the three big ones from **`date>=lastSeen - overlap`**: 30 s for
+  car_data and location, 60 s for intervals (a chosen margin: the REST cache comes back sorted by date with no
+  publish time, so their lag can't be measured from it; 30 s of telemetry is a quarter of the dedupe window).
+  A topic with nothing delivered yet is filled from when it started streaming minus the larger of its overlap
+  and 30 s. Rows go through the same dedupe (the overlap's and the whole refetch's repeats are dropped by
+  content: this relies on a REST row having the MQTT message's content, as `>=` already did), in date order;
+  live messages that arrive meanwhile are held back and follow. A topic whose gap-fill fails 3 times is
+  reported in `lastError`. The requests go first in the REST budget (below), so a gap-fill of 14 topics never
+  bursts and never waits behind a download.
 - **Dedupe**: a message is known by OpenF1's `_id` (MQTT) and always by topic + `date` + a hash of its content
   without `_id` / `_key` (what a REST row has). Either key seen = a duplicate. Memory is bounded: the newest
   20,000 keys per topic (about 2 minutes of car_data), so a car_data flood never evicts laps.
@@ -348,10 +411,16 @@ steals / lost. Telemetry starts 10 min before the session (at 6x: 2 minutes in, 
 
 ## The S3 check
 
-`bun run vault:e2e --s3` (`s3.ts`): race 11377 from 30 min before lights out to 5 min after the finish (2.2 h)
-at 6x (~25 min), 120 s tokens (a handover every 100 s), 30 ms jitter, all 14 topics in every tab. On the way:
-two forced drops, one CONNACK 5 on a handover, the leader tab closes and a new tab opens, the new follower
-reloads, the leader's frame freezes for 25 s (the follower steals). Per tab (a reload is a new tab), for the
+`bun run vault:e2e --s3` (`s3.ts`): race 11291 (Montreal 2026) from 30 min before lights out to 5 min after the
+finish (2.1 h) at 6x (~22 min), 120 s tokens (a handover every 100 s), 30 ms jitter, all 14 topics in every tab.
+On the way: two forced drops, one CONNACK 5 on a handover, the leader tab closes and a new tab opens, the new
+follower reloads, **an outage timed on a late pit stop** (#87's slow stop on lap 30 entered the pit lane before
+three others and left after them: the broker drops just after the first of those is published and the
+reconnect is refused once, so #87's stop is published during the outage, dated before the pit lastSeen: a
+`date>=lastSeen` gap-fill misses it; the check fails unless every open tab gets it once), the leader's frame
+freezes for 25 s (the follower steals). Race 11377 can't show the late pit stop (none of its stops is
+published after a later-dated one), hence 11291 (`VAULT_S3_SESSION` picks another; the scenario finds its
+late stop in the data). Per tab (a reload is a new tab), for the
 time it was open: every message once and nothing extra (laps and stints: each document's final version, since
 REST can't return a version that was replaced during an outage; those are counted), no gap between message
 dates beyond the source's own + 2 s sim; at most 2 concurrent broker sessions; no REST 429; then the leak check

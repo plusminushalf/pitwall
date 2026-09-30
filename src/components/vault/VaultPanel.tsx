@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getVault, type LiveTopic, type SimStatus, type StreamStatus, type VaultStatus } from "../../vault/client";
+import { getVault, type BudgetStatus, type LiveTopic, type SimStatus, type StreamStatus, type VaultStatus } from "../../vault/client";
 import { COVERAGE_SECONDS, simTime, useCoverage } from "./useCoverage";
 import { STRIP_SECONDS, useLiveStats } from "./useLiveStats";
 import { useVault } from "./useVault";
@@ -157,6 +157,7 @@ export function VaultPanel() {
           )}
         {knob && row("Knob", <span data-testid="vault-knob">{knob}</span>)}
       </dl>
+      {status?.budget && <BudgetSection budget={status.budget} />}
       {status && <LiveSection status={status} ready={state.phase === "ready"} />}
       <button
         onClick={() => void measure()}
@@ -195,6 +196,40 @@ export function VaultPanel() {
 }
 
 const clock = (iso: string | undefined) => (iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "");
+
+/** The REST budget the leader spends for every tab: OpenF1's limits, what's in flight, queued, used this minute. */
+function BudgetSection({ budget: b }: { budget: BudgetStatus }) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (b.pausedUntil == null && b.shrunkUntil == null) return;
+    const t = setInterval(() => setNow(Date.now()), 500);
+    return () => clearInterval(t);
+  }, [b.pausedUntil, b.shrunkUntil]);
+  const kv = (k: string, v: ReactNode) => (
+    <div className="flex justify-between gap-4">
+      <dt className="text-zinc-500">{k}</dt>
+      <dd className="min-w-0 truncate text-right tabular-nums text-zinc-200">{v}</dd>
+    </div>
+  );
+  const secs = (at: number | undefined) => (at != null && at > now ? `${Math.ceil((at - now) / 1000)} s` : null);
+  const used = Math.min(1, b.usedThisMinute / b.perMinute);
+  return (
+    <section className="mt-3 border-t border-zinc-800 pt-2" data-testid="vault-budget" data-in-flight={b.inFlight} data-queued={b.queued} data-used={b.usedThisMinute} data-auth={String(b.auth)} data-rate-limited={b.rateLimited}>
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">REST budget (all tabs)</h3>
+      <dl className="space-y-1">
+        {kv("Limits", `${b.perSecond}/s, ${b.perMinute}/min (${b.auth ? "signed in" : "free tier"})`)}
+        {kv("In flight / queued", `${b.inFlight} / ${b.queued}${b.callers > 1 ? ` (${b.callers} callers)` : ""}`)}
+        {kv("Used this minute", `${b.usedThisMinute} of ${b.perMinute}${b.reserve ? ` (${b.reserve} kept for live)` : ""}`)}
+        {kv("Started / 429", `${b.started} / ${b.rateLimited}`)}
+        {secs(b.pausedUntil) && kv("Paused (429)", <span className="text-amber-400">{secs(b.pausedUntil)}</span>)}
+        {secs(b.shrunkUntil) && kv("Halved (429)", <span className="text-amber-400">{secs(b.shrunkUntil)}</span>)}
+      </dl>
+      <div className="mt-1 h-1 overflow-hidden rounded bg-zinc-800" aria-hidden>
+        <div className="h-full bg-zinc-400" style={{ width: `${Math.round(used * 100)}%` }} />
+      </div>
+    </section>
+  );
+}
 
 /** The live stream: who runs it, its state, this tab's subscriptions, what arrived (a gap shows in the strip). */
 function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean }) {

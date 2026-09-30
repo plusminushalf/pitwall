@@ -50,6 +50,52 @@ export async function heapSnapshot(target: any): Promise<string> {
   return chunks.join("");
 }
 
+/**
+ * A heap snapshot of a dedicated worker of the page (the first whose URL contains `urlPart`), as one string, or
+ * null if there's none. Playwright has no CDP session for workers, so this attaches to the worker's target
+ * from the page's session and talks to it through Target.sendMessageToTarget.
+ */
+export async function workerHeapSnapshot(page: any, urlPart: string): Promise<string | null> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { targetInfos } = await cdp.send("Target.getTargets");
+    const target = targetInfos.find((t: { type: string; url: string }) => t.type === "worker" && t.url.includes(urlPart));
+    if (!target) return null;
+    const { sessionId } = await cdp.send("Target.attachToTarget", { targetId: target.targetId, flatten: false });
+    const chunks: string[] = [];
+    const waiting = new Map<number, () => void>();
+    let id = 0;
+    cdp.on("Target.receivedMessageFromTarget", (e: { sessionId: string; message: string }) => {
+      if (e.sessionId !== sessionId) return;
+      const m = JSON.parse(e.message);
+      if (m.method === "HeapProfiler.addHeapSnapshotChunk") chunks.push(m.params.chunk);
+      else if (m.id) waiting.get(m.id)?.();
+    });
+    const send = (method: string, params: object = {}) =>
+      new Promise<void>((resolve) => {
+        const n = ++id;
+        waiting.set(n, resolve);
+        void cdp.send("Target.sendMessageToTarget", { sessionId, message: JSON.stringify({ id: n, method, params }) });
+      });
+    await send("HeapProfiler.enable");
+    await send("HeapProfiler.takeHeapSnapshot", { reportProgress: false, captureNumericValue: false });
+    await send("HeapProfiler.disable");
+    await cdp.send("Target.detachFromTarget", { sessionId }).catch(() => {});
+    return chunks.join("");
+  } finally {
+    await cdp.detach();
+  }
+}
+
+/** Search a worker's heap (workerHeapSnapshot) for the secrets and JWTs; null if the worker isn't there. */
+export async function findInWorker(page: any, urlPart: string, secrets: string[]): Promise<{ findings: LeakFinding[]; bytes: number } | null> {
+  const heap = await workerHeapSnapshot(page, urlPart);
+  if (heap === null) return null;
+  const findings: LeakFinding[] = [];
+  search("worker heap snapshot", heap, variants(secrets), findings);
+  return { findings, bytes: heap.length };
+}
+
 /** Whether the page's vault iframe runs in its own process (a separate CDP "iframe" target). */
 export async function vaultIsOutOfProcess(page: any, vaultOrigin: string): Promise<boolean> {
   const cdp = await page.context().newCDPSession(page);

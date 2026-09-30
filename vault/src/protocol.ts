@@ -121,10 +121,21 @@ export type Methods = {
    * An OpenF1 read. The body is the raw response, transferred. With a valid token it's authenticated
    * (`auth: true`; a 401 refreshes the token and retries once). Without one (no login, locked, the token
    * expired while refreshes fail) it goes out unauthenticated, which is enough for historical data.
+   * Requests run in parallel within one budget per browser (budget.ts: OpenF1's rate limits, live gap-fills
+   * first, the ports taking turns); a 429 is retried after a pause. `rate_limited`: this port has too many
+   * queued already.
    */
   get: { args: { endpoint: RestEndpoint; params: Params }; result: GetResult };
-  /** A second port (transferred with the request) that speaks this same protocol, e.g. for the download worker. */
+  /**
+   * A second port (transferred with the request) that speaks this same protocol, e.g. for the download worker.
+   * At most MAX_PORTS (rpc.ts) are open; at the cap, the one idle longest is dropped for the new one.
+   */
   openPort: { args: {}; result: {} };
+  /**
+   * Done with this port (MessagePorts have no close event): its queued gets are dropped, its subscriptions
+   * removed, and nothing more is answered on it.
+   */
+  close: { args: {}; result: {} };
   // Dev-only testing knobs (DEBUG_METHODS). A production vault is built without them and rejects these as
   // unknown types, so no app code can make it misuse the token or hammer /token.
   /** Corrupt the in-memory token: the next authenticated get gets a real 401 from OpenF1. */
@@ -144,7 +155,7 @@ export type Methods = {
   "debug:sim": { args: { action: SimAction }; result: VaultStatus };
 };
 export type Method = keyof Methods;
-export const METHODS = ["status", "connect", "unlock", "cancel", "disconnect", "subscribe", "unsubscribe", "get", "openPort"] as const satisfies readonly Method[];
+export const METHODS = ["status", "connect", "unlock", "cancel", "disconnect", "subscribe", "unsubscribe", "get", "openPort", "close"] as const satisfies readonly Method[];
 export const DEBUG_METHODS = ["debug:spoilToken", "debug:fakeExpiry", "debug:refreshNow", "debug:failToken", "debug:freeze", "debug:sim"] as const satisfies readonly Method[];
 export const SIM_ACTIONS = ["drop", "refuse"] as const;
 export type SimAction = (typeof SIM_ACTIONS)[number];
@@ -288,6 +299,30 @@ export type SimStatus = {
   version: number;
 };
 
+/** The REST budget (budget.ts), as the debug panel shows it: status.budget, from the leader. */
+export type BudgetStatus = {
+  /** The account's limits are in force (a token in hand), or the anonymous ones. */
+  auth: boolean;
+  /** The limits in force now (halved for a minute after a 429). */
+  perSecond: number;
+  perMinute: number;
+  inFlight: number;
+  queued: number;
+  /** Requests started in the last 60 s (this leader's, plus the previous leader's after a takeover). */
+  usedThisMinute: number;
+  /** Callers with requests queued or in flight. */
+  callers: number;
+  /** Of perMinute, kept for live gap-fills (the stream is running). */
+  reserve: number;
+  /** Requests started by this leader, and how many OpenF1 answered 429. */
+  started: number;
+  rateLimited: number;
+  /** Everything waits until then (after a 429). */
+  pausedUntil?: number;
+  /** The limits are halved until then (after a 429). */
+  shrunkUntil?: number;
+};
+
 export type VaultStatus = RefreshStatus & {
   state: VaultState;
   /** How the login is stored (when one is). */
@@ -307,6 +342,8 @@ export type VaultStatus = RefreshStatus & {
   tab?: TabStatus;
   /** Dev vault in simulate mode only: the data is a replay, not OpenF1. The app must say "SIMULATED". */
   sim?: SimStatus;
+  /** The REST budget (whichever tab leads). */
+  budget?: BudgetStatus;
 };
 
 /** One OpenF1 record as it came (MQTT payload or REST row), parsed. MQTT ones carry `_id` and `_key`. */
@@ -428,6 +465,7 @@ export function parseRequest(x: unknown, ports: number, opts: { debug?: boolean 
     cancel: ["ticket"],
     disconnect: [],
     openPort: [],
+    close: [],
     subscribe: ["topics"],
     unsubscribe: ["topics"],
     get: ["endpoint", "params"],

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { VaultStatus } from "./protocol";
+import { BudgetError } from "./budget";
 import { RestError } from "./rest";
 import { MAX_PORTS, Rpc, type PortLike, type Vault } from "./rpc";
 
@@ -10,6 +11,7 @@ const fake = (over: Partial<Vault> = {}): Vault => ({
   cancel: () => status,
   disconnect: async () => status,
   get: async () => ({ status: 200, body: new ArrayBuffer(0), auth: false }),
+  dropCaller: () => {},
   setTopics: () => {},
   ...over,
 });
@@ -61,10 +63,17 @@ describe("Rpc", () => {
     expect(await rpc.handle({ v: 1, id: 9, type: "status" }, [])).toEqual({ v: 1, id: 9, ok: false, error: { code: "internal", message: "internal error" } });
   });
 
-  test("openPort serves the protocol on the new port, up to MAX_PORTS", async () => {
-    const rpc = new Rpc(fake());
+  test("openPort serves the protocol on the new port; at MAX_PORTS the one idle longest is dropped, never a busy one or the main port", async () => {
+    const dropped: string[] = [];
+    let hold: (() => void)[] = [];
+    const rpc = new Rpc(
+      fake({
+        dropCaller: (c) => dropped.push(c),
+        get: () => new Promise((r) => hold.push(() => r({ status: 200, body: new ArrayBuffer(0), auth: false }))),
+      }),
+    );
     const main = new FakePort();
-    rpc.attach(main);
+    rpc.attach(main, { main: true });
     const extra = new FakePort();
     main.deliver({ v: 1, id: 1, type: "openPort" }, [extra]);
     await tick();
@@ -72,10 +81,76 @@ describe("Rpc", () => {
     extra.deliver({ v: 1, id: 1, type: "status" });
     await tick();
     expect(extra.sent).toEqual([{ v: 1, id: 1, ok: true, result: status }]);
-    for (let i = 2; i < MAX_PORTS; i++) main.deliver({ v: 1, id: i, type: "openPort" }, [new FakePort()]);
+    const more: FakePort[] = [];
+    for (let i = 2; i < MAX_PORTS; i++) main.deliver({ v: 1, id: i, type: "openPort" }, [(more[i] = new FakePort())]);
+    await tick();
+    expect(rpc.portCount).toBe(MAX_PORTS);
+    // At the cap: `extra` (idle longest) makes room.
+    const newest = new FakePort();
+    main.deliver({ v: 1, id: 50, type: "openPort" }, [newest]);
+    await tick();
+    expect(main.sent.at(-1)).toMatchObject({ id: 50, ok: true });
+    expect(dropped).toEqual(["p1"]);
+    extra.deliver({ v: 1, id: 2, type: "status" });
+    await tick();
+    expect(extra.sent.length).toBe(1); // no longer served
+    // Every openPort port busy (a get in flight): no room.
+    for (const p of [...more.filter(Boolean), newest]) p.deliver({ v: 1, id: 7, type: "get", endpoint: "laps", params: {} });
+    await tick();
     main.deliver({ v: 1, id: 99, type: "openPort" }, [new FakePort()]);
     await tick();
     expect(main.sent.at(-1)).toMatchObject({ id: 99, ok: false, error: { code: "rate_limited" } });
+    for (const h of hold) h();
+    hold = [];
+  });
+
+  test("close: answered, then the port is done (its queued gets dropped, its topics gone)", async () => {
+    const dropped: string[] = [];
+    const unions: string[][] = [];
+    const rpc = new Rpc(fake({ dropCaller: (c) => dropped.push(c), setTopics: (t) => unions.push(t) }));
+    const main = new FakePort();
+    rpc.attach(main, { main: true });
+    const w = new FakePort();
+    main.deliver({ v: 1, id: 1, type: "openPort" }, [w]);
+    await tick();
+    w.deliver({ v: 1, id: 1, type: "subscribe", topics: ["pit"] });
+    await tick();
+    expect(unions.at(-1)).toEqual(["pit"]);
+    w.deliver({ v: 1, id: 2, type: "close" });
+    await tick();
+    expect(w.sent.at(-1)).toEqual({ v: 1, id: 2, ok: true, result: {} });
+    expect(dropped).toContain("p1");
+    expect(unions.at(-1)).toEqual([]);
+    expect(rpc.portCount).toBe(1);
+    w.deliver({ v: 1, id: 3, type: "status" });
+    await tick();
+    expect(w.sent.length).toBe(2);
+  });
+
+  test("get: each port is its own caller for the budget; a full queue is rate_limited", async () => {
+    const callers: string[] = [];
+    let full = false;
+    const rpc = new Rpc(
+      fake({
+        get: async (_e, _p, caller) => {
+          callers.push(caller);
+          if (full) throw new BudgetError("rate_limited");
+          return { status: 200, body: new ArrayBuffer(0), auth: true };
+        },
+      }),
+    );
+    const a = new FakePort();
+    const b = new FakePort();
+    rpc.attach(a, { main: true });
+    rpc.attach(b);
+    a.deliver({ v: 1, id: 1, type: "get", endpoint: "laps", params: {} });
+    b.deliver({ v: 1, id: 1, type: "get", endpoint: "laps", params: {} });
+    await tick();
+    expect(callers).toEqual(["p0", "p1"]);
+    full = true;
+    b.deliver({ v: 1, id: 2, type: "get", endpoint: "laps", params: {} });
+    await tick();
+    expect(b.sent.at(-1)).toMatchObject({ id: 2, ok: false, error: { code: "rate_limited" } });
   });
 
   test("connect / unlock / cancel / disconnect, and events to every port", async () => {

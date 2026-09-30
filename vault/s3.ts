@@ -1,10 +1,16 @@
 // Spike S3's success check, automated (`bun run vault:e2e --s3`; about 25 minutes): a simulated live session
 // across two app tabs with every fault the vault is meant to survive, then the leak check.
 //
-// The session: race 11377 (data/raw/11377, gitignored), from 30 min before lights out to 5 min after the
-// finish (2.2 h), at 6x, with 120 s tokens (a refresh and an MQTT handover every 100 s), 30 ms delivery jitter.
-// All 14 topics in every tab. On the way:
+// The session: race 11291 (Montreal 2026; data/raw/11291, gitignored), from 30 min before lights out to 5 min
+// after the finish (2.1 h), at 6x, with 120 s tokens (a refresh and an MQTT handover every 100 s), 30 ms
+// delivery jitter. All 14 topics in every tab. (Not 11377, the other test race: none of its pit stops is published
+// after a later-dated one, so it can't show the late pit stop below.) On the way:
 //   - two forced broker drops (reconnect + REST gap-fill);
+//   - an outage timed on a pit stop published late: #87's slow stop on lap 30 entered the pit lane before three
+//     others and left it after them, so when it is published the leader's pit lastSeen is already later than its
+//     date. The broker drops just after the first of those later-dated stops is out, and the reconnect is refused
+//     once (CONNACK 5), so the outage spans #87's publication: only the gap-fill can deliver it (a `date>=lastSeen`
+//     gap-fill would miss it; pit is refetched whole);
 //   - one CONNACK 5 refusal on a handover with a valid token (the connection cap: keep the old session);
 //   - the leader tab closes; a new tab opens (the follower takes over the lead, the new tab follows);
 //   - the new follower reloads;
@@ -44,7 +50,7 @@ export type S3Helpers = {
 };
 
 // (VAULT_S3_SPEED / VAULT_S3_START: a shorter run while working on it; the check is the defaults.)
-const SESSION = 11377;
+const SESSION = Number(process.env.VAULT_S3_SESSION || 11291);
 const SPEED = Number(process.env.VAULT_S3_SPEED || 6);
 const START_S = Number(process.env.VAULT_S3_START || -1800);
 const TOKEN_S = 120;
@@ -65,8 +71,14 @@ function recorderSource() {
     ${canonical.toString()}
     ${hash53.toString()}
     const w = window;
-    const rec = { topics: {}, arrivals: [] };
+    const rec = { topics: {}, arrivals: [], phases: [] };
     w.__rec = rec;
+    // (Diagnostics: this tab's view of the stream phase, as status events brought it.)
+    w.__vault.onEvent((e) => {
+      const p = e.event === "status" && e.status.stream ? e.status.stream.phase : null;
+      if (p && p !== rec.phase) rec.phases.push([Date.now(), (rec.phase = p)]);
+    });
+    w.__phases = (from) => rec.phases.filter((x) => x[0] >= from);
     w.__vault.onData((topic, ms) => {
       let r = rec.topics[topic];
       if (!r) r = rec.topics[topic] = { h: [], d: [], k: [] };
@@ -91,6 +103,24 @@ function recorderSource() {
       return { topics, arrivals: rec.arrivals };
     };
   })()`;
+}
+
+/**
+ * Pit stops published after a later-dated one (the car entered the pit lane first and left it last), with the
+ * moment to drop the broker: just after the first later-dated stop is published (so the pit lastSeen is already
+ * past this stop's date), leaving `windowMs` until this stop's own publication. Original (unshifted) times.
+ */
+export function latePits(tl: Timeline): { i: number; rec: Rec; published: number; drop: number; windowMs: number }[] {
+  const idx = [...tl.byTopic.get("pit")!];
+  const out: { i: number; rec: Rec; published: number; drop: number; windowMs: number }[] = [];
+  for (const x of idx) {
+    const dated = Date.parse(tl.recs[x]!.date);
+    const first = Math.min(...idx.filter((y) => Date.parse(tl.recs[y]!.date) > dated && tl.at[y]! < tl.at[x]!).map((y) => tl.at[y]!));
+    if (!Number.isFinite(first) || first < tl.startOrig) continue;
+    const windowMs = tl.at[x]! - first;
+    out.push({ i: x, rec: tl.recs[x]!, published: tl.at[x]!, drop: first + Math.min(3_000, windowMs / 4), windowMs });
+  }
+  return out;
 }
 
 const unb64 = (s: string) => {
@@ -128,6 +158,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
 
   console.log("S3: building the source timeline");
   const tl: Timeline = buildTimeline(h.repo, SESSION, START_S);
+  const late = latePits(tl);
   const config = await post(`/control/reset?session=${SESSION}&speed=${SPEED}&start=${START_S}&token=${TOKEN_S}&jitter=${JITTER_MS}&dropEvery=0&refuseAt=`);
   const clock = { anchorWall: config.anchorWall as number, startOrig: tl.startOrig, speed: SPEED };
   const offset = offsetOf(clock);
@@ -212,6 +243,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
   let freezeStart = 0;
   let stealAt = 0;
   let thawAt = 0;
+  let pitReport = null as { publishedSim: number; dropSim: number; backSim: number; hash: number; dated: number } | null;
   try {
     // Two tabs; log in (any email and password: the simulation's /token) in the first.
     const A = await open("A");
@@ -242,8 +274,35 @@ export async function runS3(h: S3Helpers): Promise<void> {
     const tRefuse = mark(0.2);
     const tCloseA = mark(0.33);
     const tReloadC = mark(0.47);
-    const tFreeze = mark(0.6);
+    let tFreeze = mark(0.6);
     const tDrop2 = mark(0.8);
+    // The late pit stop's outage: between A's close and the freeze (tabs B and C), clear of the other events.
+    const pit = late
+      .map((c) => ({ ...c, wall: wallAt(c.drop + offset), publishedSim: c.published + offset, dated: Date.parse(c.rec.date) + offset }))
+      .filter((c) => c.wall > tCloseA + 30_000 && c.wall < tFreeze + 30_000 && Math.abs(c.wall - tReloadC) > 30_000)
+      .sort((a, b) => b.windowMs - a.windowMs)[0];
+    if (pit && tFreeze - pit.wall < 90_000) tFreeze = pit.wall + 90_000;
+    check(
+      `S3: the session has a pit stop published after a later-dated one, inside the scenario (${late.length} such stops in the session)`,
+      !!pit && tFreeze < tDrop2 - 60_000,
+      pit ? `#${pit.rec.driver_number} lap ${pit.rec.lap_number}: ${(pit.windowMs / 1000).toFixed(1)} s sim from the first later-dated stop's publication to its own` : "",
+    );
+    const pitOutage = async (leader: any, tabs: [string, any][]) => {
+      if (!pit) return;
+      await until(pit.wall, tabs);
+      const before = (await st(leader)).stream;
+      const dropped = await post("/control/drop");
+      const armed = await post("/control/refuse?n=1");
+      log(`late pit stop: dropped the broker just after the first later-dated stop's publication (${JSON.stringify(dropped)}); the reconnect is refused once (${JSON.stringify(armed)})`);
+      const back = await waitFor("the reconnect after the pit outage", leader, (s) => s.stream.reconnects > before.reconnects && s.stream.phase === "connected", 60_000).catch((e) => e);
+      const backSim = simAt(Date.now());
+      pitReport = { publishedSim: pit.publishedSim, dropSim: simAt(pit.wall), backSim, dated: pit.dated, hash: parseInt(hash53(canonical(JSON.parse(JSON.stringify(shift(pit.rec, offset))))), 36) };
+      check(
+        "S3: the late pit stop was published during the outage (the reconnect and gap-fill came after it)",
+        !(back instanceof Error) && backSim > pit.publishedSim,
+        back instanceof Error ? back.message : `back ${((backSim - pit.publishedSim) / 1000).toFixed(1)} s sim after its publication`,
+      );
+    };
 
     await until(tDrop1, [["A", A], ["B", B]]);
     log(`drop 1: ${JSON.stringify(await post("/control/drop"))}`);
@@ -251,10 +310,16 @@ export async function runS3(h: S3Helpers): Promise<void> {
     log("A reconnected and gap-filled");
 
     await until(tRefuse, [["A", A], ["B", B]]);
+    const armedAt = Date.now();
     await post("/control/refuse?n=1");
     log("armed one CONNACK 5 for the next CONNECT (the next handover)");
     const limited = await waitFor("connection-limit", A, (s) => s.stream.phase === "connection-limit", 130_000).catch((e) => e);
-    check("S3: CONNACK 5 on a handover with a valid token: connection-limit, the old session kept", !(limited instanceof Error) && limited.stream.sessions === 1, limited instanceof Error ? limited.message : `${limited.stream.sessions} session(s)`);
+    const why = async () => {
+      const phases: [number, string][] = await A.evaluate((from: number) => (window as any).__phases(from), armedAt);
+      const s = await stats();
+      return `phases since armed: ${phases.map(([t, p]) => `+${((t - armedAt) / 1000).toFixed(1)} s ${p}`).join(", ") || "none"}; broker: ${s.connects} connects, ${s.refused} refused`;
+    };
+    check("S3: CONNACK 5 on a handover with a valid token: connection-limit, the old session kept", !(limited instanceof Error) && limited.stream.sessions === 1, limited instanceof Error ? `${limited.message}; ${await why()}` : `${limited.stream.sessions} session(s)`);
     await waitFor("the retried handover", A, (s) => s.stream.phase === "connected", 60_000);
     log("the handover completed after the backoff");
 
@@ -270,6 +335,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
     check("S3: a new tab C follows B, connected with the shared login", (await st(C)).tab.role === "follower" && (await st(C)).tab.leader === (await st(B)).tab.id);
     log("opened tab C (follower)");
 
+    if (pit && pit.wall < tReloadC) await pitOutage(B, [["B", B], ["C", C]]);
     await until(tReloadC, [["B", B], ["C", C]]);
     await dump("C1", C, openC);
     await C.reload();
@@ -278,6 +344,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
     openC = await record(C);
     log(`reloaded the follower C (${(await st(C)).tab.role})`);
 
+    if (pit && pit.wall > tReloadC) await pitOutage(B, [["B", B], ["C", C]]);
     await until(tFreeze, [["B", B], ["C", C]]);
     const bId = (await st(B)).tab.id;
     freezeStart = Date.now();
@@ -428,6 +495,13 @@ export async function runS3(h: S3Helpers): Promise<void> {
     );
     console.log(`  freeze -> steal: ${(stealWindow / 1000).toFixed(1)} s wall = ${((stealWindow * SPEED) / 1000).toFixed(0)} s sim; arrivals at C stalled ${cStall?.freezeStallSim ? cStall.freezeStallSim.toFixed(0) : "?"} s sim in it, B's app ${stalls.find((s) => s.tab === "B")?.freezeStallSim.toFixed(0) ?? "?"} s sim`);
 
+    if (pitReport) {
+      const p = pitReport;
+      const inWindow = runs.filter((r) => p.publishedSim > r.fromSim && p.publishedSim <= r.toSim);
+      const got = inWindow.map((r) => ({ tab: r.name, n: r.dump.topics.pit ? [...unb64(r.dump.topics.pit.h)].filter((x) => x === p.hash).length : 0 }));
+      console.log(`  late pit stop: dated sim ${hmsms(p.dated)}, published ${hmsms(p.publishedSim)} (${((p.publishedSim - p.dated) / 1000).toFixed(0)} s later); outage from ${hmsms(p.dropSim)} to ${hmsms(p.backSim)}; received ${got.map((g) => `${g.tab} x${g.n}`).join(", ")}`);
+      check("S3: the late pit stop reached every tab open at the time, once (gap-filled: pit is refetched whole)", inWindow.length >= 2 && got.every((g) => g.n === 1), got.map((g) => `${g.tab} x${g.n}`).join(", "));
+    }
     for (const run of runs) {
       const rs = rows.filter((r) => r.tab === run.name);
       check(`S3 ${run.name}: every message of every topic once, nothing extra (laps/stints: final versions)`, rs.every((r) => !r.missing && !r.dup && !r.unexpected), rs.filter((r) => r.missing || r.dup || r.unexpected).map((r) => `${r.topic} -${r.missing} x${r.dup} ?${r.unexpected}`).join(", "));

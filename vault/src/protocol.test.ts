@@ -38,6 +38,9 @@ describe("parseRequest", () => {
     expect(ok({ v: 1, id: 2, type: "get", endpoint: "sessions", params: { year: 2026, session_type: "Race" } })).toBe(true);
     expect(ok({ v: 1, id: 2, type: "get", endpoint: "location", params: { "date>": "2024-03-02T15:00:00+00:00", "date<=": "2024-03-02T15:10:00.5" } })).toBe(true);
     expect(ok({ v: 1, id: 3, type: "openPort" }, 1)).toBe(true);
+    expect(ok({ v: 1, id: 4, type: "close" }, 0)).toBe(true);
+    expect(ok({ v: 1, id: 4, type: "close", now: true }, 0)).toBe(false);
+    expect(ok({ v: 1, id: 4, type: "close" }, 1)).toBe(false);
     expect(ok(Object.assign(Object.create(null), { v: 1, id: 0, type: "status" }))).toBe(true);
   });
 

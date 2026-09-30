@@ -4,9 +4,9 @@
 //
 // VITE_VAULT_ORIGIN: where the vault is served (default the local vault dev server; "off" disables it).
 
-import type { Hello, LiveMessage, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, SimAction, SimStatus, StreamStatus, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
+import type { BudgetStatus, Hello, LiveMessage, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, SimAction, SimStatus, StreamStatus, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
 
-export type { LiveMessage, LiveTopic, RestEndpoint, SimStatus, StreamStatus, VaultEvent, VaultStatus };
+export type { BudgetStatus, LiveMessage, LiveTopic, RestEndpoint, SimStatus, StreamStatus, VaultEvent, VaultStatus };
 export type { VaultState as VaultAccountState, StorageMode } from "../../vault/src/protocol";
 
 export type VaultPhase = "idle" | "loading" | "ready" | "unavailable";
@@ -133,7 +133,10 @@ export class VaultClient {
    * unauthenticated otherwise. A 401 there refreshes the token and retries once, inside the vault.
    */
   get = (endpoint: RestEndpoint, params: Params) => this.call("get", { endpoint, params });
-  /** Hand `port` to the vault: it speaks this same protocol on it (e.g. from the download worker). */
+  /**
+   * Hand `port` to the vault: it speaks this same protocol on it (the download worker's, transferred on to the
+   * worker: its gets go straight to the vault). Send `close` on it when done (ports have no close event).
+   */
   openPort = (port: MessagePort) => this.call("openPort", {}, [port]);
 
   /**

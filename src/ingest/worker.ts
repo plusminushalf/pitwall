@@ -1,7 +1,9 @@
 // Ingest worker: the same pipeline as the CLI (scripts/lib/ingestCore.ts + normalize + quali) with the
-// browser as its I/O. Requests go straight from this browser to OpenF1 (free tier, rate-limited by the
-// shared client); raw responses and processed output go into the session store (OPFS). One job per
-// worker: the page terminates it when the job ends or is cancelled.
+// browser as its I/O. Requests go through the credential vault when it's signed in (a port the page got from
+// it: the account's limits, in parallel; vaultPort.ts), else straight from this browser to OpenF1 (free tier,
+// rate-limited by the shared client), and direct for the rest if the vault goes away mid-download. Raw
+// responses and processed output go into the session store (OPFS). One job per worker: the page terminates it
+// when the job ends or is cancelled.
 
 import { runIngest, type IngestIO } from "../../scripts/lib/ingestCore";
 import { FORMAT_VERSION } from "../../scripts/lib/formatVersion";
@@ -10,9 +12,11 @@ import { openStore } from "../storage";
 import { gunzipBytes, gzipBytes } from "../storage/handleStore";
 import type { LibraryEntry } from "../storage/sessionStore";
 import { fileForFetch } from "./eta";
-import type { FailureKind, FromWorker, IngestRequest } from "./protocol";
+import type { FailureKind, FromWorker, IngestRequest, ToWorker } from "./protocol";
+import { TIER_CONCURRENCY } from "./eta";
+import { choosePath, vaultFetchEndpoint, VaultPort, type Path, type PortLike } from "./vaultPort";
 
-const scope = self as unknown as { postMessage(m: FromWorker): void; onmessage: ((e: MessageEvent<IngestRequest>) => void) | null };
+const scope = self as unknown as { postMessage(m: FromWorker): void; onmessage: ((e: MessageEvent<ToWorker>) => void) | null };
 const post = (m: FromWorker) => scope.postMessage(m);
 const dec = new TextDecoder();
 
@@ -21,8 +25,25 @@ class RawMissingError extends Error {
   override name = "RawMissingError";
 }
 
-async function ingest({ key, mode, backend }: IngestRequest): Promise<void> {
+let vault: VaultPort | null = null;
+
+/** Which way this job's requests go: the vault's first status decides (or there's no vault port). */
+async function pickPath(port: MessagePort | undefined): Promise<{ path: Path; reason: string }> {
+  if (!port) return { path: "direct", reason: "no vault" };
+  vault = new VaultPort(port as unknown as PortLike);
+  const status = await vault.status();
+  const choice = choosePath(status);
+  if (choice.path === "direct") {
+    vault.close();
+    vault = null;
+  }
+  return status ? choice : { path: "direct", reason: "the vault didn't answer" };
+}
+
+async function ingest({ key, mode, backend, vault: port }: IngestRequest): Promise<void> {
   const store = openStore(backend);
+  const { path, reason } = mode === "download" ? await pickPath(port) : { path: "direct" as Path, reason: "re-processing" };
+  if (mode === "download") post({ type: "path", path, reason });
   const rawPrefix = `raw/${key}/`;
   const outPrefix = `sessions/${key}/`;
   const under = (path: string, prefix: string) => (path.startsWith(prefix) ? path.slice(prefix.length) : null);
@@ -40,11 +61,21 @@ async function ingest({ key, mode, backend }: IngestRequest): Promise<void> {
   post({ type: "start", cached: Object.fromEntries(cached), drivers });
 
   const counts = { requests: 0, status429: 0 };
-  setRequestObserver((e) => {
+  const count = (status: number) => {
     counts.requests++;
-    if (e.status === 429) counts.status429++;
-  });
+    if (status === 429) counts.status429++;
+  };
+  setRequestObserver((e) => count(e.status));
   setRetryObserver((e) => post({ type: "retry", status: e.status, waitMs: e.waitMs }));
+  const fetchData = vault
+    ? vaultFetchEndpoint({
+        vault,
+        direct: fetchEndpoint,
+        onPath: (p, why) => post({ type: "path", path: p, reason: why }),
+        onRequest: count,
+        onRetry: (e) => post({ type: "retry", status: e.status, waitMs: e.waitMs }),
+      })
+    : fetchEndpoint;
 
   const offline = (file: string) => Promise.reject(new RawMissingError(`"${file}" isn't stored in this browser`));
   let cleared = false;
@@ -63,11 +94,13 @@ async function ingest({ key, mode, backend }: IngestRequest): Promise<void> {
     },
     gzip: gzipBytes,
     gunzip: gunzipBytes,
+    // Several at once: the vault's budget (signed in) or the direct client's pacing is the real limit.
+    concurrency: TIER_CONCURRENCY[path === "vault" ? "sponsor" : "free"],
     fetchEndpoint:
       mode === "download"
         ? <T,>(endpoint: string, params: Record<string, string | number>) => {
             post({ type: "fetch", file: fileForFetch(endpoint, params), endpoint, params });
-            return fetchEndpoint<T>(endpoint, params);
+            return fetchData<T>(endpoint, params);
           }
         : (endpoint, params) => offline(fileForFetch(endpoint, params)),
     fetchCircuit:
@@ -121,6 +154,11 @@ function failure(e: unknown): { kind: FailureKind; message: string; detail?: str
 }
 
 scope.onmessage = (ev) => {
-  if (ev.data?.type !== "ingest") return;
-  ingest(ev.data).catch((e) => post({ type: "failed", ...failure(e) }));
+  const m = ev.data;
+  if (m?.type === "no-vault") return void vault?.markDown(m.reason);
+  if (m?.type === "cancel") return void vault?.close();
+  if (m?.type !== "ingest") return;
+  ingest(m)
+    .catch((e) => post({ type: "failed", ...failure(e) }))
+    .finally(() => vault?.close());
 };

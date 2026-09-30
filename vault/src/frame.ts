@@ -11,6 +11,7 @@
 // Every tab has one of these frames; tabs.ts elects a leader among them (Web Locks) that alone refreshes the
 // token, runs the live stream and spends the REST budget, and fans data out over a BroadcastChannel.
 
+import { Budget } from "./budget";
 import { VaultCore } from "./core";
 import { DevKnobs } from "./debug";
 import { FreezeGate } from "./freeze";
@@ -19,7 +20,7 @@ import type { SocketLike } from "./mqtt";
 import { TOKEN_URL } from "./openf1";
 import { fromParent, parentOrigin } from "./origins";
 import { isHello, parsePopupMessage, type Ready, type VaultEvent, type VaultStatus } from "./protocol";
-import { Pacer, REST_BASE, Rest, type RestFetch } from "./rest";
+import { REST_BASE, Rest, type RestFetch, type TokenSource } from "./rest";
 import { Rpc, type PortLike, type Vault } from "./rpc";
 import type { Timers } from "./scheduler";
 import { SimBroker, loadSimConfig } from "./sim";
@@ -74,10 +75,12 @@ async function boot(parent: string) {
     onToken: () => live?.onToken(),
   });
   if (__VAULT_DEV__) knobs = new DevKnobs(core.scheduler, __VAULT_FAKE_EXPIRES_IN__, () => node!.status());
-  // One request at a time (rest.ts), paced under OpenF1's rate limits: a hung one mustn't block the queue forever.
-  const restFetch: RestFetch = (url, init) => gFetch(url, { ...init, signal: AbortSignal.timeout(30_000) });
-  const pacer = new Pacer({ now: Date.now, sleep: (ms) => new Promise((r) => timers.setTimeout(() => r(), ms)) });
-  const rest = new Rest(restFetch, __VAULT_DEV__ ? knobs!.tokens() : core.scheduler, sim ? `${simBase}/v1/` : fake ? `${fake}/v1/` : REST_BASE, pacer);
+  // Requests in parallel within one budget (budget.ts: OpenF1's rate limits, priorities, fairness), each with a
+  // timeout so a hung one frees its slot.
+  const restFetch: RestFetch = (url, { timeoutMs, ...init }) => gFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
+  const tokens: TokenSource = __VAULT_DEV__ ? knobs!.tokens() : core.scheduler;
+  const budget = new Budget({ ...timers, random: Math.random, authenticated: () => tokens.current() !== null, onChange: () => node?.budgetChanged() });
+  const rest = new Rest(restFetch, tokens, sim ? `${simBase}/v1/` : fake ? `${fake}/v1/` : REST_BASE, budget);
   const socket = (url: string, protocols: string[]): SocketLike => {
     const s = sim ? sim.socket(url, protocols) : (new WebSocket(url, protocols) as unknown as SocketLike);
     return gate ? gate.socket(s) : s;
@@ -90,7 +93,8 @@ async function boot(parent: string) {
     socket,
     token: () => core.liveToken(),
     refresh: () => core.scheduler.refresh(),
-    rest: (endpoint, params) => rest.get(endpoint, params),
+    // Gap-fills: first in the budget, and a shorter timeout (the stream waits for them).
+    rest: (endpoint, params) => rest.get(endpoint, params, { caller: "live", priority: "live", timeoutMs: 30_000 }),
     emit: (batches) => node?.onLiveData(batches),
     onStatus: () => node?.pushStatus(),
     lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
@@ -101,6 +105,7 @@ async function boot(parent: string) {
     core,
     live,
     rest,
+    budget,
     channel,
     locks: gate && locks ? gate.locks(locks) : locks,
     timers,
@@ -130,10 +135,15 @@ async function boot(parent: string) {
   });
   const vault: Vault = {
     status: () => withDev(n.status()),
-    expect: (kind, ticket) => core.expect(kind, ticket),
-    cancel: (ticket) => core.cancel(ticket),
+    // (The frame's whole status, not core's: the app keeps the last status it was given, and core's has no tab or stream.)
+    expect: (kind, ticket) => {
+      const r = core.expect(kind, ticket);
+      return r.ok ? { ok: true, status: withDev(n.status()) } : r;
+    },
+    cancel: (ticket) => (core.cancel(ticket), withDev(n.status())),
     disconnect: () => n.disconnect(),
-    get: (endpoint, params) => n.get(endpoint, params),
+    get: (endpoint, params, caller) => n.get(endpoint, params, caller),
+    dropCaller: (caller) => n.dropCaller(caller),
     setTopics: (topics) => n.setTopics(topics),
   };
   rpc = new Rpc(
@@ -167,7 +177,7 @@ async function boot(parent: string) {
   let attached = false;
   const onHello = (e: MessageEvent) => {
     if (attached || !fromParent(e, window.parent, parent, __VAULT_APP_ORIGINS__) || !isHello(e.data, e.ports.length)) return;
-    attached = r.attach(gatedPort(e.ports[0]!));
+    attached = r.attach(gatedPort(e.ports[0]!), { main: true });
     // One hello per frame: after it, the app's window messages are never looked at again.
     window.removeEventListener("message", onHello);
   };

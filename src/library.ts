@@ -16,6 +16,7 @@ import { loadLearned, runJob, type JobInfo, type Progress, type RunHandle } from
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
 import { clock, useReplay } from "./store";
+import { getVault } from "./vault/client";
 
 export { FIRST_YEAR };
 /** UTC, like OpenF1's `year`. */
@@ -401,7 +402,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
         broadcast({ type: "progress", key, label: info.label, progress });
       }
     };
-    const handle = runJob(info, store().backend, learned, update);
+    // (Signed in to the vault: the worker downloads through it, faster.)
+    const handle = runJob(info, store().backend, learned, update, getVault());
     running = { key, handle };
     update();
     const timer = setInterval(update, 500);

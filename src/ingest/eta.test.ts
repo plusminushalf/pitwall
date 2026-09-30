@@ -84,28 +84,33 @@ describe("estimates", () => {
     expect(sizeScale("bad", "date")).toBe(1);
   });
 
-  test("small files are interval-bound, telemetry is transfer-bound", () => {
+  test("free tier: interval-bound; signed in (the vault, 6 in flight): transfer-bound, each file a sixth of its work", () => {
     const [sessions] = expectedRawFiles("Race", [1]);
     const car = expectedRawFiles("Race", [1]).find((f) => f.name === "car_data_1")!;
-    expect(fileSeconds(sessions, "free", 1)).toBe(2.2);
-    expect(fileSeconds(sessions, "sponsor", 1)).toBe(1.1);
-    expect(fileSeconds(car, "sponsor", 1)).toBeGreaterThan(2);
+    expect(fileSeconds(sessions, "free", 1)).toBe(2.5);
+    expect(fileSeconds(car, "free", 1)).toBe(2.5);
+    expect(fileSeconds(sessions, "sponsor", 1)).toBeCloseTo(1.15 / 6);
+    expect(fileSeconds(car, "sponsor", 1)).toBeCloseTo((0.64 + 295_000 * 5.4e-6) / 6);
     expect(fileSeconds(car, "sponsor", 0.5)).toBeLessThan(fileSeconds(car, "sponsor", 1));
   });
 
   test("a whole race", () => {
-    const race = estimate(expectedRawFiles("Race", DRIVERS_2026), "sponsor", 1);
-    // ~13 MB raw cache and a couple of minutes (cache mtimes of real downloads: 124-163 s).
+    const race = estimate(expectedRawFiles("Race", DRIVERS_2026), "free", 1);
+    // ~13 MB raw cache and a couple of minutes (cache mtimes of real downloads: 124-163 s; spike S1: 146 s).
     expect(race.mb).toBeGreaterThan(11);
     expect(race.mb).toBeLessThan(16);
     expect(race.seconds).toBeGreaterThan(100);
     expect(race.seconds).toBeLessThan(180);
-    const sprint = estimate(expectedRawFiles("Race", DRIVERS_2026), "sponsor", 0.5);
+    // Signed in, in parallel through the vault: well under a minute.
+    const fast = estimate(expectedRawFiles("Race", DRIVERS_2026), "sponsor", 1);
+    expect(fast.seconds).toBeGreaterThan(15);
+    expect(fast.seconds).toBeLessThan(45);
+    const sprint = estimate(expectedRawFiles("Race", DRIVERS_2026), "free", 0.5);
     expect(sprint.mb).toBeLessThan(race.mb * 0.6);
     // Nothing left: startup + processing only.
     expect(estimate([], "free", 1).seconds).toBe(STARTUP_S + PROCESSING_PRIOR_S);
     // A learned speed ratio scales the download part.
-    expect(estimate(expectedRawFiles("Race", DRIVERS_2026), "sponsor", 1, 2).seconds).toBeGreaterThan(race.seconds * 1.8);
+    expect(estimate(expectedRawFiles("Race", DRIVERS_2026), "free", 1, 2).seconds).toBeGreaterThan(race.seconds * 1.8);
   });
 });
 
@@ -174,8 +179,8 @@ describe("ETA", () => {
   test("sensible from the first second and steady on a typical download", () => {
     const rand = rng(7);
     const files = expectedRawFiles("Race", DRIVERS_2026).filter((f) => f.required);
-    // Real-looking sponsor-tier timings (2025 Australia): small files interval-bound, telemetry 1.8-3.4 s.
-    const etas = simulate((i) => (files[i].bytes > 100_000 ? 1.8 + rand() * 1.6 : 1.1 + rand() * 0.1), "sponsor");
+    // Real-looking free-tier timings: interval-bound (2.5 s between starts), telemetry now and then slower.
+    const etas = simulate((i) => (files[i].bytes > 100_000 ? 2.5 + rand() * 0.6 : 2.5 + rand() * 0.1), "free");
     const first = etas[0];
     expect(Math.abs(first.eta - first.actual) / first.actual).toBeLessThan(0.15);
     for (let i = 1; i < etas.length; i++) {
@@ -183,6 +188,16 @@ describe("ETA", () => {
       expect(etas[i].eta - etas[i - 1].eta).toBeLessThan(5);
     }
     for (const e of etas.slice(10)) expect(Math.abs(e.eta - e.actual)).toBeLessThan(Math.max(8, e.actual * 0.2));
+  });
+
+  test("signed in, in parallel: files land every few hundred ms, the ETA is sensible and counts down", () => {
+    const rand = rng(11);
+    const files = expectedRawFiles("Race", DRIVERS_2026).filter((f) => f.required);
+    // Six at a time: telemetry lands every ~0.3-0.6 s, small files every ~0.2 s.
+    const etas = simulate((i) => (files[i].bytes > 100_000 ? 0.3 + rand() * 0.3 : 0.2 + rand() * 0.05), "sponsor");
+    const first = etas[0];
+    expect(Math.abs(first.eta - first.actual) / first.actual).toBeLessThan(0.25);
+    for (let i = 1; i < etas.length; i++) expect(etas[i].eta - etas[i - 1].eta).toBeLessThan(3);
   });
 
   test("adapts when the network is twice as slow as predicted", () => {
@@ -222,7 +237,7 @@ describe("job tracker", () => {
     dateEnd: "2026-09-27T13:00:00+00:00",
     mode: "download",
   };
-  const learned = () => ({ ratio: 1, processingS: PROCESSING_PRIOR_S, reprocessS: 15 });
+  const learned = () => ({ ratio: 1, sponsorRatio: 1, processingS: PROCESSING_PRIOR_S, reprocessS: 15 });
 
   test("resumes: files stored earlier count as done", () => {
     const t = new JobTracker(info, learned(), 0);
@@ -242,7 +257,7 @@ describe("job tracker", () => {
     t.onMessage({ type: "start", cached: {}, drivers: null }, 0);
     const first = t.view(0).etaSeconds;
     t.onMessage({ type: "fetch", file: "sessions", endpoint: "sessions", params: { session_key: 11377 } }, 0);
-    // Twice as slow as predicted (2.2 s interval): the ratio goes up and the ETA follows.
+    // Twice as slow as predicted (2.5 s interval): the ratio goes up and the ETA follows.
     t.onMessage({ type: "fetched", file: "sessions", source: "network", ms: 4400 }, 4400);
     t.onMessage({ type: "stored", file: "sessions", bytes: 310 }, 4500);
     expect(l.ratio).toBeGreaterThan(1);
@@ -255,11 +270,32 @@ describe("job tracker", () => {
     t.onMessage({ type: "retry", status: 429, waitMs: 10_000 }, 5000);
     expect(t.view(5000).notice).toBe("Rate-limited by OpenF1, retrying in 10s");
     expect(t.view(5000).etaSeconds).toBeGreaterThan(v.etaSeconds + 5);
+    expect(v.fast).toBeNull();
     t.onMessage({ type: "phase", phase: "normalize" }, 200_000);
     const p = t.view(201_000);
     expect(p.phase).toBe("processing");
     expect(p.etaSeconds).toBe(PROCESSING_PRIOR_S - 1);
     expect(p.progress).toBeGreaterThan(0.9);
+  });
+
+  test("signed in: the vault's cost model and its own learned ratio; the ETA drops when it falls back to the free tier's", () => {
+    const l = learned();
+    const t = new JobTracker(info, l, 0);
+    t.onMessage({ type: "start", cached: {}, drivers: DRIVERS_2026 }, 0);
+    const before = t.view(0).etaSeconds;
+    t.onMessage({ type: "path", path: "vault", reason: "signed in" }, 0);
+    const fast = t.view(0);
+    expect(fast.fast).toBe(true);
+    expect(fast.etaSeconds).toBeLessThan(before / 3);
+    t.onMessage({ type: "fetch", file: "sessions", endpoint: "sessions", params: { session_key: 11377 } }, 0);
+    t.onMessage({ type: "fetched", file: "sessions", source: "network", ms: 400 }, 400);
+    expect(l.sponsorRatio).toBeGreaterThan(1); // 0.4 s against a predicted 0.19 s
+    expect(l.ratio).toBe(1); // the free tier's is untouched
+    // The vault went away: the rest goes direct, and the ETA says so.
+    t.onMessage({ type: "path", path: "direct", reason: "the vault didn't answer" }, 500);
+    const slow = t.view(500);
+    expect(slow.fast).toBe(false);
+    expect(slow.etaSeconds).toBeGreaterThan(fast.etaSeconds * 3);
   });
 
   test("processing time is learned, within bounds", () => {

@@ -234,8 +234,9 @@ export class SimBroker {
     if (c.state !== "connecting") return;
     if (code !== 0) {
       this.send(c, encodeConnack(code));
-      // OpenF1 closes the connection after a refusal.
-      this.deps.timers.setTimeout(() => this.end(c, 1000, false), 20);
+      // OpenF1 closes the connection after a refusal: after the CONNACK is delivered (end() drops what's still
+      // queued, and with delivery jitter above 20 ms the refusal was lost: the client saw a bare close).
+      this.deps.timers.setTimeout(() => this.end(c, 1000, false), Math.max(0, c.deliverAt - this.deps.timers.now()) + 20);
       return;
     }
     // A reused clientId kicks the older session (OpenF1 does too).

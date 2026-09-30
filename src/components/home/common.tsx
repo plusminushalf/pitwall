@@ -102,6 +102,7 @@ export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) 
     p.step,
     p.phase === "downloading" ? `${p.cachedFiles}/${p.expectedFiles} files` : null,
     p.phase === "downloading" && p.totalBytes > 0 ? `${mb(p.cachedBytes)} / ~${mb(p.totalBytes)} MB` : null,
+    p.phase === "downloading" && p.fast != null ? (p.fast ? "fast (signed in)" : "free tier") : null,
   ].filter(Boolean);
   const watching = key != null && watchKey === key;
 

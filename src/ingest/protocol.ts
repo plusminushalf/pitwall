@@ -12,7 +12,20 @@ export interface IngestRequest {
   key: number;
   mode: JobMode;
   backend: StoreBackend;
+  /**
+   * A port the credential vault serves (the page asked for it with `openPort` and transferred it here), for
+   * signed-in downloads: requests go worker <-> vault directly. Data only: no token ever comes over it.
+   */
+  vault?: MessagePort;
 }
+
+/** Page -> worker after the request. */
+export type ToWorker =
+  | IngestRequest
+  /** The page couldn't get a vault port after all (no vault, or it refused): go direct at once. */
+  | { type: "no-vault"; reason: string }
+  /** The job is being cancelled: tell the vault (its queued requests are dropped) before the worker goes. */
+  | { type: "cancel" };
 
 /** Why a job stopped without finishing. */
 export type FailureKind =
@@ -34,6 +47,8 @@ export type FromWorker =
   /** A downloaded response was written to the raw cache. */
   | { type: "stored"; file: string; bytes: number }
   | { type: "drivers"; numbers: number[] }
+  /** Which way requests go: "vault" (signed in: the vault's budget, fast) or "direct" (free tier), and why. */
+  | { type: "path"; path: "vault" | "direct"; reason: string }
   /** A request will be retried after `waitMs` (rate limit / server error). */
   | { type: "retry"; status: number; waitMs: number }
   | { type: "phase"; phase: "download" | "normalize" | "write" }

@@ -1,6 +1,7 @@
 // Request dispatch over a MessagePort. Pure apart from the port: no DOM, testable under bun.
 
 import { DEBUG_METHODS, parseRequest, type DebugMethod, type GetResult, type LiveMessage, type LiveTopic, type Params, type Request, type Response, type RestEndpoint, type Ticket, type VaultEvent, type VaultStatus } from "./protocol";
+import { BudgetError } from "./budget";
 import { RestError } from "./rest";
 
 /** The part of MessagePort the vault uses (so tests can fake one). */
@@ -16,7 +17,10 @@ export type Vault = {
   expect(kind: "connect" | "unlock", ticket: Ticket): { ok: true; status: VaultStatus } | { ok: false; code: "unavailable" | "busy" | "not_connected"; message: string };
   cancel(ticket: Ticket): VaultStatus;
   disconnect(): Promise<VaultStatus>;
-  get(endpoint: RestEndpoint, params: Params): Promise<GetResult>;
+  /** `caller`: the port it came on (the budget's fairness unit; unique within this frame). */
+  get(endpoint: RestEndpoint, params: Params, caller: string): Promise<GetResult>;
+  /** A port closed (or was dropped): its queued gets are dropped. */
+  dropCaller(caller: string): void;
   /** The union of this frame's ports' subscriptions changed (the leader streams the union across tabs). */
   setTopics(topics: LiveTopic[]): void;
 };
@@ -27,26 +31,45 @@ export type DebugHandler = (req: Request<DebugMethod>) => Promise<unknown>;
 /** At most this many ports (the hello's plus openPort's). */
 export const MAX_PORTS = 8;
 
+/** A port: its caller id (for the REST budget), requests not yet answered, when it was last used. */
+type PortInfo = { caller: string; pending: number; lastUsed: number; main: boolean; closing?: boolean };
+
 export class Rpc {
-  private ports = new Set<PortLike>();
+  private ports = new Map<PortLike, PortInfo>();
   /** Each port's live topics. Data goes only to the ports that asked for it. */
   private subs = new Map<PortLike, Set<LiveTopic>>();
+  private nextPort = 0;
+  private clock = 0;
 
   constructor(
     private vault: Vault,
     private debug?: DebugHandler,
   ) {}
 
-  /** Serve the protocol on a port. False (and the port is not used) once MAX_PORTS are open. */
-  attach(port: PortLike): boolean {
-    if (this.ports.size >= MAX_PORTS) return false;
-    this.ports.add(port);
+  /**
+   * Serve the protocol on a port. At MAX_PORTS, an openPort port (never the hello's) with nothing pending is
+   * dropped for it, the one idle longest (MessagePorts have no close event: a download worker that was
+   * terminated leaves its port behind); with none to drop, false (and the port is not used).
+   */
+  attach(port: PortLike, opts: { main?: boolean } = {}): boolean {
+    if (this.ports.size >= MAX_PORTS) {
+      const idle = [...this.ports].filter(([, i]) => !i.main && i.pending === 0).sort((a, b) => a[1].lastUsed - b[1].lastUsed)[0];
+      if (!idle) return false;
+      this.detach(idle[0]);
+    }
+    const info: PortInfo = { caller: `p${this.nextPort++}`, pending: 0, lastUsed: ++this.clock, main: opts.main === true };
+    this.ports.set(port, info);
     port.addEventListener("message", (e) => {
+      if (this.ports.get(port) !== info) return; // closed or dropped
+      info.pending++;
+      info.lastUsed = ++this.clock;
       void this.handle(e.data, e.ports, port).then((res) => {
-        if (!res) return;
+        info.pending--;
+        if (!res || this.ports.get(port) !== info) return; // closed meanwhile: nothing more on it
         // A get's body is transferred, not copied.
         const body = res.ok && (res.result as Partial<GetResult> | null)?.body;
         port.postMessage(res, body instanceof ArrayBuffer ? [body] : []);
+        if (info.closing) this.detach(port);
       });
     });
     // (A message that can't be deserialized fires "messageerror" instead: it has no id to answer, so it's dropped.)
@@ -54,9 +77,23 @@ export class Rpc {
     return true;
   }
 
+  /** Stop serving a port: forget its subscriptions and drop its queued gets. */
+  private detach(port: PortLike) {
+    const info = this.ports.get(port);
+    if (!info) return;
+    this.ports.delete(port);
+    this.vault.dropCaller(info.caller);
+    if (this.subs.delete(port)) this.vault.setTopics(this.topics());
+  }
+
+  /** Ports open now (tests, the debug panel). */
+  get portCount() {
+    return this.ports.size;
+  }
+
   /** Push an unsolicited event (a status change) to every open port. */
   broadcast(event: VaultEvent) {
-    for (const port of this.ports) port.postMessage(event);
+    for (const port of this.ports.keys()) port.postMessage(event);
   }
 
   /** Live data: one event per topic, to the ports subscribed to it. */
@@ -100,11 +137,23 @@ export class Rpc {
           return { v: 1, id: req.id, ok: true, result: await this.vault.disconnect() };
         case "get":
           try {
-            return { v: 1, id: req.id, ok: true, result: await this.vault.get(req.endpoint, req.params) };
+            const caller = (from && this.ports.get(from)?.caller) ?? "p?";
+            return { v: 1, id: req.id, ok: true, result: await this.vault.get(req.endpoint, req.params, caller) };
           } catch (e) {
             if (e instanceof RestError) return { v: 1, id: req.id, ok: false, error: { code: "network", message: "couldn't reach OpenF1" } };
+            if (e instanceof BudgetError)
+              return { v: 1, id: req.id, ok: false, error: e.code === "rate_limited" ? { code: "rate_limited", message: "too many requests queued on this port" } : { code: "unavailable", message: "cancelled" } };
             throw e;
           }
+        case "close": {
+          // Answered on the port it closes, then nothing more (attach's listener detaches it).
+          const info = from ? this.ports.get(from) : undefined;
+          if (info) {
+            info.closing = true;
+            this.vault.dropCaller(info.caller);
+          }
+          return { v: 1, id: req.id, ok: true, result: {} };
+        }
         case "subscribe":
         case "unsubscribe":
           if (!from) return { v: 1, id: req.id, ok: false, error: { code: "bad_request", message: "no port" } };

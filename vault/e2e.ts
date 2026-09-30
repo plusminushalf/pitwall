@@ -5,9 +5,12 @@
 //   bun run vault:e2e --dev      the vault dev server instead (bun run vault)
 //   bun run vault:e2e --headed
 //   bun run vault:e2e --quick    skip the step-3 refresh run (about 5 minutes of real token refreshes)
-//   bun run vault:e2e --s3       ONLY spike S3's success check (s3.ts): a simulated 2.2 h session at 6x (about
-//                                25 minutes) across two tabs, with drops, a refusal, a leader close, a reload and a
-//                                leader freeze; then the leak check. Needs data/raw/11377 (bun run ingest 11377).
+//   bun run vault:e2e --s3       ONLY spike S3's success check (s3.ts): a simulated 2.1 h session at 6x (about
+//                                22 minutes) across two tabs, with drops, a refusal, a late pit stop in an outage,
+//                                a leader close, a reload and a leader freeze; then the leak check. Needs
+//                                data/raw/11291 (bun run ingest 11291).
+//   bun run vault:e2e --downloads  ONLY step 6's download check (downloads.ts, about 6 minutes, the real login):
+//                                race 11377 direct, through the vault, and with the vault gone mid-download.
 //
 // Starts whatever isn't already listening (the app dev server, the vault) and stops what it started.
 // A port-5174 server that is already running is used as is. Playwright isn't a project dependency: it's
@@ -46,7 +49,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeBroker } from "./fakebroker";
-import { findAppSecrets, findInHeap, vaultIsOutOfProcess } from "./leakcheck";
+import { runDownloads } from "./downloads";
+import { findAppSecrets, findInHeap, findInWorker, vaultIsOutOfProcess } from "./leakcheck";
 import { runS3 } from "./s3";
 
 const repo = fileURLToPath(new URL("..", import.meta.url)); // vault/ -> the repo
@@ -55,6 +59,7 @@ const DEV = args.includes("--dev");
 const HEADED = args.includes("--headed");
 const QUICK = args.includes("--quick");
 const S3 = args.includes("--s3");
+const DOWNLOADS = args.includes("--downloads");
 
 const APP = "http://127.0.0.1:5173";
 const VAULT = "http://localhost:5174";
@@ -309,6 +314,11 @@ async function main() {
   if (S3) {
     return runS3({ chromium, repo, APP, VAULT, launchArgs: CHROME_AS_SHIPPED, appHmr: APP_HMR, keepAppLoaded, check, up, waitUp, start, stop, findAppSecrets, headed: HEADED });
   }
+  const downloads = () =>
+    HAVE_LOGIN
+      ? runDownloads({ chromium, repo, APP, VAULT, launchArgs: CHROME_AS_SHIPPED, appHmr: APP_HMR, keepAppLoaded, keepPopup: KEEP_POPUP, check, up, waitUp, start, stop, findAppSecrets, findInHeap, findInWorker, openPopup, submitLogin, waitState, waitClosed, username: USERNAME, password: PASSWORD, headed: HEADED })
+      : Promise.resolve(console.log("(skipping the downloads: no login in .env)"));
+  if (DOWNLOADS) return downloads();
 
   if (!(await up(APP))) {
     console.log(`starting the app dev server on ${APP}`);
@@ -541,14 +551,20 @@ async function main() {
   else if (QUICK) console.log("(skipping the refresh run: --quick)");
   else await refreshChecks();
 
+  // Step 6: downloads through the vault (they need :5174 for the production vault they stop mid-download).
+  if (QUICK) console.log("(skipping the downloads: --quick)");
+  else if (vault) await downloads();
+  else console.log("(skipping the downloads: the vault server wasn't started by this script)");
+
   // ------------------------------------------------------------ step 3: silent refresh on the real API
   async function refreshChecks() {
     console.log(`refresh: the vault dev server with VAULT_FAKE_EXPIRES_IN=${FAKE_EXPIRES_IN}`);
     let useKnob = false;
+    let refreshVault: ChildProcess | null = null;
     if (vault) {
       // The vault-down check stopped ours: bring up the dev server (dev knobs on) in its place.
       for (let i = 0; i < 50 && (await up(`${VAULT}/frame.html`)); i++) await Bun.sleep(100);
-      start(["bun", "run", "vault"], { VAULT_FAKE_EXPIRES_IN: String(FAKE_EXPIRES_IN) });
+      refreshVault = start(["bun", "run", "vault"], { VAULT_FAKE_EXPIRES_IN: String(FAKE_EXPIRES_IN) });
       await waitUp(`${VAULT}/frame.html`);
     } else {
       useKnob = true; // someone else's vault server: set the fake expiry through the dev knob instead
@@ -708,6 +724,10 @@ async function main() {
     } finally {
       await ctx.close();
       rmSync(dir, { recursive: true, force: true });
+      if (refreshVault) {
+        stop(refreshVault);
+        for (let i = 0; i < 50 && (await up(`${VAULT}/frame.html`)); i++) await Bun.sleep(100);
+      }
     }
   }
 

@@ -1,16 +1,26 @@
 // Cost model for downloading a session from OpenF1 in the browser: which raw files a download needs,
 // how long each takes, and a live ETA that learns the actual speed. Pure (tested in eta.test.ts).
 
-/** OpenF1 access tier. The browser only uses the free tier for now (no login). */
+/**
+ * How a download reaches OpenF1: "free" (straight from the worker, no login: scripts/lib/openf1Http.ts's
+ * free-tier pacing) or "sponsor" (signed in: through the vault, whose budget allows 6/s and 60/min).
+ */
 export type Tier = "sponsor" | "free";
 
-/** Minimum gap between OpenF1 requests, from scripts/lib/openf1Http.ts. */
-export const TIER_INTERVAL_S: Record<Tier, number> = { free: 2.2, sponsor: 1.1 };
+/**
+ * Minimum gap between request starts: the direct client's free-tier interval (scripts/lib/openf1Http.ts), and
+ * the vault budget's spacing at 6/s (vault/src/budget.ts; its 60/min only binds past one session's 57 requests).
+ */
+export const TIER_INTERVAL_S: Record<Tier, number> = { free: 2.5, sponsor: 1.15 / 6 };
+/** Requests in flight at once (src/ingest/worker.ts sets the ingest core's concurrency to these). */
+export const TIER_CONCURRENCY: Record<Tier, number> = { free: 3, sponsor: 6 };
 
 // Time for one OpenF1 request (server query + transfer + parse + gzip + write) is roughly
-// REQUEST_LATENCY_S + gzipped size × SECONDS_PER_BYTE; a request can't start sooner than the tier interval
-// after the previous one. Fitted to real downloads: 2025 Australia race telemetry (334 KB avg) 2.45 s per
-// file, 2025 China sprint (145 KB) 1.43 s; small files are interval-bound.
+// REQUEST_LATENCY_S + gzipped size × SECONDS_PER_BYTE. Requests overlap (TIER_CONCURRENCY at once), but one can't
+// start sooner than the tier interval after the previous one, so a file costs the larger of the interval and
+// its work shared among the requests in flight: the free tier stays interval-bound (as before), signed in it's
+// transfer-bound. Fitted to real downloads one at a time: 2025 Australia race telemetry (334 KB avg) 2.45 s
+// per file, 2025 China sprint (145 KB) 1.43 s; small files are interval-bound.
 export const REQUEST_LATENCY_S = 0.64;
 export const SECONDS_PER_BYTE = 5.4e-6;
 /** Worker startup and reading what's already cached. */
@@ -123,10 +133,10 @@ export function sizeScale(dateStart: string, dateEnd: string): number {
 
 export const expectedBytes = (f: RawFileSpec, scale: number) => (f.scales ? f.bytes * scale : f.bytes);
 
-/** Expected seconds to fetch one file. */
+/** Expected seconds one file adds to a download (its share of the time, with the others in flight). */
 export function fileSeconds(f: RawFileSpec, tier: Tier, scale: number): number {
   const work = REQUEST_LATENCY_S + expectedBytes(f, scale) * SECONDS_PER_BYTE;
-  return f.external ? work : Math.max(TIER_INTERVAL_S[tier], work);
+  return f.external ? work : Math.max(TIER_INTERVAL_S[tier], work / TIER_CONCURRENCY[tier]);
 }
 
 /**

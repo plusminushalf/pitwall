@@ -27,11 +27,12 @@
 //
 // Pure apart from what's injected (channel, locks, timers), so bun tests run several frames against fakes.
 
+import { BudgetError, type Budget } from "./budget";
 import type { Shared, VaultCore } from "./core";
 import type { Batch, LiveManager, LiveSnapshot } from "./live";
 import type { DebugMethod, GetResult, LiveTopic, Params, Request, RestEndpoint, StreamPhase, VaultStatus } from "./protocol";
 import { KEEPALIVE_S } from "./mqtt";
-import { RestError } from "./rest";
+import { RestError, type RestOpts } from "./rest";
 import type { Timers } from "./scheduler";
 
 export const CHANNEL = "f1-vault";
@@ -39,7 +40,17 @@ export const LEADER_LOCK = "f1-vault-leader";
 export const FRAME_LOCK = "f1-vault-frame:";
 /** How often the leader lists the frame locks to drop the subscriptions of closed tabs. */
 export const PRUNE_MS = 5_000;
+/**
+ * A forwarded request fails once the leader has been silent this long (its heartbeat stopped: a hidden
+ * follower never steals the lead), or after FORWARD_MAX_MS in all: a get can wait its turn in the leader's
+ * budget for minutes (a download's worth of requests queued ahead of it) while the leader is fine.
+ */
 export const FORWARD_TIMEOUT_MS = 35_000;
+export const FORWARD_MAX_MS = 10 * 60_000;
+/** Status pushes caused by the REST budget (every request start and end) at most this often. */
+export const BUDGET_STATUS_MS = 500;
+/** A get from an app port (a download's telemetry can be 5 MB) may take this long; live gap-fills get less (frame.ts). */
+export const GET_TIMEOUT_MS = 120_000;
 /** After a takeover, the old leader's topics are kept this long, until every follower has re-sent its own. */
 export const PROVISIONAL_MS = 3_000;
 /** The leader's heartbeat. */
@@ -70,14 +81,15 @@ export type LocksLike = {
   query(): Promise<{ held?: { name?: string; clientId?: string }[] }>;
 };
 
-type Forward = { type: "get"; endpoint: RestEndpoint; params: Params } | { type: "debug"; req: Request<DebugMethod> };
+type Forward = { type: "get"; endpoint: RestEndpoint; params: Params; caller: string } | { type: "debug"; req: Request<DebugMethod> };
+type ForwardError = "network" | "internal" | "rate_limited" | "cancelled";
 
 /** Messages between vault frames. `from` is the sender's id; `to` addresses one frame. */
 export type TabMsg =
   | { k: "hello"; from: string }
   | { k: "sync"; from: string; to: string; status: VaultStatus; shared: Shared | null; live: LiveSnapshot }
   | { k: "leader"; from: string }
-  | { k: "hb"; from: string; clientId?: string }
+  | { k: "hb"; from: string; clientId?: string; starts?: number[] }
   | { k: "status"; from: string; status: VaultStatus }
   | { k: "shared"; from: string; shared: Shared }
   | { k: "login"; from: string; shared: Shared }
@@ -85,14 +97,17 @@ export type TabMsg =
   | { k: "subs"; from: string; topics: LiveTopic[] }
   | { k: "data"; from: string; batches: Batch[] }
   | { k: "req"; from: string; id: number; req: Forward }
+  | { k: "drop"; from: string; caller: string }
   | { k: "res"; from: string; to: string; id: number; ok: true; result: unknown }
-  | { k: "res"; from: string; to: string; id: number; ok: false; code: "network" | "internal" }
+  | { k: "res"; from: string; to: string; id: number; ok: false; code: ForwardError }
   | { k: "bye"; from: string };
 
 export type NodeDeps = {
   core: VaultCore;
   live: LiveManager;
-  rest: { get(endpoint: RestEndpoint, params: Params): Promise<GetResult> };
+  rest: { get(endpoint: RestEndpoint, params: Params, opts: RestOpts): Promise<GetResult> };
+  /** The REST budget (the leader spends it; status, takeover and dropped callers). Tests may leave it out. */
+  budget?: Pick<Budget, "status" | "cancel" | "cancelPrefix" | "seed" | "recentStarts" | "setReserve">;
   channel: ChannelLike;
   /** null: no Web Locks (then every frame leads on its own). */
   locks: LocksLike | null;
@@ -126,7 +141,12 @@ export class VaultNode {
   private followerSubs = new Map<string, LiveTopic[]>();
   private provisional: LiveTopic[] = [];
   private frames = 1;
-  private pending = new Map<number, { req: Forward; resolve: (r: unknown) => void; reject: (e: Error) => void; timer: unknown }>();
+  private pending = new Map<number, { req: Forward; resolve: (r: unknown) => void; reject: (e: Error) => void; at: number }>();
+  /** Follower: when the leader was last heard from (anything from it), for the forwarded requests' liveness. */
+  private leaderHeardAt = 0;
+  /** Follower: the leader's recent REST starts (its heartbeat), so the budget carries over a takeover. */
+  private leaderStarts: number[] = [];
+  private budgetTimer: unknown = null;
   private nextReq = 1;
   private initDone!: Promise<void>;
   private initResolve!: () => void;
@@ -170,7 +190,7 @@ export class VaultNode {
     if (await this.hold(LEADER_LOCK, { ifAvailable: true }, () => this.lostLock())) return this.lead(false);
     this.send({ k: "hello", from: this.id });
     this.queueForLead();
-    this.lastHeard = this.lastWatch = this.deps.timers.now();
+    this.lastHeard = this.lastWatch = this.leaderHeardAt = this.deps.timers.now();
     this.watch();
   }
 
@@ -216,7 +236,8 @@ export class VaultNode {
   status(): VaultStatus {
     if (this.role === "leader") {
       const stream = this.deps.live.status();
-      return { ...this.deps.core.status(), live: livePhase(stream.phase), stream, tab: { role: "leader", id: this.id, leader: this.id, frames: this.frames, ...this.counts } };
+      const budget = this.deps.budget?.status();
+      return { ...this.deps.core.status(), live: livePhase(stream.phase), stream, ...(budget && { budget }), tab: { role: "leader", id: this.id, leader: this.id, frames: this.frames, ...this.counts } };
     }
     const tab = { role: "follower" as const, id: this.id, leader: this.leaderId, ...this.counts };
     return this.mirror ? { ...this.mirror, tab } : { state: "connecting", live: "off", version: this.deps.version, tab };
@@ -229,9 +250,30 @@ export class VaultNode {
     else this.send({ k: "subs", from: this.id, topics });
   }
 
-  get(endpoint: RestEndpoint, params: Params): Promise<GetResult> {
-    if (this.role === "leader") return this.deps.rest.get(endpoint, params);
-    return this.forward({ type: "get", endpoint, params }) as Promise<GetResult>;
+  /** An app port's get. `caller`: the port (unique in this frame); the budget sees `<frame id>/<caller>`. */
+  get(endpoint: RestEndpoint, params: Params, caller: string): Promise<GetResult> {
+    if (this.role === "leader") return this.runLocal({ type: "get", endpoint, params, caller }, this.id) as Promise<GetResult>;
+    return this.forward({ type: "get", endpoint, params, caller }) as Promise<GetResult>;
+  }
+
+  /** An app port closed: drop its queued gets (here if we lead, else at the leader, and our forwarded ones). */
+  dropCaller(caller: string) {
+    if (this.role === "leader") return void this.deps.budget?.cancel(`${this.id}/${caller}`);
+    this.send({ k: "drop", from: this.id, caller });
+    for (const [id, p] of this.pending)
+      if (p.req.type === "get" && p.req.caller === caller) {
+        this.pending.delete(id);
+        p.reject(new BudgetError("cancelled"));
+      }
+  }
+
+  /** The budget changed (a request started or ended): push the status, at most every BUDGET_STATUS_MS. */
+  budgetChanged() {
+    if (this.role !== "leader" || this.budgetTimer !== null) return;
+    this.budgetTimer = this.deps.timers.setTimeout(() => {
+      this.budgetTimer = null;
+      this.pushStatus();
+    }, BUDGET_STATUS_MS);
   }
 
   async debug(req: Request<DebugMethod>): Promise<unknown> {
@@ -372,11 +414,24 @@ export class VaultNode {
     const stalled = now - this.lastWatch > STALL_MS;
     this.lastWatch = now;
     this.watch();
+    this.expireForwards(now, stalled);
     // We were the frozen one: give the leader's queued messages a chance to arrive first.
     if (stalled) return void (this.lastHeard = now);
     if (now - this.lastHeard < TAKEOVER_MS || !(this.deps.visible?.() ?? true)) return;
     this.lastHeard = now; // one steal at a time
     this.steal();
+  }
+
+  /** Follower: forwarded requests fail once the leader has gone quiet (or they're very old). */
+  private expireForwards(now: number, stalled: boolean) {
+    // (We were the frozen one: the leader's answers may be queued behind the freeze. Not yet.)
+    if (stalled) return void (this.leaderHeardAt = now);
+    const quiet = now - this.leaderHeardAt > FORWARD_TIMEOUT_MS;
+    for (const [id, p] of this.pending)
+      if (quiet || now - p.at > FORWARD_MAX_MS) {
+        this.pending.delete(id);
+        p.reject(new Error("the leader frame didn't answer"));
+      }
   }
 
   private beat() {
@@ -399,7 +454,8 @@ export class VaultNode {
 
   private heartbeat() {
     const clientId = this.deps.live.activeClientId();
-    this.send({ k: "hb", from: this.id, ...(clientId && { clientId }) });
+    const starts = this.deps.budget?.recentStarts();
+    this.send({ k: "hb", from: this.id, ...(clientId && { clientId }), ...(starts?.length && { starts }) });
   }
 
   /** Leader -> follower: another frame holds the lock now. Stop streaming (emitting nothing stale) and queue again. */
@@ -409,8 +465,9 @@ export class VaultNode {
     this.counts.lost++;
     this.counts.changes++;
     this.leaderId = null;
-    for (const t of [this.pruneTimer, this.beatTimer]) if (t !== null) this.deps.timers.clearTimeout(t);
-    this.pruneTimer = this.beatTimer = null;
+    for (const t of [this.pruneTimer, this.beatTimer, this.budgetTimer]) if (t !== null) this.deps.timers.clearTimeout(t);
+    this.pruneTimer = this.beatTimer = this.budgetTimer = null;
+    this.leaderHeardAt = this.deps.timers.now();
     this.followerSubs.clear();
     this.provisional = [];
     const last = this.deps.core.status();
@@ -448,6 +505,8 @@ export class VaultNode {
         this.updateTopics();
       }, PROVISIONAL_MS);
       if (this.mirror?.stream) this.deps.live.state.merge({ lastSeen: {}, since: this.mirror.stream.since, sessionKey: null, seen: {} });
+      // The old leader's requests of the last minute count against ours: one budget per browser.
+      this.deps.budget?.seed(this.leaderStarts);
     }
     const shared = this.shared;
     this.shared = null;
@@ -461,9 +520,8 @@ export class VaultNode {
     this.deps.live.start({ gap: takeover, ...(stolen && { clientId: stolen.clientId ?? undefined, handoverAfter: this.deps.timers.now() + ZOMBIE_MS }) });
     // Requests that were waiting for the old leader: ours now.
     for (const [id, p] of this.pending) {
-      this.deps.timers.clearTimeout(p.timer);
       this.pending.delete(id);
-      this.runLocal(p.req).then(p.resolve, p.reject);
+      this.runLocal(p.req, this.id).then(p.resolve, p.reject);
     }
     this.prune();
     this.pushStatus();
@@ -477,7 +535,10 @@ export class VaultNode {
 
   private updateTopics() {
     if (this.role !== "leader") return;
-    this.deps.live.setTopics(this.union());
+    const topics = this.union();
+    this.deps.live.setTopics(topics);
+    // While the stream runs, downloads leave part of each minute's budget for its gap-fills.
+    this.deps.budget?.setReserve(topics.length > 0);
   }
 
   /** Drop the subscriptions of frames whose lock is gone (their tab closed); count the live ones. */
@@ -491,6 +552,8 @@ export class VaultNode {
         const alive = new Set((q.held ?? []).map((l) => l.name ?? "").filter((n) => n.startsWith(FRAME_LOCK)).map((n) => n.slice(FRAME_LOCK.length)));
         let changed = false;
         for (const id of this.followerSubs.keys()) if (!alive.has(id)) changed = this.followerSubs.delete(id) || changed;
+        // (A closed tab's queued gets: nobody will read their answers.)
+        for (const id of this.gone(alive)) this.deps.budget?.cancelPrefix(`${id}/`);
         const frames = Math.max(1, alive.size);
         if (frames !== this.frames || changed) {
           this.frames = frames;
@@ -502,20 +565,26 @@ export class VaultNode {
     );
   }
 
+  /** Frames that sent us requests and whose frame lock is gone (their tab closed). */
+  private gone(alive: Set<string>): string[] {
+    const out = [...this.callerFrames].filter((id) => id !== this.id && !alive.has(id));
+    for (const id of out) this.callerFrames.delete(id);
+    return out;
+  }
+  /** Leader: the frames that forwarded gets to us. */
+  private callerFrames = new Set<string>();
+
   private forward(req: Forward): Promise<unknown> {
     return new Promise((resolve, reject) => {
       const id = this.nextReq++;
-      const timer = this.deps.timers.setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("the leader frame didn't answer"));
-      }, FORWARD_TIMEOUT_MS);
-      this.pending.set(id, { req, resolve, reject, timer });
+      this.pending.set(id, { req, resolve, reject, at: this.deps.timers.now() });
       this.send({ k: "req", from: this.id, id, req });
     });
   }
 
-  private runLocal(req: Forward): Promise<unknown> {
-    if (req.type === "get") return this.deps.rest.get(req.endpoint, req.params);
+  /** Run a request here (we lead). `from`: the frame whose port asked. */
+  private runLocal(req: Forward, from: string): Promise<unknown> {
+    if (req.type === "get") return this.deps.rest.get(req.endpoint, req.params, { caller: `${from}/${req.caller}`, timeoutMs: GET_TIMEOUT_MS });
     return this.deps.debug ? this.deps.debug(req.req) : Promise.reject(new Error("no debug"));
   }
 
@@ -548,7 +617,7 @@ export class VaultNode {
       }
       return void this.onLeaderMessage(m);
     }
-    if (m.from === this.leaderId || m.k === "leader" || (m.k === "sync" && m.to === this.id)) this.lastHeard = this.deps.timers.now();
+    if (m.from === this.leaderId || m.k === "leader" || (m.k === "sync" && m.to === this.id)) this.lastHeard = this.leaderHeardAt = this.deps.timers.now();
     this.onFollowerMessage(m);
   }
 
@@ -574,6 +643,10 @@ export class VaultNode {
         return;
       case "bye":
         if (this.followerSubs.delete(m.from)) this.updateTopics();
+        this.deps.budget?.cancelPrefix(`${m.from}/`);
+        return;
+      case "drop":
+        this.deps.budget?.cancel(`${m.from}/${m.caller}`);
         return;
       case "login":
         await this.initDone;
@@ -584,10 +657,11 @@ export class VaultNode {
       case "req": {
         await this.initDone;
         if (!(await this.stillLeading())) return; // (the real leader answers it)
-        const reply = (r: { ok: true; result: unknown } | { ok: false; code: "network" | "internal" }) => this.send({ k: "res", from: this.id, to: m.from, id: m.id, ...r });
-        return this.runLocal(m.req).then(
+        if (m.req.type === "get") this.callerFrames.add(m.from);
+        const reply = (r: { ok: true; result: unknown } | { ok: false; code: ForwardError }) => this.send({ k: "res", from: this.id, to: m.from, id: m.id, ...r });
+        return this.runLocal(m.req, m.from).then(
           (result) => reply({ ok: true, result }),
-          (e) => reply({ ok: false, code: e instanceof RestError ? "network" : "internal" }),
+          (e) => reply({ ok: false, code: e instanceof RestError ? "network" : e instanceof BudgetError ? e.code : "internal" }),
         );
       }
     }
@@ -626,7 +700,10 @@ export class VaultNode {
         this.shared = m.shared;
         return;
       case "hb":
-        if (m.from === this.leaderId) this.leaderClientId = m.clientId ?? null;
+        if (m.from === this.leaderId) {
+          this.leaderClientId = m.clientId ?? null;
+          this.leaderStarts = m.starts ?? [];
+        }
         return;
       case "data": {
         // Not knowing the leader yet (just joined, just demoted): keep it until the sync says who leads.
@@ -646,9 +723,8 @@ export class VaultNode {
         const p = this.pending.get(m.id);
         if (!p) return;
         this.pending.delete(m.id);
-        this.deps.timers.clearTimeout(p.timer);
         if (m.ok) p.resolve(m.result);
-        else p.reject(m.code === "network" ? new RestError("network") : new Error("internal"));
+        else p.reject(m.code === "network" ? new RestError("network") : m.code === "rate_limited" || m.code === "cancelled" ? new BudgetError(m.code) : new Error("internal"));
         return;
       }
       case "wiped":

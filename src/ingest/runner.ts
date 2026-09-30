@@ -1,4 +1,6 @@
-// Runs one ingest job in a fresh worker and turns its events into progress and an ETA.
+// Runs one ingest job in a fresh worker and turns its events into progress and an ETA. A download gets a port
+// from the credential vault (openPort) and hands it to the worker, so a signed-in download's requests go worker
+// <-> vault with nothing relayed by this page (src/ingest/vaultPort.ts).
 
 import type { IngestTimings } from "../../scripts/lib/ingestCore";
 import type { LibraryEntry, StoreBackend } from "../storage/sessionStore";
@@ -19,8 +21,9 @@ import {
   sizeScale,
   stepLabel,
   type RawFileSpec,
+  type Tier,
 } from "./eta";
-import type { FailureKind, FromWorker, IngestRequest, JobMode } from "./protocol";
+import type { FailureKind, FromWorker, IngestRequest, JobMode, ToWorker } from "./protocol";
 
 /** What a job needs to know about its session up front (from the catalogue). */
 export interface JobInfo {
@@ -36,8 +39,10 @@ export interface JobInfo {
 
 /** Download speed learned across jobs (kept in localStorage). */
 export interface Learned {
-  /** Observed / predicted seconds per file. */
+  /** Observed / predicted seconds per file, free tier (direct). */
   ratio: number;
+  /** The same, signed in (through the vault). */
+  sponsorRatio: number;
   processingS: number;
   reprocessS: number;
 }
@@ -45,7 +50,7 @@ export interface Learned {
 const LEARNED_KEY = "f1-replay:eta";
 
 export function loadLearned(): Learned {
-  const fallback: Learned = { ratio: 1, processingS: PROCESSING_PRIOR_S, reprocessS: REPROCESS_PRIOR_S };
+  const fallback: Learned = { ratio: 1, sponsorRatio: 1, processingS: PROCESSING_PRIOR_S, reprocessS: REPROCESS_PRIOR_S };
   try {
     const v = JSON.parse(localStorage.getItem(LEARNED_KEY) ?? "null") as Partial<Learned> | null;
     return { ...fallback, ...(v ?? {}) };
@@ -75,6 +80,8 @@ export interface Progress {
   progress: number;
   etaSeconds: number;
   startedAt: number;
+  /** Signed in (requests through the vault, the account's limits) or the free tier; null until known. */
+  fast: boolean | null;
 }
 
 /** Follows one job's worker events; `view()` is its progress at any moment. */
@@ -95,6 +102,8 @@ export class JobTracker {
   private readonly scale: number;
   private readonly assumed: number;
   readonly startedAt: number;
+  /** Which way the requests go (the worker's "path"): the cost model and the learned ratio follow it. */
+  private tier: Tier | null = null;
 
   constructor(
     readonly info: JobInfo,
@@ -111,7 +120,15 @@ export class JobTracker {
     return expectedRawFiles(this.info.sessionType, this.drivers, this.assumed);
   }
 
-  private secs = (f: RawFileSpec) => fileSeconds(f, "free", this.scale);
+  private secs = (f: RawFileSpec) => fileSeconds(f, this.tier ?? "free", this.scale);
+
+  private get ratio() {
+    return this.tier === "sponsor" ? (this.learned.sponsorRatio ?? 1) : this.learned.ratio;
+  }
+  private set ratio(r: number) {
+    if (this.tier === "sponsor") this.learned.sponsorRatio = r;
+    else this.learned.ratio = r;
+  }
 
   onMessage(m: FromWorker, now = Date.now()): void {
     switch (m.type) {
@@ -125,6 +142,9 @@ export class JobTracker {
       case "drivers":
         this.drivers = m.numbers;
         return;
+      case "path":
+        this.tier = m.path === "vault" ? "sponsor" : "free";
+        return;
       case "fetch":
         this.step = stepLabel(m.endpoint, m.params, this.drivers);
         this.mark ??= now;
@@ -136,7 +156,7 @@ export class JobTracker {
         // The circuit map isn't an OpenF1 request: not representative of the rest.
         if (spec && !spec.external && this.mark != null) {
           const observed = Math.max(0, now - this.mark - this.waitMs) / 1000;
-          this.learned.ratio = nextRatio(this.learned.ratio, observed, this.secs(spec));
+          this.ratio = nextRatio(this.ratio, observed, this.secs(spec));
         }
         if (!this.files.has(m.file)) this.files.set(m.file, 0);
         this.mark = now;
@@ -177,6 +197,7 @@ export class JobTracker {
       expectedFiles: p.expectedFiles,
       cachedBytes: p.cachedBytes,
       startedAt: this.startedAt,
+      fast: this.tier === null ? null : this.tier === "sponsor",
     };
     if (this.info.mode === "reprocess") {
       const elapsed = (now - this.startedAt) / 1000;
@@ -195,7 +216,7 @@ export class JobTracker {
     const totalS = p.counted.reduce((s, f) => s + this.secs(f), 0);
     const missingBytes = p.missing.reduce((s, f) => s + expectedBytes(f, this.scale), 0);
     const waitS = Math.max(0, this.waitUntil - now) / 1000;
-    const ratio = this.learned.ratio;
+    const ratio = this.ratio;
     const processingS = this.processingAt != null ? (now - this.processingAt) / 1000 : 0;
     // Before processing starts, stored files are still being read back (roughly: they're read in request order).
     const prior = this.learned.processingS + (this.phase === "downloading" ? this.cacheReadS : 0);
@@ -217,6 +238,9 @@ export class JobTracker {
   }
 }
 
+/** On cancel, the worker gets this long to tell the vault before it's terminated. */
+const CANCEL_GRACE_MS = 200;
+
 export type RunOutcome =
   | { ok: true; entry: LibraryEntry; timings: IngestTimings; requests: number; status429: number; ms: number }
   | { ok: false; kind: FailureKind | "cancelled" | "crashed"; message: string; detail?: string };
@@ -228,17 +252,29 @@ export interface RunHandle {
   cancel(): void;
 }
 
-/** Start a job in its own worker. `onEvent` fires on every worker message (for re-rendering progress). */
-export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, onEvent: (m: FromWorker) => void): RunHandle {
+/** What runJob needs from the credential vault's client (src/vault/client.ts getVault()): a port for the worker. */
+export type VaultLink = { origin: string | null; openPort(port: MessagePort): Promise<unknown> };
+
+/**
+ * Start a job in its own worker. `onEvent` fires on every worker message (for re-rendering progress). `vault`:
+ * a download asks it for a port, which the worker uses if the vault is signed in (else it goes direct).
+ */
+export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, onEvent: (m: FromWorker) => void, vault: VaultLink | null = null): RunHandle {
   const tracker = new JobTracker(info, learned);
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: `ingest-${info.key}` });
+  const send = (m: ToWorker, transfer: MessagePort[] = []) => worker.postMessage(m, transfer);
   let settle!: (o: RunOutcome) => void;
   const done = new Promise<RunOutcome>((resolve) => (settle = resolve));
   let finished = false;
   const end = (o: RunOutcome) => {
     if (finished) return;
     finished = true;
-    worker.terminate();
+    if (o.ok || o.kind !== "cancelled") worker.terminate();
+    else {
+      // Let the worker tell the vault first (its queued requests are dropped), then stop it.
+      send({ type: "cancel" });
+      setTimeout(() => worker.terminate(), CANCEL_GRACE_MS);
+    }
     if (o.ok) tracker.finished();
     settle(o);
   };
@@ -256,8 +292,20 @@ export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, o
     e.preventDefault();
     end({ ok: false, kind: "crashed", message: e.message || "The download stopped unexpectedly (out of memory?)" });
   };
-  const request: IngestRequest = { type: "ingest", key: info.key, mode: info.mode, backend };
-  worker.postMessage(request);
+  // A download gets its own port to the vault (the worker speaks the vault's protocol on it; the vault decides
+  // nothing here: the worker asks it for its status and goes direct unless it's signed in).
+  let vaultPort: MessagePort | undefined;
+  if (info.mode === "download" && vault?.origin) {
+    const channel = new MessageChannel();
+    vaultPort = channel.port2;
+    vault
+      .openPort(channel.port1)
+      .catch((e: Error) => {
+        if (!finished) send({ type: "no-vault", reason: e.message });
+      });
+  }
+  const request: IngestRequest = { type: "ingest", key: info.key, mode: info.mode, backend, ...(vaultPort && { vault: vaultPort }) };
+  send(request, vaultPort ? [vaultPort] : []);
 
   return { tracker, done, cancel: () => end({ ok: false, kind: "cancelled", message: "Cancelled" }) };
 }

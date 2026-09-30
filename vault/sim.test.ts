@@ -1,6 +1,6 @@
 // Simulate mode end to end in bun, on synthetic raw data (so it runs without data/raw): simserver.ts over
 // real HTTP, the in-vault SimBroker speaking MQTT bytes to the real MqttSession, LiveManager (handover, drop,
-// gap-fill, dedupe), the real Rest class with the pacer, and the simulation's /token.
+// gap-fill, dedupe), the real Rest class with the REST budget, and the simulation's /token.
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -11,8 +11,10 @@ import { gzipSync } from "node:zlib";
 import { SIM_TOPICS, buildTimeline, offsetOf, restQuery, shift, simNow } from "./simdata";
 import { SimServer } from "./simserver";
 import { LiveManager, canonical, hash53, type Batch } from "./src/live";
+import { MqttSession, type MqttError } from "./src/mqtt";
 import { requestToken } from "./src/openf1";
-import { Pacer, Rest } from "./src/rest";
+import { Budget } from "./src/budget";
+import { Rest } from "./src/rest";
 import { SimBroker, loadSimConfig, simNowOf } from "./src/sim";
 
 const KEY = 4242;
@@ -101,7 +103,8 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
     const tok = await requestToken((url, init) => fetch(url.replace("https://api.openf1.org/token", `${base}/token`), init), "sim@example.com", "whatever", Date.now);
     if (!tok.ok) throw new Error("no token");
     let token = { accessToken: tok.token.accessToken, expiresAt: tok.token.expiresAt, username: "sim@example.com" };
-    const rest = new Rest((u, i) => fetch(u, i), { current: () => token.accessToken, onUnauthorized: async () => "give_up" }, `${base}/v1/`, new Pacer({ now: Date.now, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) }));
+    const budget = new Budget({ ...timers, random: Math.random, authenticated: () => true });
+    const rest = new Rest((u, { timeoutMs, ...i }) => fetch(u, { ...i, signal: AbortSignal.timeout(timeoutMs) }), { current: () => token.accessToken, onUnauthorized: async () => "give_up" }, `${base}/v1/`, budget);
     const got: Batch[] = [];
     const live = new LiveManager({
       ...timers,
@@ -110,7 +113,7 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
       socket: broker.socket,
       token: () => token,
       refresh: async () => false,
-      rest: (e, p) => rest.get(e, p),
+      rest: (e, p) => rest.get(e, p, { caller: "live", priority: "live", timeoutMs: 30_000 }),
       emit: (b) => got.push(...b),
       onStatus: () => {},
     });
@@ -186,6 +189,23 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
     const mine = (await (await fetch(`${base}/stats`)).json()).sessions.filter((s: { instance: string }) => s.instance === broker.instance);
     live.stop();
     expect(mine.length).toBe(1);
+  }, 20_000);
+
+  test("a refusal reaches the client as CONNACK 5 before the close, whatever the delivery jitter", async () => {
+    const cfg = { ...(await loadSimConfig(base)), jitterMs: 60 };
+    const timers = { now: Date.now, setTimeout: (fn: () => void, ms: number) => setTimeout(fn, ms), clearTimeout: (h: unknown) => clearTimeout(h as ReturnType<typeof setTimeout>) };
+    const broker = new SimBroker({ base, config: cfg, timers, fetch });
+    const tok = await requestToken((url, init) => fetch(url.replace("https://api.openf1.org/token", `${base}/token`), init), "sim@example.com", "whatever", Date.now);
+    if (!tok.ok) throw new Error("no token");
+    const reasons: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      await fetch(`${base}/control/refuse?n=1`, { method: "POST" });
+      const session = new MqttSession({ url: "wss://x/mqtt", clientId: `refuse-${i}`, username: "sim@example.com", password: tok.token.accessToken, socket: broker.socket, timers, onMessage: () => {}, onClose: () => {} });
+      const e = (await session.connect().then(() => null, (err) => err)) as MqttError | null;
+      reasons.push(e?.info ? `${e.info.reason}${"code" in e.info ? ` ${e.info.code}` : ""}` : "connected");
+      session.close();
+    }
+    expect(reasons).toEqual(Array(8).fill("refused 5"));
   }, 20_000);
 
   test("the simulation's /token and REST: fake JWTs with the configured lifetime; bad tokens get 401", async () => {

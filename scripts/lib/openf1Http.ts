@@ -10,12 +10,16 @@ import type { RawCircuit } from "./openf1Types";
 
 const BASE = "https://api.openf1.org/v1";
 export const TOKEN_URL = "https://api.openf1.org/token";
-const FREE_INTERVAL_MS = 2_200; // ~27 req/min
+// ~24 req/min: the free tier's 30/min, less room for the page's own requests (the calendar, a session lookup)
+// from the same IP. At 2.2 s (~27/min), a race download with requests in flight in parallel (ingestCore) hit a 429
+// once the catalogue's 4 requests counted in the same minute (vault:e2e --downloads, 2026-09-30).
+const FREE_INTERVAL_MS = 2_500;
 const SPONSOR_INTERVAL_MS = 1_100; // ~54 req/min
 const MAX_RETRIES = 5;
 const TOKEN_MARGIN_MS = 5 * 60_000; // refresh tokens this long before they expire
 
-let lastRequestAt = 0;
+/** When the next request may start: each request reserves its slot, so concurrent callers stay spaced too. */
+let nextSlotAt = 0;
 let intervalOverride: number | null = null;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -131,19 +135,25 @@ export function invalidateToken(): void {
 /** Test hook: override the minimum gap between requests (null = tier default). */
 export function setRequestInterval(ms: number | null): void {
   intervalOverride = ms;
-  lastRequestAt = 0;
+  nextSlotAt = 0;
 }
 
+/**
+ * One request, started no sooner than the tier's interval after the previous start. Safe with concurrent
+ * callers (ingest runs several requests at once): each one reserves the next slot before it waits.
+ */
 async function throttledFetch(url: string, bearer: string | null): Promise<Response> {
   const interval = intervalOverride ?? (bearer ? SPONSOR_INTERVAL_MS : FREE_INTERVAL_MS);
-  const wait = lastRequestAt + interval - Date.now();
-  if (wait > 0) await sleep(wait);
-  lastRequestAt = Date.now();
+  const now = Date.now();
+  const at = Math.max(now, nextSlotAt);
+  nextSlotAt = at + interval;
+  if (at > now) await sleep(at - now);
+  const t0 = Date.now();
   const res = await fetch(url, {
     signal: AbortSignal.timeout(120_000),
     ...(bearer ? { headers: { Authorization: `Bearer ${bearer}` } } : {}),
   });
-  requestObserver?.({ url, status: res.status, ms: Date.now() - lastRequestAt });
+  requestObserver?.({ url, status: res.status, ms: Date.now() - t0 });
   return res;
 }
 
@@ -165,10 +175,11 @@ export async function fetchEndpoint<T>(
     if (res.status === 404) return [];
 
     const body = await res.text();
-    // Expired or revoked token: get a fresh one and retry once.
+    // Expired or revoked token: get a fresh one and retry once. (Unless a concurrent request already has:
+    // then the token in the cache is newer than the one this request used.)
     if (bearer && res.status === 401 && !reauthed) {
       reauthed = true;
-      invalidateToken();
+      if (token?.value === bearer) invalidateToken();
       attempt--;
       continue;
     }
@@ -189,6 +200,8 @@ export async function fetchEndpoint<T>(
     const backoff = retryAfter > 0 ? retryAfter * 1000 : 5_000 * 2 ** attempt;
     console.warn(`  ${res.status} on ${endpoint}, retrying in ${backoff / 1000}s`);
     retryObserver?.({ endpoint, status: res.status, waitMs: backoff });
+    // Over the limit: every other request waits too, not just this one.
+    if (res.status === 429) nextSlotAt = Math.max(nextSlotAt, Date.now() + backoff);
     await sleep(backoff);
   }
 }
