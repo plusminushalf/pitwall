@@ -233,13 +233,30 @@ export interface CarPosition {
   x: number;
   y: number;
   opacity: number;
+  /** API gap: in the pit lane at t (between a pit stop's entry and exit). */
+  pit: boolean;
+  /**
+   * API gap: on the stretch useTrack().pitLane covers, a stop's trace from PIT_LANE_MARGIN_MS before its
+   * entry to as long after its exit: the pit window widened by that much (so, 2 s ahead of the entry).
+   */
+  pitLane: boolean;
 }
+
+/** useTrack().pitLane runs from this long before a stop's pit entry to this long after its exit (scripts/lib/normalize.ts). */
+const PIT_LANE_MARGIN_MS = 2_000;
 
 export function carAt(d: DriverData, t: number): CarPosition | null {
   const opacity = mapOpacity(d, t);
   if (opacity === 0) return null;
   const p = carPositionAt(d, t);
-  return p ? { x: p.x, y: p.y, opacity } : null;
+  if (!p) return null;
+  let pit = false;
+  let pitLane = false;
+  for (const s of d.pits) {
+    if (s.entry <= t && t <= s.exit) pit = true;
+    if (s.entry - PIT_LANE_MARGIN_MS <= t && t <= s.exit + PIT_LANE_MARGIN_MS) pitLane = true;
+  }
+  return { x: p.x, y: p.y, opacity, pit, pitLane };
 }
 
 // ---------------------------------------------------------------- selection

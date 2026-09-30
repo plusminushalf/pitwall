@@ -32,11 +32,37 @@ const LABEL_REST_MS = 200;
 const LABEL_FADE_IN_MS = 150;
 /** A label that goes away, or leaves a corner, fades out there over this long (wall-clock ms). */
 const LABEL_FADE_OUT_MS = 150;
+/** In the pit lane a dot (and focus ring) is this much smaller in radius, CSS px, and half as opaque ... */
+const PIT_SHRINK = 1.5;
+const PIT_OPACITY = 0.5;
+/**
+ * ... changing over this long (wall-clock ms) as the car enters or leaves the pit lane; a car moves onto
+ * and off the drawn pit lane over as long (so where the location feed and the pit times disagree, it slides).
+ */
+const PIT_MS = 200;
+/**
+ * The pit lane is drawn at least this far from the track's centre line (CSS px): the track's half-width
+ * (8), a 1 px gap and the pit lane's half-width (4). It runs within a few metres of the track, under it.
+ */
+const PIT_CLEAR = 13;
+/** Pushed out to PIT_CLEAR gradually over this much of each end of the lane (CSS px, at most a quarter of it). */
+const PIT_TAPER = 40;
 
 interface StaticLayer {
   canvas: HTMLCanvasElement;
   tf: TrackTransform;
   dpr: number;
+  pit: PitLane | null;
+}
+
+/** The pit lane on the map, CSS px. */
+interface PitLane {
+  /** Its points where the track transform puts them: where cars in the pit lane are. */
+  x: number[];
+  y: number[];
+  /** How far each point is moved to draw the lane clear of the track (0 at both ends). */
+  dx: number[];
+  dy: number[];
 }
 
 /** A car's label as drawn, in CSS px. */
@@ -63,6 +89,10 @@ interface DrawnCar {
   cy: number;
   alpha: number;
   focused: boolean;
+  /** The dot's pit-lane look: 0 on track, 1 in the pit lane. */
+  pit: Ease;
+  /** How far the car is moved onto the pit lane as drawn: 0 not, 1 all the way (on the lane's stretch). */
+  lane: Ease;
   /** The label placed this frame (maybe still fading in), or null. */
   label: Label | null;
   /**
@@ -82,12 +112,28 @@ interface Drawn {
   byDriver: Map<number, DrawnCar>;
   /** A label was held back by LABEL_REST_MS: redraw until it's placed, even when nothing moves. */
   resting: boolean;
-  /** A label is fading in or out: redraw until it's done, even when nothing moves (paused). */
+  /** A label is fading in or out, or a dot changing to or from its pit-lane look: redraw until it's done, even when nothing moves (paused). */
   animating: boolean;
 }
 
 /** Device-px box [x0, y0, x1, y1]. */
 type Box = [number, number, number, number];
+
+/** A value a car eases to 1 while `on`, and back to 0 when not, over PIT_MS of wall clock. */
+interface Ease {
+  on: boolean;
+  /** This frame's value, 0-1. */
+  v: number;
+  /** Wall-clock ms (frame.now) when v gets to where `on` sends it. */
+  until: number;
+}
+
+/** From where it was (`was`, last frame), or already there for a car that just appeared. */
+function ease(on: boolean, was: Ease | undefined, now: number): Ease {
+  const until = !was ? now : was.on === on ? was.until : now + (on ? 1 - was.v : was.v) * PIT_MS;
+  const left = Math.max(0, until - now) / PIT_MS;
+  return { on, v: on ? 1 - left : left, until };
+}
 
 /** Top-left of a label w wide in corner k of the dot at (cx, cy): 0 above right, 1 below right, 2 above left, 3 below left. */
 const labelAt = (cx: number, cy: number, w: number, k: number): [number, number] => [k < 2 ? cx + 10 : cx - 10 - w, k % 2 === 0 ? cy - 19 : cy + 3];
@@ -123,6 +169,90 @@ function strokeOutlineRange(ctx: CanvasRenderingContext2D, tf: TrackTransform, t
   }
 }
 
+const smoothstep = (u: number) => (u <= 0 ? 0 : u >= 1 ? 1 : u * u * (3 - 2 * u));
+
+/**
+ * The pit lane, and how to move it clear of the track: each point goes out along the track's normal, on
+ * the side most of the lane is on, to PIT_CLEAR from the centre line (points already farther stay), easing
+ * in from 0 over PIT_TAPER at both ends so it branches off the track and rejoins it without a kink. A lane
+ * that can't be right (under 10 px long, or over a third of the lap) is drawn where it is.
+ */
+function pitLaneOf(track: Track, tf: TrackTransform): PitLane | null {
+  if (!track.pitLane) return null;
+  const x: number[] = [];
+  const y: number[] = [];
+  const s: number[] = [];
+  const { x: px, y: py } = track.pitLane;
+  for (let i = 0; i < px.length; i++) {
+    const [sx, sy] = tf(px[i], py[i]);
+    // One point per half px (a car standing in its box is many samples in one place), and the last one.
+    const step = x.length ? Math.hypot(sx - x[x.length - 1], sy - y[y.length - 1]) : 0;
+    if (x.length && step < 0.5 && i < px.length - 1) continue;
+    x.push(sx);
+    y.push(sy);
+    s.push(s.length ? s[s.length - 1] + step : 0);
+  }
+  const len = s[s.length - 1];
+  if (len < 10) return null;
+  const dx = new Array<number>(x.length).fill(0);
+  const dy = new Array<number>(x.length).fill(0);
+  const ox: number[] = [];
+  const oy: number[] = [];
+  let lap = 0;
+  for (let i = 0; i < track.outline.x.length; i++) {
+    const [sx, sy] = tf(track.outline.x[i], track.outline.y[i]);
+    if (i > 0) lap += Math.hypot(sx - ox[i - 1], sy - oy[i - 1]);
+    ox.push(sx);
+    oy.push(sy);
+  }
+  if (len > lap / 3) return { x, y, dx, dy };
+  // Each point's distance from the centre line, its side of it (+1 or -1) and the normal towards +1.
+  const near = x.map((_, i) => {
+    let best = { d: Infinity, side: 0, nx: 0, ny: 0 };
+    for (let j = 0; j < ox.length; j++) {
+      const k = (j + 1) % ox.length;
+      const ex = ox[k] - ox[j];
+      const ey = oy[k] - oy[j];
+      const l = Math.hypot(ex, ey);
+      if (l === 0) continue;
+      const u = Math.max(0, Math.min(1, ((x[i] - ox[j]) * ex + (y[i] - oy[j]) * ey) / (l * l)));
+      const d = Math.hypot(x[i] - ox[j] - u * ex, y[i] - oy[j] - u * ey);
+      if (d < best.d) best = { d, side: ex * (y[i] - oy[j]) - ey * (x[i] - ox[j]) >= 0 ? 1 : -1, nx: -ey / l, ny: ex / l };
+    }
+    return best;
+  });
+  // The side most of the lane is on, so points near the centre line can't flip it.
+  const side = near.reduce((sum, p) => sum + p.side, 0) >= 0 ? 1 : -1;
+  const taper = Math.min(PIT_TAPER, len / 4);
+  for (let i = 0; i < x.length; i++) {
+    const p = near[i];
+    const push = Math.max(0, PIT_CLEAR - p.side * side * p.d) * smoothstep(Math.min(s[i], len - s[i]) / taper);
+    dx[i] = side * p.nx * push;
+    dy[i] = side * p.ny * push;
+  }
+  return { x, y, dx, dy };
+}
+
+/** Where a car at (x, y) on the pit lane's stretch is drawn: moved k (0-1) of the way the nearest point of the lane is, so it rides the drawn lane. */
+function onPitLane(pit: PitLane, x: number, y: number, k: number): [number, number] {
+  let best = Infinity;
+  let mx = 0;
+  let my = 0;
+  for (let i = 0; i + 1 < pit.x.length; i++) {
+    const ex = pit.x[i + 1] - pit.x[i];
+    const ey = pit.y[i + 1] - pit.y[i];
+    const l2 = ex * ex + ey * ey;
+    const u = l2 > 0 ? Math.max(0, Math.min(1, ((x - pit.x[i]) * ex + (y - pit.y[i]) * ey) / l2)) : 0;
+    const d = (x - pit.x[i] - u * ex) ** 2 + (y - pit.y[i] - u * ey) ** 2;
+    if (d < best) {
+      best = d;
+      mx = pit.dx[i] + u * (pit.dx[i + 1] - pit.dx[i]);
+      my = pit.dy[i] + u * (pit.dy[i + 1] - pit.dy[i]);
+    }
+  }
+  return [x + k * mx, y + k * my];
+}
+
 function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLayer {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(w * dpr);
@@ -133,13 +263,20 @@ function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLaye
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
 
-  if (track.pitLane) {
-    ctx.strokeStyle = "#52525b";
-    ctx.lineWidth = 3;
-    ctx.setLineDash([5, 4]);
-    tracePath(ctx, tf, track.pitLane.x, track.pitLane.y);
+  // The pit lane, under the track: a small, muted version of it.
+  const pit = pitLaneOf(track, tf);
+  if (pit) {
+    ctx.beginPath();
+    for (let i = 0; i < pit.x.length; i++) {
+      if (i === 0) ctx.moveTo(pit.x[i] + pit.dx[i], pit.y[i] + pit.dy[i]);
+      else ctx.lineTo(pit.x[i] + pit.dx[i], pit.y[i] + pit.dy[i]);
+    }
+    ctx.strokeStyle = "#18181b";
+    ctx.lineWidth = 8;
     ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.strokeStyle = "#27272a";
+    ctx.lineWidth = 4;
+    ctx.stroke();
   }
 
   const { x, y } = track.outline;
@@ -189,7 +326,7 @@ function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLaye
     ctx.fillText(String(c.number), cx, cy);
   }
 
-  return { canvas, tf, dpr };
+  return { canvas, tf, dpr, pit };
 }
 
 /** The track layer: the static drawing plus the track-status tint and the sector flags. */
@@ -236,7 +373,7 @@ function sameLabel(a: Label | null, b: Label | null): boolean {
 }
 
 function sameCar(a: DrawnCar, b: DrawnCar): boolean {
-  if (a.cx !== b.cx || a.cy !== b.cy || a.alpha !== b.alpha || a.focused !== b.focused || a.color !== b.color) return false;
+  if (a.cx !== b.cx || a.cy !== b.cy || a.alpha !== b.alpha || a.pit.v !== b.pit.v || a.focused !== b.focused || a.color !== b.color) return false;
   return sameLabel(a.label, b.label) && a.ghosts.length === b.ghosts.length && a.ghosts.every((g, i) => sameLabel(g, b.ghosts[i]));
 }
 
@@ -245,7 +382,8 @@ const contains = (a: Box, b: Box) => a[0] <= b[0] && a[1] <= b[1] && b[2] <= a[2
 
 /**
  * Whole device px around each part of car c the map paints, with room for antialiasing (null when off
- * the canvas): the dot and focus ring, the label, and the labels fading out.
+ * the canvas): the dot and focus ring (at their full size, which covers the pit-lane one), the label, and
+ * the labels fading out.
  */
 function footprint(c: DrawnCar, dpr: number, width: number, height: number): DrawnCar["parts"] {
   const box = (x0: number, y0: number, x1: number, y1: number): Box | null => {
@@ -320,19 +458,21 @@ function drawCars(ctx: CanvasRenderingContext2D, cars: DrawnCar[], dpr: number, 
   ctx.lineCap = "round";
   for (const c of cars) {
     if (!hits(c.parts[0])) continue;
-    ctx.globalAlpha = c.alpha;
+    // Smaller and fainter in the pit lane (the label stays as it is).
+    const shrink = PIT_SHRINK * c.pit.v;
+    ctx.globalAlpha = c.alpha * (1 - (1 - PIT_OPACITY) * c.pit.v);
     if (c.focused) {
       ctx.strokeStyle = "#fafafa";
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(c.cx, c.cy, 11, 0, Math.PI * 2);
+      ctx.arc(c.cx, c.cy, 11 - shrink, 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.fillStyle = c.color;
     ctx.strokeStyle = "#09090b";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(c.cx, c.cy, c.focused ? 7.5 : 6, 0, Math.PI * 2);
+    ctx.arc(c.cx, c.cy, (c.focused ? 7.5 : 6) - shrink, 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
   }
@@ -381,7 +521,7 @@ function TrackMap() {
   useFrame((frame) => {
     const canvas = carsRef.current;
     if (!canvas || !layer) return;
-    const { tf, dpr } = layer;
+    const { tf, dpr, pit: pitLane } = layer;
     let last = drawn.current;
     if (canvas.width !== layer.canvas.width || canvas.height !== layer.canvas.height) {
       canvas.width = layer.canvas.width;
@@ -407,10 +547,15 @@ function TrackMap() {
       const d = info.get(n);
       const p = d && frame.car(n);
       if (!d || !p) continue;
-      const [cx, cy] = tf(p.x, p.y);
       const before = last?.byDriver.get(n);
-      if (!before || cx !== before.cx || cy !== before.cy || before.alpha !== p.opacity) changed = true;
-      cars.push({ n, color: teamColor(d.teamColour), cx, cy, alpha: p.opacity, focused: n === focused, label: null, ghosts: [], parts: [] });
+      // Into or out of the pit lane, the dot changes look; on the lane's stretch, the car rides the lane as
+      // drawn (no other car moves).
+      const pit = ease(p.pit, before?.pit, now);
+      const lane = ease(p.pitLane && pitLane != null, before?.lane, now);
+      if (pit.until > now || lane.until > now) animating = true;
+      const [cx, cy] = lane.v > 0 && pitLane ? onPitLane(pitLane, ...tf(p.x, p.y), lane.v) : tf(p.x, p.y);
+      if (!before || cx !== before.cx || cy !== before.cy || before.alpha !== p.opacity || before.pit.on !== pit.on || before.lane.on !== lane.on) changed = true;
+      cars.push({ n, color: teamColor(d.teamColour), cx, cy, alpha: p.opacity, focused: n === focused, pit, lane, label: null, ghosts: [], parts: [] });
     }
     // Nothing moved, appeared or disappeared, and the inputs are the same: the layer is up to date.
     if (!changed && cars.length === last!.cars.length) return;

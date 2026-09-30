@@ -6,9 +6,10 @@ import type { DriverData, Session } from "../data/session";
 import { clock, useReplay } from "../store";
 import { addFrameCallback, FRAME_BUDGET_MS, runFrames, type Frame } from "./frame";
 
-// One car at x = t / 10 along a straight line.
+// One car at x = t / 10 along a straight line, in the pit lane from 2.6 to 2.8 s.
 const car = {
   loc: { t: Float64Array.from([0, 1_000, 2_000, 3_000]), x: Float32Array.from([0, 100, 200, 300]), y: new Float32Array(4) },
+  pits: [{ driver: 7, lap: 1, entry: 2_600, exit: 2_800, laneDuration: 0.2, stopDuration: null }],
   result: null,
 } as unknown as DriverData;
 const session = { drivers: new Map([[7, car]]) } as unknown as Session;
@@ -63,6 +64,26 @@ describe("frame scheduler", () => {
     runFrames(0);
     expect(seen).toEqual([[1_500, 150]]);
     expect(seen.length).toBe(1);
+  });
+
+  test("cars say when they're in the pit lane (entry and exit included), and on its trace (2 s more each side)", () => {
+    useReplay.setState({ session });
+    const pit: [number, boolean | undefined, boolean | undefined][] = [];
+    let t = 0;
+    add((f) => pit.push([t, f.car(7)?.pit, f.car(7)?.pitLane]));
+    for (t of [599, 600, 2_599, 2_600, 2_700, 2_800, 2_801]) {
+      clock.t = t;
+      runFrames(t);
+    }
+    expect(pit).toEqual([
+      [599, false, false],
+      [600, false, true],
+      [2_599, false, true],
+      [2_600, true, true],
+      [2_700, true, true],
+      [2_800, true, true],
+      [2_801, false, true],
+    ]);
   });
 
   test("draws get the frame's wall-clock time, whatever the replay clock does", () => {

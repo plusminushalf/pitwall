@@ -62,6 +62,8 @@
 //     useFeed() entries          `inferred`: cars that caused a sector yellow, inferred from telemetry
 //     useRadio()                 team radio played by the core, one clip at a time app-wide
 //     useFrame() frame.now       the frame's wall-clock time (rAF timestamp), for real-time animation
+//     useFrame() car(n).pit      the car is in the pit lane (map: a smaller, fainter dot); .pitLane: on
+//                                useTrack().pitLane's stretch, 2 s more each side (map: cars ride the drawn lane)
 //
 //   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track
 //   projection, and TyreBadge, lifted as they are from the core.
