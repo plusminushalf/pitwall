@@ -1,4 +1,4 @@
-import { COMPOUND, defineBlock, TyreBadge, useDriver, useLaps, useSelectedDriver, useSessionInfo, useStints, useTime, type DriverSetting } from "block-kit";
+import { COMPOUND, defineBlock, TyreBadge, useDriver, useLaps, useSelectedDriver, useSessionInfo, useStints, useTime, useTotalLaps, type DriverSetting } from "block-kit";
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 
@@ -25,7 +25,8 @@ function TyreStrip() {
   const n = useSelectedDriver();
   const s = useDriver(n, (d) => ({ status: d.status, compound: d.compound, tyreAge: d.tyreAge, pitStops: d.pitStops }));
   const stints = useStints(n);
-  const { totalLaps, totalLapsEstimated } = useSessionInfo();
+  const totalLaps = useTotalLaps();
+  const totalLapsEstimated = useSessionInfo((i) => i.totalLapsEstimated);
   const running = s?.status === "RUNNING" || s?.status === "PIT";
   const total = Math.max(totalLaps, 1);
   const progress = Math.min(useLapProgress(n, running), total);

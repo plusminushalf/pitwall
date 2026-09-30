@@ -5,6 +5,7 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Session } from "../data/session";
+import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, Lap, TrackStatus, WeatherSample } from "../types";
@@ -181,9 +182,12 @@ export function useLeaderLap<R = number>(select?: Select<number, R>): R {
   return useKit((s) => s.race.leaderLap, [], select);
 }
 
-/** Race distance in laps (live: estimated until it's known, see useSessionInfo().totalLapsEstimated). */
+/**
+ * Race distance in laps as known at t: the scheduled distance until race control takes laps off or the
+ * chequered flag ends a shortened race (live: estimated until it's known, see useSessionInfo().totalLapsEstimated).
+ */
 export function useTotalLaps<R = number>(select?: Select<number, R>): R {
-  return useKit((s) => s.race.totalLaps, [], select);
+  return useKit((s) => raceDistanceAt(s.session.meta, s.race.t).totalLaps, [], select);
 }
 
 export function useTrackStatus<R = TrackStatus>(select?: Select<TrackStatus, R>): R {

@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useReplay } from "../store";
@@ -67,13 +68,14 @@ function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
   // Live, before lap 1 starts, lights out is only a guess.
   if (race.raceTime < 0) return <span className="text-xl font-black tracking-tight">{meta.lightsOutEstimated ? "PRE-RACE" : "FORMATION LAP"}</span>;
   if (finished) return <span className="text-xl font-black tracking-tight">FINISHED</span>;
+  const distance = raceDistanceAt(meta, race.t);
   return (
     <span className="text-xl font-black tracking-tight tabular-nums">
       LAP {Math.max(1, race.leaderLap)}
-      <span className="text-zinc-500" title={meta.totalLapsEstimated ? "Estimated race distance" : undefined}>
+      <span className="text-zinc-500" title={distance.estimated ? "Estimated race distance" : undefined}>
         {" "}
-        / {meta.totalLapsEstimated ? "~" : ""}
-        {race.totalLaps}
+        / {distance.estimated ? "~" : ""}
+        {distance.totalLaps}
       </span>
     </span>
   );

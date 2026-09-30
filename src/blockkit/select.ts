@@ -4,6 +4,7 @@
 
 import type { CarSeries, DriverData, FeedItem, Session } from "../data/session";
 import { indexAtOrBefore } from "../engine/lookup";
+import { scheduledDistance } from "../engine/raceDistance";
 import { carPositionAt, mapOpacity, type RaceState } from "../engine/raceState";
 import type { DriverInfo, Lap, SessionMeta, Stint, TrackGeometry } from "../types";
 import { deepEqual } from "./equal";
@@ -39,26 +40,30 @@ export interface SessionInfo {
   /** Lights out, in ms since t0 (race time = t - lightsOut). Live, before lap 1, only an estimate. */
   lightsOut: number;
   lightsOutEstimated: boolean;
+  /** Scheduled race distance (useTotalLaps() is the distance as known at t: shortened races change). */
   totalLaps: number;
-  /** Live: the race distance isn't known yet, so totalLaps is estimated from the lap length. */
+  /** Live, no scheduled distance known: totalLaps is estimated from the lap length. */
   totalLapsEstimated: boolean;
 }
 
-export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => ({
-  kind: meta.quali ? "qualifying" : "race",
-  sessionKey: meta.sessionKey,
-  meetingName: meta.meetingName,
-  sessionName: meta.sessionName,
-  year: meta.year,
-  circuit: meta.circuit,
-  country: meta.country,
-  t0: meta.t0,
-  gmtOffset: meta.gmtOffset,
-  lightsOut: meta.lightsOut,
-  lightsOutEstimated: meta.lightsOutEstimated ?? false,
-  totalLaps: meta.totalLaps,
-  totalLapsEstimated: meta.totalLapsEstimated ?? false,
-}));
+export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => {
+  const scheduled = scheduledDistance(meta);
+  return {
+    kind: meta.quali ? "qualifying" : "race",
+    sessionKey: meta.sessionKey,
+    meetingName: meta.meetingName,
+    sessionName: meta.sessionName,
+    year: meta.year,
+    circuit: meta.circuit,
+    country: meta.country,
+    t0: meta.t0,
+    gmtOffset: meta.gmtOffset,
+    lightsOut: meta.lightsOut,
+    lightsOutEstimated: meta.lightsOutEstimated ?? false,
+    totalLaps: scheduled.totalLaps,
+    totalLapsEstimated: scheduled.estimated,
+  };
+});
 
 /** Drivers with data, in session order. */
 export const driversOf = cached((session: Session): DriverInfo[] => session.driverNumbers.map((n) => session.drivers.get(n)!.info));
