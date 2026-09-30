@@ -60,14 +60,42 @@ Build shells 2 and 3 only when a spike shows we need them.
 **H2.3: Keep the raw responses in browser storage too** (10–16 MB per race). When an app update improves the repairs, the browser re-runs normalize with no network needed. The processed format carries a version number.
 - Cost: about double the storage, roughly 0.5 GB per season. That's fine on desktop; phones get a "don't keep raw data" option.
 
-**H2.4: Credentials**, from easiest to strictest:
-- **(a)** The user types their username and password into a dedicated worker. The token stays in memory. The password is saved only if they tick "remember me", encrypted with a WebCrypto key that can't be exported. That protects it on disk but not from code running in the page.
-- **(b)** An optional one-click "your own token broker" (a Cloudflare Worker the user deploys) for people who want OpenF1's recommended setup.
-- **(c)** Ask OpenF1 whether logging in with your own key in your own browser is acceptable.
+**H2.4: Credentials live in a vault on a separate site.** Revised 2026-09-30 for the goals: users bring their own OpenF1 login, set it up once in the website, watch live without interruption (we refresh tokens ourselves, with nothing asked of the user), and downloads use the login when present because it's faster.
+- *Assumption to verify:* `POST /token` returns an access token that lasts about an hour, and there is no refresh token. Getting a new token means sending the username and password again, so silent refresh means the password must be available to code without a user gesture.
+- Anything that can decrypt the password without asking can also leak it. Encryption can't protect it from code running on the same origin, whether that's a bug, a compromised npm package or a marketplace module. The browser's origin boundary can. So the password and tokens never touch the app's origin.
+- **The vault** is a tiny page on a different *site* from the app (e.g. app `f1replay.app`, vault `f1vault.dev`). A different registrable domain gives process isolation as well as storage isolation; a subdomain would only give the second.
+  - It is the only code that sees the password or a token. It does login, token refresh, MQTT and authenticated REST fetches, and hands the app data only.
+  - It is embedded in the app as a hidden iframe, so it runs for as long as the app is open.
+  - Tiny and audited: its own folder, its own deploy, no npm dependencies beyond an MQTT client (or a hand-written MQTT-over-WebSocket subset).
+  - Served with a strict CSP (`default-src 'none'`, scripts only from itself, `connect-src` only `api.openf1.org` and `mqtt.openf1.org`) and `frame-ancestors` set to the app's origin only, so no other site can embed it or talk to it.
+- **Setup happens in a popup on the vault's own origin**, never in a form inside the app. The user sees the vault's address in the URL bar, and the browser's password manager autofills there. Rule we tell users: *the app never asks for your password inside its own pages*. That defeats a malicious module drawing a fake login form. The vault checks the login once with `POST /token`, then stores the password encrypted.
+- **Storage, user's choice:**
+  - *Stay connected on this device* (default): the password is encrypted with a non-extractable AES key, both in the vault's IndexedDB. Fully silent, even after a browser restart. App code can't reach it; someone with the whole browser profile could.
+  - *Unlock with passkey*: the password is encrypted with a key derived from a passkey (WebAuthn PRF: Touch ID, Windows Hello, a security key). One tap when the app opens, then silent refresh for as long as the tab is open. A copied profile isn't enough.
+  - In both modes the token only ever lives in the vault's memory, never in storage, as OpenF1 recommends.
+- **If OpenF1 ever offers a revocable refresh token or scoped API key,** the vault stores that instead of the password, so a leak can be revoked without a password change. Write the vault's storage layer so this can be swapped in.
+- *Rejected:* a relay server of ours (we'd hold every user's password, all users would share one IP's rate limit, and we'd be passing along F1 data); the Credential Management API on its own (returning the password without a click means any app code can get it; still useful for autofill in the popup); a token broker the user deploys (the browser then needs a credential to talk to the broker, which moves the problem rather than solving it).
+- *Wrong if:* OpenF1 objects to user-held credentials in the browser, Chrome's storage partitioning or third-party iframe rules break the embedded vault, or passkey PRF support is too patchy to offer.
 
-I believe their "must be backend" rule is aimed at developers shipping their own credentials inside an app. Here the user types their own into their own browser, like a desktop app. That is unverified, so we should ask them.
+**H2.5: The app talks to the vault through a narrow, capability-only protocol.** Modules get data, never tokens (the core sits between modules and the vault). This is what makes third-party modules possible later (H3.9).
+- The vault accepts `postMessage` only from the configured app origin and validates every message against a schema.
+- It offers: `status`, `connect` (opens the setup popup), `subscribe(topics)`, `get(endpoint, params)` for a fixed list of OpenF1 read endpoints, and `disconnect`. There is no "give me the token".
+- It caps request rates, so a misbehaving module can't burn the user's quota or get the account flagged.
+- Correction to the earlier draft: a separate *worker* is not an isolation boundary. A worker on the same origin shares storage with the page, so any page code could read a saved password. Only a separate origin is.
 
-**H2.5: Credentials and all network access stay inside one isolated worker**, never in the main thread or the store. Modules get data, never tokens. This is what makes third-party modules possible later (H3.9).
+**H2.10: Live streams survive token expiry without the viewer noticing.**
+- **One connection across tabs.** Every tab embeds a vault iframe; they elect a leader with Web Locks. The leader holds the one token, the one MQTT connection and the rate-limit budget, and fans data out to the other tabs over a BroadcastChannel. If the leader tab closes, another takes over.
+- **Refresh schedule:** at about 5/6 of the token's `expires_in` (about 50 minutes for a one-hour token), not a hard-coded interval. A failed refresh retries with backoff until the old token really expires. A 401 from REST or MQTT triggers an immediate refresh. On `visibilitychange` and `online` (e.g. waking from sleep) the vault re-checks expiry, since background timers get throttled.
+- **Token handover on MQTT:** connect a second session with the new token, subscribe to the same topics, then close the old one, dropping duplicate messages from the overlap by topic plus timestamp or id. After a real disconnect, fill the gap from REST with `date > lastSeen`.
+- **If the password is changed or revoked,** the stream runs until the current token expires, and a banner asks the user to reconnect.
+- **Downloads (goal 4):** without a login, the download worker keeps fetching directly. With one, it sends requests through the vault's `get`, which runs them in parallel within the 6/s limit and returns response bodies as transferable buffers.
+- *Wrong if:* an existing MQTT session is dropped at token expiry faster than a new one can subscribe, or OpenF1 rejects two concurrent sessions per account. Then the handover needs a short REST backfill instead of an overlap.
+
+**H2.11: The vault's weak points, and the defence for each.**
+- *A compromised vault release* could steal passwords as users load it. Defence: tiny audited code, a separate deploy with its own 2FA-protected credentials, releases only from reviewed tagged commits, and a published hash from a reproducible build.
+- *Malware or all-sites browser extensions on the device:* no web app can defend against these.
+- *Password reuse:* the setup popup pushes for a unique, generated password.
+- *Self-hosted forks* need their own vault domain, configured in two places (the app's vault URL and the vault's `frame-ancestors`). The "Deploy your own copy" template sets up both.
 
 **H2.6: Surviving browser cleanup.**
 - Call `navigator.storage.persist()`, and nudge Safari users to install the app.
@@ -167,7 +195,7 @@ Examples that need more than panels:
 
 **H3.9: Trust for third-party modules comes in phases.**
 - **P1:** first-party modules compiled into the app. A lint rule enforces the boundary: modules may only import `core/api`.
-- **P2:** trusted third-party ES modules loaded from a URL, with the user's consent and a pinned hash ("developer mode"). This is only safe because of H2.5.
+- **P2:** trusted third-party ES modules loaded from a URL, with the user's consent and a pinned hash ("developer mode"). This is only safe because credentials live on the vault's separate origin (H2.4, H2.5).
 - **P3:** modules in sandboxed iframes with a message-only API, the Figma model.
 
 The marketplace (H3.12) starts at P2: reviewed modules, installed with consent, pinned by hash. P3 has to land before we loosen review (e.g. auto-merge or unreviewed updates).
@@ -177,7 +205,7 @@ If the API only passes serialisable data and columnar typed arrays from day one 
 **H3.10: Copy Lichtblick's API design, but build our own shell.** Lichtblick would give us layouts, extensions and playback today. But its UI is built for robotics (topics, ROS), it's on React 18, it runs extensions in-page, and the look would be theirs. Looks are what sets us apart.
 
 **H3.11: Data sources are modules too**: OpenF1 historical, OpenF1 live over MQTT, simulate, and file import, all behind `SessionSource`. Normalize and the repairs stay in the core, so data quality has one source of truth.
-- Data-source modules touch the network and credentials, so they stay first-party at first. The marketplace carries display and analysis modules (panels, layers, columns, signals).
+- Data-source modules touch the network and credentials, so they stay first-party. Authenticated sources are only ever reached through the vault (H2.5). The marketplace carries display and analysis modules (panels, layers, columns, signals).
 
 ### The marketplace
 
@@ -218,12 +246,13 @@ A human reviewer then only checks intent and quality. Updates go through the sam
 
 ## Where the wants collide
 
-- **Credentials and third-party code on the same website.** H2.5's isolated worker must exist before P2.
+- **Credentials and third-party code on the same website.** Solved by putting credentials on a separate site (H2.4). The vault must exist before P2.
 - **Browser-only and 700 MB normalize.** Phones may not be able to download races (H2.8).
 - **Browser-only and share links.** The recipient waits about 2 minutes on first open (H1.4).
 - **Fast data sharing with iframes.** `SharedArrayBuffer` needs COOP/COEP headers, which can block cross-origin media such as team radio. Use transferables until it's truly needed.
+- **The vault iframe and cross-origin isolation.** If the app ever turns on COOP/COEP for `SharedArrayBuffer`, the vault must send matching `Cross-Origin-Resource-Policy` / COEP headers or it won't load.
 - **The free-tier live blackout.** The library must detect it, pause, and explain why.
-- **Open submissions and in-page code.** Until P3, a malicious module that slips past review runs in the same page as everything else. H2.5 keeps credentials out of its reach, but it could still mess with the UI. Review, hash pinning and the kill switch are the defence until sandboxing lands.
+- **Open submissions and in-page code.** Until P3, a malicious module that slips past review runs in the same page as everything else. The vault's separate origin keeps credentials out of its reach, but it could still mess with the UI, including drawing a fake login form (hence setup only ever in the vault's popup). Review, hash pinning and the kill switch are the defence until sandboxing lands.
 - **A marketplace and a static site with no backend.** No install counts, ratings or reviews without a server. GitHub stars or reactions on the module's folder could stand in.
 - **Marketplace and API stability.** Once other people's modules depend on `core/api`, breaking it breaks them. The API needs semver from the first public module, and the registry hides modules that need a newer or older API than the app has.
 
@@ -241,10 +270,18 @@ A human reviewer then only checks intent and quality. Updates go through the sam
     - Surprise: reading raw back (gunzip+parse, 7.3 s) costs more than normalize (3.3 s).
     - Machine: 2-vCPU shared server VM. The spike (`spikes/s1/`, removed since; see commit bf4a0a2) became the app's in-browser downloader: `src/ingest/`, `src/storage/` and `scripts/lib/ingestCore.ts`.
 - **S2: dogfooding the module API.** Build `core/api` plus dockview, and rebuild TrackMap, TimingTower and Timeline on it. Open two TrackMaps plus a popout. Add one contribution-point feature: a pit-rejoin ghost (signal, map layer and tower column). Benchmark it. Checks H3.1 to H3.6.
-- **S3: live in the browser.** Token and MQTT inside a worker, plus a simulate mode that replays cached raw data inside the worker. Checks H2.4 and H2.5.
+- **S3: the vault.** A second-origin vault (two local ports are enough to start, a separate domain before release) with:
+  - popup login and both storage modes, including passkey PRF unlock;
+  - silent refresh on a shortened token lifetime (fake a 2-minute `expires_in`) to exercise the schedule, the backoff and the 401 path;
+  - MQTT token handover with overlap and dedupe, plus REST gap-fill after a forced disconnect;
+  - a cross-tab leader with failover when the leader tab closes;
+  - authenticated parallel downloads through `get`;
+  - a simulate mode that replays cached raw data inside the vault, so all of this can be tested outside race weekends.
+  - Success: a simulated 3-hour session across two tabs with no visible gap, and no password or token readable from the app's origin (checked from DevTools on the app's origin).
+  - Checks H2.4, H2.5, H2.10 and H2.11. First confirm the token lifetime, the refresh-token question, and whether two MQTT sessions per account are allowed.
 - **S4: streaming normalize** for phone memory. Checks H2.8.
 - **S5: marketplace end to end.** Move one built-in module (e.g. the timing tower) into `modules/`, have CI build it and emit `registry.json`, then uninstall and reinstall it from the in-app marketplace, and open a shared layout that asks for it. Then have someone outside the project write and submit a small module using only the template. Checks H3.12 to H3.17. Depends on S2.
-- **Not code: email OpenF1** about logging in with your own key in the browser, and about the non-commercial scope.
+- **Not code: email OpenF1** about logging in with your own key in the browser, refresh tokens or scoped API keys, two concurrent MQTT sessions per account, and the non-commercial scope.
 
 ## Open questions
 
@@ -253,5 +290,6 @@ A human reviewer then only checks intent and quality. Updates go through the sam
 3. Who reviews submissions, and what's the quality bar for listing (does it just have to be safe, or also useful and polished)?
 4. Are phones first-class or desktop-first?
 5. Could this ever be commercial? The OpenF1 licence is non-commercial, and paid marketplace modules would run into it too.
-6. Should we contact OpenF1 before building?
-7. Do we keep the Bun server as an optional companion, or retire it?
+6. Should we contact OpenF1 before building? Two questions for them: is a user's own login held in their own browser acceptable, and would they offer refresh tokens or scoped API keys (H2.4)?
+7. Do we keep the Bun server as an optional companion, or retire it? With the vault handling live data in the browser, its only remaining role would be local caching of team radio.
+8. Which domain hosts the vault, and who holds its deploy credentials?
