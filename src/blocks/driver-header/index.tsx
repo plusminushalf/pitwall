@@ -117,7 +117,7 @@ function DriverHeader() {
     <section className="flex h-full flex-col text-sm">
       {selected.length > 0 && <FocusChips drivers={drivers} selected={selected} focused={focused} onFocus={focus} />}
       {/* Flat: the screen before blocks faded this from the team colour (no gradients now). */}
-      <div className="min-h-0 flex-1 border-l-[3px] px-3 py-2" style={{ borderLeftColor: color, background: `${color}1f` }}>
+      <div className="min-h-0 flex-1 border-l-[3px] px-3 py-2" style={{ borderLeftColor: color, background: `linear-gradient(90deg, ${color}2e, transparent 70%)` }}>
         <div className="flex items-center gap-3">
           <Headshot key={info.number} url={info.headshotUrl} color={color} />
           <div className="min-w-0 flex-1">
