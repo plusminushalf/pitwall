@@ -6,9 +6,12 @@ import {
   shortTeam,
   teamColor,
   TyreBadge,
+  useBestSectors,
+  useBlockSize,
   useDriver,
   useDrivers,
   useFastestLap,
+  useLaps,
   useLeaderLap,
   useRunningOrder,
   useSelection,
@@ -25,6 +28,9 @@ const ROW_H = 30;
 /** The selection line and the column titles (about 56 px). */
 const HEAD_H = 56;
 const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_58px_40px_20px]";
+/** With the last lap's sectors and the best lap, once the block is WIDE px or more. */
+const WIDE_COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_46px_46px_46px_58px_58px_40px_20px]";
+const WIDE = 590;
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
 
@@ -35,6 +41,7 @@ interface RowData {
   gridPosition: number | null;
   gap: number | string | null;
   lastLap: Lap | null;
+  bestLap: number | null;
   personalBest: boolean;
   compound: string | null;
   tyreAge: number | null;
@@ -47,6 +54,7 @@ const rowData = (mode: GapMode) => (s: DriverState): RowData => ({
   gridPosition: s.gridPosition,
   gap: mode === "leader" ? s.gapToLeader : s.interval,
   lastLap: s.lastLap,
+  bestLap: s.bestLap?.duration ?? null,
   personalBest: s.lastLap != null && s.bestLap === s.lastLap,
   compound: s.compound,
   tyreAge: s.tyreAge,
@@ -77,6 +85,36 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
   return <span className={`tabular-nums ${color}`}>{lapTime(l.duration)}</span>;
 }
 
+/** Each sector's fastest time among a driver's laps so far. */
+const personalBestSectors = (laps: readonly Lap[]) =>
+  [0, 1, 2].map((k) => laps.reduce<number | null>((min, l) => (l.sectors[k] != null && (min == null || l.sectors[k]! < min) ? l.sectors[k] : min), null));
+
+/** The last lap's sector times: purple for the fastest by anyone so far, green for the driver's own best. */
+function SectorCells({ n, s }: { n: number; s: RowData }) {
+  const overall = useBestSectors();
+  const own = useLaps(n, personalBestSectors);
+  return (
+    <>
+      {[0, 1, 2].map((k) => {
+        const v = s.lastLap?.sectors[k] ?? null;
+        if (v == null) return <span key={k} className="text-xs text-zinc-600">—</span>;
+        const color = v === overall[k] ? "text-fuchsia-400" : v === own[k] ? "text-emerald-400" : "text-zinc-300";
+        return (
+          <span key={k} className={`text-xs tabular-nums ${color}`}>
+            {lapTime(v)}
+          </span>
+        );
+      })}
+    </>
+  );
+}
+
+function BestLapCell({ n, s }: { n: number; s: RowData }) {
+  const fastest = useFastestLap((f) => (f?.driver === n ? f.duration : null));
+  if (s.bestLap == null) return <span className="text-xs text-zinc-600">—</span>;
+  return <span className={`text-xs tabular-nums ${fastest === s.bestLap ? "text-fuchsia-400" : "text-zinc-300"}`}>{lapTime(s.bestLap)}</span>;
+}
+
 function Change({ s }: { s: RowData }) {
   if (s.gridPosition == null || s.position == null || s.status === "OUT") return null;
   const delta = s.gridPosition - s.position;
@@ -89,6 +127,7 @@ const Row = memo(function Row({
   d,
   index,
   mode,
+  wide,
   isSelected,
   isFocused,
   onToggle,
@@ -96,6 +135,7 @@ const Row = memo(function Row({
   d: DriverInfo;
   index: number;
   mode: GapMode;
+  wide: boolean;
   isSelected: boolean;
   isFocused: boolean;
   onToggle: (n: number) => void;
@@ -108,7 +148,7 @@ const Row = memo(function Row({
       onClick={() => onToggle(d.number)}
       aria-pressed={isSelected}
       title={isSelected ? `Remove ${d.acronym} from the selection` : `Add ${d.acronym} to the selection (filters the track map)`}
-      className={`group absolute inset-x-0 grid ${COLS} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out ${
+      className={`group absolute inset-x-0 grid ${wide ? WIDE_COLS : COLS} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out ${
         isFocused ? "bg-zinc-800" : isSelected ? "bg-zinc-800/50 hover:bg-zinc-800/70" : "hover:bg-zinc-900"
       } ${s.status === "OUT" ? "opacity-50" : ""}`}
       style={{ height: ROW_H, transform: `translateY(${index * ROW_H}px)` }}
@@ -135,9 +175,11 @@ const Row = memo(function Row({
       <span className="text-xs">
         <GapCell s={s} mode={mode} />
       </span>
+      {wide && <SectorCells n={d.number} s={s} />}
       <span className="text-xs">
         <LastLapCell n={d.number} s={s} />
       </span>
+      {wide && <BestLapCell n={d.number} s={s} />}
       <TyreBadge compound={s.compound} age={s.tyreAge} />
       <span className="text-right text-xs tabular-nums text-zinc-400">{s.pitStops}</span>
     </button>
@@ -150,6 +192,7 @@ function TimingTower() {
   const { selected, focused, toggle, clear } = useSelection();
   const [{ gapMode }, update] = useSettings<Settings>();
   const rowIndex = useMemo(() => new Map(order.map((n, i) => [n, i])), [order]);
+  const wide = useBlockSize().width >= WIDE;
 
   return (
     <div className="flex h-full flex-col text-sm">
@@ -165,7 +208,7 @@ function TimingTower() {
           <span className="text-zinc-600">Click drivers to show only them on the track map</span>
         )}
       </div>
-      <div className={`grid shrink-0 ${COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}>
+      <div className={`grid shrink-0 ${wide ? WIDE_COLS : COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}>
         <span>Pos</span>
         <span />
         <span>Driver</span>
@@ -176,7 +219,15 @@ function TimingTower() {
         >
           {gapMode === "leader" ? "Gap ⇄" : "Int ⇄"}
         </button>
+        {wide && (
+          <>
+            <span title="Last lap's sector 1">S1</span>
+            <span title="Last lap's sector 2">S2</span>
+            <span title="Last lap's sector 3">S3</span>
+          </>
+        )}
         <span>Last</span>
+        {wide && <span title="Best lap so far">Best</span>}
         <span>Tyre</span>
         <span className="text-right">Pit</span>
       </div>
@@ -188,6 +239,7 @@ function TimingTower() {
               d={d}
               index={rowIndex.get(d.number) ?? 0}
               mode={gapMode}
+              wide={wide}
               isSelected={selected.includes(d.number)}
               isFocused={focused === d.number}
               onToggle={toggle}
@@ -202,11 +254,11 @@ function TimingTower() {
 export default defineBlock({
   id: "timing-tower",
   name: "Timing tower",
-  description: "Every driver's position, gap, last lap, tyre and pit stops.",
+  description: "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops.",
   version: "1.0.0",
   // Fills its column; the rows scroll inside when they don't all fit.
   height: { min: HEAD_H + 5 * ROW_H },
-  width: { min: 22, default: 24, max: 40 },
+  width: { min: 22, default: 35, max: 45 },
   sessions: ["race"],
   settings: { gapMode: "leader" as GapMode },
   fields: {
