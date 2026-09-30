@@ -9,6 +9,12 @@ import { carAt, type CarPosition } from "./select";
 export interface Frame {
   /** Exact replay time (ms since the session window start), not the 10 Hz one. */
   t: number;
+  /**
+   * API gap: wall-clock time of this animation frame, its requestAnimationFrame timestamp (ms, on the
+   * performance.now() timebase). For animation that runs in real time whatever the replay speed, and
+   * while paused (the track map's label fades).
+   */
+  now: number;
   /** Car n on the map at t, or null when it isn't shown (no data yet, or retired a while ago). */
   car(n: number): CarPosition | null;
 }
@@ -55,11 +61,12 @@ function typicalDraw(e: Entry): number {
   return sorted[DRAW_SAMPLES >> 1];
 }
 
-function makeFrame(session: Session, t: number): Frame {
+function makeFrame(session: Session, t: number, now: number): Frame {
   // Shared by every block this frame: two maps don't compute the same car twice.
   const cars = new Map<number, CarPosition | null>();
   return {
     t,
+    now,
     car(n) {
       let p = cars.get(n);
       if (p === undefined) {
@@ -72,12 +79,12 @@ function makeFrame(session: Session, t: number): Frame {
   };
 }
 
-/** Calls every visible block's draw with the current clock. */
-export function runFrames(): void {
+/** Calls every visible block's draw with the current clock; `now` is the frame's rAF timestamp. */
+export function runFrames(now: number): void {
   if (entries.size === 0) return;
   const { session } = useReplay.getState();
   if (!session) return;
-  const frame = makeFrame(session, clock.t);
+  const frame = makeFrame(session, clock.t, now);
   for (const e of entries) {
     if (!e.visible()) continue;
     if (e.skip > 0) {

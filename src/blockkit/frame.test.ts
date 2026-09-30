@@ -1,5 +1,5 @@
-// The useFrame scheduler: exact clock time, off-screen blocks skipped, slow or broken blocks isolated
-// (a block is slow when its recent draws typically are, not after one slow draw).
+// The useFrame scheduler: exact clock time and the frame's wall-clock time, off-screen blocks skipped, slow
+// or broken blocks isolated (a block is slow when its recent draws typically are, not after one slow draw).
 
 import { afterEach, describe, expect, spyOn, test, type Mock } from "bun:test";
 import type { DriverData, Session } from "../data/session";
@@ -35,7 +35,7 @@ const drawsOver = (frames: number, costs: ((frame: number) => number)[]) => {
       busy(cost(frame));
     }),
   );
-  for (frame = 1; frame <= frames; frame++) runFrames();
+  for (frame = 1; frame <= frames; frame++) runFrames(frame * 16.7);
   return drew;
 };
 const gaps = (frames: number[]) => frames.slice(1).map((f, i) => f - frames[i]);
@@ -51,7 +51,7 @@ describe("frame scheduler", () => {
   test("nothing is drawn without a session", () => {
     let calls = 0;
     add(() => calls++);
-    runFrames();
+    runFrames(0);
     expect(calls).toBe(0);
   });
 
@@ -60,9 +60,25 @@ describe("frame scheduler", () => {
     clock.t = 1_500;
     const seen: [number, number | undefined][] = [];
     add((f) => seen.push([f.t, f.car(7)?.x]));
-    runFrames();
+    runFrames(0);
     expect(seen).toEqual([[1_500, 150]]);
     expect(seen.length).toBe(1);
+  });
+
+  test("draws get the frame's wall-clock time, whatever the replay clock does", () => {
+    useReplay.setState({ session });
+    clock.t = 1_500;
+    const seen: [number, number][] = [];
+    add((f) => seen.push([f.t, f.now]));
+    add((f) => seen.push([f.t, f.now]));
+    runFrames(10_016.5);
+    runFrames(10_033.2); // paused: same replay time, later frame
+    expect(seen).toEqual([
+      [1_500, 10_016.5],
+      [1_500, 10_016.5],
+      [1_500, 10_033.2],
+      [1_500, 10_033.2],
+    ]);
   });
 
   test("off-screen blocks aren't drawn", () => {
@@ -70,9 +86,9 @@ describe("frame scheduler", () => {
     let visible = false;
     let calls = 0;
     add(() => calls++, () => visible);
-    runFrames();
+    runFrames(0);
     visible = true;
-    runFrames();
+    runFrames(16.7);
     expect(calls).toBe(1);
   });
 
@@ -118,8 +134,8 @@ describe("frame scheduler", () => {
       throw new Error("broken block");
     });
     add(() => calls++);
-    runFrames();
-    runFrames();
+    runFrames(0);
+    runFrames(16.7);
     expect(calls).toBe(2);
     expect(error).toHaveBeenCalledTimes(1);
     error.mockRestore();
@@ -134,7 +150,7 @@ describe("frame scheduler", () => {
       tried.push(frame);
       throw new Error("broken block");
     });
-    for (frame = 1; frame <= 130; frame++) runFrames();
+    for (frame = 1; frame <= 130; frame++) runFrames(frame * 16.7);
     expect(tried).toEqual([1, 62, 123]);
     error.mockRestore();
   });
@@ -145,7 +161,7 @@ describe("frame scheduler", () => {
     add((f) => got.push(f.car(7)));
     add((f) => got.push(f.car(7)));
     add((f) => got.push(f.car(99)));
-    runFrames();
+    runFrames(0);
     expect(got[0]).toBe(got[1]);
     expect(got[2]).toBeNull();
   });

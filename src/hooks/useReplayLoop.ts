@@ -44,7 +44,7 @@ export function useReplayLoop() {
         publish();
       }
       // Canvas blocks draw this frame's time (block kit useFrame).
-      runFrames();
+      runFrames(now);
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);

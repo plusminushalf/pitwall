@@ -20,7 +20,8 @@
 //
 //   Time and playback
 //     useTime(select?)           replay time, 10 Hz
-//     useFrame(draw)             draw({ t, car(n) }) every animation frame, no re-render
+//     useFrame(draw)             draw({ t, now, car(n) }) every animation frame, no re-render; now is the
+//                                frame's wall-clock time, for animation at any replay speed and while paused
 //     usePlayback(select?)       playing, speed, speeds, play, pause, seek, seekToLap, setSpeed
 //   Session info (fixed for the session)
 //     useDrivers(select?)        names, teams, colours, headshots
@@ -60,6 +61,7 @@
 //     useFeed() entries          `id` (stable key, kept across live rebuilds) and `postRace`
 //     useFeed() entries          `inferred`: cars that caused a sector yellow, inferred from telemetry
 //     useRadio()                 team radio played by the core, one clip at a time app-wide
+//     useFrame() frame.now       the frame's wall-clock time (rAF timestamp), for real-time animation
 //
 //   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track
 //   projection, and TyreBadge, lifted as they are from the core.
