@@ -21,20 +21,21 @@ function Bar({ label, pct, color, value, valueClass = "text-zinc-300" }: { label
 
 function ThrottleBrakeRpm() {
   const n = useSelectedDriver();
-  const tel = useCar(n);
-  const out = useDriver(n)?.status === "OUT";
+  // Whole rpm and throttle %, and whether the brake is on: what the bars show.
+  const tel = useCar(n, (c) => ({ rpm: Math.round(c.rpm), throttle: Math.round(Math.min(Math.max(c.throttle, 0), 100)), braking: c.brake > 0 }));
+  const out = useDriver(n, (d) => d.status === "OUT");
   const rpm = tel?.rpm ?? 0;
-  const throttle = Math.min(Math.max(tel?.throttle ?? 0, 0), 100);
-  const braking = tel != null && tel.brake > 0;
+  const throttle = tel?.throttle ?? 0;
+  const braking = tel?.braking ?? false;
   return (
     <div className={`flex h-full flex-col justify-center gap-1.5 px-3 ${out ? "opacity-40" : ""}`}>
       <Bar
         label="RPM"
         pct={(rpm / RPM_MAX) * 100}
         color={rpm >= RPM_HIGH ? "#f59e0b" : "#a1a1aa"}
-        value={tel ? Math.round(rpm).toLocaleString("en-US") : "—"}
+        value={tel ? rpm.toLocaleString("en-US") : "—"}
       />
-      <Bar label="Throttle" pct={throttle} color="#22c55e" value={tel ? `${Math.round(throttle)}%` : "—"} />
+      <Bar label="Throttle" pct={throttle} color="#22c55e" value={tel ? `${throttle}%` : "—"} />
       <Bar
         label="Brake"
         pct={braking ? 100 : 0}

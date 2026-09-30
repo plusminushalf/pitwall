@@ -51,7 +51,8 @@ export function Grid() {
             const box = boxes[i];
             const lastColumn = p.x + p.width >= layout.columns;
             return (
-              <div key={p.id} className="absolute" style={box}>
+              // Contained: a block's DOM changes restyle and relayout only inside its own box.
+              <div key={p.id} className="absolute [contain:strict]" style={box}>
                 <BlockHost
                   block={p.block}
                   scale={box.width / (p.block.width.default * COLUMN_WIDTH)}

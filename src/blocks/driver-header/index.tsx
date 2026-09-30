@@ -34,7 +34,7 @@ function Headshot({ url, color }: { url: string | null; color: string }) {
   );
 }
 
-function Position({ s }: { s: DriverState }) {
+function Position({ s }: { s: Pick<DriverState, "status" | "position" | "gridPosition"> }) {
   const out = s.status === "OUT";
   const delta = s.gridPosition != null && s.position != null ? s.gridPosition - s.position : null;
   return (
@@ -84,7 +84,7 @@ function FocusChips({ drivers, selected, focused, onFocus }: { drivers: readonly
 
 function DriverHeader() {
   const n = useSelectedDriver();
-  const s = useDriver(n);
+  const s = useDriver(n, (d) => ({ driver: d.driver, status: d.status, position: d.position, gridPosition: d.gridPosition }));
   const drivers = useDrivers();
   const { selected, focused, focus, clear } = useSelection();
   const [{ driver: setting }] = useSettings<{ driver: DriverSetting }>();

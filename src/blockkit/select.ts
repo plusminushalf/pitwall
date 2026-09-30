@@ -4,8 +4,8 @@
 
 import type { CarSeries, DriverData, FeedItem, Session } from "../data/session";
 import { indexAtOrBefore } from "../engine/lookup";
-import { carPositionAt, mapOpacity, type RaceState, type SectorFlag } from "../engine/raceState";
-import type { DriverInfo, Lap, SessionMeta, Stint, TrackGeometry, TrackStatus, WeatherSample } from "../types";
+import { carPositionAt, mapOpacity, type RaceState } from "../engine/raceState";
+import type { DriverInfo, Lap, SessionMeta, Stint, TrackGeometry } from "../types";
 import { deepEqual } from "./equal";
 
 export type SessionKind = "race" | "qualifying";
@@ -73,33 +73,11 @@ export const trackOf = cached((track: TrackGeometry): Track => {
 
 // ---------------------------------------------------------------- the race at t
 
-export interface RaceView {
-  leaderLap: number;
-  totalLaps: number;
-  trackStatus: TrackStatus;
-  /** Marshal sector -> flag. */
-  sectorFlags: ReadonlyMap<number, SectorFlag>;
-  weather: WeatherSample | null;
-  /** Fastest completed lap so far. */
-  fastestLap: Lap | null;
-  /** Driver numbers in timing-tower order (retired cars last). */
-  order: readonly number[];
-  /** API gap: each car's position (the track map labels every car; useDriver can't be called in a loop). */
-  positions: ReadonlyMap<number, number | null>;
-}
+/** Driver numbers in timing-tower order (retired cars last), shared by every block this tick. */
+export const orderOf = cached((race: RaceState): number[] => race.drivers.map((d) => d.driver));
 
-export const raceViewOf = cached(
-  (race: RaceState): RaceView => ({
-    leaderLap: race.leaderLap,
-    totalLaps: race.totalLaps,
-    trackStatus: race.trackStatus,
-    sectorFlags: race.sectorFlags,
-    weather: race.weather,
-    fastestLap: race.fastestLap,
-    order: race.drivers.map((d) => d.driver),
-    positions: new Map(race.drivers.map((d) => [d.driver, d.position])),
-  }),
-);
+/** Each car's position, shared by every block this tick. */
+export const positionsOf = cached((race: RaceState): Map<number, number | null> => new Map(race.drivers.map((d) => [d.driver, d.position])));
 
 /** Laps the driver has completed by t (the lap in progress isn't included). */
 export function lapsAt(d: DriverData, t: number): Lap[] {
@@ -216,6 +194,19 @@ export function historyRange(car: CarSeries, t: number, windowMs: number): { fro
   const before = indexAtOrBefore(car.t, lo);
   const from = before >= 0 && car.t[before] === lo ? before : before + 1;
   return { from, to: indexAtOrBefore(car.t, t) };
+}
+
+/** The last slices taken, so blocks showing the same car and window share one copy. */
+const slices: { car: CarSeries; from: number; to: number; history: CarHistory }[] = [];
+
+/** historySlice, cached: the same range of the same car is the same object. */
+export function historyOf(car: CarSeries, from: number, to: number): CarHistory {
+  const hit = slices.find((s) => s.car === car && s.from === from && s.to === to);
+  if (hit) return hit.history;
+  const history = historySlice(car, from, to);
+  slices.unshift({ car, from, to, history });
+  slices.length = Math.min(slices.length, 8);
+  return history;
 }
 
 export function historySlice(car: CarSeries, from: number, to: number): CarHistory {

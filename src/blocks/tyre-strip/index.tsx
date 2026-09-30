@@ -7,19 +7,23 @@ const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
  * lap's time (the lap's own end hasn't happened yet). Nothing is estimated on lap 1.
  */
 function useLapProgress(n: number | null, running: boolean): number {
-  const laps = useLaps(n);
-  const t = useTime();
-  const last = laps.at(-1);
-  if (!last) return 0;
-  const lapMs = last.duration != null ? last.duration * 1000 : null;
-  const frac = running && last.end != null && lapMs ? Math.min(Math.max((t - last.end) / lapMs, 0), 0.99) : 0;
-  return last.lap + frac;
+  const last = useLaps(n, (laps) => {
+    const l = laps.at(-1);
+    return l ? { lap: l.lap, end: l.end, duration: l.duration } : null;
+  });
+  // In steps of 1/200 lap (well under a pixel): the strip re-renders when the marker moves, not every tick.
+  const frac = useTime((t) => {
+    const lapMs = last?.duration != null ? last.duration * 1000 : null;
+    if (!running || last?.end == null || !lapMs) return 0;
+    return Math.round(Math.min(Math.max((t - last.end) / lapMs, 0), 0.99) * 200) / 200;
+  });
+  return last ? last.lap + frac : 0;
 }
 
 /** The driver's stints so far along the race distance, with a marker at where they are now. */
 function TyreStrip() {
   const n = useSelectedDriver();
-  const s = useDriver(n);
+  const s = useDriver(n, (d) => ({ status: d.status, compound: d.compound, tyreAge: d.tyreAge, pitStops: d.pitStops }));
   const stints = useStints(n);
   const { totalLaps, totalLapsEstimated } = useSessionInfo();
   const running = s?.status === "RUNNING" || s?.status === "PIT";

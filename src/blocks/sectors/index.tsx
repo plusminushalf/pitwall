@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { defineBlock, lapTime, useBestSectors, useDriver, useLaps, useSelectedDriver, type DriverSetting, type Lap } from "block-kit";
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
@@ -51,11 +50,10 @@ function SectorCell({ index, lap, personal, overall }: { index: number; lap: Lap
 /** The last lap's sectors and mini-sectors: purple for the best by anyone so far, green for a personal best. */
 function Sectors() {
   const n = useSelectedDriver();
-  const s = useDriver(n);
-  const laps = useLaps(n);
+  const last = useDriver(n, (d) => d.lastLap) ?? null;
+  // Just the three personal bests, not the laps: a new lap re-renders only if it changes them.
+  const personal = useLaps(n, (laps) => personalBestSectors(laps, last));
   const overall = useBestSectors();
-  const last = s?.lastLap ?? null;
-  const personal = useMemo(() => personalBestSectors(laps, last), [laps, last]);
   return (
     <div className="grid h-full grid-cols-3 items-center gap-3 px-3">
       {[0, 1, 2].map((k) => (

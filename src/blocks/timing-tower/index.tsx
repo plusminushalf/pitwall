@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   COLUMN_WIDTH,
   defineBlock,
@@ -9,12 +9,14 @@ import {
   TyreBadge,
   useDriver,
   useDrivers,
-  useRace,
+  useFastestLap,
+  useLeaderLap,
+  useRunningOrder,
   useSelection,
   useSettings,
   type DriverInfo,
   type DriverState,
-  type RaceView,
+  type Lap,
 } from "block-kit";
 
 type GapMode = "leader" | "interval";
@@ -28,40 +30,66 @@ const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_58px_40px_20px]";
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
 
-function GapCell({ s, race, mode }: { s: DriverState; race: RaceView; mode: GapMode }) {
+/** What a row shows of its driver: it re-renders only when one of these changes. */
+interface RowData {
+  status: DriverState["status"];
+  position: number | null;
+  gridPosition: number | null;
+  gap: number | string | null;
+  lastLap: Lap | null;
+  personalBest: boolean;
+  compound: string | null;
+  tyreAge: number | null;
+  pitStops: number;
+}
+
+const rowData = (mode: GapMode) => (s: DriverState): RowData => ({
+  status: s.status,
+  position: s.position,
+  gridPosition: s.gridPosition,
+  gap: mode === "leader" ? s.gapToLeader : s.interval,
+  lastLap: s.lastLap,
+  personalBest: s.lastLap != null && s.bestLap === s.lastLap,
+  compound: s.compound,
+  tyreAge: s.tyreAge,
+  pitStops: s.pitStops,
+});
+
+function GapCell({ s, mode }: { s: RowData; mode: GapMode }) {
+  // Only the leader's row reads the leader's lap (whether the race has started).
+  const started = useLeaderLap((l) => l > 0);
   if (s.status === "OUT") return <span className="font-semibold text-red-400">OUT</span>;
   if (s.status === "PIT") return <span className="rounded bg-zinc-200 px-1.5 text-[11px] font-bold text-zinc-900">PIT</span>;
-  const isLeader = s.position === 1;
   const flag = s.status === "FINISHED" ? <span className="mr-1" title="Finished">🏁</span> : null;
-  if (isLeader) return <span className="text-zinc-400">{flag}{race.leaderLap > 0 ? (mode === "leader" ? "Leader" : "Interval") : ""}</span>;
+  if (s.position === 1) return <span className="text-zinc-400">{flag}{started ? (mode === "leader" ? "Leader" : "Interval") : ""}</span>;
   return (
     <span className="tabular-nums">
       {flag}
-      {gap(mode === "leader" ? s.gapToLeader : s.interval)}
+      {gap(s.gap)}
     </span>
   );
 }
 
-function LastLapCell({ s, race }: { s: DriverState; race: RaceView }) {
+function LastLapCell({ n, s }: { n: number; s: RowData }) {
   const l = s.lastLap;
+  // The fastest lap's number if it's this driver's, so other rows ignore a new fastest lap.
+  const fastest = useFastestLap((f) => (f?.driver === n ? f.lap : null));
   if (!l) return <span className="text-zinc-600">—</span>;
-  const overall = race.fastestLap && race.fastestLap.driver === l.driver && race.fastestLap.lap === l.lap;
-  const personal = s.bestLap === l;
-  const color = overall ? "text-fuchsia-400" : personal ? "text-emerald-400" : "text-zinc-300";
+  const color = fastest === l.lap ? "text-fuchsia-400" : s.personalBest ? "text-emerald-400" : "text-zinc-300";
   return <span className={`tabular-nums ${color}`}>{lapTime(l.duration)}</span>;
 }
 
-function Change({ s }: { s: DriverState }) {
+function Change({ s }: { s: RowData }) {
   if (s.gridPosition == null || s.position == null || s.status === "OUT") return null;
   const delta = s.gridPosition - s.position;
   if (delta === 0) return <span className="text-zinc-600">–</span>;
   return delta > 0 ? <span className="text-emerald-400">▲{delta}</span> : <span className="text-red-400">▼{-delta}</span>;
 }
 
-function Row({
+/** One driver's row: memoised, and subscribed to just that driver's fields. */
+const Row = memo(function Row({
   d,
   index,
-  race,
   mode,
   isSelected,
   isFocused,
@@ -69,13 +97,13 @@ function Row({
 }: {
   d: DriverInfo;
   index: number;
-  race: RaceView;
   mode: GapMode;
   isSelected: boolean;
   isFocused: boolean;
   onToggle: (n: number) => void;
 }) {
-  const s = useDriver(d.number);
+  const select = useMemo(() => rowData(mode), [mode]);
+  const s = useDriver(d.number, select);
   if (!s) return null;
   return (
     <button
@@ -107,23 +135,23 @@ function Row({
         </span>
       </span>
       <span className="text-xs">
-        <GapCell s={s} race={race} mode={mode} />
+        <GapCell s={s} mode={mode} />
       </span>
       <span className="text-xs">
-        <LastLapCell s={s} race={race} />
+        <LastLapCell n={d.number} s={s} />
       </span>
       <TyreBadge compound={s.compound} age={s.tyreAge} />
       <span className="text-right text-xs tabular-nums text-zinc-400">{s.pitStops}</span>
     </button>
   );
-}
+});
 
 function TimingTower() {
   const drivers = useDrivers();
-  const race = useRace();
+  const order = useRunningOrder();
   const { selected, focused, toggle, clear } = useSelection();
   const [{ gapMode }, update] = useSettings<Settings>();
-  const rowIndex = useMemo(() => new Map(race.order.map((n, i) => [n, i])), [race.order]);
+  const rowIndex = useMemo(() => new Map(order.map((n, i) => [n, i])), [order]);
 
   return (
     <div className="flex h-full flex-col text-sm">
@@ -155,13 +183,12 @@ function TimingTower() {
         <span className="text-right">Pit</span>
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        <div className="relative" style={{ height: race.order.length * ROW_H }}>
+        <div className="relative" style={{ height: order.length * ROW_H }}>
           {drivers.map((d) => (
             <Row
               key={d.number}
               d={d}
               index={rowIndex.get(d.number) ?? 0}
-              race={race}
               mode={gapMode}
               isSelected={selected.includes(d.number)}
               isFocused={focused === d.number}

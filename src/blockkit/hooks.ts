@@ -1,34 +1,35 @@
 // The block hooks (H3.3), built on the replay store and its shared 10 Hz race state.
-// Every hook reads through useKit(): a selector plus an equality check, so a block re-renders only
-// when its own data changed, and not at all while it's off screen.
+// Every hook reads through useKit(): the hook's spoiler-free value, an optional `select` from the block
+// on top, and an equality check, so a block re-renders only when what it selected changed, and not at
+// all while it's off screen.
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Session } from "../data/session";
-import { telemetryAt, type DriverState, type RaceState, type Telemetry } from "../engine/raceState";
+import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
-import type { DriverInfo, Lap } from "../types";
+import type { DriverInfo, Lap, TrackStatus, WeatherSample } from "../types";
 import { ScaleContext, SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
 import type { BlockSettings } from "./defineBlock";
-import { deepEqual, shallowEqual } from "./equal";
+import { deepEqual } from "./equal";
 import { addFrameCallback, type DrawFn } from "./frame";
 import { playRadio, stopRadio, useRadioState } from "./radio";
 import {
+  bestSectorsAt,
   driversOf,
   feedEndAt,
   feedUpTo,
+  historyOf,
   historyRange,
-  historySlice,
   lapsAt,
-  raceViewOf,
+  orderOf,
+  positionsOf,
   selectedDriverOf,
   sessionInfoOf,
   stintsAt,
   trackOf,
   wholeSessionOf,
-  bestSectorsAt,
   type CarHistory,
   type FeedEntry,
-  type RaceView,
   type SessionInfo,
   type StintView,
   type Track,
@@ -39,16 +40,25 @@ type ReplayState = ReturnType<typeof useReplay.getState>;
 /** The store with a race loaded: blocks are only mounted then (BlockHost). */
 type Loaded = ReplayState & { session: Session; race: RaceState };
 
+/** A block's optional pick from a hook's value: the block re-renders only when the pick changes. */
+export type Select<T, R> = (value: T) => R;
+
 const ALWAYS_VISIBLE: Visibility = { current: true, set() {}, subscribe: () => () => {} };
+const IDENTITY = <T,>(v: T) => v;
 
 /**
- * `select` over the store, kept while `equal` says it's unchanged. Store updates are ignored while the
- * block is off screen (it catches up when it's back). With no race loaded (a block about to unmount)
- * the last value stays.
+ * `base` over the store (the hook's own, spoiler-free value; `deps` are what it depends on), then the
+ * block's `pick`, kept while deepEqual says the result is unchanged. The pick lives in a ref: an inline
+ * arrow neither resubscribes nor defeats the cache. Store updates are ignored while the block is off
+ * screen (it catches up when it's back). With no race loaded (a block about to unmount) the last value stays.
  */
-function useKit<T>(select: (s: Loaded) => T, equal: (a: T, b: T) => boolean = Object.is): T {
+function useKit<T, R = T>(base: (s: Loaded) => T, deps: readonly unknown[], pick?: Select<T, R>): R {
   const visibility = useContext(VisibilityContext) ?? ALWAYS_VISIBLE;
-  const cache = useRef<{ state: ReplayState; select: unknown; value: T } | null>(null);
+  // `base` is a new closure every render; `deps` say when it actually reads something else.
+  const baseRef = useMemo(() => base, deps);
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
+  const cache = useRef<{ state: ReplayState; base: unknown; pick: unknown; value: R } | null>(null);
   const subscribe = useCallback(
     (onChange: () => void) => {
       const ifVisible = () => visibility.current && onChange();
@@ -61,31 +71,41 @@ function useKit<T>(select: (s: Loaded) => T, equal: (a: T, b: T) => boolean = Ob
     },
     [visibility],
   );
-  const getSnapshot = () => {
+  const getSnapshot = (): R => {
     const state = useReplay.getState();
+    const p = pickRef.current;
     const c = cache.current;
-    if (c && c.state === state && c.select === select) return c.value;
+    if (c && c.state === state && c.base === baseRef && c.pick === p) return c.value;
     if (!state.session || !state.race) {
       if (c) return c.value;
       throw new Error("block-kit hooks need a loaded race: render blocks inside a BlockHost");
     }
-    const value = select(state as Loaded);
-    if (c && equal(c.value, value)) {
+    const value = (p ?? (IDENTITY as Select<T, R>))(baseRef(state as Loaded));
+    if (c && deepEqual(c.value, value)) {
       c.state = state;
-      c.select = select;
+      c.base = baseRef;
+      c.pick = p;
       return c.value;
     }
-    cache.current = { state, select, value };
+    cache.current = { state, base: baseRef, pick: p, value };
     return value;
   };
-  return useSyncExternalStore(subscribe, getSnapshot);
+  return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
+
+/** `pick` applied only to a value that's there: hooks about one car return null for a car with no data. */
+const orNull =
+  <T, R>(pick?: Select<T, R>): Select<T | null, R | T | null> | undefined =>
+  (v) => (v == null ? null : pick ? pick(v) : v);
 
 // ---------------------------------------------------------------- time and playback
 
-/** Replay time (ms since the session window start), updated at most 10 times a second. */
-export function useTime(): number {
-  return useKit((s) => s.t);
+/**
+ * Replay time (ms since the session window start), updated at most 10 times a second. A `select` can
+ * coarsen it (e.g. t => Math.floor(t / 1000)) so the block re-renders only when that changes.
+ */
+export function useTime<R = number>(select?: Select<number, R>): R {
+  return useKit((s) => s.t, [], select);
 }
 
 /**
@@ -132,37 +152,72 @@ const playbackActions = {
   setSpeed: (speed: number) => useReplay.getState().setSpeed(speed),
 };
 
-export function usePlayback(): Playback {
-  const state = useKit((s) => ({ playing: s.playing || (s.mode === "live" && s.followLive), speed: s.speed }), shallowEqual);
-  return useMemo(() => ({ ...state, speeds: SPEEDS, ...playbackActions }), [state]);
+/** Playing state, speed and the playback actions (the actions never change). */
+export function usePlayback<R = Playback>(select?: Select<Playback, R>): R {
+  return useKit((s): Playback => ({ playing: s.playing || (s.mode === "live" && s.followLive), speed: s.speed, speeds: SPEEDS, ...playbackActions }), [], select);
 }
 
 // ---------------------------------------------------------------- session info (fixed for the session)
 
 /** Drivers in the session (names, teams, colours, headshots), in session order. */
-export function useDrivers(): readonly DriverInfo[] {
-  return useKit((s) => driversOf(s.session), deepEqual);
+export function useDrivers<R = readonly DriverInfo[]>(select?: Select<readonly DriverInfo[], R>): R {
+  return useKit((s) => driversOf(s.session), [], select);
 }
 
 /** Circuit outline, pit lane, corners, sector marks and marshal sectors. */
-export function useTrack(): Track {
-  return useKit((s) => trackOf(s.session.meta.track), deepEqual);
+export function useTrack<R = Track>(select?: Select<Track, R>): R {
+  return useKit((s) => trackOf(s.session.meta.track), [], select);
 }
 
-export function useSessionInfo(): SessionInfo {
-  return useKit((s) => sessionInfoOf(s.session.meta), deepEqual);
+export function useSessionInfo<R = SessionInfo>(select?: Select<SessionInfo, R>): R {
+  return useKit((s) => sessionInfoOf(s.session.meta), [], select);
 }
 
 // ---------------------------------------------------------------- the race at t (spoiler-free)
+// One hook per thing, so a block re-renders only for what it reads (H3.2).
 
-/** Track status, sector flags, weather, fastest lap so far and the running order. */
-export function useRace(): RaceView {
-  return useKit((s) => raceViewOf(s.race), deepEqual);
+/** The lap the leader is on (0 before the start). */
+export function useLeaderLap<R = number>(select?: Select<number, R>): R {
+  return useKit((s) => s.race.leaderLap, [], select);
+}
+
+/** Race distance in laps (live: estimated until it's known, see useSessionInfo().totalLapsEstimated). */
+export function useTotalLaps<R = number>(select?: Select<number, R>): R {
+  return useKit((s) => s.race.totalLaps, [], select);
+}
+
+export function useTrackStatus<R = TrackStatus>(select?: Select<TrackStatus, R>): R {
+  return useKit((s) => s.race.trackStatus, [], select);
+}
+
+/** Marshal sector -> flag, for sectors under yellow or red. */
+export function useSectorFlags<R = ReadonlyMap<number, SectorFlag>>(select?: Select<ReadonlyMap<number, SectorFlag>, R>): R {
+  return useKit((s) => s.race.sectorFlags, [], select);
+}
+
+/** Latest weather sample at the circuit, or null before the first. */
+export function useWeather<R = WeatherSample | null>(select?: Select<WeatherSample | null, R>): R {
+  return useKit((s) => s.race.weather, [], select);
+}
+
+/** Fastest completed lap so far, by anyone. */
+export function useFastestLap<R = Lap | null>(select?: Select<Lap | null, R>): R {
+  return useKit((s) => s.race.fastestLap, [], select);
+}
+
+/** Driver numbers in timing-tower order (retired cars last). */
+export function useRunningOrder<R = readonly number[]>(select?: Select<readonly number[], R>): R {
+  return useKit((s) => orderOf(s.race), [], select);
+}
+
+/** API gap: every car's position at once (the track map labels every car). */
+export function usePositions<R = ReadonlyMap<number, number | null>>(select?: Select<ReadonlyMap<number, number | null>, R>): R {
+  return useKit((s) => positionsOf(s.race), [], select);
 }
 
 /** Position, gaps, tyres, laps and status of car n at t; null if it isn't in the session. */
-export function useDriver(n: number | null): DriverState | null {
-  return useKit((s) => (n == null ? null : (s.race.drivers.find((d) => d.driver === n) ?? null)), deepEqual);
+export function useDriver<R = DriverState>(n: number | null, select?: Select<DriverState, R>): R | null {
+  return useKit((s) => (n == null ? null : (s.race.drivers.find((d) => d.driver === n) ?? null)), [n], orNull(select)) as R | null;
 }
 
 /** Telemetry samples shared by every block this 10 Hz tick. */
@@ -179,8 +234,8 @@ function telemetryOf(session: Session, n: number, t: number): Telemetry | null {
 }
 
 /** Speed, gear, RPM, throttle, brake and DRS of car n at t (10 Hz); null before its first sample. */
-export function useCar(n: number | null): Telemetry | null {
-  return useKit((s) => (n == null ? null : telemetryOf(s.session, n, s.t)), deepEqual);
+export function useCar<R = Telemetry>(n: number | null, select?: Select<Telemetry, R>): R | null {
+  return useKit((s) => (n == null ? null : telemetryOf(s.session, n, s.t)), [n], orNull(select)) as R | null;
 }
 
 const NO_HISTORY: CarHistory = {
@@ -194,44 +249,58 @@ const NO_HISTORY: CarHistory = {
 };
 
 /** Car n's telemetry samples within [t - windowMs, t], oldest first. */
-export function useCarHistory(n: number | null, windowMs: number): CarHistory {
-  const range = useKit((s) => {
-    const car = n == null ? undefined : s.session.drivers.get(n)?.car;
-    return car ? { car, ...historyRange(car, s.t, windowMs) } : null;
-  }, shallowEqual);
-  return useMemo(() => (range ? historySlice(range.car, range.from, range.to) : NO_HISTORY), [range]);
+export function useCarHistory<R = CarHistory>(n: number | null, windowMs: number, select?: Select<CarHistory, R>): R {
+  return useKit(
+    (s) => {
+      const car = n == null ? undefined : s.session.drivers.get(n)?.car;
+      if (!car) return NO_HISTORY;
+      const { from, to } = historyRange(car, s.t, windowMs);
+      return historyOf(car, from, to);
+    },
+    [n, windowMs],
+    select,
+  );
 }
 
 /** API gap: the fastest time in each sector by anyone so far (seconds), for purple sector times. */
-export function useBestSectors(): readonly [number | null, number | null, number | null] {
-  return useKit((s) => bestSectorsAt(s.session, s.t), shallowEqual);
+export function useBestSectors<R = readonly [number | null, number | null, number | null]>(
+  select?: Select<readonly [number | null, number | null, number | null], R>,
+): R {
+  return useKit((s) => bestSectorsAt(s.session, s.t), [], select);
 }
 
 const NO_LAPS: readonly Lap[] = [];
 const NO_STINTS: readonly StintView[] = [];
 
 /** Laps car n has completed by t, in lap order. */
-export function useLaps(n: number | null): readonly Lap[] {
-  return useKit((s) => {
-    const d = n == null ? undefined : s.session.drivers.get(n);
-    return d ? lapsAt(d, s.t) : NO_LAPS;
-    // Structural: a live session's rebuilt meta brings new Lap objects for the same laps.
-  }, deepEqual);
+export function useLaps<R = readonly Lap[]>(n: number | null, select?: Select<readonly Lap[], R>): R {
+  return useKit(
+    (s) => {
+      const d = n == null ? undefined : s.session.drivers.get(n);
+      return d ? lapsAt(d, s.t) : NO_LAPS;
+    },
+    [n],
+    select,
+  );
 }
 
 /** Car n's stints started by t; the current one is `open`, cut at the current lap. */
-export function useStints(n: number | null): readonly StintView[] {
-  return useKit((s) => {
-    const d = n == null ? undefined : s.session.drivers.get(n);
-    const state = s.race.drivers.find((x) => x.driver === n);
-    return d && state ? stintsAt(d, state.lap) : NO_STINTS;
-  }, deepEqual);
+export function useStints<R = readonly StintView[]>(n: number | null, select?: Select<readonly StintView[], R>): R {
+  return useKit(
+    (s) => {
+      const d = n == null ? undefined : s.session.drivers.get(n);
+      const state = s.race.drivers.find((x) => x.driver === n);
+      return d && state ? stintsAt(d, state.lap) : NO_STINTS;
+    },
+    [n],
+    select,
+  );
 }
 
 /** Race feed items up to t, newest first (race control, overtakes, pits, retirements, radio). */
-export function useFeed(): readonly FeedEntry[] {
-  // Entries keep their identity across live rebuilds, so an unchanged feed is the same list.
-  return useKit((s) => feedUpTo(s.session, feedEndAt(s.session, s.t)), shallowEqual);
+export function useFeed<R = readonly FeedEntry[]>(select?: Select<readonly FeedEntry[], R>): R {
+  // Entries keep their identity across live rebuilds, so an unchanged feed compares equal cheaply.
+  return useKit((s) => feedUpTo(s.session, feedEndAt(s.session, s.t)), [], select);
 }
 
 // ---------------------------------------------------------------- selection
@@ -253,9 +322,9 @@ const selectionActions = {
   clear: () => useReplay.getState().clearSelection(),
 };
 
-export function useSelection(): Selection {
-  const state = useKit((s) => ({ selected: s.selected, focused: s.focused }), shallowEqual);
-  return useMemo(() => ({ ...state, ...selectionActions }), [state]);
+/** Selected and focused drivers, and the selection actions (the actions never change). */
+export function useSelection<R = Selection>(select?: Select<Selection, R>): R {
+  return useKit((s): Selection => ({ selected: s.selected, focused: s.focused, ...selectionActions }), [], select);
 }
 
 /**
@@ -265,7 +334,7 @@ export function useSelection(): Selection {
 export function useSelectedDriver(): number | null {
   const setting = useContext(SettingsContext)?.settings.driver;
   const pinned = typeof setting === "number" ? setting : null;
-  return useKit((s) => selectedDriverOf(raceViewOf(s.race).order, s.selected, s.focused, pinned));
+  return useKit((s) => selectedDriverOf(orderOf(s.race), s.selected, s.focused, pinned), [pinned]);
 }
 
 // ---------------------------------------------------------------- the block itself
@@ -312,15 +381,34 @@ export interface Radio {
 }
 
 /** API gap: team radio playback. The core plays the clip; it stops when the session changes. */
-export function useRadio(): Radio {
-  const playing = useRadioState((s) => s.playing);
-  const unavailable = useRadioState((s) => s.unavailable);
-  return useMemo(() => ({ playing, unavailable, play: playRadio, stop: stopRadio }), [playing, unavailable]);
+export function useRadio<R = Radio>(select?: Select<Radio, R>): R {
+  const pick = useRef(select);
+  pick.current = select;
+  const read = (s: { playing: string | null; unavailable: ReadonlySet<string> }) => {
+    const radio: Radio = { playing: s.playing, unavailable: s.unavailable, play: playRadio, stop: stopRadio };
+    return (pick.current ?? (IDENTITY as Select<Radio, R>))(radio);
+  };
+  // Radio state isn't race data: its own small store, same pick-and-compare as the other hooks.
+  const cache = useRef<{ state: unknown; pick: unknown; value: R } | null>(null);
+  const getSnapshot = () => {
+    const state = useRadioState.getState();
+    const c = cache.current;
+    if (c && c.state === state && c.pick === pick.current) return c.value;
+    const value = read(state);
+    if (c && deepEqual(c.value, value)) {
+      c.state = state;
+      c.pick = pick.current;
+      return c.value;
+    }
+    cache.current = { state, pick: pick.current, value };
+    return value;
+  };
+  return useSyncExternalStore(useRadioState.subscribe, getSnapshot, getSnapshot);
 }
 
 // ---------------------------------------------------------------- opt-out
 
 /** The whole session, including what hasn't happened yet at t. Marks the block as seeing spoilers (H3.4). */
-export function useWholeSession(): WholeSession {
-  return useKit((s) => wholeSessionOf(s.session));
+export function useWholeSession<R = WholeSession>(select?: Select<WholeSession, R>): R {
+  return useKit((s) => wholeSessionOf(s.session), [], select);
 }

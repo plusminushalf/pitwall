@@ -20,12 +20,13 @@ function DrsPill({ code }: { code: number | null }) {
 
 function SpeedGear() {
   const n = useSelectedDriver();
-  const tel = useCar(n);
-  const out = useDriver(n)?.status === "OUT";
+  // What's shown: whole km/h, the gear and the DRS state (not every rpm or throttle change).
+  const tel = useCar(n, (c) => ({ speed: Math.round(c.speed), gear: c.gear, drs: c.drs }));
+  const out = useDriver(n, (d) => d.status === "OUT");
   return (
     <div className={`flex h-full flex-col justify-center px-3 ${out ? "opacity-40" : ""}`}>
       <div className="flex items-baseline gap-1">
-        <span className="w-[3ch] text-right text-3xl font-bold leading-none tabular-nums">{tel ? Math.round(tel.speed) : "—"}</span>
+        <span className="w-[3ch] text-right text-3xl font-bold leading-none tabular-nums">{tel ? tel.speed : "—"}</span>
         <span className="text-[10px] font-semibold uppercase text-zinc-500">km/h</span>
       </div>
       <div className="mt-2 flex items-center gap-1.5">

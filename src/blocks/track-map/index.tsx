@@ -10,9 +10,12 @@ import {
   useDrivers,
   useFrame,
   useLayoutPoint,
-  useRace,
+  usePositions,
+  useRunningOrder,
+  useSectorFlags,
   useSelection,
   useTrack,
+  useTrackStatus,
   type DriverInfo,
   type SectorFlag,
   type Track,
@@ -132,7 +135,10 @@ function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLaye
 function TrackMap() {
   const track = useTrack();
   const drivers = useDrivers();
-  const race = useRace();
+  const order = useRunningOrder();
+  const positions = usePositions();
+  const trackStatus = useTrackStatus();
+  const sectorFlags = useSectorFlags();
   const { selected, focused, toggle } = useSelection();
   const { width: w, height: h, pixelRatio } = useBlockSize();
   const toLayout = useLayoutPoint();
@@ -143,8 +149,8 @@ function TrackMap() {
   const layer = useMemo(() => (w > 0 && h > 0 ? drawStatic(track, w, h, pixelRatio) : null), [track, w, h, pixelRatio]);
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
   // What the per-frame draw reads, updated at the hooks' rate.
-  const latest = useRef({ race, selected, focused, info });
-  latest.current = { race, selected, focused, info };
+  const latest = useRef({ order, positions, trackStatus, sectorFlags, selected, focused, info });
+  latest.current = { order, positions, trackStatus, sectorFlags, selected, focused, info };
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -157,7 +163,7 @@ function TrackMap() {
     const canvas = canvasRef.current;
     if (!canvas || !layer || canvas.width !== layer.canvas.width) return;
     const ctx = canvas.getContext("2d")!;
-    const { race, selected, focused, info } = latest.current;
+    const { order: running, positions, trackStatus, sectorFlags, selected, focused, info } = latest.current;
     const { tf, dpr } = layer;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -166,7 +172,7 @@ function TrackMap() {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    const tint = race.trackStatus === "RED" ? "#ef4444" : race.trackStatus.includes("SC") ? "#fbbf24" : null;
+    const tint = trackStatus === "RED" ? "#ef4444" : trackStatus.includes("SC") ? "#fbbf24" : null;
     if (tint) {
       ctx.globalAlpha = 0.45;
       ctx.strokeStyle = tint;
@@ -177,7 +183,7 @@ function TrackMap() {
       ctx.globalAlpha = 1;
     }
     ctx.lineWidth = 6;
-    for (const [sector, flag] of race.sectorFlags) {
+    for (const [sector, flag] of sectorFlags) {
       const range = track.marshalSectors.find((m) => m.number === sector);
       if (!range) continue;
       ctx.strokeStyle = FLAG_COLORS[flag];
@@ -187,7 +193,7 @@ function TrackMap() {
     // Draw back-markers first so the leader (and the focused car) end up on top.
     // With a selection, only the selected cars are drawn.
     const shown = selected.length > 0 ? new Set(selected) : null;
-    const order = [...race.order].reverse().filter((n) => shown?.has(n) ?? true);
+    const order = [...running].reverse().filter((n) => shown?.has(n) ?? true);
     const drawOrder = focused != null && order.includes(focused) ? [...order.filter((n) => n !== focused), focused] : order;
     const onScreen: { driver: number; x: number; y: number }[] = [];
     const cars: { n: number; d: DriverInfo; cx: number; cy: number; alpha: number }[] = [];
@@ -233,7 +239,7 @@ function TrackMap() {
     for (let i = cars.length - 1; i >= 0; i--) {
       const { n, d, cx, cy, alpha } = cars[i];
       const isFocused = n === focused;
-      const pos = race.positions.get(n);
+      const pos = positions.get(n);
       const label = d.acronym;
       const prefix = pos != null ? `${pos} ` : "";
       const prefixW = ctx.measureText(prefix).width;
@@ -279,7 +285,7 @@ function TrackMap() {
     if (best) toggle(best.driver);
   };
 
-  const banner = race.trackStatus !== "GREEN" ? TRACK_STATUS[race.trackStatus] : null;
+  const banner = trackStatus !== "GREEN" ? TRACK_STATUS[trackStatus] : null;
 
   return (
     <div className="relative h-full w-full overflow-hidden">

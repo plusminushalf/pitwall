@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import {
   defineBlock,
   raceClock,
@@ -71,11 +71,13 @@ function kindTag(item: FeedEntry): { label: string; className: string } {
   }
 }
 
-function RadioButton({ url, playing, unavailable, onToggle }: { url: string; playing: boolean; unavailable: boolean; onToggle: (url: string) => void }) {
+/** A clip's play button; only radio rows have one, and only they subscribe to what's playing. */
+function RadioButton({ url }: { url: string }) {
+  const { playing, unavailable, play, stop } = useRadio((r) => ({ playing: r.playing === url, unavailable: r.unavailable.has(url), play: r.play, stop: r.stop }));
   if (unavailable) return <span className="shrink-0 pt-0.5 text-[10px] uppercase tracking-wide text-zinc-600">unavailable</span>;
   return (
     <button
-      onClick={() => onToggle(url)}
+      onClick={() => (playing ? stop() : play(url))}
       className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] ${
         playing ? "bg-zinc-100 text-zinc-900" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
       }`}
@@ -87,22 +89,64 @@ function RadioButton({ url, playing, unavailable, onToggle }: { url: string; pla
   );
 }
 
-function RaceFeed() {
-  const feed = useFeed();
-  const drivers = useDrivers();
-  const { lightsOut } = useSessionInfo();
-  const { seek } = usePlayback();
-  const { focus } = useSelection();
-  const [groups, setGroups] = useState(ALL_ON);
-  const radio = useRadio();
-  const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
-  const items = useMemo(() => feed.slice(0, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]), [feed, groups]);
+/** One feed item: memoised on the entry (stable across ticks and live rebuilds), so old rows never re-render. */
+const FeedRow = memo(function FeedRow({
+  item,
+  d,
+  lightsOut,
+  onItem,
+}: {
+  item: FeedEntry;
+  d: DriverInfo | undefined;
+  lightsOut: number;
+  onItem: (item: FeedEntry) => void;
+}) {
+  const tag = kindTag(item);
+  return (
+    <li className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
+      <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 text-left" title="Jump to 5 s before this">
+        <span className="pt-0.5 text-[11px] tabular-nums text-zinc-500">{raceClock(item.t - lightsOut)}</span>
+        <span className="text-xs leading-5 text-zinc-300">
+          {item.postRace && (
+            <span className="mr-1 inline-block rounded border border-zinc-700 px-1 align-middle text-[10px] font-semibold uppercase leading-4 text-zinc-400">
+              post-race
+            </span>
+          )}
+          <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
+          {item.driver != null && (
+            <span
+              className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
+              style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
+            >
+              {d?.acronym ?? `#${item.driver}`}
+            </span>
+          )}
+          <span className="align-middle">{item.text}</span>
+        </span>
+      </button>
+      {item.kind === "radio" && item.url && <RadioButton url={item.url} />}
+    </li>
+  );
+});
 
-  const onItem = (item: FeedEntry) => {
-    seek(item.t - 5_000);
-    // Focus only: the track map filter (selection) stays as it is.
-    if (item.driver != null) focus(item.driver);
-  };
+function RaceFeed() {
+  const [groups, setGroups] = useState(ALL_ON);
+  // The newest LIMIT items of the groups shown: a new item re-renders the list, nothing else does.
+  const items = useFeed((feed) => feed.slice(0, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]));
+  const drivers = useDrivers();
+  const lightsOut = useSessionInfo((i) => i.lightsOut);
+  const seek = usePlayback((p) => p.seek);
+  const focus = useSelection((s) => s.focus);
+  const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
+
+  const onItem = useCallback(
+    (item: FeedEntry) => {
+      seek(item.t - 5_000);
+      // Focus only: the track map filter (selection) stays as it is.
+      if (item.driver != null) focus(item.driver);
+    },
+    [seek, focus],
+  );
 
   return (
     <section className="flex h-full flex-col text-sm">
@@ -129,42 +173,9 @@ function RaceFeed() {
 
       <ol className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-zinc-600">No events yet</li>}
-        {items.map((item) => {
-          const tag = kindTag(item);
-          const d = item.driver != null ? info.get(item.driver) : undefined;
-          return (
-            <li key={item.id} className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
-              <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 text-left" title="Jump to 5 s before this">
-                <span className="pt-0.5 text-[11px] tabular-nums text-zinc-500">{raceClock(item.t - lightsOut)}</span>
-                <span className="text-xs leading-5 text-zinc-300">
-                  {item.postRace && (
-                    <span className="mr-1 inline-block rounded border border-zinc-700 px-1 align-middle text-[10px] font-semibold uppercase leading-4 text-zinc-400">
-                      post-race
-                    </span>
-                  )}
-                  <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
-                  {item.driver != null && (
-                    <span
-                      className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
-                      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
-                    >
-                      {d?.acronym ?? `#${item.driver}`}
-                    </span>
-                  )}
-                  <span className="align-middle">{item.text}</span>
-                </span>
-              </button>
-              {item.kind === "radio" && item.url && (
-                <RadioButton
-                  url={item.url}
-                  playing={radio.playing === item.url}
-                  unavailable={radio.unavailable.has(item.url)}
-                  onToggle={(url) => (radio.playing === url ? radio.stop() : radio.play(url))}
-                />
-              )}
-            </li>
-          );
-        })}
+        {items.map((item) => (
+          <FeedRow key={item.id} item={item} d={item.driver != null ? info.get(item.driver) : undefined} lightsOut={lightsOut} onItem={onItem} />
+        ))}
       </ol>
     </section>
   );

@@ -1,10 +1,10 @@
-import { defineBlock, useRace } from "block-kit";
+import { defineBlock, useWeather } from "block-kit";
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 
 /** Air and track temperature, humidity and wind at the circuit now. */
 function Weather() {
-  const w = useRace().weather;
+  const w = useWeather();
   if (!w) return <div className="flex h-full items-center justify-center text-xs text-zinc-600">No weather data</div>;
   const items: [string, string, string?][] = [
     ["Air", `${w.airTemp.toFixed(1)}°`],

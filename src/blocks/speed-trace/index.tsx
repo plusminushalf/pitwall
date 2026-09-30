@@ -1,5 +1,5 @@
-import { useEffect, useRef } from "react";
-import { defineBlock, useBlockSize, useCarHistory, useDriver, useSelectedDriver, useTime, type CarHistory, type DriverSetting } from "block-kit";
+import { useRef } from "react";
+import { defineBlock, useBlockSize, useCarHistory, useDriver, useFrame, useSelectedDriver, useTime, type CarHistory, type DriverSetting } from "block-kit";
 
 const WINDOW_MS = 60_000;
 const MAX_SPEED = 360; // km/h at the top of the chart
@@ -137,16 +137,21 @@ function SpeedTrace() {
   const n = useSelectedDriver();
   const car = useCarHistory(n, WINDOW_MS);
   const t = useTime();
-  const out = useDriver(n)?.status === "OUT";
+  const out = useDriver(n, (d) => d.status === "OUT");
   const size = useBlockSize();
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const w = size.width - PAD_X;
   const h = size.height - CHROME_Y;
 
-  useEffect(() => {
+  // Redrawn on the next animation frame, not in React's commit, and only when something changed.
+  const drawn = useRef<unknown[]>([]);
+  useFrame(() => {
     const canvas = canvasRef.current;
-    if (canvas && w > 0 && h > 0) draw(canvas, car, t, w, h, size.pixelRatio);
-  }, [car, t, w, h, size.pixelRatio]);
+    const now = [car, t, w, h, size.pixelRatio];
+    if (!canvas || w <= 0 || h <= 0 || now.every((v, i) => v === drawn.current[i])) return;
+    drawn.current = now;
+    draw(canvas, car, t, w, h, size.pixelRatio);
+  });
 
   return (
     <div className={`h-full px-3 pb-2 pt-2.5 ${out ? "opacity-40" : ""}`}>
