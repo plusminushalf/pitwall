@@ -216,9 +216,15 @@ export type LiveDeps = Timers & {
   onStatus(): void;
   /** Session options for tests (keepalive, timeouts). */
   session?: Partial<SessionOptions>;
+  /**
+   * The leader's lease (tabs.ts). Before delivering anything, and before opening a session: ok() true, or
+   * verify() resolves true. A frame that was frozen while another stole the lead has no lease on waking: its
+   * sessions' backlog is held (raw) until verify() says it still leads, and dropped if it doesn't.
+   */
+  lease?: { ok(): boolean; verify(): Promise<boolean> };
 };
 
-type Conn = { session: MqttSession; topics: Set<LiveTopic>; token: LiveToken; closing: boolean };
+type Conn = { session: MqttSession; topics: Set<LiveTopic>; token: LiveToken; closing: boolean; clientId: string };
 
 const isRefusedAuth = (e: unknown): e is MqttError => {
   const i = (e as MqttError | undefined)?.info;
@@ -252,12 +258,19 @@ export class LiveManager {
   private gapPending = false;
   private gapping = false;
   private held: [LiveTopic, LiveMessage][] = [];
+  /** Raw messages that arrived without a lease, waiting for lease.verify(). */
+  private unverified: [Conn, string, Uint8Array][] = [];
+  private verifying = false;
   private outbox = new Map<LiveTopic, LiveMessage[]>();
   private flushTimer: unknown = null;
   private lastStatusAt = 0;
   private counters = { handovers: 0, reconnects: 0, gapFilled: 0, maxSessions: 0 };
   /** Bumped by stop(): async work of an older generation is dropped. */
   private gen = 0;
+  /** After a steal: the old leader's clientId, reused once so the broker kicks its (frozen) session. */
+  private reuseClientId: string | undefined;
+  /** After a steal: no handover before this (the old leader's other session may still be open). */
+  private handoverAfter = 0;
 
   constructor(
     private deps: LiveDeps,
@@ -268,12 +281,34 @@ export class LiveManager {
 
   // ---------------------------------------------------------------- control
 
-  /** This frame leads: stream whatever is subscribed. `gap`: continue a stream another frame was running. */
-  start(opts: { gap?: boolean } = {}) {
+  /**
+   * This frame leads: stream whatever is subscribed. `gap`: continue a stream another frame was running.
+   * After a steal: `clientId`, the old leader's active session's, for our first session (the broker kicks the
+   * older one: OpenF1 does on a reused clientId), and no handover before `handoverAfter` (ms since the epoch)
+   * unless releaseHandovers() comes first, so the old leader's sessions and ours never add up to three.
+   */
+  start(opts: { gap?: boolean; clientId?: string; handoverAfter?: number } = {}) {
     if (this.running) return;
     this.running = true;
+    this.reuseClientId = opts.clientId;
+    this.handoverAfter = opts.handoverAfter ?? 0;
     if (opts.gap && Object.keys(this.state.since).length) this.gapPending = true;
     this.kick();
+  }
+
+  /** The old leader has closed its sessions (it demoted): handovers may go ahead (one that waited, now). */
+  releaseHandovers() {
+    if (!this.handoverAfter) return;
+    this.handoverAfter = 0;
+    if (this.retryKind === "handover" && this.active && !this.next) {
+      this.clearRetry();
+      void this.open("handover");
+    }
+  }
+
+  /** The active session's clientId (the heartbeat carries it, for a steal). */
+  activeClientId(): string | null {
+    return this.active?.clientId ?? null;
   }
 
   /** Stop streaming (disconnect, wipe). Forgets what was delivered when `reset`. */
@@ -285,6 +320,10 @@ export class LiveManager {
     this.active = this.next = null;
     this.lingering.clear();
     this.held = [];
+    this.handoverAfter = 0;
+    this.reuseClientId = undefined;
+    this.unverified = [];
+    this.verifying = false;
     this.gapping = false;
     this.gapPending = false;
     this.flush();
@@ -392,6 +431,10 @@ export class LiveManager {
   private async open(kind: "connect" | "handover") {
     const gen = this.gen;
     this.clearRetry();
+    if (kind === "handover" && this.deps.now() < this.handoverAfter) return this.retry("handover", this.handoverAfter - this.deps.now());
+    // (No await unless the lease needs checking: a second open() in the same tick must see this.next.)
+    const lease = this.deps.lease;
+    if (lease && !lease.ok() && (!(await lease.verify()) || gen !== this.gen)) return;
     if (kind === "handover" && this.lingering.size) {
       // The previous handover's old session is still closing: never a third session.
       return this.retry("handover", OVERLAP_MS);
@@ -416,11 +459,13 @@ export class LiveManager {
     }
     if (kind === "connect") this.setPhase(this.gapPending || this.counters.reconnects ? "reconnecting" : "connecting");
     const topics = new Set(this.topics);
-    const conn: Conn = { topics, token: tok, closing: false, session: null as unknown as MqttSession };
+    const clientId = (kind === "connect" && this.reuseClientId) || randomClientId();
+    this.reuseClientId = undefined;
+    const conn: Conn = { topics, token: tok, closing: false, clientId, session: null as unknown as MqttSession };
     conn.session = new MqttSession({
       ...this.deps.session,
       url: this.deps.url,
-      clientId: randomClientId(),
+      clientId,
       username: tok.username,
       password: tok.accessToken,
       socket: this.deps.socket,
@@ -525,8 +570,30 @@ export class LiveManager {
 
   // ---------------------------------------------------------------- data
 
+  /** Whether this frame still leads (the lease, or a lock check). False also when stop() came meanwhile. */
+  private async leading(gen: number): Promise<boolean> {
+    const lease = this.deps.lease;
+    if (lease && !lease.ok() && !(await lease.verify())) return false;
+    return gen === this.gen;
+  }
+
   private onMessage(conn: Conn, topic: string, payload: Uint8Array) {
     if (conn !== this.active && conn !== this.next && !this.lingering.has(conn)) return;
+    const lease = this.deps.lease;
+    if (lease && !lease.ok()) {
+      this.unverified.push([conn, topic, payload]);
+      if (this.verifying) return;
+      this.verifying = true;
+      const gen = this.gen;
+      void lease.verify().then((ok) => {
+        if (gen !== this.gen) return;
+        this.verifying = false;
+        const q = this.unverified;
+        this.unverified = [];
+        if (ok) for (const [c, t, p] of q) this.onMessage(c, t, p);
+      });
+      return;
+    }
     if (!topic.startsWith(TOPIC_PREFIX)) return;
     const t = topic.slice(TOPIC_PREFIX.length) as LiveTopic;
     if (!this.topics.has(t)) return;
@@ -548,6 +615,11 @@ export class LiveManager {
     box.push(m);
     if (this.flushTimer === null) this.flushTimer = this.deps.setTimeout(() => this.flush(), FLUSH_MS);
     return true;
+  }
+
+  /** Emit what's batched now (before a snapshot of the seen keys goes to another frame). */
+  flushNow() {
+    this.flush();
   }
 
   private flush() {
@@ -580,7 +652,7 @@ export class LiveManager {
         params["date>="] = from;
       } else if (this.state.since[topic] === undefined) continue;
       const rows = await this.fetchRows(topic, params, gen);
-      if (gen !== this.gen) return;
+      if (!(await this.leading(gen))) return;
       if (!rows) {
         failed.push(topic);
         continue;

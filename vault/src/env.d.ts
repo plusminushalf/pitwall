@@ -13,3 +13,5 @@ declare const __VAULT_FAKE_EXPIRES_IN__: number;
  * "http://127.0.0.1:5191"; the vault's MQTT URL and REST base then point at it. Always "" in a build.
  */
 declare const __VAULT_FAKE_BROKER__: string;
+/** True on the dev server with VAULT_SIMULATE set (simulate mode, src/sim.ts). Always false in a build. */
+declare const __VAULT_SIMULATE__: boolean;

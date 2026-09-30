@@ -5,10 +5,11 @@ code ever to see a user's OpenF1 password or access token. The app embeds it as 
 data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
-Status: spike S3, step 4 of 6. The handshake, the protocol, the headers, the popup login, both storage
-modes (stay connected, passkey PRF), silent token refresh, a one-at-a-time `get`, the live MQTT stream (token
-handover, reconnect + REST gap-fill) and the cross-tab leader work. Parallel downloads and the simulate mode
-are later steps.
+Status: spike S3, step 5 of 6. The handshake, the protocol, the headers, the popup login, both storage
+modes (stay connected, passkey PRF), silent token refresh, a one-at-a-time paced `get`, the live MQTT stream
+(token handover, reconnect + REST gap-fill), the cross-tab leader (with heartbeat takeover from a frozen leader)
+and the simulate mode (a cached session replayed as live, dev only) work, and the S3 success check runs as
+`bun run vault:e2e --s3`. Parallel downloads are the last step.
 
 ## What's here
 
@@ -26,6 +27,9 @@ are later steps.
 | `src/live.ts` | The live stream: sessions, handover, CONNACK 5, reconnect, REST gap-fill, dedupe, batching (pure) |
 | `src/tabs.ts` | The cross-tab leader (Web Locks) and the BroadcastChannel among vault frames (pure) |
 | `src/debug.ts` | Dev-only testing knobs (fake expiry, spoil the token, refresh now); not in a build |
+| `src/freeze.ts` | Dev-only `debug:freeze`: freeze one frame like Chrome freezes a background tab; not in a build |
+| `src/sim.ts` | Dev-only simulate mode: the in-vault simulated broker (MQTT bytes behind a socket); not in a build |
+| `src/brokercodec.ts` | The broker side of the MQTT codec (for the fake and simulated brokers only) |
 | `src/origins.ts` | The app-origin allowlist: parsing `VAULT_APP_ORIGINS`, matching the parent |
 | `src/rpc.ts` | Request dispatch over a `MessagePort` |
 | `headers.ts` | Every response header (CSP and the rest): one source for dev, `_headers` and `serve.ts` |
@@ -35,6 +39,9 @@ are later steps.
 | `leakcheck.ts` | The secret-leak check from the app's origin (heap snapshot + all app-origin storage), reused by e2e |
 | `fakebroker.ts` | Dev/test only, never shipped: a local fake OpenF1 broker (MQTT over WS) and REST, with controls |
 | `testkit.ts` | Test helpers: a fake clock, fake sockets, an in-memory broker |
+| `simdata.ts` | Dev/test only: data/raw/<key> turned into the timeline a live session publishes (server/simulate.ts's rules), and REST over it |
+| `simserver.ts` | Dev only: the vault dev server's `/__sim/` endpoints (feed, REST, /token, sessions, faults) |
+| `s3.ts` | The S3 success check (`vault:e2e --s3`) |
 
 The build is unminified, so the deployed JavaScript reads like this source.
 
@@ -45,6 +52,7 @@ bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite cli
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
 bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
+bun run vault:e2e --s3  # only the S3 success check: a simulated session in two tabs, ~25 min (needs data/raw/11377)
 bun vault/fakebroker.ts # a local fake OpenF1 broker on :5191 (see "The live stream")
 ```
 
@@ -136,8 +144,8 @@ password grant again; new tokens don't invalidate old ones; REST 401s from the f
 
 `get` without a valid token (no login, locked, expired while refreshes fail, rejected) is sent
 unauthenticated: historical data is free (3 req/s, 30/min), so the app keeps working, and `auth: false`
-says so. Live windows need the login. One request at a time for now; step 6 adds parallel requests within
-the rate caps.
+says so. Live windows need the login. One request at a time for now, paced under the rate caps (`Pacer`);
+step 6 adds parallel requests within them.
 
 ## The live stream
 
@@ -149,9 +157,12 @@ reused clientId kicks the older session; an open session outlives its token (the
 CONNECT).
 
 - MQTT 3.1.1 over `wss://mqtt.openf1.org:8084/mqtt`, subprotocol `mqtt`, binary frames (one frame may hold
-  part of a packet or several). Clean session, keepalive 30 s: a PINGREQ after 15 s of silence, checked by a
-  timer and on every inbound packet (background tabs throttle timers to once a minute); no answer within 10 s
-  and the session is dead. QoS 0 subscriptions; a QoS 1 PUBLISH is PUBACKed anyway.
+  part of a packet or several). Clean session, keepalive **90 s**: a PINGREQ after 45 s without sending, checked
+  by a timer and also on every inbound packet; no answer within 10 s and the session is dead. Why 90: a hidden
+  tab's timers can be aligned to one minute (Chrome's intensive throttling), so the timer's ping can go out as
+  late as ~105 s after the last packet, still inside the broker's 1.5 x keepalive = 135 s; while data flows the
+  inbound check sends it on time anyway. The price: a silent dead link takes up to ~55 s to notice (a live
+  session is never silent that long). QoS 0 subscriptions; a QoS 1 PUBLISH is PUBACKed anyway.
 - Every session gets a fresh random clientId (from the CSPRNG).
 - **Handover** on every new token: open session B with it, subscribe, and 2 s after B's SUBACK close A (not at
   once: a message published just before B subscribed can still be in flight on A's socket). Never a third
@@ -165,7 +176,9 @@ CONNECT).
   undated ones (drivers, laps, stints, session_result, sessions), `session_key` = the live session's (from the
   messages) or `latest`. A topic with nothing delivered yet is filled from when it started streaming, minus
   30 s. Rows go through the same dedupe, in date order; live messages that arrive meanwhile are held back and
-  follow. A topic whose gap-fill fails 3 times is reported in `lastError`.
+  follow. A topic whose gap-fill fails 3 times is reported in `lastError`. The requests go through `get`'s
+  budget (`Pacer` in rest.ts: starts spaced 1.15 s / 6 apart with a token, / 3 without, at most 60 / 30 a
+  minute), so a gap-fill of 14 topics never bursts; step 6 generalises it.
 - **Dedupe**: a message is known by OpenF1's `_id` (MQTT) and always by topic + `date` + a hash of its content
   without `_id` / `_key` (what a REST row has). Either key seen = a duplicate. Memory is bounded: the newest
   20,000 keys per topic (about 2 minutes of car_data), so a car_data flood never evicts laps.
@@ -188,6 +201,30 @@ them: one trust boundary.
   vault frames **in memory** (the decrypted secret and the current token, on every refresh), never to the app
   or to storage. So a new tab is connected at once with no `/token`, and a passkey login is unlocked in every
   open tab with one tap.
+- **A frozen or throttled leader** (Chrome freezes background tabs; timers in hidden tabs can be held for a
+  minute) must not stall the others. The leader sends a heartbeat every 2 s (its data and status count too); a
+  *visible* follower that hears nothing from it for 10 s takes the lock with `navigator.locks.request(…,
+  {steal: true})` and takes over as below. The old leader, when it wakes, must not deliver its stale session's
+  backlog: it holds a lease that only its own heartbeat renews, and only while that timer runs on time. Once a
+  beat is late by more than 3.5 s the lease is void, and until it has re-checked the lock
+  (`navigator.locks.query()`: is `f1-vault-leader` held by this frame's clientId?) live.ts buffers raw MQTT
+  messages and opens no session. Lost (or the stolen lock's request rejects, or another frame acts as
+  leader): it demotes (closes its sessions, drops the buffer, stops refreshing), replays what the new leader
+  broadcast while it was frozen (its app missed that), and queues for the lock again. Followers take data and
+  status only from the leader they know, so a stale leader's burst reaches nobody, and a leader without a valid
+  lease answers no `hello` or forwarded request before the lock check (otherwise a tab that joined during the
+  freeze could be synced by the stale leader and follow it; a hidden one would never steal its way back). A follower that was itself
+  frozen gives the leader's queued messages a chance before judging. A hidden follower never steals: with every
+  tab hidden, a throttled leader keeps leading (its WebSocket events aren't throttled).
+- A frozen leader's sessions stay open at the broker (until 1.5 x keepalive of silence), so a steal could make
+  three. The heartbeat carries the leader's active session's clientId; the stealer's first session reuses it,
+  so the broker kicks the frozen one (OpenF1 kicks the older session on a reused clientId), and the stealer
+  hands over to a new token only once the old leader has been heard from as a follower (it has closed its
+  sessions) or 1.5 x keepalive (135 s) has passed. The token in hand stays valid meanwhile, and an open session
+  outlives its token anyway (the broker checks only at CONNECT). Measured by the S3 run: without this, 3.
+- A new or rejoining frame gets a `sync` (the login, the status, the seen keys for dedupe). The leader flushes
+  its batch first, and the follower takes that batch before merging the keys: otherwise the batch arrives
+  "already seen" and the follower's app never gets it (found by the S3 run).
 - When the leader's tab closes, the next frame in line gets the lock and takes over: the login it was given
   (no passkey tap, no immediate `/token`), and the stream: a new session, then a gap-fill from the `lastSeen`
   it tracked from the data it was forwarded, deduped against everything the tabs already got. The old
@@ -207,6 +244,8 @@ vault rejects the debug methods as unknown types and has no fake expiry (e2e che
 | `debug:spoilToken` | | The token in hand is sent with one signature character changed until the next token: a real OpenF1 401 |
 | `debug:refreshNow` | | A refresh now, through the scheduler (coalesced, backoff on failure) |
 | `debug:failToken` | `status`: 401, 429 or 503; `times`: 0–10 | The next `times` `/token` calls answer that status without reaching OpenF1 |
+| `debug:freeze` | `ms`: 1000–120000 | Freeze **this** frame (not forwarded): timers, sockets, channel and port messages, lock callbacks and fetch answers wait, then run in order (freeze.ts) |
+| `debug:sim` | `action`: `drop` or `refuse` | Simulate mode: drop every broker session now, or CONNACK 5 the next CONNECT |
 
 `VAULT_FAKE_BROKER` (dev server only): the origin of a local fake broker (`fakebroker.ts`), e.g.
 `http://127.0.0.1:5191`; only `http://127.0.0.1:PORT` or `http://localhost:PORT`. The dev vault's MQTT URL and
@@ -245,6 +284,84 @@ one more refresh; wait 10 s after a refresh first, or the fresh-token guard give
 about 5 s and 10 s and recover) and `/token 401` (then a refresh: the reconnect banner, while gets keep
 working until the token expires; Reconnect or Disconnect clears it). e2e fakes the same `/token` answers
 with Playwright routes instead, on the real network path.
+
+## Simulate mode (dev only)
+
+A cached session replayed inside the vault as if it were live, so the stream, the handover, the gap-fill and
+the tabs can be tried and tested outside race weekends, with no OpenF1 login. Only on the vault dev server:
+`vite.config.ts` sets `__VAULT_SIMULATE__` from `VAULT_SIMULATE` there and to `false` in a build, which drops
+`src/sim.ts` and `src/freeze.ts` (e2e checks `dist/`).
+
+The substitution is at the transport boundary, so the real code runs from the socket up: `mqtt.ts`, `live.ts`,
+the scheduler and the tabs are unchanged.
+
+- **MQTT**: the frame's socket factory returns the simulated broker's `SocketLike` (`src/sim.ts`). It speaks
+  MQTT 3.1.1 bytes: CONNECT (token, email and armed refusals checked by the dev server; CONNACK 5 otherwise),
+  SUBSCRIBE / UNSUBSCRIBE, PINGREQ, a 1.5 x keepalive timeout, clientId kicks, PUBLISH in WebSocket frames cut
+  at random (a packet may span frames), optional delivery jitter.
+- **The data**: the vault dev server (`simserver.ts`, at `/__sim/` on the vault's own origin; the dev frame's
+  `connect-src` adds `'self'`) builds the session's timeline from `data/raw/<key>/` with `server/simulate.ts`'s
+  rules (`simdata.ts`: same topics and fields; laps at start, after each sector and complete, stints per lap, pit
+  stops after the pit lane, telemetry from 10 min before the session, plus the session record at the start), with
+  dates shifted onto the sim clock and written OpenF1's way. The broker fetches `/__sim/feed` just ahead of the
+  clock. Payloads carry `_id` (the event's place in the timeline, so every frame's broker numbers them alike) and
+  `_key`. (It serves the timeline rather than the raw files: 1.2 million records per frame would be ~300 MB in
+  every tab.)
+- **The clock**: the dev server holds the anchor, so every frame, reload and new tab sees the same session at the
+  same moment: sim time = anchor + (now - anchor) x speed.
+- **REST and /token**: `get` (the real `Rest`, pacer included) goes to `/__sim/v1/`, answered from the same
+  timeline as of the current sim time (each document's latest version; 401 for a bad or expired token; 429 over
+  6/s or 60/min). `/token` goes to `/__sim/token`: any email and password, a fake JWT (`eyJhbGciOi…`) lasting
+  `VAULT_SIMULATE_TOKEN_S`. The fake login is stored in its own IndexedDB database (`f1-vault-sim`).
+- **Sessions and faults** live in the dev server, so they are shared by every frame: its session table (a
+  frozen tab's session stays until 1.5 x keepalive, like OpenF1's broker; a reused clientId kicks the older
+  session, whichever frame holds it) gives the concurrent-session count; drops and refusals are counted there.
+- The app shows **SIMULATED** (an amber badge by the account chip) whenever `status.sim` is set, and the login
+  popup says so too (any email and password; don't type a real one).
+
+| Variable (vault dev server) | Default | |
+| --- | --- | --- |
+| `VAULT_SIMULATE` | off | The session key (its raw cache must exist: `bun run ingest <key>`) |
+| `VAULT_SIMULATE_SPEED` | 1 | 0.1–60 |
+| `VAULT_SIMULATE_START` | -60 | Seconds from lights out where it starts |
+| `VAULT_SIMULATE_TOKEN_S` | 3600 | Fake token lifetime, 20–3600 s (a handover every 5/6 of it) |
+| `VAULT_SIMULATE_DROP_EVERY` | 0 | Drop every session every N wall minutes |
+| `VAULT_SIMULATE_REFUSE_AT` | off | One CONNACK 5 at the first CONNECT N wall minutes in |
+| `VAULT_SIMULATE_JITTER` | 0 | Random delivery delay per frame, ms (order kept) |
+
+Controls: `curl -X POST localhost:5174/__sim/control/drop`, `…/refuse?n=1`,
+`…/reset?speed=6&start=-1800&token=120` (restarts the session now; open tabs reconnect), `curl
+localhost:5174/__sim/stats` (sessions now / max, refusals, drops, tokens, REST, 429s).
+
+To watch one in two tabs:
+
+```sh
+VAULT_SIMULATE=11377 VAULT_SIMULATE_SPEED=6 VAULT_SIMULATE_START=-1800 VAULT_SIMULATE_TOKEN_S=120 bun run vault
+bun run dev    # open http://127.0.0.1:5173/?vault=debug in two tabs; Connect in one with any email + password
+```
+
+In the debug panel's "Live stream": click topics in each tab (the leader streams the union). The amber box
+has the sim clock and three buttons (Drop now, CONNACK 5 + refresh, Freeze this tab 20 s); under the arrival
+strip there is one **coverage strip per topic, in message (sim) time**: a hole is data this tab never got, and a
+gap-fill closes it. Counters: handovers / reconnects, delivered (dupes dropped, gap-filled), leader changes /
+steals / lost. Telemetry starts 10 min before the session (at 6x: 2 minutes in, from a -1800 start).
+
+## The S3 check
+
+`bun run vault:e2e --s3` (`s3.ts`): race 11377 from 30 min before lights out to 5 min after the finish (2.2 h)
+at 6x (~25 min), 120 s tokens (a handover every 100 s), 30 ms jitter, all 14 topics in every tab. On the way:
+two forced drops, one CONNACK 5 on a handover, the leader tab closes and a new tab opens, the new follower
+reloads, the leader's frame freezes for 25 s (the follower steals). Per tab (a reload is a new tab), for the
+time it was open: every message once and nothing extra (laps and stints: each document's final version, since
+REST can't return a version that was replaced during an outage; those are counted), no gap between message
+dates beyond the source's own + 2 s sim; at most 2 concurrent broker sessions; no REST 429; then the leak check
+in both open tabs. It prints a summary table, with the freeze -> steal window's size and the arrival stalls
+(the longest time without car_data / location reaching the app, in and outside that window: a drop's stall is
+the reconnect plus the gap-fill, whose rows land in place, so the date-gap check is the "no visible gap" one).
+
+Why `debug:freeze` and not CDP: the vault frames of every tab are same-site, so Chrome runs them in one renderer
+process. `Debugger.pause` (or a busy loop) in one stops them all, leader and followers alike, and
+`Page.setWebLifecycleState` did nothing under Playwright (both measured 2026-09-30). A real tab freeze is per page.
 
 ## Login
 

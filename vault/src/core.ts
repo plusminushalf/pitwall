@@ -148,6 +148,15 @@ export class VaultCore {
     this.share();
   }
 
+  /**
+   * This frame stopped leading (another frame stole the lock): keep the token as a follower does, stop
+   * refreshing. Silent. The login stays in memory for a later takeover.
+   */
+  demote() {
+    this.heldToken = this.scheduler.held();
+    this.scheduler.stop();
+  }
+
   /** Follower: mirror the leader's account state (for expect()'s checks). Silent. */
   mirror(s: Pick<VaultStatus, "state" | "mode" | "account" | "error">) {
     this.state = s.state;

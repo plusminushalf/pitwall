@@ -14,12 +14,23 @@
 //   data it was forwarded, deduped against what was already delivered.
 // - Each frame also holds its own lock (FRAME_LOCK + id): the leader lists them to forget the subscriptions
 //   of frames that have gone.
+// - A frozen or throttled leader tab must not stall the others. The leader sends a heartbeat every
+//   HEARTBEAT_MS (and its data and status count too); a *visible* follower that hears nothing from it for
+//   TAKEOVER_MS takes the lock with `steal: true` and leads (a new session, gap-fill from its lastSeen). The old
+//   leader, when it wakes, must not emit anything from its stale session: it holds a lease that only its own
+//   heartbeat timer renews, and only while that timer runs on time. A skipped beat (frozen, or throttled for
+//   longer than STALL_MS) voids the lease; until it re-checks the lock (navigator.locks.query(): is the leader
+//   lock held by this frame's clientId?) live.ts buffers the raw MQTT messages instead of delivering them. Lost
+//   (or the stolen lock's request rejects, or another frame announces itself): it demotes to a follower,
+//   closes its sessions, drops the buffer and queues for the lock again. Followers take data and status only
+//   from the leader they know (the last "leader" / "sync"), so a stale leader's burst reaches nobody.
 //
 // Pure apart from what's injected (channel, locks, timers), so bun tests run several frames against fakes.
 
 import type { Shared, VaultCore } from "./core";
 import type { Batch, LiveManager, LiveSnapshot } from "./live";
 import type { DebugMethod, GetResult, LiveTopic, Params, Request, RestEndpoint, StreamPhase, VaultStatus } from "./protocol";
+import { KEEPALIVE_S } from "./mqtt";
 import { RestError } from "./rest";
 import type { Timers } from "./scheduler";
 
@@ -31,11 +42,32 @@ export const PRUNE_MS = 5_000;
 export const FORWARD_TIMEOUT_MS = 35_000;
 /** After a takeover, the old leader's topics are kept this long, until every follower has re-sent its own. */
 export const PROVISIONAL_MS = 3_000;
+/** The leader's heartbeat. */
+export const HEARTBEAT_MS = 2_000;
+/** A visible follower that hears nothing from the leader this long steals the lock. */
+export const TAKEOVER_MS = 10_000;
+/** How often a follower checks. */
+export const WATCH_MS = 1_000;
+/** A heartbeat (or watch) timer that fired this late means the frame was frozen or heavily throttled. */
+export const STALL_MS = 3_500;
+/** The leader's lease: valid this long after an on-time heartbeat (or a lock check). */
+export const LEASE_MS = 4_000;
+/**
+ * After a steal, the old (frozen) leader's sessions may stay open at the broker until 1.5 x keepalive of
+ * silence. The stealer's first session reuses the old active one's clientId (the broker kicks it), and it hands
+ * over to a new token only once the old leader has been heard from (it demoted and closed its sessions) or
+ * this long has passed: never three sessions.
+ */
+export const ZOMBIE_MS = KEEPALIVE_S * 1500;
+/** At most this many of another leader's messages are kept while checking the lock (a long freeze's backlog). */
+export const LIMBO_MAX = 10_000;
+/** Data messages kept before the first sync (a few batches). */
+export const EARLY_MAX = 1_000;
 
 export type ChannelLike = { postMessage(m: unknown): void; onmessage: ((e: { data: unknown }) => void) | null };
 export type LocksLike = {
-  request(name: string, options: { ifAvailable?: boolean }, cb: (lock: unknown) => unknown): Promise<unknown>;
-  query(): Promise<{ held?: { name?: string }[] }>;
+  request(name: string, options: { ifAvailable?: boolean; steal?: boolean; signal?: AbortSignal }, cb: (lock: unknown) => unknown): Promise<unknown>;
+  query(): Promise<{ held?: { name?: string; clientId?: string }[] }>;
 };
 
 type Forward = { type: "get"; endpoint: RestEndpoint; params: Params } | { type: "debug"; req: Request<DebugMethod> };
@@ -45,6 +77,7 @@ export type TabMsg =
   | { k: "hello"; from: string }
   | { k: "sync"; from: string; to: string; status: VaultStatus; shared: Shared | null; live: LiveSnapshot }
   | { k: "leader"; from: string }
+  | { k: "hb"; from: string; clientId?: string }
   | { k: "status"; from: string; status: VaultStatus }
   | { k: "shared"; from: string; shared: Shared }
   | { k: "login"; from: string; shared: Shared }
@@ -71,6 +104,8 @@ export type NodeDeps = {
   deliver(batches: Batch[]): void;
   /** The dev knobs (leader's; dev vault only). */
   debug?: (req: Request<DebugMethod>) => Promise<unknown>;
+  /** Whether this frame's tab is visible (only a visible follower steals the lead). Default: yes. */
+  visible?: () => boolean;
   id?: string;
 };
 
@@ -96,6 +131,30 @@ export class VaultNode {
   private initDone!: Promise<void>;
   private initResolve!: () => void;
   private pruneTimer: unknown = null;
+  /** Follower: when the leader was last heard from; the watchdog's last run. */
+  private lastHeard = 0;
+  private lastWatch = 0;
+  private watchTimer: unknown = null;
+  /** Leader: the heartbeat's last run, and when the lease was last renewed. */
+  private lastBeat = 0;
+  private leaseAt = 0;
+  private beatTimer: unknown = null;
+  private verifying: Promise<boolean> | null = null;
+  /** This frame's Web Locks clientId (to tell whether the leader lock is ours). */
+  private clientId: string | null = null;
+  /** The queued (non-steal) request for the leader lock. */
+  private queued: AbortController | null = null;
+  private counts = { changes: 0, steals: 0, lost: 0 };
+  /** Follower: the leader's active session's clientId (from its heartbeat), for a steal. */
+  private leaderClientId: string | null = null;
+  /** Stealing: take over with the old leader's clientId. */
+  private stealing: { from: string | null; clientId: string | null } | null = null;
+  /** Leader after a steal: the frame we stole from (hearing from it releases handovers). */
+  private zombie: string | null = null;
+  /** Leader: messages from another frame acting as leader, while we check whether it's us who lost the lock. */
+  private limbo: TabMsg[] = [];
+  /** Follower: data that came before we knew the leader (the batch flushed right before our sync). */
+  private early: TabMsg[] = [];
 
   constructor(private deps: NodeDeps) {
     this.id = deps.id ?? newId();
@@ -107,10 +166,44 @@ export class VaultNode {
     this.deps.channel.onmessage = (e) => this.onMessage(e.data);
     const locks = this.deps.locks;
     if (!locks) return this.lead(false);
-    void this.hold(FRAME_LOCK + this.id, {});
-    if (await this.hold(LEADER_LOCK, { ifAvailable: true })) return this.lead(false);
+    void this.hold(FRAME_LOCK + this.id, {}).then((ok) => void (ok && this.learnClientId()));
+    if (await this.hold(LEADER_LOCK, { ifAvailable: true }, () => this.lostLock())) return this.lead(false);
     this.send({ k: "hello", from: this.id });
-    void this.hold(LEADER_LOCK, {}).then(() => this.lead(true));
+    this.queueForLead();
+    this.lastHeard = this.lastWatch = this.deps.timers.now();
+    this.watch();
+  }
+
+  /**
+   * Leader: may this frame act on what its sessions deliver right now? False once its heartbeat has
+   * stalled (frozen, throttled): then verify() first. live.ts asks before delivering anything.
+   */
+  leaseOk(): boolean {
+    if (this.role !== "leader") return false;
+    return !this.deps.locks || this.deps.timers.now() - this.leaseAt <= LEASE_MS;
+  }
+
+  /** Leader: re-check that the leader lock is still this frame's. Renews the lease, or demotes. */
+  verify(): Promise<boolean> {
+    if (this.role !== "leader") return Promise.resolve(false);
+    if (!this.deps.locks) return Promise.resolve(true);
+    return (this.verifying ??= this.checkLock().then((mine) => {
+      this.verifying = null;
+      if (this.role !== "leader") return false;
+      if (mine) {
+        this.leaseAt = this.lastBeat = this.deps.timers.now();
+        this.heartbeat();
+        return true;
+      }
+      this.demote();
+      return false;
+    }));
+  }
+
+  /** Leader: the lease holds, or a lock check says the lead is still ours (false once demoted meanwhile). */
+  private async stillLeading(): Promise<boolean> {
+    if (this.role !== "leader") return false;
+    return this.leaseOk() || this.verify();
   }
 
   /** The tab is going away: the leader forgets this frame's subscriptions now rather than at the next prune. */
@@ -123,9 +216,9 @@ export class VaultNode {
   status(): VaultStatus {
     if (this.role === "leader") {
       const stream = this.deps.live.status();
-      return { ...this.deps.core.status(), live: livePhase(stream.phase), stream, tab: { role: "leader", id: this.id, leader: this.id, frames: this.frames } };
+      return { ...this.deps.core.status(), live: livePhase(stream.phase), stream, tab: { role: "leader", id: this.id, leader: this.id, frames: this.frames, ...this.counts } };
     }
-    const tab = { role: "follower" as const, id: this.id, leader: this.leaderId };
+    const tab = { role: "follower" as const, id: this.id, leader: this.leaderId, ...this.counts };
     return this.mirror ? { ...this.mirror, tab } : { state: "connecting", live: "off", version: this.deps.version, tab };
   }
 
@@ -198,21 +291,154 @@ export class VaultNode {
     }
   }
 
-  /** Request a lock and keep it for the frame's lifetime. Resolves true once held, false if not available. */
-  private hold(name: string, opts: { ifAvailable?: boolean }): Promise<boolean> {
+  /**
+   * Request a lock and keep it for the frame's lifetime. Resolves true once held, false if not available (or
+   * the queued request was aborted). `onLost`: the lock was taken from us after all (someone stole it).
+   */
+  private hold(name: string, opts: { ifAvailable?: boolean; steal?: boolean; signal?: AbortSignal }, onLost?: () => void): Promise<boolean> {
     return new Promise((resolve) => {
-      void this.deps.locks!.request(name, opts, (lock) => {
+      let granted = false;
+      this.deps.locks!.request(name, opts, (lock) => {
         if (!lock) return resolve(false);
+        granted = true;
         resolve(true);
         return new Promise(() => {});
+      }).catch(() => {
+        if (!granted) resolve(false);
+        else onLost?.();
       });
     });
+  }
+
+  private async learnClientId() {
+    try {
+      const q = await this.deps.locks!.query();
+      this.clientId = q.held?.find((l) => l.name === FRAME_LOCK + this.id)?.clientId ?? null;
+    } catch {
+      // (then the lock check trusts that the leader lock is ours)
+    }
+  }
+
+  /** Whether the leader lock is held by this frame (its clientId; without clientIds, held by anyone). */
+  private async checkLock(): Promise<boolean> {
+    try {
+      const q = await this.deps.locks!.query();
+      const leader = q.held?.find((l) => l.name === LEADER_LOCK);
+      if (!leader) return false;
+      return !this.clientId || !leader.clientId || leader.clientId === this.clientId;
+    } catch {
+      return true; // can't tell: carry on
+    }
+  }
+
+  /** Queue for the leader lock (the normal way to take over: the leader's tab closes). */
+  private queueForLead() {
+    this.queued?.abort();
+    const ac = new AbortController();
+    this.queued = ac;
+    void this.hold(LEADER_LOCK, { signal: ac.signal }, () => this.lostLock()).then((ok) => {
+      if (this.queued === ac) this.queued = null;
+      if (ok) void this.lead(true);
+    });
+  }
+
+  /** The leader went quiet (frozen, throttled): take the lock from it. */
+  private steal() {
+    this.queued?.abort();
+    this.queued = null;
+    this.counts.steals++;
+    this.stealing = { from: this.leaderId, clientId: this.leaderClientId };
+    void this.hold(LEADER_LOCK, { steal: true }, () => this.lostLock()).then((ok) => {
+      if (ok) void this.lead(true);
+      else this.queueForLead();
+    });
+  }
+
+  /** Our leader lock was stolen (its request rejected). */
+  private lostLock() {
+    if (this.role === "leader") this.demote();
+  }
+
+  private watch() {
+    if (this.watchTimer !== null) this.deps.timers.clearTimeout(this.watchTimer);
+    this.watchTimer = this.deps.timers.setTimeout(() => this.onWatch(), WATCH_MS);
+  }
+
+  /** Follower: steal the lead from a leader that has gone quiet, if this tab is visible. */
+  private onWatch() {
+    this.watchTimer = null;
+    if (this.role === "leader") return;
+    const now = this.deps.timers.now();
+    const stalled = now - this.lastWatch > STALL_MS;
+    this.lastWatch = now;
+    this.watch();
+    // We were the frozen one: give the leader's queued messages a chance to arrive first.
+    if (stalled) return void (this.lastHeard = now);
+    if (now - this.lastHeard < TAKEOVER_MS || !(this.deps.visible?.() ?? true)) return;
+    this.lastHeard = now; // one steal at a time
+    this.steal();
+  }
+
+  private beat() {
+    if (this.beatTimer !== null) this.deps.timers.clearTimeout(this.beatTimer);
+    this.beatTimer = this.deps.timers.setTimeout(() => this.onBeat(), HEARTBEAT_MS);
+  }
+
+  /** Leader: the heartbeat. On time, it renews the lease; late (we were frozen), the lock is checked first. */
+  private onBeat() {
+    this.beatTimer = null;
+    if (this.role !== "leader") return;
+    const now = this.deps.timers.now();
+    const stalled = now - this.lastBeat > STALL_MS;
+    this.lastBeat = now;
+    this.beat();
+    if (stalled) return void this.verify();
+    this.leaseAt = now;
+    this.heartbeat();
+  }
+
+  private heartbeat() {
+    const clientId = this.deps.live.activeClientId();
+    this.send({ k: "hb", from: this.id, ...(clientId && { clientId }) });
+  }
+
+  /** Leader -> follower: another frame holds the lock now. Stop streaming (emitting nothing stale) and queue again. */
+  private demote() {
+    if (this.role !== "leader") return;
+    this.role = "follower";
+    this.counts.lost++;
+    this.counts.changes++;
+    this.leaderId = null;
+    for (const t of [this.pruneTimer, this.beatTimer]) if (t !== null) this.deps.timers.clearTimeout(t);
+    this.pruneTimer = this.beatTimer = null;
+    this.followerSubs.clear();
+    this.provisional = [];
+    const last = this.deps.core.status();
+    this.shared = this.deps.core.sharedLogin();
+    this.deps.live.stop();
+    this.deps.core.demote();
+    this.mirror = { ...last, live: "off" };
+    this.lastHeard = this.lastWatch = this.deps.timers.now();
+    this.watch();
+    this.send({ k: "hello", from: this.id });
+    this.send({ k: "subs", from: this.id, topics: this.localTopics });
+    this.queueForLead();
+    // What the new leader sent while we still thought we led (we were frozen): our app missed it.
+    const limbo = this.limbo;
+    this.limbo = [];
+    for (const m of limbo) this.onMessage(m);
+    this.deps.onStatus(this.status());
   }
 
   private async lead(takeover: boolean) {
     if (this.role === "leader") return;
     this.role = "leader";
     this.leaderId = this.id;
+    if (takeover) this.counts.changes++;
+    if (this.watchTimer !== null) this.deps.timers.clearTimeout(this.watchTimer);
+    this.watchTimer = null;
+    this.leaseAt = this.lastBeat = this.deps.timers.now();
+    this.beat();
     this.send({ k: "leader", from: this.id });
     if (takeover) {
       // Keep streaming what the old leader streamed until the followers have re-announced their topics.
@@ -225,11 +451,14 @@ export class VaultNode {
     }
     const shared = this.shared;
     this.shared = null;
+    const stolen = this.stealing;
+    this.stealing = null;
+    this.zombie = stolen?.from ?? null;
     if (takeover && shared) this.deps.core.adoptShared(shared);
     else await this.deps.core.init();
     this.initResolve();
     this.updateTopics();
-    this.deps.live.start({ gap: takeover });
+    this.deps.live.start({ gap: takeover, ...(stolen && { clientId: stolen.clientId ?? undefined, handoverAfter: this.deps.timers.now() + ZOMBIE_MS }) });
     // Requests that were waiting for the old leader: ours now.
     for (const [id, p] of this.pending) {
       this.deps.timers.clearTimeout(p.timer);
@@ -308,14 +537,36 @@ export class VaultNode {
     if (!data || typeof data !== "object" || typeof (data as TabMsg).k !== "string" || typeof (data as TabMsg).from !== "string") return;
     const m = data as TabMsg;
     if (m.from === this.id) return;
-    if (this.role === "leader") return void this.onLeaderMessage(m);
+    if (this.role === "leader") {
+      // Another frame acting as the leader: one of us lost the lock (a steal). Check which. If it's us, what
+      // it sent meanwhile is what our app missed: kept, and replayed once we follow.
+      if (m.k === "leader" || m.k === "hb" || m.k === "status" || m.k === "data" || m.k === "sync" || m.k === "shared") {
+        if (this.limbo.length < LIMBO_MAX) this.limbo.push(m);
+        return void this.verify().then((mine) => {
+          if (mine) this.limbo = [];
+        });
+      }
+      return void this.onLeaderMessage(m);
+    }
+    if (m.from === this.leaderId || m.k === "leader" || (m.k === "sync" && m.to === this.id)) this.lastHeard = this.deps.timers.now();
     this.onFollowerMessage(m);
   }
 
   private async onLeaderMessage(m: TabMsg) {
+    if (this.zombie !== null && m.from === this.zombie) {
+      // The leader we stole from is back, as a follower: it closed its sessions.
+      this.zombie = null;
+      this.deps.live.releaseHandovers();
+    }
     switch (m.k) {
       case "hello":
         await this.initDone;
+        // A leader waking from a freeze answers only once it knows it still leads: a stale sync would make the
+        // new frame follow a leader that is about to demote (and a hidden frame never steals its way out).
+        if (!(await this.stillLeading())) return;
+        // Flush first: the snapshot's seen keys must not include messages still in our outbox, or the
+        // follower (which dedupes against them) would drop that batch when it comes.
+        this.deps.live.flushNow();
         return this.send({ k: "sync", from: this.id, to: m.from, status: this.status(), shared: this.deps.core.sharedLogin(), live: this.deps.live.state.snapshot() });
       case "subs":
         this.followerSubs.set(m.from, m.topics);
@@ -332,6 +583,7 @@ export class VaultNode {
         return this.wiped();
       case "req": {
         await this.initDone;
+        if (!(await this.stillLeading())) return; // (the real leader answers it)
         const reply = (r: { ok: true; result: unknown } | { ok: false; code: "network" | "internal" }) => this.send({ k: "res", from: this.id, to: m.from, id: m.id, ...r });
         return this.runLocal(m.req).then(
           (result) => reply({ ok: true, result }),
@@ -345,26 +597,42 @@ export class VaultNode {
     switch (m.k) {
       case "leader":
         // A new leader (a takeover, or the first one after we joined): announce ourselves again.
+        if (this.leaderId !== null && this.leaderId !== m.from) this.counts.changes++;
         this.leaderId = m.from;
         this.send({ k: "hello", from: this.id });
         this.send({ k: "subs", from: this.id, topics: this.localTopics });
         for (const [id, p] of this.pending) this.send({ k: "req", from: this.id, id, req: p.req });
         return;
-      case "sync":
+      case "sync": {
         if (m.to !== this.id) return;
+        if (this.leaderId !== m.from && this.leaderId !== null) this.counts.changes++;
         this.leaderId = m.from;
         this.shared = m.shared;
+        // The batch the leader flushed just before this snapshot came first: take it before the seen keys.
+        const early = this.early;
+        this.early = [];
+        for (const e of early) if (e.from === m.from) this.onFollowerMessage(e);
         this.deps.live.state.merge(m.live);
         this.setMirror(m.status);
         this.send({ k: "subs", from: this.id, topics: this.localTopics });
         return;
+      }
       case "status":
-        this.leaderId = m.from;
+        // Only from the leader we know: a stale (frozen, now woken) leader's status must not win.
+        if (m.from !== this.leaderId) return;
         return this.setMirror(m.status);
       case "shared":
+        if (m.from !== this.leaderId) return;
         this.shared = m.shared;
         return;
+      case "hb":
+        if (m.from === this.leaderId) this.leaderClientId = m.clientId ?? null;
+        return;
       case "data": {
+        // Not knowing the leader yet (just joined, just demoted): keep it until the sync says who leads.
+        if (this.leaderId === null) return void (this.early.length < EARLY_MAX && this.early.push(m));
+        // Likewise its data: a stale leader's burst would be duplicates at best.
+        if (m.from !== this.leaderId) return;
         const mine: Batch[] = [];
         for (const b of m.batches) {
           const fresh = b.messages.filter((msg) => this.deps.live.state.accept(b.topic, msg));

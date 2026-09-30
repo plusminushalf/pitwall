@@ -61,6 +61,17 @@ function error(e: LoginError | string | null) {
 // ticket) changes then, which doesn't reload the page: start over with the new ticket.
 window.addEventListener("hashchange", () => location.reload());
 
+// Dev vault in simulate mode only (a build has false here and drops it): the login is fake, so say so, and
+// keep real passwords out of it.
+if (__VAULT_DEV__ && __VAULT_SIMULATE__) {
+  const sim = document.createElement("p");
+  sim.dataset.testid = "popup-sim";
+  // (CSSOM, not a style attribute: the CSP has no 'unsafe-inline'; and nothing of it in the build's popup.css.)
+  Object.assign(sim.style, { border: "1px solid #b45309", background: "#451a03", color: "#fcd34d", borderRadius: "6px", padding: "0.5rem 0.75rem", fontSize: "12px", fontWeight: "600" });
+  sim.textContent = "SIMULATED: this dev vault replays a recorded session. Any email and password work; don't use your real OpenF1 password.";
+  ui.title.after(sim);
+}
+
 const hash = new URLSearchParams(location.hash.slice(1));
 const ticket = hash.get("ticket");
 const mode = hash.get("mode") === "unlock" ? "unlock" : "connect";

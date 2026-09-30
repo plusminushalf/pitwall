@@ -5,7 +5,8 @@ import { FLUSH_MS, LiveManager, isoDate, type Batch } from "./live";
 import type { Fetch } from "./openf1";
 import type { LiveTopic, PopupMessage, VaultStatus } from "./protocol";
 import { MemoryStore } from "./storage";
-import { FRAME_LOCK, LEADER_LOCK, PROVISIONAL_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
+import { FreezeGate } from "./freeze";
+import { FRAME_LOCK, HEARTBEAT_MS, LEADER_LOCK, LEASE_MS, PROVISIONAL_MS, TAKEOVER_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
 
 const USER = "someone@example.com";
 const PASS = "correct horse battery staple";
@@ -28,28 +29,43 @@ class Bus {
   }
 }
 
-/** Web Locks for several frames: exclusive, FIFO; a dead frame's locks and queued requests go away. */
+/** Web Locks for several frames: exclusive, FIFO, steal, abort; a dead frame's locks and queued requests go away. */
 class Locks {
   held = new Map<string, string>();
-  queue = new Map<string, { owner: string; grant: () => void }[]>();
+  private holders = new Map<string, { owner: string; reject: (e: Error) => void }>();
+  queue = new Map<string, { owner: string; grant: () => void; reject: (e: Error) => void }[]>();
   forFrame(owner: string): LocksLike {
     return {
-      request: (name, opts, cb) => {
-        if (!this.held.has(name)) {
-          this.held.set(name, owner);
-          cb({ name });
-          return Promise.resolve();
-        }
-        if (opts.ifAvailable) {
-          cb(null);
-          return Promise.resolve();
-        }
-        const q = this.queue.get(name) ?? [];
-        q.push({ owner, grant: () => cb({ name }) });
-        this.queue.set(name, q);
-        return Promise.resolve();
-      },
-      query: async () => ({ held: [...this.held.keys()].map((name) => ({ name })) }),
+      request: (name, opts, cb) =>
+        new Promise((_resolve, reject) => {
+          const grant = () => {
+            this.held.set(name, owner);
+            this.holders.set(name, { owner, reject });
+            void cb({ name });
+          };
+          if (opts.steal) {
+            // The holder's request rejects (AbortError); queued requests stay queued.
+            this.holders.get(name)?.reject(new Error("AbortError"));
+            return grant();
+          }
+          if (!this.held.has(name)) return grant();
+          if (opts.ifAvailable) {
+            void cb(null);
+            return _resolve(undefined);
+          }
+          const q = this.queue.get(name) ?? [];
+          const entry = { owner, grant, reject };
+          q.push(entry);
+          this.queue.set(name, q);
+          opts.signal?.addEventListener("abort", () => {
+            const i = q.indexOf(entry);
+            if (i >= 0) {
+              q.splice(i, 1);
+              reject(new Error("AbortError"));
+            }
+          });
+        }),
+      query: async () => ({ held: [...this.held].map(([name, o]) => ({ name, clientId: `client-${o}` })) }),
     };
   }
   kill(owner: string) {
@@ -57,11 +73,9 @@ class Locks {
     for (const [name, o] of [...this.held]) {
       if (o !== owner) continue;
       this.held.delete(name);
+      this.holders.delete(name);
       const next = this.queue.get(name)?.shift();
-      if (next) {
-        this.held.set(name, next.owner);
-        next.grant();
-      }
+      if (next) next.grant();
     }
   }
 }
@@ -78,14 +92,17 @@ function world() {
     return { status: 200, text: async () => JSON.stringify({ access_token: `eyJhbGciOiJIUzI1NiJ9.tok${tokens}.sig`, token_type: "bearer", expires_in: "3600" }) };
   };
   let seq = 0;
-  function frame() {
+  function frame(opts: { gate?: boolean; visible?: () => boolean } = {}) {
     const id = `frame${++seq}`;
+    const gate = opts.gate ? new FreezeGate(clock) : null;
+    const timers = gate ? gate.timers() : clock;
     const statuses: VaultStatus[] = [];
     const got: Batch[] = [];
     const gets: string[] = [];
     let node: VaultNode | null = null;
     let live: LiveManager | null = null;
-    const channel = bus.make();
+    const rawChannel = bus.make();
+    const channel = gate ? gate.channel(rawChannel) : rawChannel;
     const core = new VaultCore({
       store,
       fetch,
@@ -93,8 +110,8 @@ function world() {
       version: "test",
       onStatus: () => node?.onCoreStatus(),
       announceWipe: () => node?.announceWipe(),
-      setTimeout: clock.setTimeout,
-      clearTimeout: clock.clearTimeout,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
       random: () => 0.5,
       leading: () => node?.role === "leader",
       onShared: (s) => node?.onShared(s),
@@ -109,31 +126,35 @@ function world() {
     };
     live = new LiveManager({
       now: clock.now,
-      setTimeout: clock.setTimeout,
-      clearTimeout: clock.clearTimeout,
+      setTimeout: timers.setTimeout,
+      clearTimeout: timers.clearTimeout,
       random: () => 0.5,
       url: "wss://broker/mqtt",
-      socket: broker.socket,
+      socket: gate ? (u, p) => gate.socket(broker.socket(u, p)) : broker.socket,
       token: () => core.liveToken(),
       refresh: () => core.scheduler.refresh(),
-      rest: (e, p) => rest.get(e, p),
+      rest: (e, p) => (gate ? gate.hold(rest.get(e, p)) : rest.get(e, p)),
       emit: (b) => node?.onLiveData(b),
       onStatus: () => node?.pushStatus(),
+      lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
     });
+    const frameLocks = locks.forFrame(id);
     node = new VaultNode({
       id,
       core,
       live,
       rest: rest as never,
       channel,
-      locks: locks.forFrame(id),
-      timers: clock,
+      locks: gate ? gate.locks(frameLocks) : frameLocks,
+      timers,
       version: "test",
       onStatus: (s) => statuses.push(s),
       deliver: (b) => got.push(...b),
+      ...(opts.visible && { visible: opts.visible }),
     });
     const f = {
       id,
+      gate,
       core,
       node,
       live,
@@ -144,7 +165,7 @@ function world() {
       ns: () => got.flatMap((b) => b.messages.map((m) => m.n as number)),
       /** The tab closes. */
       kill: () => {
-        channel.dead = true;
+        rawChannel.dead = true;
         live!.stop();
         locks.kill(id);
       },
@@ -172,6 +193,9 @@ function world() {
   return { clock, bus, locks, store, broker, frame, pub, run, tokens: () => tokens, published: () => n };
 }
 
+/** The watchdog runs every second: allow one more. */
+const WATCH_MS_SLACK = 1_000;
+
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => a + i);
 
 describe("VaultNode: one leader among the vault frames", () => {
@@ -184,7 +208,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     await b.node.start();
     await w.run();
     expect(a.status().tab).toMatchObject({ role: "leader", id: "frame1", leader: "frame1" });
-    expect(b.status().tab).toEqual({ role: "follower", id: "frame2", leader: "frame1" });
+    expect(b.status().tab).toEqual({ role: "follower", id: "frame2", leader: "frame1", changes: 0, steals: 0, lost: 0 });
     expect(b.status().state).toBe("disconnected");
     expect(w.locks.held.get(LEADER_LOCK)).toBe("frame1");
     expect(w.locks.held.has(FRAME_LOCK + "frame2")).toBe(true);
@@ -338,5 +362,153 @@ describe("VaultNode: one leader among the vault frames", () => {
     await w.run();
     expect((await p).status).toBe(200);
     expect(b.gets).toEqual(["frame2:laps"]);
+  });
+
+  test("a frozen leader: a visible follower steals the lock; the old leader wakes, emits nothing stale, and follows", async () => {
+    const w = world();
+    const a = w.frame({ gate: true });
+    await a.node.start();
+    const b = w.frame();
+    await b.node.start();
+    await w.run();
+    await a.login();
+    a.node.setTopics(["car_data"]);
+    b.node.setTopics(["car_data"]);
+    await w.run(10);
+    for (let i = 0; i < 5; i++) w.pub("car_data");
+    await w.run(FLUSH_MS);
+    expect(b.ns()).toEqual(range(1, 5));
+    await w.run(HEARTBEAT_MS); // (a heartbeat has told b the session's clientId)
+    // The leader's tab freezes (timers, socket, channel, locks all wait). The broker keeps publishing to it.
+    a.gate!.freeze(30_000);
+    for (let i = 0; i < 5; i++) w.pub("car_data");
+    await w.run(TAKEOVER_MS - 2_000);
+    expect(b.status().tab?.role).toBe("follower");
+    await w.run(3_000 + WATCH_MS_SLACK);
+    // Heard nothing for TAKEOVER_MS: b steals, opens its own session and gap-fills what a never forwarded.
+    expect(b.status().tab).toMatchObject({ role: "leader", steals: 1 });
+    await w.run(FLUSH_MS);
+    for (let i = 0; i < 5; i++) w.pub("car_data");
+    await w.run(FLUSH_MS);
+    expect(b.ns()).toEqual(range(1, 15));
+    // b's session reused a's clientId (from its heartbeat), so the broker kicked a's frozen session.
+    expect(w.broker.current).toBe(1);
+    expect(w.broker.max).toBeLessThanOrEqual(2);
+    // A new token now: b waits with the handover until a is heard from (its other session may still be open).
+    await b.core.scheduler.refresh();
+    await w.run(3_000);
+    expect(b.live.status().handovers).toBe(0);
+    // a wakes: its socket's backlog (10 messages) must not be delivered by a as the leader; it demotes.
+    await w.run(20_000);
+    for (let i = 0; i < 5; i++) w.pub("car_data");
+    await w.run(PROVISIONAL_MS + FLUSH_MS);
+    expect(a.status().tab).toMatchObject({ role: "follower", leader: b.id, lost: 1 });
+    expect(b.live.status().handovers).toBe(1); // released once a said hello as a follower
+    expect(b.status().tab?.role).toBe("leader");
+    const all = range(1, w.published());
+    expect([...b.ns()].sort((x, y) => x - y)).toEqual(all);
+    // a's app: everything once (what it delivered before the freeze, then b's data, deduped).
+    expect([...a.ns()].sort((x, y) => x - y)).toEqual(all);
+    expect(w.broker.current).toBe(1); // a closed its stale session
+    expect(a.core.scheduler.running).toBe(false);
+    expect(b.core.scheduler.running).toBe(true);
+    expect(w.tokens()).toBe(2); // the takeover used the shared login; one refresh (the test's) since
+  });
+
+  test("a frame that joins while the leader is frozen: the stale leader, waking, doesn't answer its hello", async () => {
+    const w = world();
+    const a = w.frame({ gate: true });
+    await a.node.start();
+    const b = w.frame();
+    await b.node.start();
+    await w.run();
+    await a.login();
+    a.node.setTopics(["car_data"]);
+    b.node.setTopics(["car_data"]);
+    await w.run(10);
+    for (let i = 0; i < 3; i++) w.pub("car_data");
+    await w.run(FLUSH_MS + HEARTBEAT_MS);
+    a.gate!.freeze(30_000);
+    await w.run(2_000);
+    // A new (hidden) tab joins now: its hello waits in a's frozen queue, ahead of the lock being stolen.
+    const d = w.frame({ visible: () => false });
+    await d.node.start();
+    d.node.setTopics(["car_data"]);
+    await w.run(TAKEOVER_MS + WATCH_MS_SLACK);
+    expect(b.status().tab?.role).toBe("leader");
+    expect(d.status().tab?.leader).toBe(b.id);
+    // a wakes: it must not sync d as if it still led (d would follow a stale leader, and being hidden, never steal).
+    await w.run(20_000);
+    expect(a.status().tab).toMatchObject({ role: "follower", leader: b.id });
+    expect(d.status().tab?.leader).toBe(b.id);
+    const before = d.ns().length;
+    for (let i = 0; i < 3; i++) w.pub("car_data");
+    await w.run(PROVISIONAL_MS + FLUSH_MS);
+    expect(d.ns().length).toBe(before + 3);
+  });
+
+  test("a hidden follower doesn't steal from a silent leader", async () => {
+    const w = world();
+    const a = w.frame({ gate: true });
+    await a.node.start();
+    const b = w.frame({ visible: () => false });
+    await b.node.start();
+    await w.run();
+    a.gate!.freeze(20_000);
+    await w.run(15_000);
+    expect(b.status().tab?.role).toBe("follower");
+    expect(a.status().tab?.role).toBe("leader");
+  });
+
+  test("the lease: void after a missed heartbeat, renewed by a lock check", async () => {
+    const w = world();
+    const a = w.frame({ gate: true });
+    await a.node.start();
+    await w.run();
+    expect(a.node.leaseOk()).toBe(true);
+    await w.run(HEARTBEAT_MS * 3);
+    expect(a.node.leaseOk()).toBe(true); // on-time heartbeats keep it
+    a.gate!.freeze(LEASE_MS + 2_000);
+    w.clock.t += LEASE_MS + 1; // (read the lease mid-freeze)
+    expect(a.node.leaseOk()).toBe(false);
+    await w.run(3_000);
+    // The late heartbeat didn't renew it by itself: it checked the lock (still ours), which did.
+    expect(a.node.leaseOk()).toBe(true);
+    expect(a.status().tab?.role).toBe("leader");
+  });
+
+  test("followers take data and status only from the leader they know", async () => {
+    const w = world();
+    const a = w.frame();
+    await a.node.start();
+    const b = w.frame();
+    await b.node.start();
+    await w.run();
+    const impostor = w.bus.make();
+    impostor.postMessage({ k: "data", from: "stale", batches: [{ topic: "car_data", messages: [{ date: isoDate(1), n: 99 }] }] });
+    impostor.postMessage({ k: "status", from: "stale", status: { state: "error", live: "off", version: "x" } });
+    await w.run();
+    expect(b.ns()).toEqual([]);
+    expect(b.status().state).toBe("disconnected");
+    expect(b.status().tab?.leader).toBe(a.id);
+  });
+
+  test("a frame that joins mid-batch gets that batch (the leader flushes before its sync snapshot)", async () => {
+    const w = world();
+    const a = w.frame();
+    await a.node.start();
+    await w.run();
+    await a.login();
+    a.node.setTopics(["car_data"]);
+    await w.run(10);
+    for (let i = 0; i < 3; i++) w.pub("car_data");
+    await w.run(FLUSH_MS);
+    w.pub("car_data"); // accepted by the leader, still in its outbox
+    await settle();
+    const b = w.frame();
+    await b.node.start();
+    b.node.setTopics(["car_data"]);
+    await w.run(FLUSH_MS * 2);
+    expect(b.ns()).toContain(4);
   });
 });

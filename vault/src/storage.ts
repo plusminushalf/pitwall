@@ -128,9 +128,12 @@ const KEY = "login";
 export class IdbStore implements LoginStore {
   private db: Promise<IDBDatabase> | null = null;
 
+  /** `name`: the database (the dev vault's simulate mode uses its own, so a fake login never mixes with a real one). */
+  constructor(private name = DB) {}
+
   private open(): Promise<IDBDatabase> {
     return (this.db ??= new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(DB, 1);
+      const req = indexedDB.open(this.name, 1);
       req.onupgradeneeded = () => req.result.createObjectStore(STORE);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);

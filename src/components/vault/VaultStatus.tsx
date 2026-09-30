@@ -61,6 +61,15 @@ export function VaultStatus() {
           </button>
         )}
       </span>
+      {state.status?.sim && (
+        <span
+          className="shrink-0 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-zinc-950"
+          data-testid="vault-sim-badge"
+          title={`Simulated live data: a replay of ${state.status.sim.label} (#${state.status.sim.sessionKey}) at ${state.status.sim.speed}x from the vault dev server, not OpenF1`}
+        >
+          SIMULATED
+        </span>
+      )}
       {state.actionError && (
         <span className="shrink-0 text-[11px] text-red-400" data-testid="vault-action-error">
           {state.actionError}

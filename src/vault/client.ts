@@ -4,9 +4,9 @@
 //
 // VITE_VAULT_ORIGIN: where the vault is served (default the local vault dev server; "off" disables it).
 
-import type { Hello, LiveMessage, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, StreamStatus, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
+import type { Hello, LiveMessage, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, SimAction, SimStatus, StreamStatus, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
 
-export type { LiveMessage, LiveTopic, RestEndpoint, StreamStatus, VaultEvent, VaultStatus };
+export type { LiveMessage, LiveTopic, RestEndpoint, SimStatus, StreamStatus, VaultEvent, VaultStatus };
 export type { VaultState as VaultAccountState, StorageMode } from "../../vault/src/protocol";
 
 export type VaultPhase = "idle" | "loading" | "ready" | "unavailable";
@@ -149,6 +149,10 @@ export class VaultClient {
     refreshNow: () => this.withStatus(this.call("debug:refreshNow", {})),
     /** The next `times` /token calls answer `status` without reaching OpenF1 (0: clear). */
     failToken: (status: 401 | 429 | 503, times: number) => this.withStatus(this.call("debug:failToken", { status, times })),
+    /** Freeze this tab's vault frame for `ms` (like Chrome freezing a background tab): another tab should take over. */
+    freeze: (ms: number) => this.withStatus(this.call("debug:freeze", { ms })),
+    /** Simulate mode: drop every broker session now, or refuse the next CONNECT (CONNACK 5). */
+    sim: (action: SimAction) => this.withStatus(this.call("debug:sim", { action })),
   };
 
   private async withStatus(p: Promise<VaultStatus>) {

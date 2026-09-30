@@ -5,6 +5,9 @@
 //   bun run vault:e2e --dev      the vault dev server instead (bun run vault)
 //   bun run vault:e2e --headed
 //   bun run vault:e2e --quick    skip the step-3 refresh run (about 5 minutes of real token refreshes)
+//   bun run vault:e2e --s3       ONLY spike S3's success check (s3.ts): a simulated 2.2 h session at 6x (about
+//                                25 minutes) across two tabs, with drops, a refusal, a leader close, a reload and a
+//                                leader freeze; then the leak check. Needs data/raw/11377 (bun run ingest 11377).
 //
 // Starts whatever isn't already listening (the app dev server, the vault) and stops what it started.
 // A port-5174 server that is already running is used as is. Playwright isn't a project dependency: it's
@@ -44,12 +47,14 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeBroker } from "./fakebroker";
 import { findAppSecrets, findInHeap, vaultIsOutOfProcess } from "./leakcheck";
+import { runS3 } from "./s3";
 
 const repo = fileURLToPath(new URL("..", import.meta.url)); // vault/ -> the repo
 const args = process.argv.slice(2);
 const DEV = args.includes("--dev");
 const HEADED = args.includes("--headed");
 const QUICK = args.includes("--quick");
+const S3 = args.includes("--s3");
 
 const APP = "http://127.0.0.1:5173";
 const VAULT = "http://localhost:5174";
@@ -301,6 +306,9 @@ async function popupError(popup: any, ms = 20_000): Promise<string> {
 
 async function main() {
   const { chromium } = playwright();
+  if (S3) {
+    return runS3({ chromium, repo, APP, VAULT, launchArgs: CHROME_AS_SHIPPED, appHmr: APP_HMR, keepAppLoaded, check, up, waitUp, start, stop, findAppSecrets, headed: HEADED });
+  }
 
   if (!(await up(APP))) {
     console.log(`starting the app dev server on ${APP}`);
@@ -380,6 +388,10 @@ async function main() {
       const js = readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
       const leftovers = ["DevKnobs", "spoiled", "fakeSeconds", "tokenFilter:", "corrupt("].filter((w) => js.includes(w));
       check("production build: none of the dev knobs (debug.ts) is in dist/", leftovers.length === 0, leftovers.join(", "));
+      const simLeft = ["__VAULT_SIMULATE__", "SimBroker", "/__sim", "loadSimConfig", "FreezeGate", "f1-vault-sim", "sendBeacon", "encodeConnack", "anchorWall", "popup-sim", "SIMULATED"].filter((w) => js.includes(w));
+      check("production build: no simulate mode or freeze gate (sim.ts, freeze.ts, brokercodec.ts, the popup's notice) in dist/", simLeft.length === 0, simLeft.join(", "));
+      const freeze = await page.evaluate(() => (window as any).__vault.debug.freeze(2000).then(() => "ok", (e: any) => `${e.code}: ${e.message}`));
+      check("production vault: debug:freeze and debug:sim are unknown types", freeze === "bad_request: unknown type" && (await page.evaluate(() => (window as any).__vault.getState().status.sim)) === undefined, freeze);
       const fakeLeft = ["__VAULT_FAKE_BROKER__", "fakebroker", "FakeBroker", `:${FAKE_BROKER_PORT}`, "ws://"].filter((w) => js.includes(w));
       check("production build: no fake-broker URL or knob in dist/; the MQTT URL is OpenF1's", fakeLeft.length === 0 && js.includes('"wss://mqtt.openf1.org:8084/mqtt"') && js.includes('"https://api.openf1.org/v1/"'), fakeLeft.join(", "));
     }

@@ -135,10 +135,21 @@ export type Methods = {
   "debug:refreshNow": { args: {}; result: VaultStatus };
   /** The next `times` /token calls answer `status` without reaching OpenF1 (0 times: clear). */
   "debug:failToken": { args: { status: 401 | 429 | 503; times: number }; result: VaultStatus };
+  /**
+   * Freeze THIS frame (not forwarded to the leader) for `ms`, like Chrome freezing a background tab: its
+   * timers, sockets, channel and port messages, lock callbacks and fetch answers wait, then run in order.
+   */
+  "debug:freeze": { args: { ms: number }; result: VaultStatus };
+  /** Simulate mode: a fault at the simulated broker ("drop" every session now, "refuse" the next CONNECT with CONNACK 5). */
+  "debug:sim": { args: { action: SimAction }; result: VaultStatus };
 };
 export type Method = keyof Methods;
 export const METHODS = ["status", "connect", "unlock", "cancel", "disconnect", "subscribe", "unsubscribe", "get", "openPort"] as const satisfies readonly Method[];
-export const DEBUG_METHODS = ["debug:spoilToken", "debug:fakeExpiry", "debug:refreshNow", "debug:failToken"] as const satisfies readonly Method[];
+export const DEBUG_METHODS = ["debug:spoilToken", "debug:fakeExpiry", "debug:refreshNow", "debug:failToken", "debug:freeze", "debug:sim"] as const satisfies readonly Method[];
+export const SIM_ACTIONS = ["drop", "refuse"] as const;
+export type SimAction = (typeof SIM_ACTIONS)[number];
+/** debug:freeze bounds (ms). */
+export const FREEZE_MS = { min: 1000, max: 120_000 } as const;
 export type DebugMethod = (typeof DEBUG_METHODS)[number];
 /** debug:fakeExpiry bounds (seconds), besides 0 = off. */
 export const FAKE_EXPIRY = { min: 20, max: 3600 } as const;
@@ -249,6 +260,32 @@ export type TabStatus = {
   leader: string | null;
   /** Vault frames alive, as the leader counts them (the leader only). */
   frames?: number;
+  /** Since this frame loaded: leaders it has seen take over (itself included), leads it stole, leads it lost. */
+  changes?: number;
+  steals?: number;
+  lost?: number;
+};
+
+/**
+ * Dev vault only (simulate mode): the simulated session. Sim time t (ms) is where the replayed session is at
+ * wall time w: t = anchorWall + (w - anchorWall) * speed; message dates are on that clock.
+ */
+export type SimStatus = {
+  sessionKey: number;
+  label: string;
+  speed: number;
+  anchorWall: number;
+  /** Sim times: the start, lights out, the end (after which nothing more is published). */
+  start: number;
+  lightsOut: number;
+  end: number;
+  /** Lifetime of the simulated /token's tokens (s). */
+  tokenS: number;
+  /** Configured faults: drop every N wall minutes (0 off), delivery jitter (ms). */
+  dropEveryMin: number;
+  jitterMs: number;
+  /** Bumped when the dev server's simulation is reset. */
+  version: number;
 };
 
 export type VaultStatus = RefreshStatus & {
@@ -268,6 +305,8 @@ export type VaultStatus = RefreshStatus & {
   stream?: StreamStatus;
   /** Leader or follower. */
   tab?: TabStatus;
+  /** Dev vault in simulate mode only: the data is a replay, not OpenF1. The app must say "SIMULATED". */
+  sim?: SimStatus;
 };
 
 /** One OpenF1 record as it came (MQTT payload or REST row), parsed. MQTT ones carry `_id` and `_key`. */
@@ -396,6 +435,8 @@ export function parseRequest(x: unknown, ports: number, opts: { debug?: boolean 
     "debug:fakeExpiry": ["seconds"],
     "debug:refreshNow": [],
     "debug:failToken": ["status", "times"],
+    "debug:freeze": ["ms"],
+    "debug:sim": ["action"],
   };
   if (!hasKeys(x, ["v", "id", "type", ...argKeys[type]])) return bad(id, `wrong fields for ${type}`);
   if (ports !== (type === "openPort" ? 1 : 0)) return bad(id, `${type} takes ${type === "openPort" ? "exactly one port" : "no ports"}`);
@@ -407,6 +448,8 @@ export function parseRequest(x: unknown, ports: number, opts: { debug?: boolean 
   }
   if (type === "debug:failToken" && (![401, 429, 503].includes(x.status as number) || !Number.isInteger(x.times) || (x.times as number) < 0 || (x.times as number) > 10))
     return bad(id, "status: 401, 429 or 503; times: 0 to 10");
+  if (type === "debug:freeze" && (!Number.isInteger(x.ms) || (x.ms as number) < FREEZE_MS.min || (x.ms as number) > FREEZE_MS.max)) return bad(id, `ms: ${FREEZE_MS.min} to ${FREEZE_MS.max}`);
+  if (type === "debug:sim" && !oneOf(SIM_ACTIONS, x.action)) return bad(id, `action: ${SIM_ACTIONS.join(" or ")}`);
   if (type === "debug:fakeExpiry") {
     const n = x.seconds;
     if (!Number.isInteger(n) || (n !== 0 && ((n as number) < FAKE_EXPIRY.min || (n as number) > FAKE_EXPIRY.max))) return bad(id, `seconds: 0 or ${FAKE_EXPIRY.min} to ${FAKE_EXPIRY.max}`);

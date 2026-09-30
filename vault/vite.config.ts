@@ -13,10 +13,16 @@
 // VAULT_FAKE_BROKER (dev server only): the local fake broker's origin (vault/fakebroker.ts), e.g.
 // http://127.0.0.1:5191. The dev vault's MQTT URL and REST base point at it, and the dev CSP's connect-src
 // adds exactly that origin (http + ws). A build ignores it: production URLs and CSP are fixed.
+// VAULT_SIMULATE=<session_key> (dev server only): simulate mode. The dev server replays data/raw/<key>/ as a live
+// session (simserver.ts at /__sim/: the feed for the in-vault simulated broker, REST, /token, the faults), the
+// dev frame's connect-src adds 'self' (its own origin: nothing under the app's), and the frame runs src/sim.ts.
+// VAULT_SIMULATE_SPEED, _START (s from lights out), _TOKEN_S, _DROP_EVERY (min), _REFUSE_AT (min), _JITTER
+// (ms): see simserver.ts. A build ignores all of it (__VAULT_SIMULATE__ = false; e2e checks dist/).
 
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { COMMON_HEADERS, formatHeaders, headerRules, pageHeaders, pageOf } from "./headers.ts";
+import { SimServer, simOptionsFromEnv } from "./simserver.ts";
 import { DEFAULT_APP_ORIGINS, parseOrigins } from "./src/origins.ts";
 
 const root = fileURLToPath(new URL(".", import.meta.url));
@@ -50,10 +56,10 @@ function fakeBroker(): string {
   return u.origin;
 }
 
-/** The dev server's extra connect-src (the fake broker's http and ws origins), or none. */
+/** The dev server's extra connect-src (the fake broker's http and ws origins; 'self' in simulate mode), or none. */
 function devConnect(dev: boolean): string[] {
   const f = dev ? fakeBroker() : "";
-  return f ? [f, f.replace(/^http/, "ws")] : [];
+  return [...(f ? [f, f.replace(/^http/, "ws")] : []), ...(dev && env("VAULT_SIMULATE") ? ["'self'"] : [])];
 }
 
 /**
@@ -67,6 +73,7 @@ function vaultConstants(): Plugin {
   let dev = false;
   let fake = 0;
   let broker = "";
+  let simulate = false;
   return {
     name: "vault-constants",
     configResolved(config) {
@@ -75,6 +82,7 @@ function vaultConstants(): Plugin {
         version = `${VERSION}-dev`;
         fake = fakeExpiresIn();
         broker = fakeBroker();
+        simulate = !!env("VAULT_SIMULATE");
       }
     },
     transform(code, id) {
@@ -84,7 +92,24 @@ function vaultConstants(): Plugin {
         .replaceAll("__VAULT_VERSION__", JSON.stringify(version))
         .replaceAll("__VAULT_DEV__", JSON.stringify(dev))
         .replaceAll("__VAULT_FAKE_EXPIRES_IN__", JSON.stringify(fake))
-        .replaceAll("__VAULT_FAKE_BROKER__", JSON.stringify(broker));
+        .replaceAll("__VAULT_FAKE_BROKER__", JSON.stringify(broker))
+        .replaceAll("__VAULT_SIMULATE__", JSON.stringify(simulate));
+    },
+  };
+}
+
+/** Simulate mode (dev server only): the simulation's endpoints at /__sim/ (simserver.ts). */
+function vaultSimulate(): Plugin {
+  return {
+    name: "vault-simulate",
+    apply: "serve",
+    configureServer(server) {
+      const opts = simOptionsFromEnv(env);
+      if (!opts) return;
+      const sim = new SimServer(repo, opts, (s) => server.config.logger.info(s));
+      server.middlewares.use((req, res, next) => {
+        if (!sim.handle(req, res)) next();
+      });
     },
   };
 }
@@ -121,7 +146,7 @@ export default defineConfig({
   publicDir: false,
   // Nothing from .env reaches vault code (it reads no import.meta.env): only vaultConstants().
   envPrefix: "VAULT_PUBLIC_",
-  plugins: [vaultConstants(), vaultHeaders()],
+  plugins: [vaultConstants(), vaultHeaders(), vaultSimulate()],
   server: {
     port: 5174,
     strictPort: true,

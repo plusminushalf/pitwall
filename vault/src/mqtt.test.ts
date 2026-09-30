@@ -3,6 +3,7 @@ import { decodeConnect, decodeTopics, encodeConnack, encodePingresp, encodePubli
 import { FakeClock, FakeSocket } from "../testkit";
 import {
   CONNECT,
+  KEEPALIVE_S,
   MAX_REMAINING,
   MqttError,
   MqttSession,
@@ -203,7 +204,8 @@ describe("MqttSession", () => {
     x.sock().open();
     expect(x.sentTypes()).toEqual([CONNECT]);
     const c = decodeConnect(new PacketReader().push(x.sock().sent[0]!)[0]!);
-    expect(c).toMatchObject({ clientId: "client-1", username: "user", password: "token", clean: true, keepaliveS: 30 });
+    expect(c).toMatchObject({ clientId: "client-1", username: "user", password: "token", clean: true, keepaliveS: KEEPALIVE_S });
+    expect(KEEPALIVE_S).toBe(90);
     x.sock().receive(encodeConnack(0));
     await p;
     expect(x.s.open).toBe(true);
@@ -292,22 +294,22 @@ describe("MqttSession", () => {
     expect(x.messages.map((m) => m[1])).toEqual([1, 2, 3, 4, 5].map((n) => `{"n":${n}}`));
   });
 
-  test("keepalive: PINGREQ after keepalive/2 of silence; PINGRESP keeps it open", async () => {
+  test("keepalive: PINGREQ after keepalive/2 (45 s) of silence; PINGRESP keeps it open", async () => {
     const x = await connected();
-    await x.clock.advance(14_999);
+    await x.clock.advance(44_999);
     expect(x.sentTypes().filter((t) => t === 12).length).toBe(0);
     await x.clock.advance(1);
     expect(x.sentTypes().filter((t) => t === 12).length).toBe(1);
     await x.clock.advance(5_000);
     x.sock().receive(encodePingresp());
-    await x.clock.advance(60_000);
+    await x.clock.advance(180_000);
     expect(x.s.open).toBe(false); // no answer to the later pings
     expect(x.closes).toEqual([{ reason: "timeout", what: "ping" }]);
   });
 
   test("keepalive: a dead connection (no PINGRESP within the ping timeout) is closed and reported", async () => {
     const x = await connected();
-    await x.clock.advance(15_000);
+    await x.clock.advance(45_000);
     await x.clock.advance(9_999);
     expect(x.closes).toEqual([]);
     await x.clock.advance(1);
@@ -317,7 +319,7 @@ describe("MqttSession", () => {
 
   test("keepalive: inbound data after keepalive/2 sends a PINGREQ even if timers are throttled", async () => {
     const x = await connected();
-    x.clock.t += 20_000; // the timer didn't fire (throttled background tab)
+    x.clock.t += 50_000; // the timer didn't fire (throttled background tab)
     x.sock().receive(encodePublish("v1/laps", "{}"));
     expect(x.sentTypes().at(-1)).toBe(12);
   });

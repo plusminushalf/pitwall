@@ -271,7 +271,13 @@ export type SessionOptions = {
   ackTimeoutMs?: number;
 };
 
-export const KEEPALIVE_S = 30;
+/**
+ * 90 s: a PINGREQ is due after 45 s without sending. In a hidden tab Chrome can align timers to one minute
+ * (intensive throttling), so the timer may send it as late as ~105 s after the last packet, still inside the
+ * broker's 1.5 x keepalive = 135 s; while data flows, the inbound check sends it on time anyway. The cost: a
+ * silent dead connection takes up to 45 + 10 s to notice (a live session is never silent that long).
+ */
+export const KEEPALIVE_S = 90;
 export const CONNECT_TIMEOUT_MS = 15_000;
 export const PING_TIMEOUT_MS = 10_000;
 export const ACK_TIMEOUT_MS = 15_000;

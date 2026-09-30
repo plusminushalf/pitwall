@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getVault, type LiveTopic, type StreamStatus, type VaultStatus } from "../../vault/client";
+import { getVault, type LiveTopic, type SimStatus, type StreamStatus, type VaultStatus } from "../../vault/client";
+import { COVERAGE_SECONDS, simTime, useCoverage } from "./useCoverage";
 import { STRIP_SECONDS, useLiveStats } from "./useLiveStats";
 import { useVault } from "./useVault";
 
@@ -236,12 +237,20 @@ function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean })
           <>
             {kv("Stream", <span data-testid="vault-stream-phase" data-phase={stream.phase} className={stream.phase === "connection-limit" ? "text-amber-400" : undefined}>{PHASE_TEXT[stream.phase]}</span>)}
             {kv("Sessions", <span data-testid="vault-stream-sessions" data-sessions={stream.sessions} data-max={stream.maxSessions}>{stream.sessions} open (max {stream.maxSessions})</span>)}
-            {kv("Handovers / reconnects", `${stream.handovers} / ${stream.reconnects}`)}
+            {kv("Handovers / reconnects", <span data-testid="vault-stream-events" data-handovers={stream.handovers} data-reconnects={stream.reconnects}>{stream.handovers} / {stream.reconnects}</span>)}
             {kv("Delivered", <span data-testid="vault-stream-counts" data-delivered={stream.delivered} data-duplicates={stream.duplicates} data-gap-filled={stream.gapFilled}>{stream.delivered} ({stream.duplicates} dup dropped, {stream.gapFilled} gap-filled)</span>)}
             {stream.lastError && kv("Last error", <span title={stream.lastError}>{stream.lastError}</span>)}
           </>
         )}
+        {tab &&
+          kv(
+            "Leader changes / steals / lost",
+            <span data-testid="vault-leader-changes" data-changes={tab.changes ?? 0} data-steals={tab.steals ?? 0} data-lost={tab.lost ?? 0}>
+              {tab.changes ?? 0} / {tab.steals ?? 0} / {tab.lost ?? 0}
+            </span>,
+          )}
       </dl>
+      {status.sim && <SimSection sim={status.sim} ready={ready} />}
       <div className="mt-2 flex flex-wrap gap-1" data-testid="vault-subscribe">
         {TOPICS.map((t) => {
           const on = mine.includes(t);
@@ -268,7 +277,7 @@ function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean })
       {err && <p className="mt-1 text-red-400">{err}</p>}
       <div className="mt-2">
         <div className="mb-0.5 flex justify-between text-[10px] text-zinc-500">
-          <span>arrivals, last {STRIP_SECONDS / 60} min</span>
+          <span>arrivals (wall clock), last {STRIP_SECONDS / 60} min</span>
           <span className="tabular-nums" data-testid="vault-rate">{last} msg/s, peak {peak === 1 && !stats.total ? 0 : peak}</span>
         </div>
         <div className="flex h-8 items-end gap-px bg-zinc-950" data-testid="vault-strip" role="img" aria-label={`messages per second over the last ${STRIP_SECONDS} seconds`}>
@@ -277,6 +286,89 @@ function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean })
           ))}
         </div>
       </div>
+      <CoverageStrips sim={status.sim} topics={mine} />
     </section>
+  );
+}
+
+const hms = (t: number) => new Date(t).toISOString().slice(11, 19);
+const signed = (ms: number) => {
+  const s = Math.round(Math.abs(ms) / 1000);
+  return `${ms < 0 ? "-" : "+"}${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/** Simulate mode (dev vault): which session, the sim clock, and the fault buttons. */
+function SimSection({ sim, ready }: { sim: SimStatus; ready: boolean }) {
+  const [, setTick] = useState(0);
+  const [msg, setMsg] = useState<string | null>(null);
+  useEffect(() => {
+    const t = setInterval(() => setTick((n) => n + 1), 500);
+    return () => clearInterval(t);
+  }, []);
+  const now = simTime(sim);
+  const done = now >= sim.end;
+  const pct = Math.min(100, Math.max(0, ((now - sim.start) / (sim.end - sim.start)) * 100));
+  const act = (name: string, f: () => Promise<unknown>) => {
+    setMsg(`${name}…`);
+    f().then(
+      () => setMsg(`${name}: done`),
+      (e) => setMsg(`${name}: ${e instanceof Error ? e.message : String(e)}`),
+    );
+  };
+  return (
+    <div className="mt-2 rounded border border-amber-700 bg-amber-950 p-1.5" data-testid="vault-sim">
+      <div className="flex justify-between font-semibold text-amber-300">
+        <span>SIMULATED: {sim.label} (#{sim.sessionKey})</span>
+        <span className="tabular-nums">{sim.speed}x</span>
+      </div>
+      <div className="mt-0.5 flex justify-between tabular-nums text-amber-200" data-testid="vault-sim-clock" data-sim-now={Math.round(now)}>
+        <span>sim {hms(now)} UTC</span>
+        <span>{done ? "finished" : `lights out ${signed(now - sim.lightsOut)}`}</span>
+      </div>
+      <div className="mt-1 h-1 bg-amber-900">
+        <div className="h-1 bg-amber-400" style={{ width: `${pct}%` }} />
+      </div>
+      <div className="mt-0.5 text-[10px] text-amber-200/80">
+        tokens {sim.tokenS} s{sim.dropEveryMin ? `, drop every ${sim.dropEveryMin} min` : ""}{sim.jitterMs ? `, jitter ${sim.jitterMs} ms` : ""}
+      </div>
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        <button className={knobButton} disabled={!ready} onClick={() => act("drop", () => getVault().debug.sim("drop"))} title="The simulated broker drops every session: reconnect + gap-fill">
+          Drop now
+        </button>
+        <button className={knobButton} disabled={!ready} onClick={() => act("refuse", () => getVault().debug.sim("refuse").then(() => getVault().debug.refreshNow()))} title="The next CONNECT gets CONNACK 5, then a refresh: connection limit reached">
+          CONNACK 5 + refresh
+        </button>
+        <button className={knobButton} disabled={!ready} onClick={() => act("freeze 20 s", () => getVault().debug.freeze(20_000))} title="Freeze this tab's vault frame for 20 s: if it leads, a visible follower steals the lead after ~10 s">
+          Freeze this tab 20 s
+        </button>
+      </div>
+      {msg && <p className="mt-0.5 text-[10px] text-amber-200/80">{msg}</p>}
+    </div>
+  );
+}
+
+/** Per topic: messages per second of message time. A hole is data this tab never got (a gap-fill closes it). */
+function CoverageStrips({ sim, topics }: { sim: SimStatus | undefined; topics: LiveTopic[] }) {
+  const cov = useCoverage(sim);
+  if (!topics.length) return null;
+  return (
+    <div className="mt-2" data-testid="vault-coverage">
+      <div className="mb-0.5 flex justify-between text-[10px] text-zinc-500">
+        <span>coverage by message {sim ? "sim " : ""}time, last {COVERAGE_SECONDS / 60} min</span>
+        <span className="tabular-nums">{hms(cov.now)}</span>
+      </div>
+      {topics.map((t) => {
+        const row = cov.perTopic[t] ?? [];
+        const peak = Math.max(1, ...row);
+        return (
+          <div key={t} className="flex items-center gap-1" data-testid={`vault-coverage-${t}`}>
+            <span className="w-16 shrink-0 truncate font-mono text-[9px] text-zinc-500">{t}</span>
+            <svg className="h-2.5 flex-1 bg-zinc-950" viewBox={`0 0 ${COVERAGE_SECONDS} 10`} preserveAspectRatio="none" role="img" aria-label={`${t}: messages per second of message time`}>
+              {row.map((v, i) => (v ? <rect key={i} x={i} y={10 - Math.max(2, (v / peak) * 10)} width={1} height={Math.max(2, (v / peak) * 10)} className="fill-sky-500" /> : null))}
+            </svg>
+          </div>
+        );
+      })}
+    </div>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { corrupt, DevKnobs } from "./debug";
 import { loginError, type Token } from "./openf1";
-import { Rest, RestError, restUrl, type RestFetch, type TokenSource } from "./rest";
+import { ANON_LIMIT, AUTH_LIMIT, Pacer, Rest, RestError, restUrl, type RestFetch, type TokenSource } from "./rest";
 import { TokenScheduler } from "./scheduler";
 
 const buf = (s: string) => new TextEncoder().encode(s).buffer as ArrayBuffer;
@@ -204,5 +204,46 @@ describe("dev knobs (debug.ts) with a real scheduler", () => {
     v.setFail(true);
     await v.knobs.handle({ v: 1, id: 2, type: "debug:refreshNow" });
     expect(v.scheduler.status()).toMatchObject({ refresh: "retrying", lastRefresh: { ok: false, error: "server" } });
+  });
+});
+
+describe("Pacer (the REST budget)", () => {
+  const clockAt = () => {
+    let t = 0;
+    const sleeps: number[] = [];
+    return { now: () => t, sleep: async (ms: number) => void (sleeps.push(ms), (t += ms)), sleeps, get t() { return t; } };
+  };
+  test("spaces request starts 1/perSecond apart: no bursts", async () => {
+    const c = clockAt();
+    const p = new Pacer(c);
+    const starts: number[] = [];
+    for (let i = 0; i < 7; i++) {
+      await p.take(AUTH_LIMIT);
+      starts.push(c.now());
+    }
+    const gaps = starts.slice(1).map((x, i) => x - starts[i]!);
+    expect(gaps.every((g) => g >= 1000 / 6 - 1)).toBe(true);
+    // Never more than 6 starts in any second.
+    for (const s of starts) expect(starts.filter((x) => x >= s && x < s + 1000).length).toBeLessThanOrEqual(6);
+  });
+  test("at most perMinute starts in any 60 s; unauthenticated is half", async () => {
+    const c = clockAt();
+    const p = new Pacer(c);
+    const starts: number[] = [];
+    for (let i = 0; i < 35; i++) {
+      await p.take(ANON_LIMIT);
+      starts.push(c.now());
+    }
+    for (const s of starts) expect(starts.filter((x) => x >= s && x < s + 60_000).length).toBeLessThanOrEqual(30);
+    expect(starts[30]! - starts[0]!).toBeGreaterThanOrEqual(60_000);
+  });
+  test("Rest waits for the budget before each request (the 401 retry too)", async () => {
+    const c = clockAt();
+    const api = fakeApi(new Set(["good"]));
+    const at: number[] = [];
+    const rest = new Rest(async (u, i) => (at.push(c.now()), api.fetch(u, i)), { current: () => "good", onUnauthorized: async () => "give_up" }, undefined, new Pacer(c));
+    await Promise.all([rest.get("laps", {}), rest.get("laps", {}), rest.get("laps", {})]);
+    expect(at.length).toBe(3);
+    expect(at[2]! - at[0]!).toBeGreaterThanOrEqual(2 * (1000 / 6) - 1);
   });
 });
