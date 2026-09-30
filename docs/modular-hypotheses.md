@@ -320,6 +320,24 @@ Steps 1–3 prove the idea: if our own blocks can be built using only the hooks,
   - a simulate mode that replays cached raw data inside the vault, so all of this can be tested outside race weekends.
   - Success: a simulated 3-hour session across two tabs with no visible gap, and no password or token readable from the app's origin (checked from DevTools on the app's origin).
   - Checks H2.4, H2.5, H2.10 and H2.11. First confirm the token lifetime, the refresh-token question, and whether two MQTT sessions per account are allowed.
+  - **Result (2026-09-30, Chromium only): passed, with two caveats.** Built in `vault/`, commits 99adb92 to fdfb4dc. The token and MQTT facts are in the facts table.
+    - `bun run vault:e2e --s3`:
+      - Replays a whole cached race through the real MQTT, handover, leader and gap-fill code. That's 2.2 h of race time at 6× speed with 2-minute tokens.
+      - Runs across two tabs, plus a replacement tab after the leader closes.
+      - Faults: 2 forced drops, a connection-cap refusal, a follower reload, a leader freeze, and a pit stop published late inside an outage.
+      - No tab lost or duplicated a message, and no gap was longer than the source's own. Over the run there were 12 handovers and never more than 2 broker sessions.
+      - A leader freeze costs about 10 s of wall time before a follower takes over.
+    - Leak check, on the app's origin: its storage, a heap snapshot of the app's process and one of the download worker hold no password and no JWT. The vault's own process is the positive control.
+    - Against the real API and broker: silent refreshes on fake 2-minute tokens, backoff after `/token` 503s, the reauth banner on a `/token` 401, and refresh-and-retry on a REST 401. It also got through 4 real MQTT handovers.
+    - Downloads: 36–40 s signed in through the vault versus 144 s direct, with identical output. If the vault dies mid-download, the direct path finishes it.
+    - *Caveat:* the race data covers 2.2 h, not 3 h. A wall-clock 3-hour soak hasn't been run yet.
+    - *Caveat:* the leader freeze is simulated inside the frame, because Chrome's lifecycle freeze has no effect under Playwright. Headless tabs are always visible, so "a hidden follower never takes over" is only unit-tested.
+    - Surprises:
+      - The MQTT username must be the account email.
+      - Chrome partitions the iframe's storage away from the popup, so the popup hands the login to the frame.
+      - Playwright's default flags turn off storage partitioning and full site isolation, which would have hidden both of those. The e2e forces Chrome's shipped behaviour.
+      - Gap-fill by `date` misses late-published pit stops.
+    - Still unverified until a live weekend: whether REST rows exactly match MQTT payloads (the dedupe depends on it), and the real broker's publish lag (the 30/60 s overlaps are a chosen margin).
 - **S4: streaming normalize** for phone memory. Checks H2.8.
 - **S5: marketplace end to end.** Move one built-in block (e.g. the timing tower) into `blocks/`, have CI build it and emit `registry.json`, then uninstall and reinstall it from the in-app marketplace. Then have someone outside the project write and submit a small block using only the template. Checks H3.14 to H3.18. Depends on S2.
 - **Not code: email OpenF1** about logging in with your own key in the browser, refresh tokens or scoped API keys, two concurrent MQTT sessions per account, and the non-commercial scope.
