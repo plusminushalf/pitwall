@@ -1,11 +1,13 @@
 // The vault's state: the stored login, the in-memory secret and token, and the popup it's waiting for.
 // No DOM: frame.ts wires it to IndexedDB, fetch, window messages and the port. Tested under bun.
 //
-// Only this module ever holds the decrypted password or the token, and only in memory. `status()` exposes
-// the state, the storage mode, the masked account and the token's expiry: never the token or password.
+// Only this module (and the TokenScheduler it owns) ever holds the decrypted password or the token, and only
+// in memory. `status()` exposes the state, the storage mode, the masked account and the refresh status
+// (expiry, next refresh, last result): never the token or password.
 
-import { loginError, requestToken, type Fetch, type Token } from "./openf1";
+import { loginError, requestToken, type Fetch, type Token, type TokenResult } from "./openf1";
 import { maskEmail, type FrameToPopup, type LoginError, type PopupMessage, type PopupResult, type StorageMode, type Ticket, type VaultState, type VaultStatus } from "./protocol";
+import { TokenScheduler } from "./scheduler";
 import { openLogin, randomBytes, sealDevice, sealPasskey, type LoginStore, type Secret, type StoredLogin } from "./storage";
 
 /** How long the frame waits for the popup after `connect` / `unlock`. A popup older than this is stale. */
@@ -20,6 +22,12 @@ export type CoreDeps = {
   onStatus: (s: VaultStatus) => void;
   /** Tell the vault frames in other tabs (same partition) that the login was wiped. */
   announceWipe?: () => void;
+  /** Timers and jitter for the refresh schedule (default: the globals). */
+  setTimeout?: (fn: () => void, ms: number) => unknown;
+  clearTimeout?: (handle: unknown) => void;
+  random?: () => number;
+  /** Dev vault only (debug.ts): rewrite every new token, e.g. to fake a short lifetime. */
+  tokenFilter?: (t: Token) => Token;
 };
 
 type Pending = {
@@ -45,17 +53,58 @@ export class VaultCore {
   private account: string | undefined;
   private error: LoginError | undefined;
   private secret: Secret | null = null;
-  private token: Token | null = null;
   private pending: Pending | null = null;
+  /** Holds the token and refreshes it. Running whenever a login is in memory. */
+  readonly scheduler: TokenScheduler;
+  /** Set while core itself starts the scheduler: core reports its own state change right after. */
+  private quiet = false;
 
-  constructor(private deps: CoreDeps) {}
+  constructor(private deps: CoreDeps) {
+    this.scheduler = new TokenScheduler({
+      now: deps.now,
+      setTimeout: deps.setTimeout ?? ((fn, ms) => setTimeout(fn, ms)),
+      clearTimeout: deps.clearTimeout ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>)),
+      random: deps.random ?? Math.random,
+      fetchToken: () => {
+        const s = this.secret;
+        return s ? this.requestToken(s.username, s.password) : Promise.resolve({ ok: false, error: loginError("storage") });
+      },
+      onChange: () => this.onRefresh(),
+    });
+  }
+
+  private async requestToken(username: string, password: string): Promise<TokenResult> {
+    const t = await requestToken(this.deps.fetch, username, password, this.deps.now);
+    return t.ok && this.deps.tokenFilter ? { ok: true, token: this.deps.tokenFilter(t.token) } : t;
+  }
+
+  /** The scheduler changed something: push the status, and move the state if the token situation changed. */
+  private onRefresh() {
+    if (this.quiet) return;
+    const sch = this.scheduler;
+    // A restore that failed (offline at load) and then succeeded on a retry.
+    if (this.state === "error" && this.error?.code !== "wrong_credentials" && sch.current()) return this.set("connected");
+    // Password changed or revoked, and the last token has now run out: the stored login is no good.
+    if (this.state === "connected" && sch.status().needsReauth && !sch.current()) return this.set("error", { error: loginError("wrong_credentials") });
+    this.deps.onStatus(this.status());
+  }
+
+  /** A login's first token (or the reason there's none yet): hand it to the scheduler. */
+  private adopt(token: Token | null, error?: LoginError["code"]) {
+    this.quiet = true;
+    try {
+      this.scheduler.start(token, error);
+    } finally {
+      this.quiet = false;
+    }
+  }
 
   status(): VaultStatus {
     return {
       state: this.state,
       ...(this.mode && { mode: this.mode }),
       ...(this.account && { account: this.account }),
-      ...(this.state === "connected" && this.token && { tokenExpiresAt: this.token.expiresAt }),
+      ...(this.scheduler.running && this.scheduler.status()),
       ...(this.state === "error" && this.error && { error: this.error }),
       live: "off",
       version: this.deps.version,
@@ -72,7 +121,7 @@ export class VaultCore {
 
   private forget() {
     this.secret = null;
-    this.token = null;
+    this.scheduler.stop();
   }
 
   /** On load: restore a stay-connected login silently, or report "locked" / "disconnected". */
@@ -92,11 +141,15 @@ export class VaultCore {
     } catch {
       return this.set("error", { error: loginError("storage") });
     }
-    // The secret stays in memory even if this first token fails: refresh (step 3) retries with it.
+    // The secret stays in memory even if this first token fails: the scheduler retries with it (except
+    // after a 401: the password was changed, only the user can fix that).
     this.secret = secret;
-    const t = await requestToken(this.deps.fetch, secret.username, secret.password, this.deps.now);
-    if (!t.ok) return this.set("error", { error: t.error });
-    this.token = t.token;
+    const t = await this.requestToken(secret.username, secret.password);
+    if (!t.ok) {
+      if (t.error.code !== "wrong_credentials") this.adopt(null, t.error.code);
+      return this.set("error", { error: t.error });
+    }
+    this.adopt(t.token);
     this.set("connected");
   }
 
@@ -125,7 +178,7 @@ export class VaultCore {
 
   /** After an abandoned passkey setup: re-read what's stored so the state matches it. */
   private restoreAfterAbandon() {
-    if (this.token && this.secret) this.set("connected");
+    if (this.scheduler.hasToken() && this.secret) this.set("connected");
     else void this.init();
   }
 
@@ -211,7 +264,7 @@ export class VaultCore {
   private async login(p: Pending, username: string, password: string, mode: StorageMode) {
     const before = { state: this.state, error: this.error };
     this.set("connecting", { error: undefined });
-    const t = await requestToken(this.deps.fetch, username, password, this.deps.now);
+    const t = await this.requestToken(username, password);
     if (!t.ok) {
       this.set(before.state, { error: before.error });
       return { ok: false as const, error: t.error };
@@ -231,7 +284,7 @@ export class VaultCore {
     }
     this.pending = null;
     this.secret = v.secret;
-    this.token = v.token;
+    this.adopt(v.token);
     this.set("connected", { mode, account });
     return { ok: true as const, next: "done" as const };
   }
@@ -246,7 +299,7 @@ export class VaultCore {
       return { ok: false as const, error: loginError("passkey") };
     }
     this.set("connecting");
-    const t = await requestToken(this.deps.fetch, secret.username, secret.password, this.deps.now);
+    const t = await this.requestToken(secret.username, secret.password);
     if (!t.ok) {
       // A wrong password means it was changed on OpenF1: say so. Anything else: still locked, try again.
       if (t.error.code === "wrong_credentials") this.set("error", { error: t.error });
@@ -255,7 +308,7 @@ export class VaultCore {
     }
     this.pending = null;
     this.secret = secret;
-    this.token = t.token;
+    this.adopt(t.token);
     this.set("connected", { mode: "passkey", account: stored.account });
     return { ok: true as const, next: "done" as const };
   }

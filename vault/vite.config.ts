@@ -8,6 +8,8 @@
 // VAULT_APP_ORIGINS (shell or the repo's .env): comma-separated app origins that may embed the vault,
 // baked into the build (the frame's allowlist and its CSP frame-ancestors). Default: the local app.
 // VAULT_ALLOWED_HOSTS: extra Host names the dev server answers to (comma-separated), for public dev URLs.
+// VAULT_FAKE_EXPIRES_IN (dev server only): treat every token as lasting this many seconds (e.g. 120), to
+// watch refreshes happen. A build ignores it: its dev knobs are compiled out (__VAULT_DEV__ = false).
 
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
@@ -21,20 +23,41 @@ const env = (name: string) => process.env[name] || loadEnv("", repo, "")[name] |
 const appOrigins = parseOrigins(env("VAULT_APP_ORIGINS") || DEFAULT_APP_ORIGINS);
 const VERSION = "0.1.0";
 
+/** VAULT_FAKE_EXPIRES_IN as whole seconds (0: off), bounded like debug:fakeExpiry. */
+function fakeExpiresIn(): number {
+  const raw = env("VAULT_FAKE_EXPIRES_IN");
+  if (!raw) return 0;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 20 || n > 3600) throw new Error(`VAULT_FAKE_EXPIRES_IN: whole seconds, 20 to 3600 (got ${raw})`);
+  return n;
+}
+
 /**
- * The build-time constants (__VAULT_APP_ORIGINS__, __VAULT_VERSION__), replaced in vault source. Not
- * Vite's `define`: in dev that relies on the Vite client, which the vault pages don't load.
+ * The build-time constants (__VAULT_APP_ORIGINS__, __VAULT_VERSION__, __VAULT_DEV__,
+ * __VAULT_FAKE_EXPIRES_IN__), replaced in vault source. Not Vite's `define`: in dev that relies on the Vite
+ * client, which the vault pages don't load. A build always gets __VAULT_DEV__ = false, whatever the
+ * environment says, so the dev knobs (src/debug.ts) are dropped from it.
  */
 function vaultConstants(): Plugin {
   let version = VERSION;
+  let dev = false;
+  let fake = 0;
   return {
     name: "vault-constants",
     configResolved(config) {
-      if (config.command === "serve") version = `${VERSION}-dev`;
+      dev = config.command === "serve";
+      if (dev) {
+        version = `${VERSION}-dev`;
+        fake = fakeExpiresIn();
+      }
     },
     transform(code, id) {
       if (!id.startsWith(`${root}src/`)) return;
-      return code.replaceAll("__VAULT_APP_ORIGINS__", JSON.stringify(appOrigins)).replaceAll("__VAULT_VERSION__", JSON.stringify(version));
+      return code
+        .replaceAll("__VAULT_APP_ORIGINS__", JSON.stringify(appOrigins))
+        .replaceAll("__VAULT_VERSION__", JSON.stringify(version))
+        .replaceAll("__VAULT_DEV__", JSON.stringify(dev))
+        .replaceAll("__VAULT_FAKE_EXPIRES_IN__", JSON.stringify(fake));
     },
   };
 }

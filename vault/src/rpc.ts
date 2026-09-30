@@ -1,10 +1,11 @@
 // Request dispatch over a MessagePort. Pure apart from the port: no DOM, testable under bun.
 
-import { parseRequest, type Response, type Ticket, type VaultEvent, type VaultStatus } from "./protocol";
+import { DEBUG_METHODS, parseRequest, type DebugMethod, type GetResult, type Params, type Request, type Response, type RestEndpoint, type Ticket, type VaultEvent, type VaultStatus } from "./protocol";
+import { RestError } from "./rest";
 
 /** The part of MessagePort the vault uses (so tests can fake one). */
 export type PortLike = {
-  postMessage(message: unknown): void;
+  postMessage(message: unknown, transfer?: Transferable[]): void;
   addEventListener(type: "message", listener: (e: { data: unknown; ports: readonly PortLike[] }) => void): void;
   start(): void;
 };
@@ -15,7 +16,11 @@ export type Vault = {
   expect(kind: "connect" | "unlock", ticket: Ticket): { ok: true; status: VaultStatus } | { ok: false; code: "unavailable" | "busy" | "not_connected"; message: string };
   cancel(ticket: Ticket): VaultStatus;
   disconnect(): Promise<VaultStatus>;
+  get(endpoint: RestEndpoint, params: Params): Promise<GetResult>;
 };
+
+/** Dev vault only: the handler for DEBUG_METHODS (debug.ts). Without one, they're unknown types. */
+export type DebugHandler = (req: Request<DebugMethod>) => Promise<unknown>;
 
 /** At most this many ports (the hello's plus openPort's). */
 export const MAX_PORTS = 8;
@@ -23,7 +28,10 @@ export const MAX_PORTS = 8;
 export class Rpc {
   private ports = new Set<PortLike>();
 
-  constructor(private vault: Vault) {}
+  constructor(
+    private vault: Vault,
+    private debug?: DebugHandler,
+  ) {}
 
   /** Serve the protocol on a port. False (and the port is not used) once MAX_PORTS are open. */
   attach(port: PortLike): boolean {
@@ -31,7 +39,10 @@ export class Rpc {
     this.ports.add(port);
     port.addEventListener("message", (e) => {
       void this.handle(e.data, e.ports).then((res) => {
-        if (res) port.postMessage(res);
+        if (!res) return;
+        // A get's body is transferred, not copied.
+        const body = res.ok && (res.result as Partial<GetResult> | null)?.body;
+        port.postMessage(res, body instanceof ArrayBuffer ? [body] : []);
       });
     });
     // (A message that can't be deserialized fires "messageerror" instead: it has no id to answer, so it's dropped.)
@@ -46,7 +57,7 @@ export class Rpc {
 
   /** One inbound message to its response, or null to drop it. Never rejects. */
   async handle(data: unknown, ports: readonly PortLike[]): Promise<Response | null> {
-    const parsed = parseRequest(data, ports.length);
+    const parsed = parseRequest(data, ports.length, { debug: this.debug !== undefined });
     if (!parsed.ok) return parsed.id === null ? null : { v: 1, id: parsed.id, ok: false, error: parsed.error };
     const req = parsed.request;
     try {
@@ -62,11 +73,19 @@ export class Rpc {
           return { v: 1, id: req.id, ok: true, result: this.vault.cancel(req.ticket) };
         case "disconnect":
           return { v: 1, id: req.id, ok: true, result: await this.vault.disconnect() };
+        case "get":
+          try {
+            return { v: 1, id: req.id, ok: true, result: await this.vault.get(req.endpoint, req.params) };
+          } catch (e) {
+            if (e instanceof RestError) return { v: 1, id: req.id, ok: false, error: { code: "network", message: "couldn't reach OpenF1" } };
+            throw e;
+          }
         case "openPort":
           return this.attach(ports[0]!)
             ? { v: 1, id: req.id, ok: true, result: {} }
             : { v: 1, id: req.id, ok: false, error: { code: "rate_limited", message: `at most ${MAX_PORTS} ports` } };
         default:
+          if (this.debug && (DEBUG_METHODS as readonly string[]).includes(req.type)) return { v: 1, id: req.id, ok: true, result: (await this.debug(req as Request<DebugMethod>)) as VaultStatus };
           return { v: 1, id: req.id, ok: false, error: { code: "not_implemented", message: `${req.type} is not implemented yet` } };
       }
     } catch {

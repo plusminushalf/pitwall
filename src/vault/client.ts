@@ -114,9 +114,34 @@ export class VaultClient {
   };
   subscribe = (topics: LiveTopic[]) => this.call("subscribe", { topics });
   unsubscribe = (topics: LiveTopic[]) => this.call("unsubscribe", { topics });
+  /**
+   * An OpenF1 read through the vault: authenticated when it holds a valid token (`auth` in the result),
+   * unauthenticated otherwise. A 401 there refreshes the token and retries once, inside the vault.
+   */
   get = (endpoint: RestEndpoint, params: Params) => this.call("get", { endpoint, params });
   /** Hand `port` to the vault: it speaks this same protocol on it (e.g. from the download worker). */
   openPort = (port: MessagePort) => this.call("openPort", {}, [port]);
+
+  /**
+   * Dev-vault testing knobs (the debug panel). A production vault doesn't have them: these reject with
+   * bad_request "unknown type".
+   */
+  readonly debug = {
+    /** Corrupt the vault's in-memory token: the next authenticated get gets a real 401. */
+    spoilToken: () => this.withStatus(this.call("debug:spoilToken", {})),
+    /** Treat new tokens as lasting `seconds` (0: real lifetime). */
+    fakeExpiry: (seconds: number) => this.withStatus(this.call("debug:fakeExpiry", { seconds })),
+    /** Refresh the token now. */
+    refreshNow: () => this.withStatus(this.call("debug:refreshNow", {})),
+    /** The next `times` /token calls answer `status` without reaching OpenF1 (0: clear). */
+    failToken: (status: 401 | 429 | 503, times: number) => this.withStatus(this.call("debug:failToken", { status, times })),
+  };
+
+  private async withStatus(p: Promise<VaultStatus>) {
+    const status = await p;
+    this.set({ status });
+    return status;
+  }
 
   async call<M extends Method>(type: M, args: Args<M>, transfer: Transferable[] = []): Promise<Result<M>> {
     await this.start();

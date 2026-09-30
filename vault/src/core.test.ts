@@ -25,7 +25,23 @@ function setup(opts: { store?: MemoryStore; replies?: Reply[] } = {}) {
     if (r === "throw") throw new TypeError("Failed to fetch");
     return { status: r.status, text: async () => r.body };
   };
-  const core = new VaultCore({ store, fetch, now: () => now, version: "test", onStatus: (s) => statuses.push(s), announceWipe: () => wipes++ });
+  // Fake timers: the refresh schedule runs only when a test calls runTimers().
+  let timers: { at: number; fn: () => void }[] = [];
+  const core = new VaultCore({
+    store,
+    fetch,
+    now: () => now,
+    version: "test",
+    onStatus: (s) => statuses.push(s),
+    announceWipe: () => wipes++,
+    setTimeout: (fn, ms) => {
+      const t = { at: now + ms, fn };
+      timers.push(t);
+      return t;
+    },
+    clearTimeout: (h) => (timers = timers.filter((t) => t !== h)),
+    random: () => 0.5,
+  });
   const popup = { name: "popup window" };
   return {
     core,
@@ -34,6 +50,20 @@ function setup(opts: { store?: MemoryStore; replies?: Reply[] } = {}) {
     statuses,
     popup,
     advance: (ms: number) => (now += ms),
+    /** Move the clock to `to`, firing due timers in order, and let their /token calls finish. */
+    runUntil: async (to: number) => {
+      for (;;) {
+        timers.sort((a, b) => a.at - b.at);
+        const t = timers[0];
+        if (!t || t.at > to) break;
+        timers.shift();
+        now = Math.max(now, t.at);
+        t.fn();
+        for (let i = 0; i < 5; i++) await Promise.resolve();
+      }
+      now = to;
+    },
+    now: () => now,
     wipes: () => wipes,
     send: (msg: DistributiveOmit<PopupMessage, "v" | "ticket"> & { ticket?: string }, source: unknown = popup) =>
       core.popup({ v: 1, ticket: T, ...msg } as PopupMessage, source) as Promise<FrameToPopup | null>,
@@ -73,7 +103,18 @@ describe("VaultCore", () => {
     expect(await v.send(login("device"))).toEqual({ v: 1, type: "popup:result", ticket: T, ok: true, next: "done" });
     expect(v.requests).toEqual([{ username: USER, password: PASS }]);
     const s = v.core.status();
-    expect(s).toEqual({ state: "connected", mode: "device", account: "s***@example.com", tokenExpiresAt: 1_000_000 + 3_600_000, live: "off", version: "test" });
+    expect(s).toEqual({
+      state: "connected",
+      mode: "device",
+      account: "s***@example.com",
+      tokenExpiresAt: 1_000_000 + 3_600_000,
+      nextRefreshAt: 1_000_000 + 3_000_000,
+      refreshCount: 0,
+      needsReauth: false,
+      refresh: "scheduled",
+      live: "off",
+      version: "test",
+    });
     expect(v.statuses.map((x) => x.state)).toEqual(["disconnected", "connecting", "connected"]);
     noSecrets(v.statuses);
     // The ticket is used up: a replay is ignored.
@@ -238,5 +279,82 @@ describe("VaultCore", () => {
     const other = setup({ store: v.store });
     await other.core.init();
     expect(other.core.status().state).toBe("disconnected");
+  });
+
+  test("silent refresh at 5/6 of the lifetime: status pushed, no secrets in it", async () => {
+    const v = setup();
+    await v.core.init();
+    v.core.expect("connect", T);
+    await v.send({ type: "popup:hello" });
+    await v.send(login("device"));
+    const t0 = v.now();
+    v.statuses.length = 0;
+    await v.runUntil(t0 + 3_000_000 - 1);
+    expect(v.requests.length).toBe(1);
+    await v.runUntil(t0 + 3_000_000);
+    expect(v.requests.length).toBe(2);
+    expect(v.requests[1]).toEqual({ username: USER, password: PASS });
+    expect(v.core.status()).toMatchObject({ state: "connected", refreshCount: 1, lastRefresh: { at: t0 + 3_000_000, ok: true }, tokenExpiresAt: t0 + 3_000_000 + 3_600_000 });
+    expect(v.statuses.map((x) => x.refresh)).toEqual(["refreshing", "scheduled"]);
+    noSecrets(v.statuses);
+  });
+
+  test("restore while OpenF1 is unreachable: error, then the scheduler's retry connects", async () => {
+    const v = setup();
+    await v.core.init();
+    v.core.expect("connect", T);
+    await v.send({ type: "popup:hello" });
+    await v.send(login("device"));
+    const next = setup({ store: v.store, replies: ["throw"] });
+    await next.core.init();
+    expect(next.core.status()).toMatchObject({ state: "error", error: { code: "network" }, refresh: "retrying", lastRefresh: { ok: false, error: "network" } });
+    await next.runUntil(next.now() + 5_000);
+    expect(next.core.status()).toMatchObject({ state: "connected", refresh: "scheduled", refreshCount: 1 });
+    expect(next.core.status().error).toBeUndefined();
+  });
+
+  test("password changed: needsReauth, the token is kept until its exp, then the state is error", async () => {
+    const v = setup({ replies: [{ status: 200, body: JSON.stringify({ access_token: JWT, expires_in: "3600" }) }, { status: 401, body: "{}" }] });
+    await v.core.init();
+    v.core.expect("connect", T);
+    await v.send({ type: "popup:hello" });
+    await v.send(login("device"));
+    const t0 = v.now();
+    await v.runUntil(t0 + 3_000_000);
+    expect(v.core.status()).toMatchObject({ state: "connected", needsReauth: true, refresh: "stopped", tokenExpiresAt: t0 + 3_600_000 });
+    expect(v.core.scheduler.current()).toBe(JWT);
+    await v.runUntil(t0 + 3_600_000 + 60_000);
+    expect(v.requests.length).toBe(2); // never asked again
+    expect(v.core.status()).toMatchObject({ state: "error", error: { code: "wrong_credentials" }, needsReauth: true });
+    expect(v.core.scheduler.current()).toBeNull();
+    // Reconnecting clears it.
+    v.core.expect("connect", "ticket_ticket_ticket_02");
+    await v.core.popup({ v: 1, type: "popup:hello", ticket: "ticket_ticket_ticket_02" }, v.popup);
+    await v.core.popup({ v: 1, ticket: "ticket_ticket_ticket_02", ...login("device") }, v.popup);
+    expect(v.core.status()).toMatchObject({ state: "connected", needsReauth: false, refresh: "scheduled", refreshCount: 0 });
+  });
+
+  test("disconnect stops the refresh", async () => {
+    const v = setup();
+    await v.core.init();
+    v.core.expect("connect", T);
+    await v.send({ type: "popup:hello" });
+    await v.send(login("device"));
+    await v.core.disconnect();
+    await v.runUntil(v.now() + 10 * 3_600_000);
+    expect(v.requests.length).toBe(1);
+    expect(v.core.scheduler.running).toBe(false);
+  });
+
+  test("tokenFilter (dev fake expiry) applies to every token", async () => {
+    const store = new MemoryStore();
+    const statuses: VaultStatus[] = [];
+    const fetch: Fetch = async () => ({ status: 200, text: async () => JSON.stringify({ access_token: JWT, expires_in: "3600" }) });
+    const core = new VaultCore({ store, fetch, now: () => 0, version: "t", onStatus: (s) => statuses.push(s), setTimeout: () => 0, clearTimeout: () => {}, tokenFilter: (t) => ({ ...t, expiresAt: t.issuedAt + 120_000 }) });
+    await core.init();
+    core.expect("connect", T);
+    await core.popup({ v: 1, type: "popup:hello", ticket: T }, "w");
+    await core.popup({ v: 1, ticket: T, ...login("device") }, "w");
+    expect(core.status()).toMatchObject({ tokenExpiresAt: 120_000, nextRefreshAt: 100_000 });
   });
 });

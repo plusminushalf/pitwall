@@ -8,8 +8,13 @@ import type { LoginError } from "./protocol";
 
 export const TOKEN_URL = "https://api.openf1.org/token";
 
-/** The token lives only in vault memory. `expiresAt` is ms since the epoch. */
-export type Token = { accessToken: string; expiresAt: number };
+/**
+ * The token lives only in vault memory. `issuedAt` is when the /token request was sent (local clock), and
+ * `expiresAt` = issuedAt + its lifetime, both ms since the epoch. Counting from the send rather than the
+ * receive time errs early by one round trip, which is the safe side: REST 401s from the first second after
+ * `exp`.
+ */
+export type Token = { accessToken: string; issuedAt: number; expiresAt: number };
 
 export type TokenResult = { ok: true; token: Token } | { ok: false; error: LoginError };
 
@@ -48,7 +53,28 @@ export function parseTokenResponse(status: number, body: string, now: number): T
   if (typeof access_token !== "string" || access_token.length < 16 || access_token.length > 8192 || !Number.isInteger(seconds) || seconds <= 0 || seconds > MAX_LIFETIME_S) {
     return { ok: false, error: loginError("server") };
   }
-  return { ok: true, token: { accessToken: access_token, expiresAt: now + seconds * 1000 } };
+  // Sanity check against the JWT's own claims: if exp - iat is shorter than expires_in, believe the JWT.
+  // (A lifetime, not an absolute time, so a skewed local clock doesn't matter.) Never logged.
+  const claimed = jwtLifetime(access_token);
+  const lifetime = claimed !== null && claimed < seconds ? claimed : seconds;
+  return { ok: true, token: { accessToken: access_token, issuedAt: now, expiresAt: now + lifetime * 1000 } };
+}
+
+/** `exp - iat` in seconds from a JWT's payload, or null if it isn't a JWT we can read. Never throws. */
+export function jwtLifetime(jwt: string): number | null {
+  const part = jwt.split(".")[1];
+  if (!part || part.length > 4096) return null;
+  try {
+    const b64 = part.replaceAll("-", "+").replaceAll("_", "/");
+    const claims: unknown = JSON.parse(atob(b64 + "=".repeat((4 - (b64.length % 4)) % 4)));
+    if (typeof claims !== "object" || claims === null) return null;
+    const { iat, exp } = claims as Record<string, unknown>;
+    if (typeof iat !== "number" || typeof exp !== "number" || !Number.isFinite(iat) || !Number.isFinite(exp)) return null;
+    const life = exp - iat;
+    return life > 0 && life <= MAX_LIFETIME_S ? life : null;
+  } catch {
+    return null;
+  }
 }
 
 export type Fetch = (url: string, init: { method: string; headers: Record<string, string>; body: string; credentials: "omit"; referrerPolicy: "no-referrer" }) => Promise<{ status: number; text(): Promise<string> }>;

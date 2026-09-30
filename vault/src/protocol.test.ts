@@ -60,6 +60,22 @@ describe("parseRequest", () => {
     for (const type of ["token", "getToken", "password", "credentials", "hello", "ready", "event", ""]) expect(ok({ v: 1, id: 1, type })).toBe(false);
   });
 
+  test("debug methods: unknown unless the (dev) vault opts in, and validated when it does", () => {
+    const dev = (x: unknown) => parseRequest(x, 0, { debug: true }).ok;
+    for (const req of [{ type: "debug:spoilToken" }, { type: "debug:refreshNow" }, { type: "debug:fakeExpiry", seconds: 120 }]) {
+      expect(ok({ v: 1, id: 1, ...req })).toBe(false);
+      expect(parseRequest({ v: 1, id: 1, ...req }, 0, { debug: false }).ok).toBe(false);
+      expect(dev({ v: 1, id: 1, ...req })).toBe(true);
+    }
+    expect(dev({ v: 1, id: 1, type: "debug:fakeExpiry", seconds: 0 })).toBe(true);
+    for (const seconds of [5, 19, 3601, 1.5, "120", -1, null]) expect(dev({ v: 1, id: 1, type: "debug:fakeExpiry", seconds })).toBe(false);
+    expect(dev({ v: 1, id: 1, type: "debug:spoilToken", extra: 1 })).toBe(false);
+    expect(dev({ v: 1, id: 1, type: "debug:other" })).toBe(false);
+    expect(dev({ v: 1, id: 1, type: "debug:failToken", status: 503, times: 2 })).toBe(true);
+    expect(ok({ v: 1, id: 1, type: "debug:failToken", status: 503, times: 2 })).toBe(false);
+    for (const [status, times] of [[500, 1], [401, 11], [429, -1], [503, 1.5], ["401", 1]]) expect(dev({ v: 1, id: 1, type: "debug:failToken", status, times })).toBe(false);
+  });
+
   test("extra or missing fields", () => {
     expect(ok({ v: 1, id: 1, type: "status", extra: true })).toBe(false);
     expect(ok({ v: 1, id: 1, type: "status", topics: ["laps"] })).toBe(false);

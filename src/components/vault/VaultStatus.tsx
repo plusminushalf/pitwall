@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { getVault, type VaultState } from "../../vault/client";
+import { needsReauth, ReauthBanner } from "./ReauthBanner";
 import { useVault, vaultDebug } from "./useVault";
 import { VaultPanel } from "./VaultPanel";
 
@@ -11,6 +12,7 @@ function label(s: VaultState): Label {
   if (s.phase !== "ready" || !s.status) return { text: "…", dot: "bg-zinc-600", title: "Loading the vault" };
   const { state, error } = s.status;
   if (s.popup && state !== "connecting") return { text: s.popup === "unlock" ? "unlocking in the vault window…" : "waiting for the vault window…", dot: "bg-sky-500", title: "Finish in the vault's window" };
+  if (state === "connected" && needsReauth(s)) return { text: "reconnect needed", dot: "bg-amber-500", title: "OpenF1 no longer accepts the saved login. It keeps working until the current token expires." };
   switch (state) {
     case "connected":
       return { text: "connected", dot: "bg-emerald-500", title: "Live data and faster downloads use your OpenF1 login" };
@@ -35,6 +37,7 @@ export function VaultStatus() {
   const [debug] = useState(vaultDebug);
   const { text, dot, title } = label(state);
   const account = state.phase === "ready" ? state.status?.state : undefined;
+  const reauth = needsReauth(state);
   const vault = getVault();
   // connect() / unlock() open the vault's popup: they must run synchronously inside the click.
   return (
@@ -47,9 +50,9 @@ export function VaultStatus() {
             Unlock
           </button>
         )}
-        {(account === "disconnected" || account === "error") && (
+        {(account === "disconnected" || account === "error" || (account === "connected" && reauth)) && (
           <button type="button" className={button} data-testid="vault-connect" onClick={() => void vault.connect()}>
-            {account === "error" ? "Reconnect" : "Connect"}
+            {account === "disconnected" ? "Connect" : "Reconnect"}
           </button>
         )}
         {(account === "connected" || account === "locked" || account === "error") && (
@@ -63,7 +66,8 @@ export function VaultStatus() {
           {state.actionError}
         </span>
       )}
-      {/* A portal: the header's backdrop-blur would otherwise be the fixed panel's containing block. */}
+      {/* Portals: the header's backdrop-blur would otherwise be the fixed elements' containing block. */}
+      {reauth && createPortal(<ReauthBanner state={state} />, document.body)}
       {debug && createPortal(<VaultPanel />, document.body)}
     </>
   );

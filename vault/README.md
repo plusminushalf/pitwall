@@ -5,9 +5,9 @@ code ever to see a user's OpenF1 password or access token. The app embeds it as 
 data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
-Status: spike S3, step 2 of 6. The handshake, the protocol, the headers, the popup login and both storage
-modes (stay connected, passkey PRF) work: the frame gets one token on connect / unlock / restore and
-reports its expiry. Refresh, MQTT, `get` and the cross-tab leader are later steps (`not_implemented`).
+Status: spike S3, step 3 of 6. The handshake, the protocol, the headers, the popup login, both storage
+modes (stay connected, passkey PRF), silent token refresh and a one-at-a-time `get` work. MQTT, the
+cross-tab leader and parallel downloads are later steps (`subscribe` answers `not_implemented`).
 
 ## What's here
 
@@ -19,6 +19,9 @@ reports its expiry. Refresh, MQTT, `get` and the cross-tab leader are later step
 | `src/core.ts` | The vault's state: stored login, in-memory password and token, the popup it's waiting for. No DOM |
 | `src/storage.ts` | What's stored and how: the swappable `Secret`, AES-GCM sealing (device key / passkey PRF), IndexedDB |
 | `src/openf1.ts` | `POST /token` and parsing its response |
+| `src/scheduler.ts` | The token refresh schedule (pure: injected clock, timers, `/token`) |
+| `src/rest.ts` | `get`: OpenF1 REST reads, authenticated when there's a token, retried once after a 401 |
+| `src/debug.ts` | Dev-only testing knobs (fake expiry, spoil the token, refresh now); not in a build |
 | `src/origins.ts` | The app-origin allowlist: parsing `VAULT_APP_ORIGINS`, matching the parent |
 | `src/rpc.ts` | Request dispatch over a `MessagePort` |
 | `headers.ts` | Every response header (CSP and the rest): one source for dev, `_headers` and `serve.ts` |
@@ -35,7 +38,7 @@ The build is unminified, so the deployed JavaScript reads like this source.
 bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite client: reload by hand)
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
-bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server)
+bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
 ```
 
 The app finds the vault at `VITE_VAULT_ORIGIN` (default `http://localhost:5174`; `off` disables it). Open the
@@ -49,6 +52,8 @@ Configuration, baked in at build time (shell or the repo's `.env`):
   `VITE_VAULT_ORIGIN` (H2.11).
 - `VAULT_ALLOWED_HOSTS` (dev server only): extra Host names to answer, beyond localhost and
   127.0.0.1 (e.g. a tunnel's public hostname).
+- `VAULT_FAKE_EXPIRES_IN` (dev server only, 20–3600): treat every token as lasting that many seconds, to
+  watch refreshes happen. A build ignores it (see "Dev knobs").
 
 Test cross-site, as production runs: the app at `http://127.0.0.1:5173`, the vault at `http://localhost:5174`.
 `vault:e2e` launches Chromium with storage partitioning on and `--site-per-process` (Playwright's defaults turn
@@ -73,19 +78,79 @@ All in `src/protocol.ts`. Version `v: 1` on every message.
 
 | Method | Arguments | Result |
 | --- | --- | --- |
-| `status` | | `{state, mode?, account?, tokenExpiresAt?, error?, live, version}` |
+| `status` | | `{state, mode?, account?, error?, live, version}` plus the refresh status (below) |
 | `connect` | `ticket` | status. The app has just opened the popup with this ticket; the frame expects it |
 | `unlock` | `ticket` | status. The same, for a passkey-locked login (state `locked` only) |
 | `cancel` | `ticket` | status. The popup closed: stop expecting it, drop a half-done passkey setup |
 | `disconnect` | | status. Wipes storage and memory, and the frames in other tabs |
 | `subscribe` / `unsubscribe` | `topics`: 1–32 distinct names from `LIVE_TOPICS` | `{topics}` |
-| `get` | `endpoint` from `REST_ENDPOINTS`, `params` (≤ 8, names from `PARAM_KEYS` with optional `>`, `<`, `>=`, `<=`; finite numbers or ≤ 64 chars of `[A-Za-z0-9 :.+_-]`) | `{status, body: ArrayBuffer}` |
+| `get` | `endpoint` from `REST_ENDPOINTS`, `params` (≤ 8, names from `PARAM_KEYS` with optional `>`, `<`, `>=`, `<=`; finite numbers or ≤ 64 chars of `[A-Za-z0-9 :.+_-]`) | `{status, body: ArrayBuffer, auth}` (body transferred); `network` error if OpenF1 can't be reached |
 | `openPort` | one transferred `MessagePort` | `{}`; the port then speaks this protocol too (≤ 8 ports) |
 
 There is no method that returns a password or a token, and there never will be. Status changes are pushed
 as `{v:1, type:"event", event:"status", status}`. `state` is one of `unavailable` (storage blocked),
 `disconnected`, `locked` (passkey, not unlocked yet), `connecting`, `connected`, `error` (a stored login stopped
-working: `error.code` says why). `account` is masked (`d***@example.com`); `tokenExpiresAt` is ms since the epoch.
+working: `error.code` says why). `account` is masked (`d***@example.com`).
+
+The refresh status, while a login is in memory (all times ms since the epoch): `tokenExpiresAt`,
+`nextRefreshAt`, `lastRefresh {at, ok, error?}`, `refreshCount` (silent refreshes since the login),
+`needsReauth`, and `refresh`: `scheduled`, `refreshing`, `retrying` (the token still works), `expired` (it
+doesn't), or `stopped` (`needsReauth`). Every change is pushed as a status event.
+
+## Token refresh
+
+`src/scheduler.ts`, built on the facts in docs/modular-hypotheses.md (no refresh token, so a refresh is the
+password grant again; new tokens don't invalidate old ones; REST 401s from the first second after `exp`;
+`/token` 429s bursts):
+
+- Refresh at 5/6 of the lifetime (50 min for 3600 s), counted from when the `/token` request was **sent**
+  (local clock; errs early by one round trip). The lifetime is `expires_in`, or the JWT's `exp - iat` if that
+  is shorter (a lifetime, so local clock skew doesn't matter). Neither is ever logged.
+- A failure retries with exponential backoff and ±20% jitter: 5 s, 10 s, 20 s … capped at 2 min; a 429
+  starts at 30 s. Once the token has expired the phase is `expired`, `get` goes unauthenticated, and
+  retries continue at the cap. A `/token` call that hangs for 30 s counts as a network failure.
+- A 401 from `/token` (password changed or revoked) stops retrying: `needsReauth`, the current token is used
+  until it expires, and the app shows "Reconnect your OpenF1 account". When it expires the state becomes
+  `error` (`wrong_credentials`), like a restore with a changed password. Reconnecting (the popup) clears it.
+- Refreshes are coalesced: one `/token` call in flight, whoever asks.
+- A REST 401 (later also MQTT) refreshes at once and the request is retried once with the new token.
+  If the token it used has already been replaced, it just retries. If the token was issued under 10 s ago,
+  OpenF1 is refusing fresh tokens: no refresh, the 401 goes back to the caller, `get` goes unauthenticated
+  and the next try is at the 2-minute cap (`lastRefresh.error: "rejected"`). During a backoff a 401 never
+  skips it. So a flood of 401s costs at most about one `/token` call per 2 minutes.
+- Timers are armed against absolute times and never sleep more than 60 s; `visibilitychange` (visible)
+  and `online` re-check the wall clock, since background tabs throttle timers and a sleeping laptop stops
+  them. `online` also retries a network failure at once.
+- A restore that fails for a network reason (offline at load) shows `error` and keeps retrying; the first
+  success moves it to `connected`.
+
+`get` without a valid token (no login, locked, expired while refreshes fail, rejected) is sent
+unauthenticated: historical data is free (3 req/s, 30/min), so the app keeps working, and `auth: false`
+says so. Live windows need the login. One request at a time for now; step 6 adds parallel requests within
+the rate caps.
+
+## Dev knobs
+
+For trying the refresh paths by hand and in `e2e.ts`. `src/debug.ts` is used only behind `__VAULT_DEV__`,
+which the build replaces with `false` (whatever the environment says), so the bundler drops it: a production
+vault rejects the debug methods as unknown types and has no fake expiry (e2e checks both, and that
+`dist/` has none of it). Otherwise any app code could make the vault spoil its token or hammer `/token`.
+
+| Method (dev vault only) | Arguments | What it does |
+| --- | --- | --- |
+| `debug:fakeExpiry` | `seconds`: 0 or 20–3600 | New tokens count as lasting that long (never longer than the real lifetime). Starts at `VAULT_FAKE_EXPIRES_IN` |
+| `debug:spoilToken` | | The token in hand is sent with one signature character changed until the next token: a real OpenF1 401 |
+| `debug:refreshNow` | | A refresh now, through the scheduler (coalesced, backoff on failure) |
+| `debug:failToken` | `status`: 401, 429 or 503; `times`: 0–10 | The next `times` `/token` calls answer that status without reaching OpenF1 |
+
+By hand: `VAULT_FAKE_EXPIRES_IN=120 bun run vault`, `bun run dev`, open `http://127.0.0.1:5173/?vault=debug`,
+Connect. The debug panel shows the refresh phase, next refresh, last result and count, plus buttons: get
+`/v1/sessions?session_key=latest` (status, bytes, authenticated or not), Spoil token (then get: still 200,
+one more refresh; wait 10 s after a refresh first, or the fresh-token guard gives up), Refresh now, Fake
+120 s tokens (from the next token), Real expiry, `/token 503 ×2` (then a refresh: watch it retry after
+about 5 s and 10 s and recover) and `/token 401` (then a refresh: the reconnect banner, while gets keep
+working until the token expires; Reconnect or Disconnect clears it). e2e fakes the same `/token` answers
+with Playwright routes instead, on the real network path.
 
 ## Login
 

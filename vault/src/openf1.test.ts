@@ -1,16 +1,30 @@
 import { describe, expect, test } from "bun:test";
-import { parseTokenResponse, requestToken, TOKEN_URL, type Fetch } from "./openf1";
+import { jwtLifetime, parseTokenResponse, requestToken, TOKEN_URL, type Fetch } from "./openf1";
 
 const JWT = "eyJhbGciOiJSUzI1NiJ9.fake.fake-signature";
 
 describe("parseTokenResponse", () => {
   test("expires_in as a string (what OpenF1 sends)", () => {
     const r = parseTokenResponse(200, JSON.stringify({ access_token: JWT, token_type: "bearer", expires_in: "3600" }), 1000);
-    expect(r).toEqual({ ok: true, token: { accessToken: JWT, expiresAt: 1000 + 3_600_000 } });
+    expect(r).toEqual({ ok: true, token: { accessToken: JWT, issuedAt: 1000, expiresAt: 1000 + 3_600_000 } });
   });
   test("expires_in as a number too", () => {
     const r = parseTokenResponse(200, JSON.stringify({ access_token: JWT, expires_in: 120 }), 0);
     expect(r.ok && r.token.expiresAt).toBe(120_000);
+  });
+  test("the JWT's own exp - iat caps the lifetime (never lengthens it)", () => {
+    const b64 = (o: object) => btoa(JSON.stringify(o)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+    const jwt = (claims: object) => `${b64({ alg: "RS256" })}.${b64(claims)}.c2lnbmF0dXJlLXNpZ25hdHVyZQ`;
+    const life = (token: string, expiresIn = "3600") => {
+      const r = parseTokenResponse(200, JSON.stringify({ access_token: token, expires_in: expiresIn }), 0);
+      return r.ok ? r.token.expiresAt / 1000 : null;
+    };
+    expect(life(jwt({ iat: 1_700_000_000, exp: 1_700_003_600, email: "x@y.z" }))).toBe(3600);
+    expect(life(jwt({ iat: 1_700_000_000, exp: 1_700_001_800 }))).toBe(1800);
+    expect(life(jwt({ iat: 1_700_000_000, exp: 1_700_007_200 }))).toBe(3600);
+    // Unreadable claims: expires_in alone.
+    for (const t of [jwt({ iat: "x", exp: 5 }), jwt({ exp: 5 }), jwt({ iat: 10, exp: 5 }), "eyJhbGciOiJSUzI1NiJ9.!!!.sig-sig-sig", JWT]) expect(life(t)).toBe(3600);
+    expect(jwtLifetime(jwt({ iat: 0, exp: 60 }))).toBe(60);
   });
   test("unreadable 200s are server errors", () => {
     for (const body of ["", "not json", "null", "[]", JSON.stringify({ access_token: JWT }), JSON.stringify({ access_token: JWT, expires_in: "1h" }), JSON.stringify({ access_token: JWT, expires_in: "-5" }), JSON.stringify({ access_token: JWT, expires_in: "0" }), JSON.stringify({ access_token: JWT, expires_in: "99999999" }), JSON.stringify({ access_token: JWT, expires_in: 1.5 }), JSON.stringify({ access_token: 5, expires_in: "3600" }), JSON.stringify({ access_token: "short", expires_in: "3600" })]) {

@@ -113,17 +113,37 @@ export type Methods = {
   disconnect: { args: {}; result: VaultStatus };
   subscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
   unsubscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
-  /** An authenticated OpenF1 read. The body is the raw response, transferred. */
-  get: { args: { endpoint: RestEndpoint; params: Params }; result: { status: number; body: ArrayBuffer } };
+  /**
+   * An OpenF1 read. The body is the raw response, transferred. With a valid token it's authenticated
+   * (`auth: true`; a 401 refreshes the token and retries once). Without one (no login, locked, the token
+   * expired while refreshes fail) it goes out unauthenticated, which is enough for historical data.
+   */
+  get: { args: { endpoint: RestEndpoint; params: Params }; result: GetResult };
   /** A second port (transferred with the request) that speaks this same protocol, e.g. for the download worker. */
   openPort: { args: {}; result: {} };
+  // Dev-only testing knobs (DEBUG_METHODS). A production vault is built without them and rejects these as
+  // unknown types, so no app code can make it misuse the token or hammer /token.
+  /** Corrupt the in-memory token: the next authenticated get gets a real 401 from OpenF1. */
+  "debug:spoilToken": { args: {}; result: VaultStatus };
+  /** Treat every new token as lasting `seconds` (0: the real lifetime). Applies from the next token. */
+  "debug:fakeExpiry": { args: { seconds: number }; result: VaultStatus };
+  /** Refresh the token now (the same path a scheduled refresh takes). */
+  "debug:refreshNow": { args: {}; result: VaultStatus };
+  /** The next `times` /token calls answer `status` without reaching OpenF1 (0 times: clear). */
+  "debug:failToken": { args: { status: 401 | 429 | 503; times: number }; result: VaultStatus };
 };
 export type Method = keyof Methods;
 export const METHODS = ["status", "connect", "unlock", "cancel", "disconnect", "subscribe", "unsubscribe", "get", "openPort"] as const satisfies readonly Method[];
+export const DEBUG_METHODS = ["debug:spoilToken", "debug:fakeExpiry", "debug:refreshNow", "debug:failToken"] as const satisfies readonly Method[];
+export type DebugMethod = (typeof DEBUG_METHODS)[number];
+/** debug:fakeExpiry bounds (seconds), besides 0 = off. */
+export const FAKE_EXPIRY = { min: 20, max: 3600 } as const;
+
+export type GetResult = { status: number; body: ArrayBuffer; auth: boolean };
 
 export type Request<M extends Method = Method> = M extends Method ? { v: 1; id: number; type: M } & Methods[M]["args"] : never;
 
-export type ErrorCode = "bad_request" | "not_implemented" | "not_connected" | "rate_limited" | "busy" | "unavailable" | "internal";
+export type ErrorCode = "bad_request" | "not_implemented" | "not_connected" | "rate_limited" | "busy" | "unavailable" | "network" | "internal";
 export type VaultError = { code: ErrorCode; message: string };
 
 export type Response<M extends Method = Method> =
@@ -153,14 +173,38 @@ export type LoginErrorCode =
   | "expired"; // the popup's ticket is stale
 export type LoginError = { code: LoginErrorCode; message: string };
 
-export type VaultStatus = {
+/**
+ * The token refresh (scheduler.ts):
+ * - off: no login in memory.
+ * - scheduled: a good token; the next refresh is at nextRefreshAt (5/6 of its lifetime).
+ * - refreshing: a /token call is in flight.
+ * - retrying: the last refresh failed; the current token still works; next try at nextRefreshAt.
+ * - expired: refreshes keep failing and the token has run out (gets go unauthenticated); retrying at the cap.
+ * - stopped: /token refused the login (password changed or revoked): needsReauth. The current token is
+ *   used until it expires; nothing more is asked of OpenF1 until the user reconnects.
+ */
+export type RefreshPhase = "off" | "scheduled" | "refreshing" | "retrying" | "expired" | "stopped";
+/** Why the last refresh failed: a /token error, or "rejected" (OpenF1 refused a token it had just issued). */
+export type RefreshError = LoginErrorCode | "rejected";
+export type RefreshStatus = {
+  tokenExpiresAt?: number;
+  nextRefreshAt?: number;
+  lastRefresh?: { at: number; ok: boolean; error?: RefreshError };
+  /** Silent refreshes since the login / restore / unlock. */
+  refreshCount?: number;
+  /** Show "Reconnect your OpenF1 account". */
+  needsReauth?: boolean;
+  refresh?: RefreshPhase;
+};
+
+export type VaultStatus = RefreshStatus & {
   state: VaultState;
   /** How the login is stored (when one is). */
   mode?: StorageMode;
   /** The OpenF1 account, masked (`d***@example.com`). */
   account?: string;
-  /** When the current token expires (ms since the epoch). The token itself never leaves the vault. */
-  tokenExpiresAt?: number;
+  // tokenExpiresAt (RefreshStatus): when the current token expires (ms since the epoch). The token itself
+  // never leaves the vault.
   /** In state "error": what went wrong. */
   error?: LoginError;
   live: "off" | "connecting" | "on";
@@ -262,16 +306,17 @@ function params(x: unknown): x is Params {
 const bad = (id: number | null, message: string): Parsed => ({ ok: false, id, error: { code: "bad_request", message } });
 
 /**
- * Validate one inbound port message. `ports` is how many MessagePorts came with it.
+ * Validate one inbound port message. `ports` is how many MessagePorts came with it. `debug` (dev vault
+ * only) also accepts DEBUG_METHODS.
  * Never throws: anything unexpected is an error result.
  */
-export function parseRequest(x: unknown, ports: number): Parsed {
+export function parseRequest(x: unknown, ports: number, opts: { debug?: boolean } = {}): Parsed {
   if (!isRecord(x)) return bad(null, "not an object");
   const id = isId(x.id) ? x.id : null;
   if (id === null) return bad(null, "missing or invalid id");
   if (x.v !== PROTOCOL_VERSION) return bad(id, "unsupported protocol version");
-  if (!oneOf(METHODS, x.type)) return bad(id, "unknown type");
-  const type = x.type;
+  if (!oneOf(METHODS, x.type) && !(opts.debug === true && oneOf(DEBUG_METHODS, x.type))) return bad(id, "unknown type");
+  const type = x.type as Method;
   const argKeys: Record<Method, readonly string[]> = {
     status: [],
     connect: ["ticket"],
@@ -282,6 +327,10 @@ export function parseRequest(x: unknown, ports: number): Parsed {
     subscribe: ["topics"],
     unsubscribe: ["topics"],
     get: ["endpoint", "params"],
+    "debug:spoilToken": [],
+    "debug:fakeExpiry": ["seconds"],
+    "debug:refreshNow": [],
+    "debug:failToken": ["status", "times"],
   };
   if (!hasKeys(x, ["v", "id", "type", ...argKeys[type]])) return bad(id, `wrong fields for ${type}`);
   if (ports !== (type === "openPort" ? 1 : 0)) return bad(id, `${type} takes ${type === "openPort" ? "exactly one port" : "no ports"}`);
@@ -290,6 +339,12 @@ export function parseRequest(x: unknown, ports: number): Parsed {
   if (type === "get") {
     if (!oneOf(REST_ENDPOINTS, x.endpoint)) return bad(id, "endpoint not allowed");
     if (!params(x.params)) return bad(id, "params not allowed");
+  }
+  if (type === "debug:failToken" && (![401, 429, 503].includes(x.status as number) || !Number.isInteger(x.times) || (x.times as number) < 0 || (x.times as number) > 10))
+    return bad(id, "status: 401, 429 or 503; times: 0 to 10");
+  if (type === "debug:fakeExpiry") {
+    const n = x.seconds;
+    if (!Number.isInteger(n) || (n !== 0 && ((n as number) < FAKE_EXPIRY.min || (n as number) > FAKE_EXPIRY.max))) return bad(id, `seconds: 0 or ${FAKE_EXPIRY.min} to ${FAKE_EXPIRY.max}`);
   }
   return { ok: true, request: x as Request };
 }

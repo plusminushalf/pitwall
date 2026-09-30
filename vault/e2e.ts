@@ -4,6 +4,7 @@
 //   bun run vault:e2e            the built vault (vault:build, then serve.ts: the exact production headers)
 //   bun run vault:e2e --dev      the vault dev server instead (bun run vault)
 //   bun run vault:e2e --headed
+//   bun run vault:e2e --quick    skip the step-3 refresh run (about 5 minutes of real token refreshes)
 //
 // Starts whatever isn't already listening (the app dev server, the vault) and stops what it started.
 // A port-5174 server that is already running is used as is. Playwright isn't a project dependency: it's
@@ -18,6 +19,13 @@
 // profile); disconnect wipes; passkey mode on a CDP virtual authenticator (PRF), locked -> unlock; an
 // authenticator without PRF falls back to stay-connected; and the secret-leak check (leakcheck.ts) from
 // the app's origin after every login.
+// Step 3 (refresh): the production build has no dev knobs (debug methods are unknown types, none of
+// debug.ts is in dist/); `get` works unauthenticated without a login and authenticated with one. Then,
+// against the vault dev server with VAULT_FAKE_EXPIRES_IN=120 and the real API: spoilToken -> a real
+// OpenF1 401 -> refresh -> the get still succeeds; two scheduled silent refreshes about 100 s apart while a
+// get runs every 3 s and none fails; /token answering 503 twice (a route) -> backoff 5 s, 10 s -> recovery;
+// /token answering 401 -> needsReauth, the banner shows, gets keep working, no more /token calls; and the
+// leak check again.
 
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -31,12 +39,16 @@ const repo = fileURLToPath(new URL("..", import.meta.url)); // vault/ -> the rep
 const args = process.argv.slice(2);
 const DEV = args.includes("--dev");
 const HEADED = args.includes("--headed");
+const QUICK = args.includes("--quick");
 
 const APP = "http://127.0.0.1:5173";
 const VAULT = "http://localhost:5174";
 const EVIL_PORT = Number(process.env.VAULT_E2E_EVIL_PORT || 5188);
 const EVIL = `http://127.0.0.1:${EVIL_PORT}`;
 const TOKEN_URL = "https://api.openf1.org/token";
+const REST_PREFIX = "https://api.openf1.org/v1/";
+/** The dev vault's fake token lifetime for the refresh run (seconds): refreshes every 100 s. */
+const FAKE_EXPIRES_IN = 120;
 
 // The real login, from the repo's .env (Bun loads it). Only ever typed into the vault popup.
 const USERNAME = process.env.OPENF1_USERNAME ?? "";
@@ -169,6 +181,21 @@ const KEEP_POPUP = `(() => {
  */
 const CHROME_AS_SHIPPED = ["--disable-features=Translate,MediaRouter,OptimizationHints,HttpsUpgrades", "--site-per-process"];
 
+/**
+ * The app dev server is shared with whoever else is editing the app: its HMR would reload or hot-swap the
+ * page mid-check (a reload restarts the vault frame, and the 5-minute refresh run with it). So the app's
+ * Vite HMR socket connects, but updates, full reloads and server restarts never reach the page.
+ */
+const APP_HMR = new RegExp(`^${APP.replace("http", "ws").replaceAll(".", "\\.")}/`);
+function keepAppLoaded(ws: any) {
+  const server = ws.connectToServer();
+  server.onMessage((m: string | Buffer) => {
+    if (typeof m === "string" && /"type":\s*"(full-reload|update|prune|error)"/.test(m)) return;
+    ws.send(m);
+  });
+  server.onClose(() => {});
+}
+
 const state = (page: any) => page.getByTestId("vault-state").getAttribute("data-state");
 async function waitState(page: any, want: string, ms = 20_000) {
   await page.locator(`[data-testid=vault-state][data-state=${want}]`).waitFor({ timeout: ms });
@@ -241,6 +268,17 @@ async function submitLogin(popup: any, user: string, pass: string, storage: "dev
   await popup.getByRole("button", { name: "Connect" }).click();
 }
 
+/** One `get /v1/sessions?session_key=latest` through the app's vault client (dev app: window.__vault). */
+async function vaultGet(page: any): Promise<{ status?: number; auth?: boolean; bytes?: number; error?: string }> {
+  await page.waitForFunction(() => !!(window as any).__vault, null, { timeout: 5000 });
+  return page.evaluate(() =>
+    (window as any).__vault.get("sessions", { session_key: "latest" }).then(
+      (r: any) => ({ status: r.status, auth: r.auth, bytes: r.body.byteLength }),
+      (e: any) => ({ error: `${e.code}: ${e.message}` }),
+    ),
+  );
+}
+
 async function popupError(popup: any, ms = 20_000): Promise<string> {
   await popup.locator("#error:not([hidden])").waitFor({ timeout: ms });
   return (await popup.locator("#error").textContent()) ?? "";
@@ -271,9 +309,12 @@ async function main() {
   const profile = mkdtempSync(join(tmpdir(), "vault-e2e-"));
   const consoleCsp: string[] = [];
   const tokenRequests: string[] = [];
-  const launch = async () => {
-    const ctx = await chromium.launchPersistentContext(profile, { headless: !HEADED, viewport: { width: 1280, height: 800 }, args: CHROME_AS_SHIPPED });
+  const tokenTimes: number[] = [];
+  const restResponses: { status: number; frame: string }[] = [];
+  const launch = async (dir = profile) => {
+    const ctx = await chromium.launchPersistentContext(dir, { headless: !HEADED, viewport: { width: 1280, height: 800 }, args: CHROME_AS_SHIPPED });
     await ctx.addInitScript(RECORD_CSP);
+    await ctx.routeWebSocket(APP_HMR, keepAppLoaded);
     await ctx.addInitScript(KEEP_POPUP);
     ctx.on("page", (p: any) =>
       p.on("console", (m: any) => {
@@ -281,7 +322,13 @@ async function main() {
       }),
     );
     ctx.on("request", (r: any) => {
-      if (r.url() === TOKEN_URL) tokenRequests.push(r.frame()?.url?.() ?? "?");
+      if (r.url() === TOKEN_URL) {
+        tokenRequests.push(r.frame()?.url?.() ?? "?");
+        tokenTimes.push(Date.now());
+      }
+    });
+    ctx.on("response", (r: any) => {
+      if (r.url().startsWith(REST_PREFIX)) restResponses.push({ status: r.status(), frame: r.frame()?.url?.() ?? "?" });
     });
     return ctx;
   };
@@ -303,6 +350,21 @@ async function main() {
     await page.getByRole("button", { name: "Measure status round trip" }).click();
     const ping = await page.getByTestId("vault-ping").textContent({ timeout: 10_000 });
     check("status round trips", /ms median of 20/.test(ping ?? ""), ping ?? "");
+
+    // Step 3: get without a login (unauthenticated), and the dev knobs only on a dev vault.
+    const anon = await vaultGet(page);
+    check("get without a login: 200 from OpenF1, unauthenticated", anon.status === 200 && anon.auth === false && (anon.bytes ?? 0) > 10, JSON.stringify(anon));
+    const vaultVersion: string = await page.evaluate(() => (window as any).__vault.getState().status.version);
+    const spoil = await page.evaluate(() => (window as any).__vault.debug.spoilToken().then(() => "ok", (e: any) => `${e.code}: ${e.message}`));
+    if (vaultVersion.endsWith("-dev")) check("dev vault: debug methods answer", spoil === "ok", spoil);
+    else check("production vault: debug methods are unknown types", spoil === "bad_request: unknown type", spoil);
+    if (vault && !DEV) {
+      const { readdirSync, readFileSync } = await import("node:fs");
+      const dir = join(repo, "vault/dist/assets");
+      const js = readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
+      const leftovers = ["DevKnobs", "spoiled", "fakeSeconds", "tokenFilter:", "corrupt("].filter((w) => js.includes(w));
+      check("production build: none of the dev knobs (debug.ts) is in dist/", leftovers.length === 0, leftovers.join(", "));
+    }
 
     // 2. CSP violations in the vault frame.
     const frame = vaultFrame(page);
@@ -442,6 +504,141 @@ async function main() {
     rmSync(profile, { recursive: true, force: true });
   }
 
+  if (!HAVE_LOGIN) console.log("(skipping the refresh run: no login in .env)");
+  else if (QUICK) console.log("(skipping the refresh run: --quick)");
+  else await refreshChecks();
+
+  // ------------------------------------------------------------ step 3: silent refresh on the real API
+  async function refreshChecks() {
+    console.log(`refresh: the vault dev server with VAULT_FAKE_EXPIRES_IN=${FAKE_EXPIRES_IN}`);
+    let useKnob = false;
+    if (vault) {
+      // The vault-down check stopped ours: bring up the dev server (dev knobs on) in its place.
+      for (let i = 0; i < 50 && (await up(`${VAULT}/frame.html`)); i++) await Bun.sleep(100);
+      start(["bun", "run", "vault"], { VAULT_FAKE_EXPIRES_IN: String(FAKE_EXPIRES_IN) });
+      await waitUp(`${VAULT}/frame.html`);
+    } else {
+      useKnob = true; // someone else's vault server: set the fake expiry through the dev knob instead
+    }
+    const dir = mkdtempSync(join(tmpdir(), "vault-e2e-refresh-"));
+    const ctx = await launch(dir);
+    try {
+      const p = await ctx.newPage();
+      const pageErrors: string[] = [];
+      p.on("pageerror", (e: Error) => pageErrors.push(e.message));
+      await p.goto(`${APP}/?vault=debug`);
+      await waitState(p, "disconnected");
+      const version: string = await p.evaluate(() => (window as any).__vault.getState().status.version);
+      if (!version.endsWith("-dev")) {
+        check("refresh run needs a dev vault on :5174", false, version);
+        return;
+      }
+      if (useKnob) await p.evaluate((s: number) => (window as any).__vault.debug.fakeExpiry(s), FAKE_EXPIRES_IN);
+      const tok0 = tokenTimes.length;
+      const popup = await openPopup(ctx, p, "vault-connect");
+      await submitLogin(popup, USERNAME, PASSWORD, "device");
+      await waitClosed(popup);
+      await waitState(p, "connected");
+      await popup.close();
+      const t0 = Date.now();
+      const st = () => p.evaluate(() => (window as any).__vault.getState().status);
+      const s0 = await st();
+      const lifetime = (s0.tokenExpiresAt - s0.nextRefreshAt) * 6; // 1/6 of the lifetime is left at the refresh point
+      check(`fake expiry: the token counts as ${FAKE_EXPIRES_IN} s, refresh at 5/6 (100 s)`, Math.abs(lifetime - FAKE_EXPIRES_IN * 1000) < 50 && s0.refresh === "scheduled", `${Math.round(lifetime / 1000)} s, ${s0.refresh}`);
+
+      // A get every 3 s for the whole run, recorded in the page.
+      await p.evaluate(() => {
+        const w = window as any;
+        w.__gets = [];
+        w.__stream = setInterval(() => {
+          const t = Date.now();
+          w.__vault.get("sessions", { session_key: "latest" }).then(
+            (r: any) => w.__gets.push({ t, status: r.status, auth: r.auth, bytes: r.body.byteLength }),
+            (e: any) => w.__gets.push({ t, error: String(e?.code ?? e) }),
+          );
+        }, 3000);
+      });
+      type Got = { t: number; status?: number; auth?: boolean; error?: string };
+      const gets = (): Promise<Got[]> => p.evaluate(() => (window as any).__gets);
+      const bad = (g: Got[]) => g.filter((x) => x.status !== 200 || x.auth !== true);
+
+      // 1. spoilToken (after the fresh-token guard, 10 s): the next get hits a real 401, refreshes, retries.
+      await Bun.sleep(Math.max(0, t0 + 15_000 - Date.now()));
+      const nTok = tokenRequests.length;
+      const n401 = restResponses.filter((r) => r.status === 401).length;
+      await p.evaluate(() => (window as any).__vault.debug.spoilToken());
+      await p.waitForFunction(() => (window as any).__vault.getState().status.refreshCount >= 1, null, { timeout: 15_000 }).catch(() => {});
+      await Bun.sleep(4000);
+      const real401 = restResponses.slice().filter((r) => r.status === 401).length - n401;
+      check("spoilToken: OpenF1 really answered 401 (to the vault frame)", real401 === 1 && restResponses.filter((r) => r.status === 401).every((r) => r.frame.startsWith(`${VAULT}/frame.html`)), `${real401} 401s`);
+      check("spoilToken: one refresh (/token from the vault frame), and the gets still succeed", tokenRequests.length - nTok === 1 && bad(await gets()).length === 0, `${tokenRequests.length - nTok} /token, ${JSON.stringify(bad(await gets()))}`);
+
+      // 2. Two scheduled silent refreshes, 100 s apart, while the gets go on.
+      const s1 = await st();
+      console.log("refresh: waiting for two scheduled refreshes (about 200 s)");
+      const spoilAt = tokenTimes.at(-1)!;
+      await p.waitForFunction(() => (window as any).__vault.getState().status.refreshCount >= 3, null, { timeout: 250_000 });
+      await Bun.sleep(3500);
+      const sched = tokenTimes.slice(-3);
+      const gapsS = sched.slice(1).map((t, i) => (t - sched[i]!) / 1000);
+      check("two silent refreshes, about 100 s apart", sched[0] === spoilAt && gapsS.every((g) => g > 97 && g < 104), gapsS.map((g) => `${g.toFixed(1)} s`).join(", "));
+      const g2 = await gets();
+      check(`the gets never failed (${g2.length} so far, all 200 and authenticated)`, g2.length >= 60 && bad(g2).length === 0, JSON.stringify(bad(g2).slice(0, 3)));
+      const s2 = await st();
+      check("status: refreshCount, lastRefresh ok, next refresh scheduled", s2.refreshCount === s1.refreshCount + 2 && s2.lastRefresh?.ok === true && s2.refresh === "scheduled" && s2.nextRefreshAt > Date.now(), JSON.stringify({ n: s2.refreshCount, last: s2.lastRefresh?.ok, phase: s2.refresh }));
+      check("the panel shows it", (await p.getByTestId("vault-refresh-count").getAttribute("data-count")) === String(s2.refreshCount));
+
+      // 3. /token answers 503 twice, then passes: backoff 5 s, 10 s (±20%), then recovery.
+      const failAt: number[] = [];
+      let passedAt = 0;
+      await ctx.route(TOKEN_URL, (route: any) => {
+        if (failAt.length < 2) {
+          failAt.push(Date.now());
+          return route.fulfill({ status: 503, contentType: "text/html", headers: { "Access-Control-Allow-Origin": "*" }, body: "<html>503 Service Temporarily Unavailable</html>" });
+        }
+        passedAt = Date.now();
+        return route.continue();
+      });
+      const before503 = (await st()).refreshCount;
+      const afterFirst = await p.evaluate(() => (window as any).__vault.debug.refreshNow());
+      check("503: the refresh fails and backs off (retrying, server error)", afterFirst.refresh === "retrying" && afterFirst.lastRefresh?.error === "server", `${afterFirst.refresh} ${afterFirst.lastRefresh?.error}`);
+      await p.waitForFunction((n: number) => (window as any).__vault.getState().status.refreshCount > n, before503, { timeout: 40_000 }).catch(() => {});
+      await ctx.unroute(TOKEN_URL);
+      const b1 = (failAt[1]! - failAt[0]!) / 1000;
+      const b2 = (passedAt - failAt[1]!) / 1000;
+      check("503 twice: retried after about 5 s, then 10 s, then recovered", failAt.length === 2 && passedAt > 0 && b1 >= 3.8 && b1 <= 6.5 && b2 >= 7.8 && b2 <= 12.5 && (await st()).lastRefresh?.ok === true, `${b1.toFixed(1)} s, ${b2.toFixed(1)} s`);
+
+      // 4. /token answers 401 (password changed): needsReauth, banner, gets keep working, no more /token.
+      await ctx.route(TOKEN_URL, (route: any) => route.fulfill({ status: 401, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: '{"detail":"Incorrect username or password"}' }));
+      const n401tok = tokenRequests.length;
+      const g3 = (await gets()).length;
+      const afterReauth = await p.evaluate(() => (window as any).__vault.debug.refreshNow());
+      check("401 from /token: needsReauth, refresh stopped", afterReauth.needsReauth === true && afterReauth.refresh === "stopped", `${afterReauth.needsReauth} ${afterReauth.refresh}`);
+      await p.getByTestId("vault-reauth-banner").waitFor({ timeout: 5000 }).catch(() => {});
+      check("the reconnect banner shows", await p.getByTestId("vault-reauth-banner").isVisible(), (await p.getByTestId("vault-reauth-banner").textContent().catch(() => "")) ?? "");
+      check("the chip says reconnect needed and offers Reconnect", (await p.getByTestId("vault-state").textContent()) === "reconnect needed" && (await p.getByTestId("vault-connect").isVisible()));
+      await Bun.sleep(12_000);
+      const g4 = (await gets()).slice(g3);
+      check(`gets keep working on the current token (${g4.length} after the 401, all authenticated)`, g4.length >= 3 && bad(g4).length === 0, JSON.stringify(bad(g4).slice(0, 3)));
+      check("no more /token calls after the 401", tokenRequests.length - n401tok === 1, tokenRequests.length - n401tok);
+      await ctx.unroute(TOKEN_URL);
+
+      await p.evaluate(() => clearInterval((window as any).__stream));
+      await Bun.sleep(1000);
+      // login, spoil, 2 scheduled, 503 + 503 + pass, 401
+      const runCalls = tokenTimes.length - tok0;
+      check("refresh run: exactly the expected /token calls, no storms (login, spoil, 2 scheduled, 503, 503, ok, 401)", runCalls === 8, `${runCalls} over ${Math.round((Date.now() - t0) / 1000)} s`);
+      await leakCheck(p, "after the refresh run");
+      check("refresh run: no page errors", pageErrors.length === 0, pageErrors.join(" | "));
+      await p.getByTestId("vault-disconnect").click();
+      await waitState(p, "disconnected");
+      check("disconnect clears the banner", (await p.getByTestId("vault-reauth-banner").count()) === 0);
+    } finally {
+      await ctx.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
   // ------------------------------------------------------------ step 2: login, storage, passkeys, leaks
   async function loginChecks() {
     // `page` still has the extra vault frame from the wrong-senders checks: two vault frames in one app
@@ -497,6 +694,8 @@ async function main() {
     check("storage is partitioned: the vault's top-level IndexedDB doesn't have it", !topDbs.includes("f1-vault"), topDbs.join(","));
     await top.close();
 
+    const authed = await vaultGet(page);
+    check("get with a login: 200, authenticated", authed.status === 200 && authed.auth === true, JSON.stringify(authed));
     await leakCheck(page, "stay connected");
     // Positive control: the same search on the vault frame's own renderer finds both (the frame holds them).
     const inVault = await findInHeap(frame, [PASSWORD]);
