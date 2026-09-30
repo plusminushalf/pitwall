@@ -88,12 +88,28 @@ export type Params = Record<string, string | number>;
 export type Ready = { v: 1; type: "ready" };
 export type Hello = { v: 1; type: "hello" };
 
+/**
+ * A popup ticket: random, made by the app when it opens the setup popup (in the popup's URL hash) and sent
+ * to its own frame with `connect` / `unlock`. It pairs the popup with the one frame that is waiting for it
+ * (other vault frames in the same app window ignore it) and lets the frame reject stale popups.
+ */
+export type Ticket = string;
+const TICKET = /^[A-Za-z0-9_-]{22,64}$/;
+export const isTicket = (x: unknown): x is Ticket => typeof x === "string" && TICKET.test(x);
+
 /** Each method: its arguments (besides v, id, type), its result, and how many ports come with the request. */
 export type Methods = {
   status: { args: {}; result: VaultStatus };
-  /** Start setting up an OpenF1 login (the setup popup; step 2). */
-  connect: { args: {}; result: VaultStatus };
-  /** Forget the stored login and close the live connection. */
+  /**
+   * The app has just opened the setup popup (`popup.html#mode=connect&ticket=…`) from a click: expect it.
+   * The login itself goes popup -> frame directly (PopupMessage), never through the app.
+   */
+  connect: { args: { ticket: Ticket }; result: VaultStatus };
+  /** Same, for a passkey-locked login: the popup runs the passkey prompt and hands the frame its PRF output. */
+  unlock: { args: { ticket: Ticket }; result: VaultStatus };
+  /** The popup was closed: stop expecting it (and drop a half-finished setup). Ignored for a stale ticket. */
+  cancel: { args: { ticket: Ticket }; result: VaultStatus };
+  /** Forget the stored login (storage and memory) and close the live connection. */
   disconnect: { args: {}; result: VaultStatus };
   subscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
   unsubscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
@@ -103,21 +119,50 @@ export type Methods = {
   openPort: { args: {}; result: {} };
 };
 export type Method = keyof Methods;
-export const METHODS = ["status", "connect", "disconnect", "subscribe", "unsubscribe", "get", "openPort"] as const satisfies readonly Method[];
+export const METHODS = ["status", "connect", "unlock", "cancel", "disconnect", "subscribe", "unsubscribe", "get", "openPort"] as const satisfies readonly Method[];
 
 export type Request<M extends Method = Method> = M extends Method ? { v: 1; id: number; type: M } & Methods[M]["args"] : never;
 
-export type ErrorCode = "bad_request" | "not_implemented" | "not_connected" | "rate_limited" | "internal";
+export type ErrorCode = "bad_request" | "not_implemented" | "not_connected" | "rate_limited" | "busy" | "unavailable" | "internal";
 export type VaultError = { code: ErrorCode; message: string };
 
 export type Response<M extends Method = Method> =
   | { v: 1; id: number; ok: true; result: Methods[M]["result"] }
   | { v: 1; id: number; ok: false; error: VaultError };
 
+/**
+ * - unavailable: the vault can't keep a login here (its storage is blocked, e.g. third-party storage off).
+ * - disconnected: no login stored.
+ * - locked: a passkey-protected login is stored; the user has to unlock it (one tap, in the popup).
+ * - connecting: checking a login with OpenF1 (restore on load, a popup login, an unlock).
+ * - connected: the vault holds a working token (in memory only).
+ * - error: a login is stored but didn't work (see `error`): reconnect or disconnect.
+ */
+export type VaultState = "unavailable" | "disconnected" | "locked" | "connecting" | "connected" | "error";
+/** "device": stay connected on this device (non-extractable key). "passkey": unlock with a passkey (PRF). */
+export type StorageMode = "device" | "passkey";
+
+/** Why a login failed: shown in the popup, and in the status when a stored login stops working. */
+export type LoginErrorCode =
+  | "wrong_credentials" // OpenF1 401
+  | "rate_limited" // OpenF1 429 (nginx, on bursts)
+  | "network" // fetch failed (offline, DNS, CSP, CORS)
+  | "server" // OpenF1 5xx, or a response we can't read
+  | "storage" // the stored login can't be read or written
+  | "passkey" // the passkey didn't unlock it (wrong passkey, no PRF output)
+  | "expired"; // the popup's ticket is stale
+export type LoginError = { code: LoginErrorCode; message: string };
+
 export type VaultStatus = {
-  /** "none": no login stored. "locked": stored behind a passkey, not unlocked yet. */
-  account: "none" | "locked" | "connected";
-  storage: "device" | "passkey" | null;
+  state: VaultState;
+  /** How the login is stored (when one is). */
+  mode?: StorageMode;
+  /** The OpenF1 account, masked (`d***@example.com`). */
+  account?: string;
+  /** When the current token expires (ms since the epoch). The token itself never leaves the vault. */
+  tokenExpiresAt?: number;
+  /** In state "error": what went wrong. */
+  error?: LoginError;
   live: "off" | "connecting" | "on";
   /** The vault build (vault/package version + build), for the debug panel and bug reports. */
   version: string;
@@ -126,6 +171,45 @@ export type VaultStatus = {
 export type VaultEvent =
   | { v: 1; type: "event"; event: "status"; status: VaultStatus }
   | { v: 1; type: "event"; event: "message"; topic: LiveTopic; data: unknown };
+
+// ---------------------------------------------------------------- popup <-> frame (window.postMessage)
+//
+// Storage is partitioned: the popup (top level, vault origin) can't see the frame's IndexedDB (embedded
+// under the app's site). So the popup stores nothing; it finds the vault frames via `opener.frames`, posts
+// to each with targetOrigin = the vault origin, and the frame waiting for its ticket answers (event.source).
+// Both sides accept only event.origin === the vault's own origin, and only these exact shapes.
+//
+//   popup -> frame   {type:"popup:hello", ticket}                               (retried until welcomed)
+//   frame -> popup   {type:"popup:welcome", ticket, kind:"connect", prfSalt}
+//                    {type:"popup:welcome", ticket, kind:"unlock", prfSalt, credentialId, account}
+//   popup -> frame   {type:"popup:login", ticket, username, password, mode}     connect: check with OpenF1
+//   frame -> popup   {type:"popup:result", ticket, ok:true, next:"done" | "passkey"} | {…, ok:false, error}
+//   popup -> frame   {type:"popup:passkey", ticket, credentialId, prf}         after "passkey": seal with it
+//                    {type:"popup:device", ticket}                            after "passkey": no PRF, stay connected instead
+//                    {type:"popup:unlock", ticket, prf}                       unlock
+//   frame -> popup   {type:"popup:result", …}
+
+/** Bytes of a PRF output (WebAuthn prf `results.first`), and of the salt it's evaluated with. */
+export const PRF_BYTES = 32;
+/** WebAuthn credential ids are at most 1023 bytes. */
+const CREDENTIAL_ID_MAX = 1023;
+export const USERNAME_MAX = 254;
+export const PASSWORD_MAX = 1024;
+
+export type PopupHello = { v: 1; type: "popup:hello"; ticket: Ticket };
+export type PopupLogin = { v: 1; type: "popup:login"; ticket: Ticket; username: string; password: string; mode: StorageMode };
+export type PopupPasskey = { v: 1; type: "popup:passkey"; ticket: Ticket; credentialId: ArrayBuffer; prf: ArrayBuffer };
+export type PopupDevice = { v: 1; type: "popup:device"; ticket: Ticket };
+export type PopupUnlock = { v: 1; type: "popup:unlock"; ticket: Ticket; prf: ArrayBuffer };
+export type PopupMessage = PopupHello | PopupLogin | PopupPasskey | PopupDevice | PopupUnlock;
+
+export type PopupWelcome =
+  | { v: 1; type: "popup:welcome"; ticket: Ticket; kind: "connect"; prfSalt: ArrayBuffer }
+  | { v: 1; type: "popup:welcome"; ticket: Ticket; kind: "unlock"; prfSalt: ArrayBuffer; credentialId: ArrayBuffer; account: string };
+export type PopupResult =
+  | { v: 1; type: "popup:result"; ticket: Ticket; ok: true; next: "done" | "passkey" }
+  | { v: 1; type: "popup:result"; ticket: Ticket; ok: false; error: LoginError };
+export type FrameToPopup = PopupWelcome | PopupResult;
 
 // ---------------------------------------------------------------- validation (runs in the vault)
 
@@ -190,7 +274,9 @@ export function parseRequest(x: unknown, ports: number): Parsed {
   const type = x.type;
   const argKeys: Record<Method, readonly string[]> = {
     status: [],
-    connect: [],
+    connect: ["ticket"],
+    unlock: ["ticket"],
+    cancel: ["ticket"],
     disconnect: [],
     openPort: [],
     subscribe: ["topics"],
@@ -199,10 +285,78 @@ export function parseRequest(x: unknown, ports: number): Parsed {
   };
   if (!hasKeys(x, ["v", "id", "type", ...argKeys[type]])) return bad(id, `wrong fields for ${type}`);
   if (ports !== (type === "openPort" ? 1 : 0)) return bad(id, `${type} takes ${type === "openPort" ? "exactly one port" : "no ports"}`);
+  if ((type === "connect" || type === "unlock" || type === "cancel") && !isTicket(x.ticket)) return bad(id, "ticket: 22 to 64 base64url characters");
   if ((type === "subscribe" || type === "unsubscribe") && !topics(x.topics)) return bad(id, "topics: 1 to 32 distinct known topics");
   if (type === "get") {
     if (!oneOf(REST_ENDPOINTS, x.endpoint)) return bad(id, "endpoint not allowed");
     if (!params(x.params)) return bad(id, "params not allowed");
   }
   return { ok: true, request: x as Request };
+}
+
+// ---------------------------------------------------------------- popup messages (validated on both sides)
+
+const bytes = (x: unknown, min: number, max: number): x is ArrayBuffer => x instanceof ArrayBuffer && x.byteLength >= min && x.byteLength <= max;
+/** An email-shaped username: OpenF1 logins are email addresses. */
+const USERNAME = /^[^\s@]+@[^\s@]+$/;
+const isUsername = (x: unknown): x is string => typeof x === "string" && x.length <= USERNAME_MAX && USERNAME.test(x);
+const isPassword = (x: unknown): x is string => typeof x === "string" && x.length >= 1 && x.length <= PASSWORD_MAX;
+const popupBase = (x: unknown, type: string, keys: readonly string[]): x is Record<string, unknown> =>
+  isRecord(x) && hasKeys(x, ["v", "type", "ticket", ...keys]) && x.v === PROTOCOL_VERSION && x.type === type && isTicket(x.ticket);
+
+/** A message the frame accepts from the popup (it also checks event.origin and its pending ticket). Never throws. */
+export function parsePopupMessage(x: unknown): PopupMessage | null {
+  if (!isRecord(x)) return null;
+  switch (x.type) {
+    case "popup:hello":
+      return popupBase(x, "popup:hello", []) ? (x as PopupHello) : null;
+    case "popup:login":
+      return popupBase(x, "popup:login", ["username", "password", "mode"]) && isUsername(x.username) && isPassword(x.password) && oneOf(["device", "passkey"], x.mode)
+        ? (x as PopupLogin)
+        : null;
+    case "popup:passkey":
+      return popupBase(x, "popup:passkey", ["credentialId", "prf"]) && bytes(x.credentialId, 1, CREDENTIAL_ID_MAX) && bytes(x.prf, PRF_BYTES, PRF_BYTES)
+        ? (x as PopupPasskey)
+        : null;
+    case "popup:device":
+      return popupBase(x, "popup:device", []) ? (x as PopupDevice) : null;
+    case "popup:unlock":
+      return popupBase(x, "popup:unlock", ["prf"]) && bytes(x.prf, PRF_BYTES, PRF_BYTES) ? (x as PopupUnlock) : null;
+    default:
+      return null;
+  }
+}
+
+const LOGIN_ERRORS = ["wrong_credentials", "rate_limited", "network", "server", "storage", "passkey", "expired"] as const satisfies readonly LoginErrorCode[];
+const isLoginError = (x: unknown): x is LoginError =>
+  isRecord(x) && hasKeys(x, ["code", "message"]) && oneOf(LOGIN_ERRORS, x.code) && typeof x.message === "string" && x.message.length <= 500;
+
+/** A message the popup accepts from the frame. Never throws. */
+export function parseFrameMessage(x: unknown): FrameToPopup | null {
+  if (!isRecord(x) || x.v !== PROTOCOL_VERSION || !isTicket(x.ticket)) return null;
+  if (x.type === "popup:welcome") {
+    if (x.kind === "connect" && hasKeys(x, ["v", "type", "ticket", "kind", "prfSalt"]) && bytes(x.prfSalt, PRF_BYTES, PRF_BYTES)) return x as PopupWelcome;
+    if (
+      x.kind === "unlock" &&
+      hasKeys(x, ["v", "type", "ticket", "kind", "prfSalt", "credentialId", "account"]) &&
+      bytes(x.prfSalt, PRF_BYTES, PRF_BYTES) &&
+      bytes(x.credentialId, 1, CREDENTIAL_ID_MAX) &&
+      typeof x.account === "string" &&
+      x.account.length <= USERNAME_MAX
+    )
+      return x as PopupWelcome;
+    return null;
+  }
+  if (x.type === "popup:result") {
+    if (x.ok === true && hasKeys(x, ["v", "type", "ticket", "ok", "next"]) && oneOf(["done", "passkey"], x.next)) return x as PopupResult;
+    if (x.ok === false && hasKeys(x, ["v", "type", "ticket", "ok", "error"]) && isLoginError(x.error)) return x as PopupResult;
+  }
+  return null;
+}
+
+/** `driver@example.com` -> `d***@example.com`. Only this masked form is stored in the clear or shown. */
+export function maskEmail(email: string): string {
+  const at = email.lastIndexOf("@");
+  if (at < 1) return "***";
+  return `${email[0]}***${email.slice(at)}`;
 }

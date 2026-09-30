@@ -1,14 +1,30 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { getVault } from "../../vault/client";
 import { useVault } from "./useVault";
 
 type Ping = { last: number; median: number; n: number } | { error: string };
 
-/** Spike S3 debug panel (?vault=debug): handshake state, vault origin, `status` round-trip latency. */
+/** "59:12" until `at`, ticking every second; "expired" after. */
+function useCountdown(at: number | undefined): string | null {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    if (at == null) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [at]);
+  if (at == null) return null;
+  const s = Math.floor((at - now) / 1000);
+  if (s <= 0) return "expired";
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+/** Spike S3 debug panel (?vault=debug): handshake, vault status (never a token), `status` round-trip latency. */
 export function VaultPanel() {
   const state = useVault();
   const [ping, setPing] = useState<Ping | null>(null);
   const [busy, setBusy] = useState(false);
+  const status = state.status;
+  const countdown = useCountdown(status?.tokenExpiresAt);
 
   async function measure() {
     setBusy(true);
@@ -43,9 +59,14 @@ export function VaultPanel() {
         {state.reason && row("Reason", state.reason)}
         {row("Origin", state.origin ?? "none")}
         {state.handshakeMs != null && row("Handshake time", `${state.handshakeMs} ms`)}
-        {state.status && row("Account", state.status.account)}
-        {state.status && row("Live", state.status.live)}
-        {state.status && row("Vault version", state.status.version)}
+        {status && row("State", <span data-testid="vault-panel-state">{status.state}</span>)}
+        {status?.mode && row("Stored", <span data-testid="vault-panel-mode">{status.mode === "device" ? "on this device" : "behind a passkey"}</span>)}
+        {status?.account && row("Account", <span data-testid="vault-panel-account">{status.account}</span>)}
+        {countdown && row("Token expires in", <span data-testid="vault-token-expiry" data-expires-at={status?.tokenExpiresAt}>{countdown}</span>)}
+        {status?.error && row("Error", <span data-testid="vault-panel-error" title={status.error.message}>{status.error.code}</span>)}
+        {state.popup && row("Popup", `open (${state.popup})`)}
+        {status && row("Live", status.live)}
+        {status && row("Vault version", status.version)}
         {ping &&
           row(
             "status round trip",

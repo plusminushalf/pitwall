@@ -7,6 +7,7 @@
 import type { Hello, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
 
 export type { LiveTopic, RestEndpoint, VaultEvent, VaultStatus };
+export type { VaultState as VaultAccountState, StorageMode } from "../../vault/src/protocol";
 
 export type VaultPhase = "idle" | "loading" | "ready" | "unavailable";
 
@@ -19,6 +20,10 @@ export type VaultState = {
   handshakeMs?: number;
   /** The vault's last reported status (after the handshake). */
   status?: VaultStatus;
+  /** The setup / unlock popup is open (this tab opened it). */
+  popup?: "connect" | "unlock";
+  /** The last connect / unlock / disconnect attempt that failed on this side (popup blocked, vault busy…). */
+  actionError?: string;
 };
 
 /** A request the vault refused: `code` is the protocol's error code (or "unavailable" / "timeout" here). */
@@ -36,6 +41,16 @@ const HANDSHAKE_MS = 10_000;
 /** After the iframe's load event, "ready" should follow at once; its absence means an error page. */
 const AFTER_LOAD_MS = 1_500;
 const REQUEST_MS = 30_000;
+/** The popup's window name: a second Connect click reuses (navigates) the open popup instead of stacking another. */
+const POPUP_NAME = "f1-vault";
+const POPUP_W = 440;
+const POPUP_H = 640;
+
+/** 128 random bits, base64url: pairs the popup with this tab's vault frame (protocol.ts, Ticket). */
+function newTicket(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  return btoa(String.fromCharCode(...b)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
+}
 
 type Args<M extends Method> = Methods[M]["args"];
 type Result<M extends Method> = Methods[M]["result"];
@@ -83,8 +98,20 @@ export class VaultClient {
   }
 
   status = () => this.call("status", {});
-  connect = () => this.call("connect", {});
-  disconnect = () => this.call("disconnect", {});
+  /**
+   * Open the vault's login popup. Call it straight from a click handler (synchronously, before any await):
+   * browsers only allow popups there, and a cross-site iframe can't open one on its own. The login then
+   * goes popup -> vault frame; this tab never sees it.
+   */
+  connect = () => this.openPopup("connect");
+  /** Open the popup in unlock mode (passkey). From a click handler, like connect. */
+  unlock = () => this.openPopup("unlock");
+  disconnect = async () => {
+    this.set({ actionError: undefined });
+    const status = await this.call("disconnect", {});
+    this.set({ status });
+    return status;
+  };
   subscribe = (topics: LiveTopic[]) => this.call("subscribe", { topics });
   unsubscribe = (topics: LiveTopic[]) => this.call("unsubscribe", { topics });
   get = (endpoint: RestEndpoint, params: Params) => this.call("get", { endpoint, params });
@@ -104,6 +131,51 @@ export class VaultClient {
       this.pending.set(id, { resolve: resolve as (r: unknown) => void, reject, timer });
       port.postMessage({ v: 1, id, type, ...args } as Request, transfer);
     });
+  }
+
+  private popupWindow: Window | null = null;
+  private popupTimer: ReturnType<typeof setInterval> | undefined;
+
+  private openPopup(kind: "connect" | "unlock"): Promise<VaultStatus | null> {
+    const origin = this.origin;
+    if (!origin || this.state.phase !== "ready") return Promise.resolve(null);
+    const ticket = newTicket();
+    const left = Math.max(0, Math.round(window.screenX + (window.outerWidth - POPUP_W) / 2));
+    const top = Math.max(0, Math.round(window.screenY + (window.outerHeight - POPUP_H) / 3));
+    // Synchronously, in the click: no await before this line. No "noopener": the popup needs window.opener
+    // to find the vault frame.
+    const w = window.open(`${origin}/popup.html#mode=${kind}&ticket=${ticket}`, POPUP_NAME, `popup,width=${POPUP_W},height=${POPUP_H},left=${left},top=${top}`);
+    if (!w) {
+      this.set({ actionError: "The browser blocked the vault's window. Allow popups for this site and try again." });
+      return Promise.resolve(null);
+    }
+    w.focus();
+    this.popupWindow = w;
+    this.set({ popup: kind, actionError: undefined });
+    clearInterval(this.popupTimer);
+    // The popup is cross-origin: `closed` is all we can see of it. When it closes, tell the frame.
+    this.popupTimer = setInterval(() => {
+      if (!w.closed && this.popupWindow === w) return;
+      clearInterval(this.popupTimer);
+      if (this.popupWindow === w) {
+        this.popupWindow = null;
+        this.set({ popup: undefined });
+      }
+      void this.call("cancel", { ticket }).then(
+        (status) => this.set({ status }),
+        () => {},
+      );
+    }, 500);
+    return this.call(kind, { ticket }).then(
+      (status) => {
+        this.set({ status });
+        return status;
+      },
+      (e: Error) => {
+        this.set({ actionError: e.message });
+        return null;
+      },
+    );
   }
 
   private set(patch: Partial<VaultState>) {

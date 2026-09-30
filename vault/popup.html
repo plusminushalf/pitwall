@@ -5,11 +5,53 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Connect your OpenF1 account · F1 Replay vault</title>
     <link rel="stylesheet" href="/src/popup.css" />
+    <script type="module" src="/src/popup.ts"></script>
   </head>
   <body>
     <main>
-      <h1>Connect your OpenF1 account</h1>
-      <p>Not available yet. This page will hold the OpenF1 login form, on the vault's own address, so the app never sees your password.</p>
+      <h1 id="title">Connect your OpenF1 account</h1>
+      <p class="note">
+        This window is F1 Replay's vault, on its own address (check the address bar). F1 Replay never asks for your password inside its own
+        pages: only here, and only this page ever sees it.
+      </p>
+
+      <p id="progress" role="status">Finding the app…</p>
+      <p id="error" role="alert" hidden></p>
+
+      <form id="login" hidden>
+        <label for="username">OpenF1 email</label>
+        <input id="username" name="username" type="email" autocomplete="username" required autocapitalize="off" spellcheck="false" />
+        <label for="password">OpenF1 password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" required />
+        <fieldset>
+          <legend>On this device</legend>
+          <label class="choice">
+            <input type="radio" name="storage" value="device" checked />
+            <span><strong>Stay connected on this device</strong><small>No prompts, even after a browser restart. Someone with a copy of your browser profile could use it.</small></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="storage" value="passkey" />
+            <span><strong>Unlock with passkey</strong><small>One tap (Touch ID, Windows Hello, a security key) each time you open the app.</small></span>
+          </label>
+        </fieldset>
+        <button id="submit" type="submit">Connect</button>
+        <p class="note">Use a password for OpenF1 that you don't use anywhere else, ideally one your password manager generated.</p>
+      </form>
+
+      <section id="passkey-step" hidden>
+        <p id="passkey-text">Create a passkey to protect your login.</p>
+        <button id="passkey-retry" type="button">Create passkey</button>
+        <button id="use-device" type="button" class="secondary">Stay connected on this device instead</button>
+      </section>
+
+      <section id="unlock" hidden>
+        <p>Unlock the OpenF1 login for <strong id="account"></strong> with your passkey.</p>
+        <button id="unlock-button" type="button">Unlock with passkey</button>
+      </section>
+
+      <section id="done" hidden>
+        <p>Connected. You can close this window.</p>
+      </section>
     </main>
   </body>
 </html>

@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { isHello, isReady, LIMITS, LIVE_TOPICS, parseRequest } from "./protocol";
+import { isHello, isReady, LIMITS, LIVE_TOPICS, maskEmail, parseFrameMessage, parsePopupMessage, parseRequest } from "./protocol";
+
+const T = "abcdefghijklmnopqrstuv_-";
 
 const ok = (x: unknown, ports = 0) => parseRequest(x, ports).ok;
 const err = (x: unknown, ports = 0) => {
@@ -25,7 +27,9 @@ describe("handshake messages", () => {
 describe("parseRequest", () => {
   test("valid requests", () => {
     expect(ok({ v: 1, id: 0, type: "status" })).toBe(true);
-    expect(ok({ v: 1, id: 7, type: "connect" })).toBe(true);
+    expect(ok({ v: 1, id: 7, type: "connect", ticket: T })).toBe(true);
+    expect(ok({ v: 1, id: 7, type: "unlock", ticket: T })).toBe(true);
+    expect(ok({ v: 1, id: 7, type: "cancel", ticket: T })).toBe(true);
     expect(ok({ v: 1, id: 7, type: "disconnect" })).toBe(true);
     expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["laps", "car_data"] })).toBe(true);
     expect(ok({ v: 1, id: 1, type: "unsubscribe", topics: [...LIVE_TOPICS] })).toBe(true);
@@ -97,9 +101,85 @@ describe("parseRequest", () => {
     expect(ok({ v: 1, id: 1, type: "subscribe", topics: ["x".repeat(1e6)] })).toBe(false);
   });
 
+  test("tickets", () => {
+    for (const ticket of [undefined, 1, "", "a".repeat(21), "a".repeat(65), "a".repeat(21) + "=", "a".repeat(21) + "/", "a".repeat(21) + " "]) {
+      expect(ok({ v: 1, id: 1, type: "connect", ticket })).toBe(false);
+    }
+    expect(ok({ v: 1, id: 1, type: "connect" })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "connect", ticket: T, username: "a@b.c" })).toBe(false);
+    expect(ok({ v: 1, id: 1, type: "disconnect", ticket: T })).toBe(false);
+  });
+
   test("ports: only openPort takes one", () => {
     expect(ok({ v: 1, id: 1, type: "status" }, 1)).toBe(false);
     expect(ok({ v: 1, id: 1, type: "openPort" }, 0)).toBe(false);
     expect(ok({ v: 1, id: 1, type: "openPort" }, 2)).toBe(false);
+  });
+});
+
+const buf = (n: number) => new ArrayBuffer(n);
+
+describe("popup messages (frame side)", () => {
+  test("valid", () => {
+    expect(parsePopupMessage({ v: 1, type: "popup:hello", ticket: T })).not.toBeNull();
+    expect(parsePopupMessage({ v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "pw", mode: "device" })).not.toBeNull();
+    expect(parsePopupMessage({ v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "pw", mode: "passkey" })).not.toBeNull();
+    expect(parsePopupMessage({ v: 1, type: "popup:passkey", ticket: T, credentialId: buf(16), prf: buf(32) })).not.toBeNull();
+    expect(parsePopupMessage({ v: 1, type: "popup:device", ticket: T })).not.toBeNull();
+    expect(parsePopupMessage({ v: 1, type: "popup:unlock", ticket: T, prf: buf(32) })).not.toBeNull();
+  });
+
+  test("invalid", () => {
+    const bad = [
+      null,
+      "popup:hello",
+      { v: 1, type: "popup:hello" },
+      { v: 2, type: "popup:hello", ticket: T },
+      { v: 1, type: "popup:hello", ticket: "x" },
+      { v: 1, type: "popup:hello", ticket: T, extra: 1 },
+      { v: 1, type: "popup:token", ticket: T },
+      { v: 1, type: "popup:login", ticket: T, username: "not-an-email", password: "pw", mode: "device" },
+      { v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "", mode: "device" },
+      { v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "x".repeat(1025), mode: "device" },
+      { v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "pw", mode: "cloud" },
+      { v: 1, type: "popup:login", ticket: T, username: "a@b.co", password: "pw" },
+      { v: 1, type: "popup:login", ticket: T, username: `${"a".repeat(250)}@b.co`, password: "pw", mode: "device" },
+      { v: 1, type: "popup:passkey", ticket: T, credentialId: buf(16), prf: buf(31) },
+      { v: 1, type: "popup:passkey", ticket: T, credentialId: buf(0), prf: buf(32) },
+      { v: 1, type: "popup:passkey", ticket: T, credentialId: buf(1024), prf: buf(32) },
+      { v: 1, type: "popup:passkey", ticket: T, credentialId: new Uint8Array(16), prf: buf(32) },
+      { v: 1, type: "popup:unlock", ticket: T, prf: new Uint8Array(32) },
+      { v: 1, type: "popup:unlock", ticket: T, prf: "x".repeat(32) },
+    ];
+    for (const x of bad) expect(parsePopupMessage(x)).toBeNull();
+  });
+});
+
+describe("frame messages (popup side)", () => {
+  test("welcome and results", () => {
+    expect(parseFrameMessage({ v: 1, type: "popup:welcome", ticket: T, kind: "connect", prfSalt: buf(32) })).not.toBeNull();
+    expect(parseFrameMessage({ v: 1, type: "popup:welcome", ticket: T, kind: "unlock", prfSalt: buf(32), credentialId: buf(20), account: "g***@x.io" })).not.toBeNull();
+    expect(parseFrameMessage({ v: 1, type: "popup:result", ticket: T, ok: true, next: "done" })).not.toBeNull();
+    expect(parseFrameMessage({ v: 1, type: "popup:result", ticket: T, ok: true, next: "passkey" })).not.toBeNull();
+    expect(parseFrameMessage({ v: 1, type: "popup:result", ticket: T, ok: false, error: { code: "wrong_credentials", message: "no" } })).not.toBeNull();
+    for (const x of [
+      { v: 1, type: "popup:welcome", ticket: T, kind: "connect" },
+      { v: 1, type: "popup:welcome", ticket: T, kind: "unlock", prfSalt: buf(32), account: "x" },
+      { v: 1, type: "popup:result", ticket: T, ok: true },
+      { v: 1, type: "popup:result", ticket: T, ok: true, next: "done", token: "eyJ" },
+      { v: 1, type: "popup:result", ticket: T, ok: false, error: { code: "other", message: "no" } },
+      { v: 1, type: "popup:result", ticket: "short", ok: true, next: "done" },
+    ])
+      expect(parseFrameMessage(x)).toBeNull();
+  });
+});
+
+describe("maskEmail", () => {
+  test("keeps the first letter and the domain", () => {
+    expect(maskEmail("driver@example.com")).toBe("d***@example.com");
+    expect(maskEmail("a@b.co")).toBe("a***@b.co");
+    expect(maskEmail("weird@name@x.io")).toBe("w***@x.io");
+    expect(maskEmail("nodomain")).toBe("***");
+    expect(maskEmail("@x.io")).toBe("***");
   });
 });
