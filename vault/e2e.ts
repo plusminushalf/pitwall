@@ -26,6 +26,15 @@
 // get runs every 3 s and none fails; /token answering 503 twice (a route) -> backoff 5 s, 10 s -> recovery;
 // /token answering 401 -> needsReauth, the banner shows, gets keep working, no more /token calls; and the
 // leak check again.
+// Step 4 (live stream): the production CSP and URLs are exactly OpenF1's (no fake broker in dist/). Then, against
+// the vault dev server pointed at the local fake broker (fakebroker.ts, VAULT_FAKE_BROKER; its dev CSP adds only
+// that origin) with /token faked by a route: two app tabs on one profile, one leader and one follower; a login
+// in the follower's popup reaches both (one /token); both get the same message sequence; a handover (refresh)
+// loses and duplicates nothing and never opens a third session; a forced broker drop reconnects and gap-fills
+// with no loss; CONNACK 5 at the cap keeps the old session; closing the leader tab makes the follower the
+// leader (no /token, no loss): every tab's received sequence is compared with what the broker published. The
+// leak check with two tabs. And in the refresh run: the real broker with the real login (connects, subscribes,
+// survives the handovers of the 120 s tokens, never more than 2 sessions) and a second (follower) tab.
 
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
@@ -33,6 +42,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { FakeBroker } from "./fakebroker";
 import { findAppSecrets, findInHeap, vaultIsOutOfProcess } from "./leakcheck";
 
 const repo = fileURLToPath(new URL("..", import.meta.url)); // vault/ -> the repo
@@ -49,6 +59,11 @@ const TOKEN_URL = "https://api.openf1.org/token";
 const REST_PREFIX = "https://api.openf1.org/v1/";
 /** The dev vault's fake token lifetime for the refresh run (seconds): refreshes every 100 s. */
 const FAKE_EXPIRES_IN = 120;
+/** OpenF1's connect-src, exactly: the production CSP must have nothing else. */
+const PROD_CONNECT = "https://api.openf1.org wss://mqtt.openf1.org:8084";
+const FAKE_BROKER_PORT = Number(process.env.VAULT_E2E_BROKER_PORT || 5191);
+const FAKE_BROKER = `http://127.0.0.1:${FAKE_BROKER_PORT}`;
+const connectSrc = (csp: string | null) => /connect-src ([^;]*)/.exec(csp ?? "")?.[1] ?? "";
 
 // The real login, from the repo's .env (Bun loads it). Only ever typed into the vault popup.
 const USERNAME = process.env.OPENF1_USERNAME ?? "";
@@ -304,6 +319,7 @@ async function main() {
   await waitUp(`${VAULT}/frame.html`);
   const served = await fetch(`${VAULT}/frame.html`);
   console.log(`vault: ${served.headers.get("content-security-policy")}`);
+  if (vault && !DEV) check("production CSP: connect-src is exactly OpenF1's REST and broker", connectSrc(served.headers.get("content-security-policy")) === PROD_CONNECT, connectSrc(served.headers.get("content-security-policy")));
 
   // A persistent profile, so "after a browser restart" is a real restart of the same profile.
   const profile = mkdtempSync(join(tmpdir(), "vault-e2e-"));
@@ -364,6 +380,8 @@ async function main() {
       const js = readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => readFileSync(join(dir, f), "utf8")).join("\n");
       const leftovers = ["DevKnobs", "spoiled", "fakeSeconds", "tokenFilter:", "corrupt("].filter((w) => js.includes(w));
       check("production build: none of the dev knobs (debug.ts) is in dist/", leftovers.length === 0, leftovers.join(", "));
+      const fakeLeft = ["__VAULT_FAKE_BROKER__", "fakebroker", "FakeBroker", `:${FAKE_BROKER_PORT}`, "ws://"].filter((w) => js.includes(w));
+      check("production build: no fake-broker URL or knob in dist/; the MQTT URL is OpenF1's", fakeLeft.length === 0 && js.includes('"wss://mqtt.openf1.org:8084/mqtt"') && js.includes('"https://api.openf1.org/v1/"'), fakeLeft.join(", "));
     }
 
     // 2. CSP violations in the vault frame.
@@ -504,6 +522,9 @@ async function main() {
     rmSync(profile, { recursive: true, force: true });
   }
 
+  if (vault) await streamChecks();
+  else console.log("(skipping the stream run: the vault server wasn't started by this script)");
+
   if (!HAVE_LOGIN) console.log("(skipping the refresh run: no login in .env)");
   else if (QUICK) console.log("(skipping the refresh run: --quick)");
   else await refreshChecks();
@@ -542,6 +563,36 @@ async function main() {
       await popup.close();
       const t0 = Date.now();
       const st = () => p.evaluate(() => (window as any).__vault.getState().status);
+
+      // Step 4 on the real broker: a second tab (a follower: the login is shared, no /token) subscribes; the
+      // leader streams from wss://mqtt.openf1.org with the real token through every handover of this run.
+      const ws = { open: 0, opened: 0, max: 0, urls: new Set<string>() };
+      const track = (page: any) =>
+        page.on("websocket", (w: any) => {
+          if (!w.url().startsWith("wss://mqtt.openf1.org")) return;
+          ws.urls.add(w.url());
+          ws.opened++;
+          ws.max = Math.max(ws.max, ++ws.open);
+          w.on("close", () => ws.open--);
+        });
+      track(p);
+      const tokBefore2 = tokenRequests.length;
+      const p2 = await ctx.newPage();
+      p2.on("pageerror", (e: Error) => pageErrors.push(e.message));
+      track(p2);
+      await p2.goto(`${APP}/?vault=debug`);
+      await waitState(p2, "connected");
+      const s2tab = await p2.evaluate(() => (window as any).__vault.getState().status.tab);
+      check("real login, second tab: a follower, connected without its own /token", s2tab?.role === "follower" && tokenRequests.length === tokBefore2, `${s2tab?.role}, ${tokenRequests.length - tokBefore2} /token`);
+      await p2.evaluate(() => (window as any).__vault.subscribe(["car_data", "position", "race_control", "sessions"]));
+      const realEnd = Date.now() + 20_000;
+      let real: any = null;
+      while (Date.now() < realEnd) {
+        real = (await st()).stream;
+        if (real?.phase === "connected") break;
+        await Bun.sleep(200);
+      }
+      check("real broker: CONNACK 0 and SUBACK with the real token (the follower's topics, streamed by the leader)", real?.phase === "connected" && real.sessions === 1 && real.topics.length === 4, JSON.stringify({ phase: real?.phase, sessions: real?.sessions, error: real?.lastError }));
       const s0 = await st();
       const lifetime = (s0.tokenExpiresAt - s0.nextRefreshAt) * 6; // 1/6 of the lifetime is left at the refresh point
       check(`fake expiry: the token counts as ${FAKE_EXPIRES_IN} s, refresh at 5/6 (100 s)`, Math.abs(lifetime - FAKE_EXPIRES_IN * 1000) < 50 && s0.refresh === "scheduled", `${Math.round(lifetime / 1000)} s, ${s0.refresh}`);
@@ -624,11 +675,20 @@ async function main() {
       await ctx.unroute(TOKEN_URL);
 
       await p.evaluate(() => clearInterval((window as any).__stream));
-      await Bun.sleep(1000);
+      await Bun.sleep(3000);
+      const sEnd = (await st()).stream;
+      check(
+        "real broker: the stream survived every handover of the run (spoil, 2 scheduled, the 503 recovery), no reconnects, never more than 2 sessions",
+        sEnd.phase === "connected" && sEnd.handovers >= 3 && sEnd.reconnects === 0 && sEnd.maxSessions <= 2 && (ws.opened === 0 || ws.max <= 2),
+        JSON.stringify({ phase: sEnd.phase, handovers: sEnd.handovers, reconnects: sEnd.reconnects, maxSessions: sEnd.maxSessions, wsSeen: ws.opened, wsMax: ws.max, error: sEnd.lastError }),
+      );
+      if (ws.opened) check("real broker: the browser saw one WebSocket per session, to OpenF1's broker only", ws.opened === sEnd.handovers + 1 && [...ws.urls].every((u) => u === "wss://mqtt.openf1.org:8084/mqtt"), `${ws.opened} opened, ${[...ws.urls].join(" ")}`);
+      else console.log("  (Playwright reported no WebSocket from the cross-site vault frame; relying on the vault's own session count)");
       // login, spoil, 2 scheduled, 503 + 503 + pass, 401
       const runCalls = tokenTimes.length - tok0;
       check("refresh run: exactly the expected /token calls, no storms (login, spoil, 2 scheduled, 503, 503, ok, 401)", runCalls === 8, `${runCalls} over ${Math.round((Date.now() - t0) / 1000)} s`);
-      await leakCheck(p, "after the refresh run");
+      await leakCheck(p, "after the refresh run (leader tab)");
+      await leakCheck(p2, "after the refresh run (follower tab)");
       check("refresh run: no page errors", pageErrors.length === 0, pageErrors.join(" | "));
       await p.getByTestId("vault-disconnect").click();
       await waitState(p, "disconnected");
@@ -636,6 +696,191 @@ async function main() {
     } finally {
       await ctx.close();
       rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  // ------------------------------------------------------------ step 4: the live stream, against the fake broker
+  async function streamChecks() {
+    console.log(`stream: the vault dev server with VAULT_FAKE_BROKER=${FAKE_BROKER}`);
+    for (let i = 0; i < 50 && (await up(`${VAULT}/frame.html`)); i++) await Bun.sleep(100);
+    const broker = new FakeBroker({ port: FAKE_BROKER_PORT });
+    const devVault = start(["bun", "run", "vault"], { VAULT_FAKE_BROKER: FAKE_BROKER });
+    const dir = mkdtempSync(join(tmpdir(), "vault-e2e-stream-"));
+    let ctx: any = null;
+    try {
+      await waitUp(`${VAULT}/frame.html`);
+      const devCsp = (await fetch(`${VAULT}/frame.html`)).headers.get("content-security-policy");
+      const popupCsp = (await fetch(`${VAULT}/popup.html`)).headers.get("content-security-policy");
+      check("dev CSP with the fake broker: connect-src adds exactly its origin (http + ws); the popup's is unchanged", connectSrc(devCsp) === `${PROD_CONNECT} ${FAKE_BROKER} ${FAKE_BROKER.replace("http", "ws")}` && connectSrc(popupCsp) === PROD_CONNECT, connectSrc(devCsp));
+
+      ctx = await launch(dir);
+      // /token answered here (fake JWTs, `eyJhbGciOi…` like OpenF1's), so this run needs no real login.
+      const fakeUser = "vault-e2e-stream@example.invalid";
+      const fakePass = `stream-${Math.random().toString(36).slice(2)}-${Date.now()}`;
+      let minted = 0;
+      const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString("base64url");
+      await ctx.route(TOKEN_URL, (route: any) => {
+        const iat = Math.floor(Date.now() / 1000);
+        const jwt = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ iat, exp: iat + 3600, n: ++minted })}.${"s".repeat(43)}`;
+        return route.fulfill({ status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" }, body: JSON.stringify({ access_token: jwt, token_type: "bearer", expires_in: "3600" }) });
+      });
+      const pageErrors: string[] = [];
+      const open = async () => {
+        const p = await ctx.newPage();
+        p.on("pageerror", (e: Error) => pageErrors.push(e.message));
+        await p.goto(`${APP}/?vault=debug`);
+        await waitState(p, "disconnected");
+        await p.waitForFunction(() => !!(window as any).__vault?.getState().status?.tab, null, { timeout: 5000 });
+        return p;
+      };
+      const st = (p: any) => p.evaluate(() => (window as any).__vault.getState().status);
+      const waitFor = async (what: string, p: any, pred: (s: any) => boolean, ms = 15_000) => {
+        const end = Date.now() + ms;
+        let s: any;
+        while (Date.now() < end) {
+          s = await st(p);
+          if (s && pred(s)) return s;
+          await Bun.sleep(100);
+        }
+        throw new Error(`timed out waiting for ${what}: ${JSON.stringify(s?.stream ?? s?.state)}`);
+      };
+      const a = await open();
+      const b = await open();
+      const [sa, sb] = [await st(a), await st(b)];
+      check("two tabs: the first frame leads, the second follows it", sa.tab.role === "leader" && sb.tab.role === "follower" && sb.tab.leader === sa.tab.id, `${sa.tab.role} / ${sb.tab.role}`);
+
+      // A login in the follower's popup reaches both frames; the leader does the refreshing.
+      const tok0 = tokenRequests.length;
+      const popup = await openPopup(ctx, b, "vault-connect");
+      await submitLogin(popup, fakeUser, fakePass, "device");
+      await waitClosed(popup);
+      await popup.close();
+      await waitState(a, "connected");
+      await waitState(b, "connected");
+      check("login in the follower's tab: both tabs connected, one /token call", tokenRequests.length - tok0 === 1, `${tokenRequests.length - tok0} /token`);
+      check("the leader runs the refresh schedule", (await st(a)).refresh === "scheduled" && (await st(b)).refresh === "scheduled");
+
+      // Collect what each app receives, and subscribe (the union is streamed once).
+      const collect = (p: any, topics: string[]) =>
+        p.evaluate(async (topics: string[]) => {
+          const w = window as any;
+          w.__got = [];
+          w.__vault.onData((topic: string, ms: any[]) => {
+            for (const m of ms) w.__got.push([topic, m.n]);
+          });
+          return (await w.__vault.subscribe(topics)).topics;
+        }, topics);
+      const TA = ["car_data", "position"];
+      const TB = ["car_data", "position", "race_control"];
+      await collect(a, TA);
+      await collect(b, TB);
+      await waitFor("the union subscribed", a, (s) => s.stream?.phase === "connected" && s.stream.topics.join() === "car_data,position,race_control");
+      const subs = broker.sessions();
+      check("one MQTT session for both tabs, subscribed to the union", subs.length === 1 && subs[0]!.subs.sort().join() === "v1/car_data,v1/position,v1/race_control", JSON.stringify(subs.map((x) => x.subs)));
+      check("a fresh clientId", /^f1-vault-[a-z0-9]{16}$/.test(subs[0]?.clientId ?? ""), subs[0]?.clientId);
+
+      const from = broker.log.length;
+      broker.resetStats();
+      const RATE = 40;
+      broker.startStream(RATE, TB);
+      await Bun.sleep(2000);
+
+      // Handover (a refresh, asked for from the follower: forwarded to the leader).
+      const h0 = (await st(a)).stream.handovers;
+      await b.evaluate(() => (window as any).__vault.debug.refreshNow());
+      await waitFor("the handover", a, (s) => s.stream.handovers === h0 + 1 && s.stream.phase === "connected");
+      check("handover on refresh: a new session with a new clientId, then back to one", broker.sessions().length === 1 && broker.sessions()[0]!.clientId !== subs[0]!.clientId && broker.stats.max === 2, `max ${broker.stats.max}`);
+      await Bun.sleep(1500);
+
+      // A forced drop: reconnect, gap-fill over REST.
+      const r0 = (await st(a)).stream;
+      broker.drop("all");
+      await waitFor("the reconnect", a, (s) => s.stream.reconnects === r0.reconnects + 1 && s.stream.phase === "connected");
+      const r1 = (await st(a)).stream;
+      check("broker drop: reconnected and gap-filled over REST", r1.gapFilled > r0.gapFilled && broker.stats.restRequests >= 3 && broker.stats.restAuthorized === broker.stats.restRequests, `${r1.gapFilled - r0.gapFilled} gap-filled, ${broker.stats.restRequests} REST requests`);
+      await Bun.sleep(1500);
+
+      // CONNACK 5 while the token is valid: the connection cap. The old session stays and streams.
+      broker.refuse(1);
+      const c0 = (await st(a)).stream;
+      const got0 = await b.evaluate(() => (window as any).__got.length);
+      await a.evaluate(() => (window as any).__vault.debug.refreshNow());
+      const limited = await waitFor("connection-limit", a, (s) => s.stream.phase === "connection-limit", 5000).catch((e) => e);
+      check("CONNACK 5 with a valid token: status 'connection limit reached', the old session kept", !(limited instanceof Error) && limited.stream.sessions === 1 && broker.sessions().length === 1, limited instanceof Error ? limited.message : `${limited.stream.sessions} session(s)`);
+      await Bun.sleep(1500);
+      const got1 = await b.evaluate(() => (window as any).__got.length);
+      check("at the cap, data keeps flowing on the old session", got1 - got0 >= RATE / 2, `${got1 - got0} messages in 1.5 s`);
+      check("at the cap, the token isn't thrown away (no extra /token, gets still authenticated)", (await st(a)).state === "connected" && (await vaultGet(a)).auth === true);
+      await waitFor("the retried handover", a, (s) => s.stream.handovers === c0.handovers + 1 && s.stream.phase === "connected", 20_000);
+      check("after the backoff the handover completes", true);
+      await Bun.sleep(1000);
+      broker.stopStream();
+      await Bun.sleep(1500);
+
+      const expected = (topics: string[], fromIdx = from) => broker.log.slice(fromIdx).filter((x) => topics.includes(x.topic)).map((x) => x.msg.n as number);
+      const compare = async (label: string, p: any, topics: string[], fromIdx = from) => {
+        const got: [string, number][] = await p.evaluate(() => (window as any).__got);
+        const want = expected(topics, fromIdx);
+        const mine = got.filter(([, n]) => n > (broker.log[fromIdx - 1]?.msg.n as number ?? 0)).map(([, n]) => n);
+        const dups = mine.length - new Set(mine).size;
+        const lost = want.filter((n) => !mine.includes(n));
+        const extra = mine.filter((n) => !want.includes(n));
+        check(`${label}: every published message exactly once (${want.length})`, dups === 0 && lost.length === 0 && extra.length === 0, `lost ${lost.length} [${lost.slice(0, 5)}], duplicated ${dups}, unexpected ${extra.length}`);
+        let inversions = 0;
+        for (const t of topics) {
+          const seq = got.filter(([tt]) => tt === t).map(([, n]) => n);
+          for (let i = 1; i < seq.length; i++) if (seq[i]! < seq[i - 1]!) inversions++;
+        }
+        check(`${label}: each topic arrives in order`, inversions === 0, `${inversions} out of order`);
+        return got;
+      };
+      const gotA = await compare("leader tab", a, TA);
+      const gotB = await compare("follower tab", b, TB);
+      const common = (g: [string, number][]) => g.filter(([t]) => TA.includes(t)).map(([t, n]) => `${t}:${n}`).join();
+      check("both tabs received the same sequence (their common topics)", common(gotA) === common(gotB));
+      const sAfter = (await st(a)).stream;
+      check("never more than 2 MQTT sessions (broker's count and the vault's)", broker.stats.max <= 2 && sAfter.maxSessions <= 2, `broker max ${broker.stats.max}, vault max ${sAfter.maxSessions}`);
+      check("status: duplicates dropped, gap-filled, lastSeen per topic", sAfter.duplicates > 0 && sAfter.gapFilled > 0 && TB.every((t) => typeof sAfter.lastSeen[t] === "string"), JSON.stringify({ dup: sAfter.duplicates, gap: sAfter.gapFilled, seen: Object.keys(sAfter.lastSeen) }));
+      check("the panel shows the stream and counts", (await a.getByTestId("vault-stream-phase").getAttribute("data-phase")) === "connected" && Number(await a.getByTestId("vault-stream-counts").getAttribute("data-delivered")) > 0);
+
+      // The secret-leak check with two tabs (the fake password and the fake JWTs).
+      for (const [p, label] of [[a, "leader tab"], [b, "follower tab"]] as const) {
+        const report = await findAppSecrets(p, [fakePass]);
+        check(`two tabs, ${label}: no password or JWT readable from the app origin`, report.findings.length === 0 && (report.scanned["heap snapshot (app main frame)"] ?? 0) > 1e6, report.findings.map((f) => `${f.what} in ${f.where}`).join("; "));
+      }
+      const inFrames = await findInHeap(vaultFrame(b), [fakePass]);
+      check("control: the follower's vault frame holds the shared login (password and token)", inFrames.some((f) => f.what === "secret") && inFrames.some((f) => f.what === "jwt"));
+
+      // The leader's tab closes mid-stream: the follower takes over (no /token), and nothing is lost.
+      const from2 = broker.log.length;
+      broker.resetStats();
+      const tok1 = tokenRequests.length;
+      broker.startStream(RATE, TB);
+      await Bun.sleep(1500);
+      await a.close();
+      const took = await waitFor("the takeover", b, (s) => s.tab.role === "leader" && s.stream?.phase === "connected", 15_000).catch((e) => e);
+      check("leader tab closed: the follower becomes the leader and streams", !(took instanceof Error), took instanceof Error ? took.message : `${took.tab.id.slice(0, 6)} leads`);
+      await Bun.sleep(2000);
+      broker.stopStream();
+      await Bun.sleep(1500);
+      check("takeover without a passkey tap or /token (the login was shared in memory)", tokenRequests.length === tok1 && (await st(b)).state === "connected", `${tokenRequests.length - tok1} /token`);
+      await compare("after the takeover, the new leader's tab", b, TB, from2);
+      const sTake = (await st(b)).stream;
+      check("takeover: gap-filled from the lastSeen the follower tracked; never more than 2 sessions", sTake.gapFilled > 0 && broker.stats.max <= 2, `${sTake.gapFilled} gap-filled, broker max ${broker.stats.max}`);
+
+      await b.getByTestId("vault-disconnect").click();
+      await waitState(b, "disconnected");
+      await waitFor("the stream to stop", b, (s) => s.stream?.sessions === 0, 5000).catch(() => {});
+      check("disconnect: the stream closes", broker.sessions().length === 0, `${broker.sessions().length} open`);
+      check("stream run: no page errors", pageErrors.length === 0, pageErrors.join(" | "));
+    } catch (e) {
+      check("stream run", false, e instanceof Error ? e.message : String(e));
+    } finally {
+      await ctx?.close().catch(() => {});
+      rmSync(dir, { recursive: true, force: true });
+      broker.stop();
+      stop(devVault);
+      for (let i = 0; i < 50 && (await up(`${VAULT}/frame.html`)); i++) await Bun.sleep(100);
     }
   }
 

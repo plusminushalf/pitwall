@@ -10,6 +10,9 @@
 // VAULT_ALLOWED_HOSTS: extra Host names the dev server answers to (comma-separated), for public dev URLs.
 // VAULT_FAKE_EXPIRES_IN (dev server only): treat every token as lasting this many seconds (e.g. 120), to
 // watch refreshes happen. A build ignores it: its dev knobs are compiled out (__VAULT_DEV__ = false).
+// VAULT_FAKE_BROKER (dev server only): the local fake broker's origin (vault/fakebroker.ts), e.g.
+// http://127.0.0.1:5191. The dev vault's MQTT URL and REST base point at it, and the dev CSP's connect-src
+// adds exactly that origin (http + ws). A build ignores it: production URLs and CSP are fixed.
 
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
@@ -32,6 +35,27 @@ function fakeExpiresIn(): number {
   return n;
 }
 
+/** VAULT_FAKE_BROKER as an origin (""; off). Only a local http origin: this is for a broker on this machine. */
+function fakeBroker(): string {
+  const raw = env("VAULT_FAKE_BROKER");
+  if (!raw) return "";
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    throw new Error(`VAULT_FAKE_BROKER: an origin like http://127.0.0.1:5191 (got ${raw})`);
+  }
+  if (u.protocol !== "http:" || !["127.0.0.1", "localhost"].includes(u.hostname) || !u.port || u.origin !== raw.replace(/\/$/, ""))
+    throw new Error(`VAULT_FAKE_BROKER: http://127.0.0.1:PORT or http://localhost:PORT only (got ${raw})`);
+  return u.origin;
+}
+
+/** The dev server's extra connect-src (the fake broker's http and ws origins), or none. */
+function devConnect(dev: boolean): string[] {
+  const f = dev ? fakeBroker() : "";
+  return f ? [f, f.replace(/^http/, "ws")] : [];
+}
+
 /**
  * The build-time constants (__VAULT_APP_ORIGINS__, __VAULT_VERSION__, __VAULT_DEV__,
  * __VAULT_FAKE_EXPIRES_IN__), replaced in vault source. Not Vite's `define`: in dev that relies on the Vite
@@ -42,6 +66,7 @@ function vaultConstants(): Plugin {
   let version = VERSION;
   let dev = false;
   let fake = 0;
+  let broker = "";
   return {
     name: "vault-constants",
     configResolved(config) {
@@ -49,6 +74,7 @@ function vaultConstants(): Plugin {
       if (dev) {
         version = `${VERSION}-dev`;
         fake = fakeExpiresIn();
+        broker = fakeBroker();
       }
     },
     transform(code, id) {
@@ -57,7 +83,8 @@ function vaultConstants(): Plugin {
         .replaceAll("__VAULT_APP_ORIGINS__", JSON.stringify(appOrigins))
         .replaceAll("__VAULT_VERSION__", JSON.stringify(version))
         .replaceAll("__VAULT_DEV__", JSON.stringify(dev))
-        .replaceAll("__VAULT_FAKE_EXPIRES_IN__", JSON.stringify(fake));
+        .replaceAll("__VAULT_FAKE_EXPIRES_IN__", JSON.stringify(fake))
+        .replaceAll("__VAULT_FAKE_BROKER__", JSON.stringify(broker));
     },
   };
 }
@@ -67,9 +94,11 @@ function vaultHeaders(): Plugin {
   return {
     name: "vault-headers",
     configureServer(server) {
+      // Dev server only: the fake broker's origin, if VAULT_FAKE_BROKER is set. The build's _headers never has it.
+      const extra = devConnect(true);
       server.middlewares.use((req, res, next) => {
         const page = pageOf(new URL(req.url ?? "/", "http://vault").pathname);
-        for (const [k, v] of Object.entries(page ? pageHeaders(page, appOrigins) : COMMON_HEADERS)) res.setHeader(k, v);
+        for (const [k, v] of Object.entries(page ? pageHeaders(page, appOrigins, page === "frame" ? extra : []) : COMMON_HEADERS)) res.setHeader(k, v);
         next();
       });
     },

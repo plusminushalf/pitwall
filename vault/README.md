@@ -5,9 +5,10 @@ code ever to see a user's OpenF1 password or access token. The app embeds it as 
 data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
-Status: spike S3, step 3 of 6. The handshake, the protocol, the headers, the popup login, both storage
-modes (stay connected, passkey PRF), silent token refresh and a one-at-a-time `get` work. MQTT, the
-cross-tab leader and parallel downloads are later steps (`subscribe` answers `not_implemented`).
+Status: spike S3, step 4 of 6. The handshake, the protocol, the headers, the popup login, both storage
+modes (stay connected, passkey PRF), silent token refresh, a one-at-a-time `get`, the live MQTT stream (token
+handover, reconnect + REST gap-fill) and the cross-tab leader work. Parallel downloads and the simulate mode
+are later steps.
 
 ## What's here
 
@@ -21,6 +22,9 @@ cross-tab leader and parallel downloads are later steps (`subscribe` answers `no
 | `src/openf1.ts` | `POST /token` and parsing its response |
 | `src/scheduler.ts` | The token refresh schedule (pure: injected clock, timers, `/token`) |
 | `src/rest.ts` | `get`: OpenF1 REST reads, authenticated when there's a token, retried once after a 401 |
+| `src/mqtt.ts` | A hand-written MQTT 3.1.1-over-WebSocket client (the subset the vault needs; no dependencies) |
+| `src/live.ts` | The live stream: sessions, handover, CONNACK 5, reconnect, REST gap-fill, dedupe, batching (pure) |
+| `src/tabs.ts` | The cross-tab leader (Web Locks) and the BroadcastChannel among vault frames (pure) |
 | `src/debug.ts` | Dev-only testing knobs (fake expiry, spoil the token, refresh now); not in a build |
 | `src/origins.ts` | The app-origin allowlist: parsing `VAULT_APP_ORIGINS`, matching the parent |
 | `src/rpc.ts` | Request dispatch over a `MessagePort` |
@@ -29,6 +33,8 @@ cross-tab leader and parallel downloads are later steps (`subscribe` answers `no
 | `serve.ts` | Serves `dist/` locally with exactly the headers in `dist/_headers` |
 | `e2e.ts` | Browser checks (Playwright, Chromium), including the real login from `.env` |
 | `leakcheck.ts` | The secret-leak check from the app's origin (heap snapshot + all app-origin storage), reused by e2e |
+| `fakebroker.ts` | Dev/test only, never shipped: a local fake OpenF1 broker (MQTT over WS) and REST, with controls |
+| `testkit.ts` | Test helpers: a fake clock, fake sockets, an in-memory broker |
 
 The build is unminified, so the deployed JavaScript reads like this source.
 
@@ -39,6 +45,7 @@ bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite cli
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
 bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
+bun vault/fakebroker.ts # a local fake OpenF1 broker on :5191 (see "The live stream")
 ```
 
 The app finds the vault at `VITE_VAULT_ORIGIN` (default `http://localhost:5174`; `off` disables it). Open the
@@ -78,17 +85,20 @@ All in `src/protocol.ts`. Version `v: 1` on every message.
 
 | Method | Arguments | Result |
 | --- | --- | --- |
-| `status` | | `{state, mode?, account?, error?, live, version}` plus the refresh status (below) |
+| `status` | | `{state, mode?, account?, error?, live, version, stream?, tab?}` plus the refresh status (below) |
 | `connect` | `ticket` | status. The app has just opened the popup with this ticket; the frame expects it |
 | `unlock` | `ticket` | status. The same, for a passkey-locked login (state `locked` only) |
 | `cancel` | `ticket` | status. The popup closed: stop expecting it, drop a half-done passkey setup |
 | `disconnect` | | status. Wipes storage and memory, and the frames in other tabs |
-| `subscribe` / `unsubscribe` | `topics`: 1–32 distinct names from `LIVE_TOPICS` | `{topics}` |
+| `subscribe` / `unsubscribe` | `topics`: 1–32 distinct names from `LIVE_TOPICS` | `{topics}`: this port's topics after the change |
 | `get` | `endpoint` from `REST_ENDPOINTS`, `params` (≤ 8, names from `PARAM_KEYS` with optional `>`, `<`, `>=`, `<=`; finite numbers or ≤ 64 chars of `[A-Za-z0-9 :.+_-]`) | `{status, body: ArrayBuffer, auth}` (body transferred); `network` error if OpenF1 can't be reached |
 | `openPort` | one transferred `MessagePort` | `{}`; the port then speaks this protocol too (≤ 8 ports) |
 
 There is no method that returns a password or a token, and there never will be. Status changes are pushed
-as `{v:1, type:"event", event:"status", status}`. `state` is one of `unavailable` (storage blocked),
+as `{v:1, type:"event", event:"status", status}`. Live data is pushed as `{v:1, type:"event", event:"data",
+topic, messages}`: batches every ~150 ms, one event per topic, only topics that port subscribed to, each
+message once and in `date` order within a batch, parsed JSON as OpenF1 sent it (MQTT ones carry `_id` and
+`_key`, gap-filled REST rows don't). In the app: `getVault().onData((topic, messages) => …)`. `state` is one of `unavailable` (storage blocked),
 `disconnected`, `locked` (passkey, not unlocked yet), `connecting`, `connected`, `error` (a stored login stopped
 working: `error.code` says why). `account` is masked (`d***@example.com`).
 
@@ -129,6 +139,61 @@ unauthenticated: historical data is free (3 req/s, 30/min), so the app keeps wor
 says so. Live windows need the login. One request at a time for now; step 6 adds parallel requests within
 the rate caps.
 
+## The live stream
+
+`src/mqtt.ts` + `src/live.ts`, run by the leader frame (below) for the union of every tab's subscriptions. The
+broker facts it's built on (docs/modular-hypotheses.md, facts): the password is the token; the username must be the account's email (measured 2026-09-30 while building
+this step: any other username gets CONNACK 5 even with a valid token, correcting the facts table); at
+most 10 connections per account, the 11th refused with CONNACK 5, **the same code as an expired token**; a
+reused clientId kicks the older session; an open session outlives its token (the broker checks only at
+CONNECT).
+
+- MQTT 3.1.1 over `wss://mqtt.openf1.org:8084/mqtt`, subprotocol `mqtt`, binary frames (one frame may hold
+  part of a packet or several). Clean session, keepalive 30 s: a PINGREQ after 15 s of silence, checked by a
+  timer and on every inbound packet (background tabs throttle timers to once a minute); no answer within 10 s
+  and the session is dead. QoS 0 subscriptions; a QoS 1 PUBLISH is PUBACKed anyway.
+- Every session gets a fresh random clientId (from the CSPRNG).
+- **Handover** on every new token: open session B with it, subscribe, and 2 s after B's SUBACK close A (not at
+  once: a message published just before B subscribed can still be in flight on A's socket). Never a third
+  session: a handover waits for the previous one's old session to close.
+- **CONNACK 5 with a token that is still valid locally** is the connection cap: keep A, keep the token, back
+  off (5 s doubling to 2 min), phase `connection-limit` ("connection limit reached"). With an expired token:
+  refresh, then retry.
+- **An unexpected drop** (close, error, ping timeout): reconnect with backoff (0.5 s doubling to 30 s; a fresh
+  token first if needed), then **gap-fill** over REST per topic before live resumes: `date>=lastSeen` (`>=`,
+  not `>`: several records share a timestamp) for the dated topics, the whole session's rows for the small
+  undated ones (drivers, laps, stints, session_result, sessions), `session_key` = the live session's (from the
+  messages) or `latest`. A topic with nothing delivered yet is filled from when it started streaming, minus
+  30 s. Rows go through the same dedupe, in date order; live messages that arrive meanwhile are held back and
+  follow. A topic whose gap-fill fails 3 times is reported in `lastError`.
+- **Dedupe**: a message is known by OpenF1's `_id` (MQTT) and always by topic + `date` + a hash of its content
+  without `_id` / `_key` (what a REST row has). Either key seen = a duplicate. Memory is bounded: the newest
+  20,000 keys per topic (about 2 minutes of car_data), so a car_data flood never evicts laps.
+- Status (`status.stream`): `phase` (`off`, `waiting`, `connecting`, `connected`, `handover`, `reconnecting`,
+  `gap-filling`, `connection-limit`), `topics`, `sessions` open now and `maxSessions`, `handovers`,
+  `reconnects`, `delivered`, `duplicates`, `gapFilled`, `lastSeen` per topic, `since` per topic,
+  `lastError`, `retryAt`. Pushed on every phase change, and at most once a second for the counters.
+
+## Tabs: one leader
+
+`src/tabs.ts`. Every tab of the app has its own vault frame; they share one storage partition (the vault's
+origin under the app's site), hence one BroadcastChannel and one set of Web Locks, and nothing else can join
+them: one trust boundary.
+
+- The leader holds `navigator.locks` lock `f1-vault-leader` for its lifetime; the others queue for it. The
+  leader alone calls `/token` (the refresh schedule), runs the stream and spends the REST budget. Followers
+  forward `get` and the dev knobs to it, send it their subscriptions (the leader streams the union), and get
+  data and status over the channel. `status.tab`: `{role, id, leader, frames}`.
+- A login, unlock or disconnect in any tab reaches every frame. The leader shares the login with the other
+  vault frames **in memory** (the decrypted secret and the current token, on every refresh), never to the app
+  or to storage. So a new tab is connected at once with no `/token`, and a passkey login is unlocked in every
+  open tab with one tap.
+- When the leader's tab closes, the next frame in line gets the lock and takes over: the login it was given
+  (no passkey tap, no immediate `/token`), and the stream: a new session, then a gap-fill from the `lastSeen`
+  it tracked from the data it was forwarded, deduped against everything the tabs already got. The old
+  leader's topics are kept for 3 s until every follower has re-sent its own. Each frame also holds lock
+  `f1-vault-frame:<id>`; the leader lists them every 5 s to forget the subscriptions of closed tabs.
+
 ## Dev knobs
 
 For trying the refresh paths by hand and in `e2e.ts`. `src/debug.ts` is used only behind `__VAULT_DEV__`,
@@ -142,6 +207,35 @@ vault rejects the debug methods as unknown types and has no fake expiry (e2e che
 | `debug:spoilToken` | | The token in hand is sent with one signature character changed until the next token: a real OpenF1 401 |
 | `debug:refreshNow` | | A refresh now, through the scheduler (coalesced, backoff on failure) |
 | `debug:failToken` | `status`: 401, 429 or 503; `times`: 0–10 | The next `times` `/token` calls answer that status without reaching OpenF1 |
+
+`VAULT_FAKE_BROKER` (dev server only): the origin of a local fake broker (`fakebroker.ts`), e.g.
+`http://127.0.0.1:5191`; only `http://127.0.0.1:PORT` or `http://localhost:PORT`. The dev vault's MQTT URL and
+REST base then point at it, and the dev frame's CSP `connect-src` adds exactly that origin (`http:` and
+`ws:`). Like the other knobs it is baked in by `vaultConstants()` only on the dev server: a build always has
+OpenF1's URLs and the production CSP (e2e checks both, and that `dist/` has no trace of it).
+
+The fake broker (`bun vault/fakebroker.ts [--port 5191] [--rate 20]`) speaks MQTT 3.1.1 over WebSocket at
+`/mqtt` (any non-empty password, an email as the username like OpenF1; a reused clientId kicks the older session), serves what it published at
+`/v1/<topic>` with OpenF1's filters (`session_key`, `date>=` …; no `_id` / `_key`, like OpenF1's REST), and takes
+`POST /control/stream?rate=N` (a synthetic stream; 0 stops), `/control/drop` (every connection, abruptly),
+`/control/refuse?n=1` (the next CONNECT gets CONNACK 5), `GET /control/stats` (sessions now / max, connects,
+refusals). e2e drives the same class in process.
+
+To watch the stream by hand (the fake broker takes any token, but the popup still checks the login with
+OpenF1's `/token`, so Connect with your real login):
+
+```sh
+bun vault/fakebroker.ts --rate 20
+VAULT_FAKE_BROKER=http://127.0.0.1:5191 bun run vault
+bun run dev        # open http://127.0.0.1:5173/?vault=debug in two tabs, Connect in one
+```
+
+In the panel's "Live stream" section click topics to subscribe (in both tabs: the leader streams the union);
+the arrival strip shows messages per second over the last 2 minutes. Refresh now = a handover;
+`curl -X POST localhost:5191/control/drop` = a reconnect and gap-fill; `curl -X POST
+'localhost:5191/control/refuse?n=1'` then Refresh now = "connection limit reached", the old session keeps
+streaming; close the leader tab and the other one takes over. None of these should leave a hole in the strip.
+Without `VAULT_FAKE_BROKER` the dev vault uses OpenF1's real broker (empty outside a live session).
 
 By hand: `VAULT_FAKE_EXPIRES_IN=120 bun run vault`, `bun run dev`, open `http://127.0.0.1:5173/?vault=debug`,
 Connect. The debug panel shows the refresh phase, next refresh, last result and count, plus buttons: get
@@ -194,6 +288,7 @@ From `headers.ts`, identical in dev, in `dist/_headers` and in `serve.ts`:
 
 - `frame.html`: `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://api.openf1.org wss://mqtt.openf1.org:8084; base-uri 'none'; form-action 'none'; frame-ancestors <VAULT_APP_ORIGINS>`
 - `popup.html`: the same, but `frame-ancestors 'none'`. The popup makes no requests at all; the frame does.
+- Dev server with `VAULT_FAKE_BROKER` only: the frame's `connect-src` also has that one local origin.
 - Every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
   `Cross-Origin-Resource-Policy: cross-origin` (so the frame still loads if the app ever enables COEP).
 - Deliberately **no** `Cross-Origin-Opener-Policy`: the popup must keep `window.opener` to reach the vault

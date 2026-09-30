@@ -1,6 +1,6 @@
 // Request dispatch over a MessagePort. Pure apart from the port: no DOM, testable under bun.
 
-import { DEBUG_METHODS, parseRequest, type DebugMethod, type GetResult, type Params, type Request, type Response, type RestEndpoint, type Ticket, type VaultEvent, type VaultStatus } from "./protocol";
+import { DEBUG_METHODS, parseRequest, type DebugMethod, type GetResult, type LiveMessage, type LiveTopic, type Params, type Request, type Response, type RestEndpoint, type Ticket, type VaultEvent, type VaultStatus } from "./protocol";
 import { RestError } from "./rest";
 
 /** The part of MessagePort the vault uses (so tests can fake one). */
@@ -17,6 +17,8 @@ export type Vault = {
   cancel(ticket: Ticket): VaultStatus;
   disconnect(): Promise<VaultStatus>;
   get(endpoint: RestEndpoint, params: Params): Promise<GetResult>;
+  /** The union of this frame's ports' subscriptions changed (the leader streams the union across tabs). */
+  setTopics(topics: LiveTopic[]): void;
 };
 
 /** Dev vault only: the handler for DEBUG_METHODS (debug.ts). Without one, they're unknown types. */
@@ -27,6 +29,8 @@ export const MAX_PORTS = 8;
 
 export class Rpc {
   private ports = new Set<PortLike>();
+  /** Each port's live topics. Data goes only to the ports that asked for it. */
+  private subs = new Map<PortLike, Set<LiveTopic>>();
 
   constructor(
     private vault: Vault,
@@ -38,7 +42,7 @@ export class Rpc {
     if (this.ports.size >= MAX_PORTS) return false;
     this.ports.add(port);
     port.addEventListener("message", (e) => {
-      void this.handle(e.data, e.ports).then((res) => {
+      void this.handle(e.data, e.ports, port).then((res) => {
         if (!res) return;
         // A get's body is transferred, not copied.
         const body = res.ok && (res.result as Partial<GetResult> | null)?.body;
@@ -55,8 +59,29 @@ export class Rpc {
     for (const port of this.ports) port.postMessage(event);
   }
 
-  /** One inbound message to its response, or null to drop it. Never rejects. */
-  async handle(data: unknown, ports: readonly PortLike[]): Promise<Response | null> {
+  /** Live data: one event per topic, to the ports subscribed to it. */
+  deliver(batches: readonly { topic: LiveTopic; messages: LiveMessage[] }[]) {
+    for (const [port, topics] of this.subs)
+      for (const b of batches) if (topics.has(b.topic) && b.messages.length) port.postMessage({ v: 1, type: "event", event: "data", topic: b.topic, messages: b.messages } satisfies VaultEvent);
+  }
+
+  /** Every topic some port of this frame is subscribed to. */
+  topics(): LiveTopic[] {
+    const all = new Set<LiveTopic>();
+    for (const s of this.subs.values()) for (const t of s) all.add(t);
+    return [...all].sort();
+  }
+
+  private subscribe(port: PortLike, topics: LiveTopic[], on: boolean): { topics: LiveTopic[] } {
+    let s = this.subs.get(port);
+    if (!s) this.subs.set(port, (s = new Set()));
+    for (const t of topics) on ? s.add(t) : s.delete(t);
+    this.vault.setTopics(this.topics());
+    return { topics: [...s].sort() };
+  }
+
+  /** One inbound message to its response, or null to drop it. Never rejects. `from`: the port it came on. */
+  async handle(data: unknown, ports: readonly PortLike[], from: PortLike | null = null): Promise<Response | null> {
     const parsed = parseRequest(data, ports.length, { debug: this.debug !== undefined });
     if (!parsed.ok) return parsed.id === null ? null : { v: 1, id: parsed.id, ok: false, error: parsed.error };
     const req = parsed.request;
@@ -80,6 +105,10 @@ export class Rpc {
             if (e instanceof RestError) return { v: 1, id: req.id, ok: false, error: { code: "network", message: "couldn't reach OpenF1" } };
             throw e;
           }
+        case "subscribe":
+        case "unsubscribe":
+          if (!from) return { v: 1, id: req.id, ok: false, error: { code: "bad_request", message: "no port" } };
+          return { v: 1, id: req.id, ok: true, result: this.subscribe(from, req.topics, req.type === "subscribe") };
         case "openPort":
           return this.attach(ports[0]!)
             ? { v: 1, id: req.id, ok: true, result: {} }

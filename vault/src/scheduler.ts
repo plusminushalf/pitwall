@@ -14,7 +14,7 @@
 // - a 401 from /token means the password was changed or revoked: stop, keep the current token until its
 //   own expiry, and raise `needsReauth` (the app shows "Reconnect your OpenF1 account");
 // - every refresh is coalesced into one in-flight /token call;
-// - a REST (later MQTT) 401 refreshes at once, unless the token it used is brand new: then the token is
+// - a REST 401 refreshes at once, unless the token it used is brand new: then the token is
 //   marked `rejected` (callers go unauthenticated) and the next try waits for the backoff cap. No storms;
 // - timers are armed against absolute times and never sleep longer than MAX_SLEEP_MS, and wake() re-checks
 //   the wall clock, because background tabs throttle timers and a laptop lid stops them altogether.
@@ -117,6 +117,11 @@ export class TokenScheduler {
   /** Whether a token is in hand (valid or not). */
   hasToken() {
     return this.token !== null;
+  }
+
+  /** The token in hand, valid or not: the live stream tells an expired token from the connection cap by its expiry. */
+  held(): Token | null {
+    return this.token;
   }
 
   status(): RefreshStatus {

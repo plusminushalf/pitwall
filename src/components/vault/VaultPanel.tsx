@@ -1,6 +1,36 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { getVault } from "../../vault/client";
+import { getVault, type LiveTopic, type StreamStatus, type VaultStatus } from "../../vault/client";
+import { STRIP_SECONDS, useLiveStats } from "./useLiveStats";
 import { useVault } from "./useVault";
+
+/** OpenF1's live topics (the vault's LIVE_TOPICS; the app imports only types from the vault). */
+const TOPICS = [
+  "car_data",
+  "drivers",
+  "intervals",
+  "laps",
+  "location",
+  "overtakes",
+  "pit",
+  "position",
+  "race_control",
+  "session_result",
+  "sessions",
+  "stints",
+  "team_radio",
+  "weather",
+] as const satisfies readonly LiveTopic[];
+
+const PHASE_TEXT: Record<StreamStatus["phase"], string> = {
+  off: "off",
+  waiting: "waiting for a login",
+  connecting: "connecting",
+  connected: "connected",
+  handover: "handing over to a new session",
+  reconnecting: "reconnecting",
+  "gap-filling": "filling the gap over REST",
+  "connection-limit": "connection limit reached",
+};
 
 type Ping = { last: number; median: number; n: number } | { error: string };
 type Got = { status: number; bytes: number; auth: boolean; ms: number } | { error: string };
@@ -87,7 +117,7 @@ export function VaultPanel() {
   );
 
   return (
-    <aside data-testid="vault-panel" className="fixed bottom-4 right-4 z-50 w-80 rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs shadow-lg">
+    <aside data-testid="vault-panel" className="fixed bottom-4 right-4 z-50 max-h-[calc(100vh-5rem)] w-80 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs shadow-lg">
       <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Vault (debug)</h2>
       <dl className="space-y-1">
         {row("Handshake", <span data-testid="vault-phase">{state.phase}</span>)}
@@ -126,6 +156,7 @@ export function VaultPanel() {
           )}
         {knob && row("Knob", <span data-testid="vault-knob">{knob}</span>)}
       </dl>
+      {status && <LiveSection status={status} ready={state.phase === "ready"} />}
       <button
         onClick={() => void measure()}
         disabled={busy || state.phase !== "ready"}
@@ -159,5 +190,93 @@ export function VaultPanel() {
         </div>
       )}
     </aside>
+  );
+}
+
+const clock = (iso: string | undefined) => (iso ? new Date(iso).toLocaleTimeString([], { hour12: false }) : "");
+
+/** The live stream: who runs it, its state, this tab's subscriptions, what arrived (a gap shows in the strip). */
+function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean }) {
+  const stats = useLiveStats();
+  const [mine, setMine] = useState<LiveTopic[]>([]);
+  const [err, setErr] = useState<string | null>(null);
+  const stream = status.stream;
+  const tab = status.tab;
+
+  async function toggle(t: LiveTopic) {
+    setErr(null);
+    try {
+      const r = mine.includes(t) ? await getVault().unsubscribe([t]) : await getVault().subscribe([t]);
+      setMine(r.topics);
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  const peak = Math.max(1, ...stats.perSecond);
+  const last = stats.perSecond.at(-2) ?? 0; // the last whole second
+  const kv = (k: string, v: ReactNode) => (
+    <div className="flex justify-between gap-4">
+      <dt className="text-zinc-500">{k}</dt>
+      <dd className="min-w-0 truncate text-right tabular-nums text-zinc-200">{v}</dd>
+    </div>
+  );
+  return (
+    <section className="mt-3 border-t border-zinc-800 pt-2" data-testid="vault-live">
+      <h3 className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Live stream</h3>
+      <dl className="space-y-1">
+        {tab &&
+          kv(
+            "This tab",
+            <span data-testid="vault-role" data-role={tab.role} data-leader={tab.leader ?? ""}>
+              {tab.role === "leader" ? `leader${tab.frames ? ` of ${tab.frames} tab${tab.frames > 1 ? "s" : ""}` : ""}` : `follower of ${tab.leader?.slice(0, 6) ?? "?"}`} ({tab.id.slice(0, 6)})
+            </span>,
+          )}
+        {stream && (
+          <>
+            {kv("Stream", <span data-testid="vault-stream-phase" data-phase={stream.phase} className={stream.phase === "connection-limit" ? "text-amber-400" : undefined}>{PHASE_TEXT[stream.phase]}</span>)}
+            {kv("Sessions", <span data-testid="vault-stream-sessions" data-sessions={stream.sessions} data-max={stream.maxSessions}>{stream.sessions} open (max {stream.maxSessions})</span>)}
+            {kv("Handovers / reconnects", `${stream.handovers} / ${stream.reconnects}`)}
+            {kv("Delivered", <span data-testid="vault-stream-counts" data-delivered={stream.delivered} data-duplicates={stream.duplicates} data-gap-filled={stream.gapFilled}>{stream.delivered} ({stream.duplicates} dup dropped, {stream.gapFilled} gap-filled)</span>)}
+            {stream.lastError && kv("Last error", <span title={stream.lastError}>{stream.lastError}</span>)}
+          </>
+        )}
+      </dl>
+      <div className="mt-2 flex flex-wrap gap-1" data-testid="vault-subscribe">
+        {TOPICS.map((t) => {
+          const on = mine.includes(t);
+          const n = stats.counts[t] ?? 0;
+          const seen = stream?.lastSeen[t];
+          return (
+            <button
+              key={t}
+              type="button"
+              disabled={!ready}
+              onClick={() => void toggle(t)}
+              data-testid={`vault-sub-${t}`}
+              data-on={String(on)}
+              data-count={n}
+              title={on ? `Subscribed. ${n} received${seen ? `, last at ${clock(seen)}` : ""}. Click to unsubscribe.` : "Click to subscribe"}
+              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] disabled:opacity-40 ${on ? "border-emerald-700 bg-emerald-950 text-emerald-200" : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}
+            >
+              {t}
+              {on && <span className="ml-1 tabular-nums text-emerald-400">{n}</span>}
+            </button>
+          );
+        })}
+      </div>
+      {err && <p className="mt-1 text-red-400">{err}</p>}
+      <div className="mt-2">
+        <div className="mb-0.5 flex justify-between text-[10px] text-zinc-500">
+          <span>arrivals, last {STRIP_SECONDS / 60} min</span>
+          <span className="tabular-nums" data-testid="vault-rate">{last} msg/s, peak {peak === 1 && !stats.total ? 0 : peak}</span>
+        </div>
+        <div className="flex h-8 items-end gap-px bg-zinc-950" data-testid="vault-strip" role="img" aria-label={`messages per second over the last ${STRIP_SECONDS} seconds`}>
+          {stats.perSecond.map((v, i) => (
+            <div key={i} className={v ? "flex-1 bg-emerald-500" : "flex-1 bg-zinc-800"} style={{ height: v ? `${Math.max(8, (v / peak) * 100)}%` : "1px" }} />
+          ))}
+        </div>
+      </div>
+    </section>
   );
 }

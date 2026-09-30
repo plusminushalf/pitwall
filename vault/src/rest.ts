@@ -30,13 +30,13 @@ export class RestError extends Error {
  * The URL for an (already validated) endpoint and params. A name with a comparison suffix is written the
  * way OpenF1 reads it: `date>=2024-03-02` (the URL parser percent-encodes `<` and `>`, OpenF1 decodes them).
  */
-export function restUrl(endpoint: RestEndpoint, params: Params): string {
+export function restUrl(endpoint: RestEndpoint, params: Params, base = REST_BASE): string {
   const parts = Object.entries(params).map(([k, v]) => {
     const m = /^(.*?)(>=|<=|>|<)?$/.exec(k)!;
     const name = encodeURIComponent(m[1]!);
     return `${name}${m[2] ?? "="}${encodeURIComponent(String(v))}`;
   });
-  return `${REST_BASE}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`;
+  return `${base}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`;
 }
 
 export class Rest {
@@ -45,11 +45,13 @@ export class Rest {
   constructor(
     private fetch: RestFetch,
     private tokens: TokenSource,
+    /** REST_BASE; the dev vault can point it at the local fake broker (vault/fakebroker.ts). */
+    private base = REST_BASE,
   ) {}
 
   /** One read, queued behind the others. Rejects only with RestError (the network). */
   get(endpoint: RestEndpoint, params: Params): Promise<GetResult> {
-    const run = this.queue.then(() => this.run(restUrl(endpoint, params)));
+    const run = this.queue.then(() => this.run(restUrl(endpoint, params, this.base)));
     this.queue = run.catch(() => {});
     return run;
   }

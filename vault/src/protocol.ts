@@ -111,6 +111,10 @@ export type Methods = {
   cancel: { args: { ticket: Ticket }; result: VaultStatus };
   /** Forget the stored login (storage and memory) and close the live connection. */
   disconnect: { args: {}; result: VaultStatus };
+  /**
+   * Live topics for this port. The leader frame streams the union across every tab (one MQTT connection per
+   * browser) and pushes `data` events for these topics. Result: this port's topics after the change.
+   */
   subscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
   unsubscribe: { args: { topics: LiveTopic[] }; result: { topics: LiveTopic[] } };
   /**
@@ -197,6 +201,56 @@ export type RefreshStatus = {
   refresh?: RefreshPhase;
 };
 
+/**
+ * The live stream (live.ts), run by the leader frame (tabs.ts) for the union of every tab's subscriptions:
+ * - off: nothing subscribed, or no login.
+ * - waiting: subscribed, but there's no valid token yet (not connected, locked, refresh failing).
+ * - connecting: the first session is being opened.
+ * - connected: streaming.
+ * - handover: a new session (new token) is subscribed; the old one closes after a short overlap.
+ * - reconnecting: the session dropped; a new one is being opened (with backoff).
+ * - gap-filling: reconnected; fetching what was missed over REST before resuming live.
+ * - connection-limit: the broker refused a session (CONNACK 5) with a token that is still valid: the
+ *   account's 10-connection cap. The current session (if any) keeps streaming; retried with backoff.
+ */
+export type StreamPhase = "off" | "waiting" | "connecting" | "connected" | "handover" | "reconnecting" | "gap-filling" | "connection-limit";
+export type StreamStatus = {
+  phase: StreamPhase;
+  /** The union of every tab's subscriptions. */
+  topics: LiveTopic[];
+  /** MQTT sessions open now (connecting or connected): 1, or 2 during a handover. */
+  sessions: number;
+  /** The most that were ever open at once (by this leader). */
+  maxSessions: number;
+  handovers: number;
+  reconnects: number;
+  /** Messages delivered to the app (each once). */
+  delivered: number;
+  /** Messages dropped as duplicates (handover overlap, gap-fill overlap). */
+  duplicates: number;
+  /** Messages that came from a REST gap-fill. */
+  gapFilled: number;
+  /** The latest `date` delivered per topic (OpenF1's own string). */
+  lastSeen: Partial<Record<LiveTopic, string>>;
+  /** When each topic started streaming (ms since the epoch): the gap-fill floor for a topic with no lastSeen. */
+  since: Partial<Record<LiveTopic, number>>;
+  /** The last thing that went wrong (a refusal, a drop, a failed gap-fill). */
+  lastError?: string;
+  /** The next retry (reconnecting, connection-limit, waiting). */
+  retryAt?: number;
+};
+
+/** This frame's place among the vault frames of one browser (every tab of the app). */
+export type TabStatus = {
+  role: "leader" | "follower";
+  /** This frame's random id (not stable across loads). */
+  id: string;
+  /** The leader's id (this frame's, when it leads). */
+  leader: string | null;
+  /** Vault frames alive, as the leader counts them (the leader only). */
+  frames?: number;
+};
+
 export type VaultStatus = RefreshStatus & {
   state: VaultState;
   /** How the login is stored (when one is). */
@@ -210,11 +264,22 @@ export type VaultStatus = RefreshStatus & {
   live: "off" | "connecting" | "on";
   /** The vault build (vault/package version + build), for the debug panel and bug reports. */
   version: string;
+  /** The live stream (whichever tab runs it). */
+  stream?: StreamStatus;
+  /** Leader or follower. */
+  tab?: TabStatus;
 };
 
+/** One OpenF1 record as it came (MQTT payload or REST row), parsed. MQTT ones carry `_id` and `_key`. */
+export type LiveMessage = Record<string, unknown>;
+
+/**
+ * Pushed to the app. Live data comes in batches (every ~150 ms), one event per topic, each message once and
+ * in `date` order within a batch; only topics this port subscribed to.
+ */
 export type VaultEvent =
   | { v: 1; type: "event"; event: "status"; status: VaultStatus }
-  | { v: 1; type: "event"; event: "message"; topic: LiveTopic; data: unknown };
+  | { v: 1; type: "event"; event: "data"; topic: LiveTopic; messages: LiveMessage[] };
 
 // ---------------------------------------------------------------- popup <-> frame (window.postMessage)
 //

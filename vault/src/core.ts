@@ -4,6 +4,10 @@
 // Only this module (and the TokenScheduler it owns) ever holds the decrypted password or the token, and only
 // in memory. `status()` exposes the state, the storage mode, the masked account and the refresh status
 // (expiry, next refresh, last result): never the token or password.
+//
+// Across tabs (tabs.ts): only the leader frame runs the scheduler. A login that completes in any frame is
+// handed to the others as a `Shared` (memory only, vault frames only, never the app), so a follower that
+// becomes leader carries on without a passkey tap or an immediate /token.
 
 import { loginError, requestToken, type Fetch, type Token, type TokenResult } from "./openf1";
 import { maskEmail, type FrameToPopup, type LoginError, type PopupMessage, type PopupResult, type StorageMode, type Ticket, type VaultState, type VaultStatus } from "./protocol";
@@ -12,6 +16,9 @@ import { openLogin, randomBytes, sealDevice, sealPasskey, type LoginStore, type 
 
 /** How long the frame waits for the popup after `connect` / `unlock`. A popup older than this is stale. */
 export const PENDING_MS = 10 * 60_000;
+
+/** What the vault frames of one browser share among themselves (BroadcastChannel; memory only; never the app). */
+export type Shared = { secret: Secret; token: Token; mode: StorageMode; account: string };
 
 export type CoreDeps = {
   store: LoginStore;
@@ -28,6 +35,12 @@ export type CoreDeps = {
   random?: () => number;
   /** Dev vault only (debug.ts): rewrite every new token, e.g. to fake a short lifetime. */
   tokenFilter?: (t: Token) => Token;
+  /** Whether this frame leads (tabs.ts). Only the leader refreshes; a follower just holds the token. Default: yes. */
+  leading?: () => boolean;
+  /** A login is in memory with a new token (login, unlock, restore, refresh, adoptShared): for the other frames. */
+  onShared?: (s: Shared) => void;
+  /** Leader: the token changed (the live stream hands over to a session using it). */
+  onToken?: (t: Token) => void;
 };
 
 type Pending = {
@@ -58,6 +71,10 @@ export class VaultCore {
   readonly scheduler: TokenScheduler;
   /** Set while core itself starts the scheduler: core reports its own state change right after. */
   private quiet = false;
+  /** A follower's token (it doesn't run the scheduler). */
+  private heldToken: Token | null = null;
+  /** The token last handed to onShared. */
+  private lastShared: Token | null = null;
 
   constructor(private deps: CoreDeps) {
     this.scheduler = new TokenScheduler({
@@ -87,10 +104,64 @@ export class VaultCore {
     // Password changed or revoked, and the last token has now run out: the stored login is no good.
     if (this.state === "connected" && sch.status().needsReauth && !sch.current()) return this.set("error", { error: loginError("wrong_credentials") });
     this.deps.onStatus(this.status());
+    this.share();
   }
 
-  /** A login's first token (or the reason there's none yet): hand it to the scheduler. */
+  private leads() {
+    return this.deps.leading?.() ?? true;
+  }
+
+  /** The token in hand: the scheduler's (leader) or the one the leader shared (follower). */
+  token(): Token | null {
+    return this.leads() ? this.scheduler.held() : this.heldToken;
+  }
+
+  /** The token with the account's email (the MQTT username), or null. */
+  liveToken(): { accessToken: string; expiresAt: number; username: string } | null {
+    const t = this.token();
+    return t && this.secret ? { accessToken: t.accessToken, expiresAt: t.expiresAt, username: this.secret.username } : null;
+  }
+
+  /** The login in memory, to hand to another vault frame (tabs.ts), or null. */
+  sharedLogin(): Shared | null {
+    const token = this.token();
+    return this.secret && token && this.mode && this.account ? { secret: this.secret, token, mode: this.mode, account: this.account } : null;
+  }
+
+  /** Tell the other frames (and, on the leader, the live stream) about a new token. */
+  private share() {
+    const s = this.sharedLogin();
+    if (!s || s.token === this.lastShared) return;
+    this.lastShared = s.token;
+    this.deps.onShared?.(s);
+    if (this.leads()) this.deps.onToken?.(s.token);
+  }
+
+  /**
+   * Another frame's login (a popup login or unlock in another tab, or the old leader's, on takeover):
+   * use it as is, no /token. A leader starts refreshing it (at once if it's due).
+   */
+  adoptShared(s: Shared) {
+    this.secret = s.secret;
+    this.adopt(s.token);
+    this.set("connected", { mode: s.mode, account: s.account });
+    this.share();
+  }
+
+  /** Follower: mirror the leader's account state (for expect()'s checks). Silent. */
+  mirror(s: Pick<VaultStatus, "state" | "mode" | "account" | "error">) {
+    this.state = s.state;
+    this.mode = s.mode;
+    this.account = s.account;
+    this.error = s.error;
+  }
+
+  /** A login's first token (or the reason there's none yet): hand it to the scheduler (leader only). */
   private adopt(token: Token | null, error?: LoginError["code"]) {
+    if (!this.leads()) {
+      this.heldToken = token;
+      return;
+    }
     this.quiet = true;
     try {
       this.scheduler.start(token, error);
@@ -121,6 +192,8 @@ export class VaultCore {
 
   private forget() {
     this.secret = null;
+    this.heldToken = null;
+    this.lastShared = null;
     this.scheduler.stop();
   }
 
@@ -151,6 +224,7 @@ export class VaultCore {
     }
     this.adopt(t.token);
     this.set("connected");
+    this.share();
   }
 
   /** `connect` / `unlock` from the app: it has just opened the popup with this ticket. */
@@ -178,8 +252,9 @@ export class VaultCore {
 
   /** After an abandoned passkey setup: re-read what's stored so the state matches it. */
   private restoreAfterAbandon() {
-    if (this.scheduler.hasToken() && this.secret) this.set("connected");
-    else void this.init();
+    if (this.token() && this.secret) this.set("connected");
+    // A follower mirrors the leader's state; only a leader re-reads storage (and may call /token).
+    else if (this.leads()) void this.init();
   }
 
   async disconnect(): Promise<VaultStatus> {
@@ -286,6 +361,7 @@ export class VaultCore {
     this.secret = v.secret;
     this.adopt(v.token);
     this.set("connected", { mode, account });
+    this.share();
     return { ok: true as const, next: "done" as const };
   }
 
@@ -310,6 +386,7 @@ export class VaultCore {
     this.secret = secret;
     this.adopt(t.token);
     this.set("connected", { mode: "passkey", account: stored.account });
+    this.share();
     return { ok: true as const, next: "done" as const };
   }
 }

@@ -10,6 +10,7 @@ const fake = (over: Partial<Vault> = {}): Vault => ({
   cancel: () => status,
   disconnect: async () => status,
   get: async () => ({ status: 200, body: new ArrayBuffer(0), auth: false }),
+  setTopics: () => {},
   ...over,
 });
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -37,14 +38,14 @@ describe("Rpc", () => {
     const port = new FakePort();
     rpc.attach(port);
     port.deliver({ v: 1, id: 1, type: "status" });
-    port.deliver({ v: 1, id: 2, type: "subscribe", topics: ["laps"] });
+    port.deliver({ v: 1, id: 2, type: "unsubscribe", topics: ["laps"] });
     port.deliver({ v: 1, id: 3, type: "token" });
     port.deliver({ v: 1, type: "status" }); // no id: dropped
     port.deliver("garbage");
     await tick();
     expect(port.sent).toEqual([
       { v: 1, id: 1, ok: true, result: status },
-      { v: 1, id: 2, ok: false, error: { code: "not_implemented", message: "subscribe is not implemented yet" } },
+      { v: 1, id: 2, ok: true, result: { topics: [] } },
       { v: 1, id: 3, ok: false, error: { code: "bad_request", message: "unknown type" } },
     ]);
   });
@@ -144,5 +145,33 @@ describe("Rpc", () => {
     expect(await dev.handle({ v: 1, id: 4, type: "debug:fakeExpiry", seconds: 5 }, [])).toMatchObject({ ok: false, error: { code: "bad_request" } });
     expect(await dev.handle({ v: 1, id: 5, type: "debug:fakeExpiry", seconds: 0 }, [])).toMatchObject({ ok: true });
     expect(seen).toEqual(["debug:spoilToken", "debug:fakeExpiry", "debug:fakeExpiry"]);
+  });
+
+  test("subscribe / unsubscribe per port; the frame's union goes to the vault; data only to subscribed ports", async () => {
+    const unions: string[][] = [];
+    const rpc = new Rpc(fake({ setTopics: (t) => unions.push(t) }));
+    const a = new FakePort();
+    const b = new FakePort();
+    rpc.attach(a);
+    rpc.attach(b);
+    a.deliver({ v: 1, id: 1, type: "subscribe", topics: ["laps", "car_data"] });
+    b.deliver({ v: 1, id: 1, type: "subscribe", topics: ["laps", "pit"] });
+    await tick();
+    expect(a.sent[0]).toEqual({ v: 1, id: 1, ok: true, result: { topics: ["car_data", "laps"] } });
+    expect(unions.at(-1)).toEqual(["car_data", "laps", "pit"]);
+    rpc.deliver([
+      { topic: "laps", messages: [{ n: 1 }] },
+      { topic: "car_data", messages: [{ n: 2 }] },
+      { topic: "pit", messages: [] },
+    ]);
+    expect(a.sent.slice(1)).toEqual([
+      { v: 1, type: "event", event: "data", topic: "laps", messages: [{ n: 1 }] },
+      { v: 1, type: "event", event: "data", topic: "car_data", messages: [{ n: 2 }] },
+    ]);
+    expect(b.sent.slice(1)).toEqual([{ v: 1, type: "event", event: "data", topic: "laps", messages: [{ n: 1 }] }]);
+    a.deliver({ v: 1, id: 2, type: "unsubscribe", topics: ["laps", "car_data"] });
+    await tick();
+    expect(unions.at(-1)).toEqual(["laps", "pit"]);
+    expect(rpc.topics()).toEqual(["laps", "pit"]);
   });
 });

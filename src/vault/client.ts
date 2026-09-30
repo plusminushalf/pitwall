@@ -4,9 +4,9 @@
 //
 // VITE_VAULT_ORIGIN: where the vault is served (default the local vault dev server; "off" disables it).
 
-import type { Hello, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
+import type { Hello, LiveMessage, Method, Methods, Params, Ready, Request, Response, RestEndpoint, LiveTopic, StreamStatus, VaultError, VaultEvent, VaultStatus } from "../../vault/src/protocol";
 
-export type { LiveTopic, RestEndpoint, VaultEvent, VaultStatus };
+export type { LiveMessage, LiveTopic, RestEndpoint, StreamStatus, VaultEvent, VaultStatus };
 export type { VaultState as VaultAccountState, StorageMode } from "../../vault/src/protocol";
 
 export type VaultPhase = "idle" | "loading" | "ready" | "unavailable";
@@ -86,10 +86,20 @@ export class VaultClient {
     return () => this.listeners.delete(fn);
   }
 
-  /** Unsolicited vault events (status changes, live messages). Returns an unsubscribe. */
+  /** Unsolicited vault events (status changes, live data). Returns an unsubscribe. */
   onEvent(fn: (e: VaultEvent) => void): () => void {
     this.eventListeners.add(fn);
     return () => this.eventListeners.delete(fn);
+  }
+
+  /**
+   * Live data for the topics this tab subscribed to: batches (every ~150 ms), each message once, in `date`
+   * order within a batch, parsed JSON as OpenF1 sent it. Returns an unsubscribe.
+   */
+  onData(fn: (topic: LiveTopic, messages: LiveMessage[]) => void): () => void {
+    return this.onEvent((e) => {
+      if (e.event === "data") fn(e.topic, e.messages);
+    });
   }
 
   /** Mount the iframe and do the handshake, once. Resolves either way; see the state's phase. */
@@ -112,6 +122,10 @@ export class VaultClient {
     this.set({ status });
     return status;
   };
+  /**
+   * Live topics for this tab. The vault streams the union of every tab's (one connection per browser) and
+   * delivers each tab its own. Resolves with this tab's topics after the change.
+   */
   subscribe = (topics: LiveTopic[]) => this.call("subscribe", { topics });
   unsubscribe = (topics: LiveTopic[]) => this.call("unsubscribe", { topics });
   /**
