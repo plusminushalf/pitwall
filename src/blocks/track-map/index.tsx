@@ -26,6 +26,8 @@ const LABEL_H = 16;
 const FLAG_COLORS: Record<SectorFlag, string> = { YELLOW: "#facc15", "DOUBLE YELLOW": "#f97316", RED: "#ef4444" };
 /** The car layer redraws only the boxes around cars that changed, unless they cover more than this share of it. */
 const MAX_DIRTY_SHARE = 0.5;
+/** A label that had to be hidden stays hidden at least this long (wall-clock ms), so it can't blink off and on. */
+const LABEL_REST_MS = 200;
 
 interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -52,6 +54,8 @@ interface Drawn {
   inputs: readonly unknown[];
   cars: DrawnCar[];
   byDriver: Map<number, DrawnCar>;
+  /** A label was held back by LABEL_REST_MS: redraw until it's placed, even when nothing moves. */
+  resting: boolean;
 }
 
 /** Device-px box [x0, y0, x1, y1]. */
@@ -311,6 +315,7 @@ function TrackMap() {
   const carsRef = useRef<HTMLCanvasElement>(null);
   const carsOnScreen = useRef<{ driver: number; x: number; y: number }[]>([]);
   const labelSlots = useRef(new Map<number, number>()); // driver -> label corner used last frame
+  const hiddenAt = useRef(new Map<number, number>()); // driver -> when its label last had to be hidden
   const drawn = useRef<Drawn | null>(null);
 
   const layer = useMemo(() => (w > 0 && h > 0 ? drawStatic(track, w, h, pixelRatio) : null), [track, w, h, pixelRatio]);
@@ -337,7 +342,7 @@ function TrackMap() {
     if (last && last.layer !== layer) last = null;
     const { order: running, positions, selected, focused, info } = latest.current;
     const inputs = [running, positions, selected, focused, info];
-    let changed = !last || inputs.some((v, i) => v !== last.inputs[i]);
+    let changed = !last || last.resting || inputs.some((v, i) => v !== last.inputs[i]);
 
     // Draw back-markers first so the leader (and the focused car) end up on top.
     // With a selection, only the selected cars are drawn.
@@ -364,12 +369,15 @@ function TrackMap() {
     // around its dot that doesn't overlap a label already placed; cars in a tight pack may go unlabelled.
     ctx.font = "700 11px ui-sans-serif, system-ui";
     const placed: { x: number; y: number; w: number }[] = [];
-    const fits = (x: number, y: number, lw: number) =>
+    const now = performance.now();
+    let resting = false;
+    // Inside the canvas and at least `gap` px clear of every label placed so far.
+    const fits = (x: number, y: number, lw: number, gap: number) =>
       x >= 0 &&
       y >= 0 &&
       x + lw <= w &&
       y + LABEL_H <= h &&
-      placed.every((r) => x + lw + 2 <= r.x || r.x + r.w + 2 <= x || y + LABEL_H + 2 <= r.y || r.y + LABEL_H + 2 <= y);
+      placed.every((r) => x + lw + gap <= r.x || r.x + r.w + gap <= x || y + LABEL_H + gap <= r.y || r.y + LABEL_H + gap <= y);
     for (let i = cars.length - 1; i >= 0; i--) {
       const car = cars[i];
       const { n, cx, cy } = car;
@@ -380,11 +388,22 @@ function TrackMap() {
       const labelW = prefixW + ctx.measureText(text).width + 10;
       // Corners: 0 above right, 1 below right, 2 above left, 3 below left.
       const corner = (k: number): [number, number] => [k < 2 ? cx + 10 : cx - 10 - labelW, k % 2 === 0 ? cy - 19 : cy + 3];
-      // Try last frame's corner first so labels don't flicker between corners.
+      // So labels don't blink: a label drawn last frame keeps its corner until it would overlap a label
+      // placed before it, while placing a label, or moving one, needs a 2 px gap (last frame's corner
+      // first); and a label that had to be hidden stays hidden for LABEL_REST_MS.
       const previous = labelSlots.current.get(n) ?? 0;
-      let slot = [previous, 0, 1, 2, 3].find((k) => fits(...corner(k), labelW));
+      const shownBefore = last?.byDriver.get(n)?.label != null;
+      if (!shownBefore && !car.focused && now - (hiddenAt.current.get(n) ?? -Infinity) < LABEL_REST_MS) {
+        resting = true;
+        continue;
+      }
+      const kept = shownBefore && fits(...corner(previous), labelW, 0);
+      let slot = kept ? previous : [previous, 0, 1, 2, 3].find((k) => fits(...corner(k), labelW, 2));
       if (slot == null) {
-        if (!car.focused) continue;
+        if (!car.focused) {
+          if (shownBefore) hiddenAt.current.set(n, now);
+          continue;
+        }
         slot = previous;
       }
       const [lx, top] = corner(slot);
@@ -404,7 +423,7 @@ function TrackMap() {
     if (boxes) for (const b of boxes) ctx.clearRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
     else ctx.clearRect(0, 0, canvas.width, canvas.height);
     if (!boxes || boxes.length > 0) drawCars(ctx, cars, dpr, boxes);
-    drawn.current = { layer, inputs, cars, byDriver };
+    drawn.current = { layer, inputs, cars, byDriver, resting };
     carsOnScreen.current = cars.map((c) => ({ driver: c.n, x: c.cx, y: c.cy }));
   });
 
