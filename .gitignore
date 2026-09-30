@@ -9,3 +9,6 @@ dist/
 # optional CLI (`bun run ingest`) keeps its copy here: raw OpenF1 responses in data/raw/, processed
 # sessions in data/sessions/.
 data/
+
+# CodeGraph index (local code navigation)
+.codegraph/
