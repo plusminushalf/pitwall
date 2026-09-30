@@ -345,19 +345,15 @@ function TrackMap() {
     const order = [...running].reverse().filter((n) => shown?.has(n) ?? true);
     const drawOrder = focused != null && order.includes(focused) ? [...order.filter((n) => n !== focused), focused] : order;
 
-    // A car that moved less than half a device px stays where it was drawn.
-    const still = 0.5 / dpr;
+    // Every car at its exact position, every frame: holding back sub-pixel moves makes dots stutter.
     const cars: DrawnCar[] = [];
     for (const n of drawOrder) {
       const d = info.get(n);
       const p = d && frame.car(n);
       if (!d || !p) continue;
-      let [cx, cy] = tf(p.x, p.y);
+      const [cx, cy] = tf(p.x, p.y);
       const before = last?.byDriver.get(n);
-      if (before && Math.abs(cx - before.cx) < still && Math.abs(cy - before.cy) < still && before.alpha === p.opacity) {
-        cx = before.cx;
-        cy = before.cy;
-      } else changed = true;
+      if (!before || cx !== before.cx || cy !== before.cy || before.alpha !== p.opacity) changed = true;
       cars.push({ n, color: teamColor(d.teamColour), cx, cy, alpha: p.opacity, focused: n === focused, label: null, parts: [null, null] });
     }
     // Nothing moved, appeared or disappeared, and the inputs are the same: the layer is up to date.
