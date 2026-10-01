@@ -3,10 +3,10 @@
 // season sheet has rows per weekend instead.
 
 import type { ReactNode } from "react";
-import type { CatalogRow } from "../../ingest/catalog";
+import { isLive, type CatalogRow } from "../../ingest/catalog";
 import { isActive, useLibrary, type RowState } from "../../library";
 import { useReplay } from "../../store";
-import { approx, DANGER, day, Glyph, LABEL, left, mb, openAction, PRIMARY, RowDetails, SECONDARY, shortGp, size, storedBytes, TrashButton } from "./common";
+import { approx, clockTime, DANGER, day, Glyph, LABEL, left, mb, openAction, PRIMARY, RowDetails, SECONDARY, shortGp, size, storedBytes, TrashButton, useNow, waitText } from "./common";
 
 /**
  * Every row's columns, the column headers' too, by the width the list has (a container query, so a narrow window
@@ -20,8 +20,15 @@ const AT_40 = "hidden @[40rem]:block";
 const AT_52 = "hidden @[52rem]:block";
 const AT_66 = "hidden @[66rem]:block";
 
-/** What's stored, downloading or wrong, in a few words (the size has its own column). */
-function status(state: RowState): { text: string; tone?: string; title?: string } {
+/**
+ * What's stored, downloading or wrong, in a few words (the size has its own column). `waitUntil`: OpenF1 blocks this
+ * browser's downloads until then, so what isn't stored waits.
+ */
+function status(row: CatalogRow, state: RowState, waitUntil: number | null, now: number): { text: string; tone?: string; title?: string } {
+  if (waitUntil != null && (state.kind === "available" || state.kind === "partial")) {
+    return { text: `Waits until ${clockTime(waitUntil)}`, tone: "text-amber-300", title: waitText(waitUntil) };
+  }
+  if (state.kind === "upcoming" && isLive(row, now)) return { text: "Live", tone: "font-semibold text-red-400", title: "Live now: it can be downloaded about 30 minutes after it ends" };
   switch (state.kind) {
     case "ready":
       return { text: "Stored", title: "In this browser: plays offline" };
@@ -67,7 +74,7 @@ export function actionLabel(state: RowState, resume: string | null, loaded: bool
   return loaded ? "Resume" : "Watch";
 }
 
-function RowActions({ row, state, resume, lead }: { row: CatalogRow; state: RowState; resume: string | null; lead: boolean }) {
+function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; state: RowState; resume: string | null; lead: boolean; option: boolean }) {
   const confirming = useLibrary((s) => s.confirmDelete === row.sessionKey);
   const askDelete = useLibrary((s) => s.askDelete);
   const remove = useLibrary((s) => s.remove);
@@ -93,21 +100,24 @@ function RowActions({ row, state, resume, lead }: { row: CatalogRow; state: RowS
   }
   const label = actionLabel(state, resume, loaded);
   // Reversed, so the session's action comes first to the keyboard while it sits rightmost (Cancel, then Delete, to its left).
+  // In a jump result (a listbox option) they're for the mouse: the keyboard opens the option with Enter.
+  const tab = option ? -1 : undefined;
   return (
-    <div className="flex flex-row-reverse items-center justify-start gap-1.5">
+    <div className="flex flex-row-reverse items-center justify-start gap-1.5" aria-hidden={option || undefined}>
       {open && (
-        <button onClick={open} className={`${lead ? PRIMARY : SECONDARY} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
+        <button tabIndex={tab} onClick={open} className={`${lead ? PRIMARY : SECONDARY} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
           <Glyph name={state.kind === "stale" || label === "Retry" ? "retry" : "play"} />
           {label}
         </button>
       )}
       {state.kind === "job" && isActive(state.job.phase) && (
-        <button onClick={() => cancel(row.sessionKey)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
+        <button tabIndex={tab} onClick={() => cancel(row.sessionKey)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
           Cancel
         </button>
       )}
       {stored != null && (
         <TrashButton
+          tabIndex={tab}
           sessionKey={row.sessionKey}
           title={state.kind === "ready" || state.kind === "stale" ? `Delete ${name} from this browser` : `Discard the partial download of ${name}`}
           className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
@@ -146,6 +156,7 @@ export function SessionRow({
   id,
   role,
   onPointerEnter,
+  waitUntil = null,
 }: {
   row: CatalogRow;
   state: RowState;
@@ -158,8 +169,11 @@ export function SessionRow({
   id?: string;
   role?: string;
   onPointerEnter?: () => void;
+  /** OpenF1 blocks this browser's downloads until then (useDownloadBlock). */
+  waitUntil?: number | null;
 }) {
-  const st = status(state);
+  const now = useNow(30_000);
+  const st = status(row, state, waitUntil, now);
   const sz = sizeText(state);
   const place = [row.circuit, row.country].filter(Boolean).join(" · ");
   return (
@@ -168,7 +182,7 @@ export function SessionRow({
       role={role}
       aria-selected={role === "option" ? active : undefined}
       onPointerEnter={onPointerEnter}
-      className={`group border-b border-zinc-800/70 px-3 ${active ? "bg-zinc-800/60" : "hover:bg-zinc-900"}`}
+      className={`group border-b border-zinc-800/70 px-3 ${active ? "bg-zinc-900 ring-1 ring-inset ring-zinc-500" : "hover:bg-zinc-900"}`}
     >
       <div className={`${ROW_GRID} min-h-11 py-1.5 text-sm`}>
         <span className={`${AT_40} text-xs tabular-nums text-zinc-400`}>
@@ -189,7 +203,7 @@ export function SessionRow({
           {st.text}
         </span>
         <span className={`${AT_66} text-right text-xs tabular-nums text-zinc-400`}>{sz}</span>
-        <RowActions row={row} state={state} resume={resume} lead={lead} />
+        <RowActions row={row} state={state} resume={resume} lead={lead} option={role === "option"} />
       </div>
       {(state.kind === "job" || state.kind === "remote") && (
         <div className="pb-2 @[40rem]:pl-[5.5rem]">

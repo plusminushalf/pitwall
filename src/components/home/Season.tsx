@@ -8,7 +8,7 @@ import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS, type RaceFilter, type RowState } from "../../library";
 import { LiveDot } from "../LiveControl";
 import { resumeClocks } from "./resume";
-import { approx, clockTime, dateRange, dayTime, DANGER, day, FOCUS, Glyph, LABEL, SECONDARY, sessionTime, shortGp, size, storedBytes, useNow } from "./common";
+import { approx, clockTime, dateRange, dayTime, DANGER, day, FOCUS, Glyph, LABEL, SECONDARY, sessionTime, shortGp, size, storedBytes, useDownloadBlock, useNow, waitText } from "./common";
 
 const FILTERS: { id: RaceFilter; label: string }[] = [
   { id: "all", label: "All" },
@@ -67,12 +67,29 @@ const Fill = ({ frac, className }: { frac: number; className: string }) => (
 const Label = ({ children }: { children: ReactNode }) => <span className="relative flex min-w-0 items-center gap-1.5">{children}</span>;
 
 /** A session's own action in its current state. Stored sessions are filled cells; the rest are quiet. */
-function Cell({ row, state, resume, now }: { row: CatalogRow; state: RowState; resume: string | null; now: number }) {
+function Cell({ row, state, resume, now, waitUntil }: { row: CatalogRow; state: RowState; resume: string | null; now: number; waitUntil: number | null }) {
   const stream = useLibrary((s) => s.stream);
   const reprocess = useLibrary((s) => s.reprocess);
   const watchNow = useLibrary((s) => s.watchNow);
   const name = fullName(row);
   const when = day(row.dateStart);
+
+  if (waitUntil != null && (state.kind === "available" || state.kind === "partial")) {
+    return (
+      <button
+        onClick={() => stream(row)}
+        className={`group/cell ${CELL} text-amber-300 hover:bg-zinc-800`}
+        aria-label={`Watch ${name} (downloads wait until about ${clockTime(waitUntil)})`}
+        title={waitText(waitUntil)}
+      >
+        {/* Quiet like a Watch cell (the live row says when downloads resume); the time on hover or focus. */}
+        <Label>
+          <Glyph name="wait" />
+          <span className="opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">{clockTime(waitUntil)}</span>
+        </Label>
+      </button>
+    );
+  }
 
   switch (state.kind) {
     case "upcoming":
@@ -83,6 +100,7 @@ function Cell({ row, state, resume, now }: { row: CatalogRow; state: RowState; r
         </span>
       ) : (
         <span className={`${CELL} text-zinc-400`} title={`${row.sessionName}: ${sessionTime(row.dateStart)}`}>
+          <span className="sr-only">{row.sessionName}: </span>
           {dayTime(row.dateStart)}
         </span>
       );
@@ -139,13 +157,15 @@ function Cell({ row, state, resume, now }: { row: CatalogRow; state: RowState; r
       return (
         <button
           onClick={() => stream(row)}
-          className={`${CELL} text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50`}
+          className={`group/cell ${CELL} text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50 focus-visible:text-zinc-50`}
           aria-label={`Watch ${name}`}
           title={`Watch · ${when} · plays in seconds, downloads as you watch (${approx(state.estimate.seconds)}, ~${Math.round(state.estimate.mb)} MB)`}
         >
+          {/* At rest just the play mark: a sheet of the same word says nothing. What changed (stored, a resume point,
+              a download) carries the ink. */}
           <Label>
             <Glyph name="playOutline" />
-            Watch
+            <span className="opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100">Watch</span>
           </Label>
         </button>
       );
@@ -233,12 +253,28 @@ function Notice({ meeting, states, now }: { meeting: Meeting; states: RowState[]
  * sideways with the round and Grand Prix pinned.
  */
 const SHEET_GRID =
-  "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),7.25rem)_2rem] @[52rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),7.25rem)_2rem] @[64rem]:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem_repeat(var(--cells),7.25rem)_2rem]";
+  "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),8.25rem)_2rem] @[56rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem] @[66rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem]";
 const cellsOf = (columns: Column[]) => ({ "--cells": columns.length }) as CSSProperties;
 /** Round and Grand Prix: pinned when the sheet scrolls sideways (its ground follows the row's). */
 const PINNED = "sticky left-0 z-[1] flex min-w-0 items-center gap-2 bg-zinc-950 group-hover:bg-zinc-900";
 
-function WeekendRow({ meeting, states, columns, resume, now, next = false }: { meeting: Meeting; states: RowState[]; columns: Column[]; resume: Resume; now: number; next?: boolean }) {
+function WeekendRow({
+  meeting,
+  states,
+  columns,
+  resume,
+  now,
+  waitUntil,
+  next = false,
+}: {
+  meeting: Meeting;
+  states: RowState[];
+  columns: Column[];
+  resume: Resume;
+  now: number;
+  waitUntil: number | null;
+  next?: boolean;
+}) {
   const confirm = useLibrary((s) => s.confirmDelete);
   const askDelete = useLibrary((s) => s.askDelete);
   const remove = useLibrary((s) => s.remove);
@@ -292,7 +328,11 @@ function WeekendRow({ meeting, states, columns, resume, now, next = false }: { m
       <>
         {columns.map((c) => {
           const i = meeting.rows.findIndex(c.match);
-          return <div key={c.id}>{i >= 0 && <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} />}</div>;
+          return (
+            <div key={c.id}>
+              {i >= 0 && <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} waitUntil={waitUntil} />}
+            </div>
+          );
         })}
         <div className="flex justify-end">
           {deletable.length > 0 && (
@@ -318,11 +358,11 @@ function WeekendRow({ meeting, states, columns, resume, now, next = false }: { m
           <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
           {next && <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-zinc-200">Next</span>}
         </span>
-        <span className="hidden min-w-0 truncate text-xs text-zinc-400 @[64rem]:block">
+        <span className="hidden min-w-0 truncate text-xs text-zinc-400 @[66rem]:block">
           {meeting.circuit}
           {meeting.country ? ` · ${meeting.country}` : ""}
         </span>
-        <span className="hidden text-xs tabular-nums text-zinc-400 @[52rem]:block">{dateRange(first.dateStart, last.dateEnd)}</span>
+        <span className="hidden text-xs tabular-nums text-zinc-400 @[56rem]:block">{dateRange(first.dateStart, last.dateEnd)}</span>
         {cells}
       </div>
       <Notice meeting={meeting} states={states} now={now} />
@@ -371,6 +411,7 @@ export function Season() {
   const columns = COLUMNS[filter];
   // Read once per visit to Home (it's written while watching).
   const [resume] = useState(resumeClocks);
+  const waitUntil = useDownloadBlock();
 
   // Newest first; of the future, only the next weekend (unless one is under way). Runs of cancelled ones collapse into one line.
   const shown: { m: Meeting; states: RowState[] | null }[] = [];
@@ -413,33 +454,50 @@ export function Season() {
     body = (
       <>
         {state.error && <p className="mb-2 px-3 text-xs text-amber-300">{state.error} Showing the season saved earlier.</p>}
-        <div className="overflow-x-auto @container">
-          <div className="min-w-[45rem]">
-            <div className={`${LABEL} ${SHEET_GRID} whitespace-nowrap border-b border-zinc-800 px-3 pb-2`} style={cellsOf(columns)} aria-hidden>
-              <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
-                <span className="w-9 shrink-0">Rd</span>
-                Grand Prix
-              </span>
-              <span className="hidden @[64rem]:block">Circuit</span>
-              <span className="hidden @[52rem]:block">Dates</span>
-              {columns.map((c) => (
-                <span key={c.id} className="px-2" title={c.title}>
-                  {c.label}
+        <div className="@container">
+          {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
+              stay under the page header while the season scrolls. */}
+          <div className="overflow-x-auto @[48rem]:overflow-visible">
+            <div className="min-w-[48rem]">
+              <div
+                className={`${LABEL} ${SHEET_GRID} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
+                style={cellsOf(columns)}
+                aria-hidden
+              >
+                <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
+                  <span className="w-9 shrink-0">Rd</span>
+                  Grand Prix
                 </span>
-              ))}
-              <span />
+                <span className="hidden @[66rem]:block">Circuit</span>
+                <span className="hidden @[56rem]:block">Dates</span>
+                {columns.map((c) => (
+                  <span key={c.id} className="px-2" title={c.title}>
+                    {c.label}
+                  </span>
+                ))}
+                <span />
+              </div>
+              <ul aria-label={`${year} season`}>
+                {items.map((it, i) =>
+                  it.kind === "cancelled" ? (
+                    <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
+                      <span className="line-through">{it.meetings.map((m) => shortGp(m.name)).join(" · ")}</span> cancelled
+                    </li>
+                  ) : (
+                    <WeekendRow
+                      key={it.meeting.key}
+                      meeting={it.meeting}
+                      states={it.states}
+                      columns={columns}
+                      resume={resume}
+                      now={now}
+                      waitUntil={waitUntil}
+                      next={it.kind === "next"}
+                    />
+                  ),
+                )}
+              </ul>
             </div>
-            <ul aria-label={`${year} season`}>
-              {items.map((it, i) =>
-                it.kind === "cancelled" ? (
-                  <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
-                    <span className="line-through">{it.meetings.map((m) => shortGp(m.name)).join(" · ")}</span> cancelled
-                  </li>
-                ) : (
-                  <WeekendRow key={it.meeting.key} meeting={it.meeting} states={it.states} columns={columns} resume={resume} now={now} next={it.kind === "next"} />
-                ),
-              )}
-            </ul>
           </div>
         </div>
       </>
@@ -452,7 +510,7 @@ export function Season() {
         <h2 id="season-title" className="text-2xl font-bold tracking-tight text-zinc-50">
           Season
         </h2>
-        <Segmented label="Season" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />
+        <Segmented label="Year" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />
         <span className="flex-1" />
         <Segmented label="Sessions" value={filter} options={FILTERS} onChange={setFilter} />
       </div>

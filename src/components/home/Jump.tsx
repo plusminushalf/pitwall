@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS } from "../../library";
-import { FOCUS, Glyph, openAction, useNow } from "./common";
+import { Glyph, openAction, useDownloadBlock, useNow } from "./common";
 import { resumeClocks } from "./resume";
 import { searchSessions } from "./search";
 import { RowHeader, RowTable, SessionRow } from "./SessionRow";
@@ -24,6 +24,7 @@ export function Jump({ children }: { children: ReactNode }) {
   const now = useNow(2000);
   const learned = useMemo(() => loadLearned(), [jobs]);
   const [resume] = useState(resumeClocks);
+  const waitUntil = useDownloadBlock();
   const searching = query.trim() !== "";
 
   // "/" anywhere on Home (not while typing elsewhere) goes to the field.
@@ -99,7 +100,7 @@ export function Jump({ children }: { children: ReactNode }) {
           }}
           onKeyDown={onKeyDown}
           placeholder="Jump to a session: monza 24 quali, spa race, r15"
-          className={`peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-none ${FOCUS}`}
+          className={`peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-2 focus:outline-zinc-400`}
         />
         <span className={`pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-xs text-zinc-400 ${searching ? "" : "peer-focus:hidden"}`}>
           {searching ? (
@@ -115,8 +116,9 @@ export function Jump({ children }: { children: ReactNode }) {
       {searching ? (
         <section aria-label="Matching sessions" className="mt-6">
           <p className="mb-3 px-3 text-sm text-zinc-300" aria-live="polite">
-            {results.length ? `${results.length === 25 ? "25+" : results.length} ${results.length === 1 ? "session" : "sessions"}` : "No session matches"}
+            {results.length === 25 ? "The 25 newest matches" : results.length ? `${results.length} ${results.length === 1 ? "session" : "sessions"}` : "No session matches"}
             {loading.length > 0 && <span className="text-zinc-400"> · loading the {loading.join(", ")} calendar{loading.length > 1 ? "s" : ""}…</span>}
+            {results.length === 25 && <span className="text-zinc-400"> · add a year or a session to narrow it</span>}
             {results.length > 0 && <span className="text-zinc-400"> · ↑↓ to pick, Enter to open</span>}
           </p>
           {results.length ? (
@@ -133,13 +135,15 @@ export function Jump({ children }: { children: ReactNode }) {
                     resume={resume[r.sessionKey] ?? null}
                     active={i === pick}
                     onPointerEnter={() => setActive(i)}
+                    waitUntil={waitUntil}
                   />
                 ))}
               </ul>
             </RowTable>
           ) : (
             <p id="jump-results" className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-300">
-              Try a Grand Prix, circuit or country, a year, and a session: “spa 23 race”, “japan quali”, “brazil sprint”.
+              Pitwall has every race, sprint and qualifying since 2023. Try a Grand Prix, circuit or country, a year, and a session: “spa 23 race”,
+              “japan quali”, “brazil sprint”.
             </p>
           )}
         </section>

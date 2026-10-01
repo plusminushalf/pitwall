@@ -6,9 +6,9 @@ import { useEffect, useMemo, useState } from "react";
 import type { CatalogRow } from "../../ingest/catalog";
 import { loadLearned } from "../../ingest/runner";
 import { isActive, rowForKey, rowState, useLibrary } from "../../library";
-import { raceClock } from "../../lib/format";
 import { watchHistory } from "../../store";
-import { FOCUS, Glyph, useNow } from "./common";
+import { FOCUS, Glyph, useDownloadBlock, useNow } from "./common";
+import { resumeClocks } from "./resume";
 import { RowHeader, RowTable, SessionRow } from "./SessionRow";
 
 const SHOWN = 5;
@@ -60,7 +60,9 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
   const learned = useMemo(() => loadLearned(), [jobs]);
   // Read once per visit to Home (it's written while watching).
   const [watched] = useState(watchHistory);
+  const [resume] = useState(resumeClocks);
   const [all, setAll] = useState(false);
+  const waitUntil = useDownloadBlock();
 
   const rows = useMemo(() => {
     const keys = new Set<number>([
@@ -88,10 +90,6 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
   }, [storedYears]);
 
   const shown = all ? rows : rows.slice(0, SHOWN);
-  const resume = (key: number) => {
-    const w = watched[key];
-    return w && w.raceTime != null && w.raceTime > 0 ? raceClock(w.raceTime) : null;
-  };
 
   return (
     <section aria-labelledby="continue-title" className="mt-10">
@@ -110,8 +108,9 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
                   key={r.sessionKey}
                   row={r}
                   state={rowState(r, { jobs, remote, entries, partial }, now, learned)}
-                  resume={resume(r.sessionKey)}
+                  resume={resume[r.sessionKey] ?? null}
                   lead={lead && i === 0}
+                  waitUntil={waitUntil}
                 />
               ))}
             </ul>

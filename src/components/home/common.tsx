@@ -5,7 +5,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { CatalogRow } from "../../ingest/catalog";
-import { rowState, useLibrary, type Job, type RemoteJob, type RowState } from "../../library";
+import { liveWindowOf, rowState, useLibrary, type Job, type RemoteJob, type RowState } from "../../library";
+import { useVault } from "../vault/useVault";
 import { useReplay } from "../../store";
 
 export const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-300";
@@ -69,6 +70,23 @@ export function useNow(ms = 1000): number {
   }, [ms]);
   return now;
 }
+
+/**
+ * Until when OpenF1 blocks this browser's downloads (30 minutes either side of a live session, free tier only), or
+ * null: not now, or signed in to an OpenF1 account, which isn't blocked.
+ */
+export function useDownloadBlock(): number | null {
+  const years = useLibrary((s) => s.years);
+  const blocked = useLibrary((s) => s.blocked);
+  const vault = useVault();
+  const now = useNow(15_000);
+  const signedIn = vault.phase === "ready" && vault.status?.state === "connected";
+  return signedIn ? null : (liveWindowOf({ years, blocked }, now)?.until ?? null);
+}
+
+/** "Downloads wait until about 10:30: …". */
+export const waitText = (until: number) =>
+  `Downloads wait until about ${clockTime(until)}: OpenF1 blocks free downloads from 30 minutes before a session until 30 minutes after it.`;
 
 /** A session's state in the library, kept current. */
 export function useRowState(row: CatalogRow | null): RowState | null {
@@ -169,10 +187,10 @@ export function Glyph({ name, className = "h-3 w-3" }: { name: keyof typeof GLYP
   );
 }
 
-export function TrashButton({ sessionKey, title, className = "" }: { sessionKey: number; title: string; className?: string }) {
+export function TrashButton({ sessionKey, title, className = "", tabIndex }: { sessionKey: number; title: string; className?: string; tabIndex?: number }) {
   const askDelete = useLibrary((s) => s.askDelete);
   return (
-    <button onClick={() => askDelete(sessionKey)} className={`${ICON} ${className}`} aria-label={title} title={title}>
+    <button tabIndex={tabIndex} onClick={() => askDelete(sessionKey)} className={`${ICON} ${className}`} aria-label={title} title={title}>
       <Glyph name="trash" className="h-3.5 w-3.5" />
     </button>
   );

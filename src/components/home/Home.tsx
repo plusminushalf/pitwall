@@ -7,31 +7,21 @@
 import { useEffect, useMemo } from "react";
 import { LIVE_TYPES } from "../../../scripts/lib/season";
 import { isLive, nextSession, nextWeekend, type CatalogRow } from "../../ingest/catalog";
-import { currentYear, FIRST_YEAR, liveWindowOf, useLibrary } from "../../library";
+import { currentYear, FIRST_YEAR, useLibrary } from "../../library";
 import { LIVE_RELAY } from "../../live/client";
 import { useReplay } from "../../store";
+import { LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
 import { VaultIndicators } from "../vault/VaultStatus";
-import { Attribution, clockTime, LABEL, PRIMARY, SECONDARY, sessionTime, shortGp, size, useNow } from "./common";
+import { Attribution, LABEL, PRIMARY, SECONDARY, sessionTime, shortGp, size, useDownloadBlock, useNow, waitText } from "./common";
 import { Continue } from "./Continue";
 import { Jump } from "./Jump";
 import { Season } from "./Season";
 import { Settings } from "./Settings";
 
-/** Free downloads are blocked around a live session (OpenF1): until when, or null. */
-function useDownloadWait(): number | null {
-  const years = useLibrary((s) => s.years);
-  const blocked = useLibrary((s) => s.blocked);
-  const now = useNow(15_000);
-  return liveWindowOf({ years, blocked }, now)?.until ?? null;
-}
-
-const waitText = (until: number) =>
-  `Downloads wait until about ${clockTime(until)}: OpenF1 blocks free downloads from 30 minutes before a session until 30 minutes after it.`;
-
 /** Why downloads wait (unless the live row already says), and another tab downloading. */
 function Banners({ liveRow }: { liveRow: boolean }) {
-  const until = useDownloadWait();
+  const until = useDownloadBlock();
   const otherTab = useLibrary((s) => s.otherTab);
   const wait = until != null && !liveRow;
   if (!wait && !otherTab) return null;
@@ -101,14 +91,13 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
   const started = Date.parse(first.dateStart) <= now;
 
   if (live) {
+    const minutes = Math.max(0, Math.floor((now - Date.parse(next.dateStart)) / 60_000));
     return (
       <div className="flex min-w-0 flex-col items-center leading-tight" title={`${next.sessionName}: started ${sessionTime(next.dateStart)}`}>
-        <span className="flex items-center gap-1.5">
-          <span className={LIVE_BADGE}>Live</span>
-          <span className={LABEL}>{meeting}</span>
-        </span>
-        <span className="truncate text-sm text-zinc-100">
-          {next.sessionName}
+        <span className={`${LABEL} truncate`}>{meeting}</span>
+        <span className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
+          <LiveDot pulse={false} />
+          {next.sessionName} live for <span className="font-bold tabular-nums text-zinc-50">{minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`}</span>
           {!LIVE_RELAY && <span className="text-zinc-300"> · here about 30 min after it ends</span>}
         </span>
       </div>
@@ -131,7 +120,7 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
 function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
   const enterLive = useReplay((s) => s.enterLive);
   const now = useNow(1000);
-  const until = useDownloadWait();
+  const until = useDownloadBlock();
   const { row } = action;
   const watch = action.kind === "watch";
   return (
@@ -145,9 +134,10 @@ function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
         <span className="block text-sm font-semibold text-zinc-50">
           {shortGp(row.meetingName)} · {row.sessionName}
         </span>
-        <span className="block max-w-[75ch] text-xs leading-relaxed text-zinc-400">
-          {until != null ? waitText(until) : watch ? "Live mode follows it as it happens." : "Live mode waits for the start, then follows it."}
+        <span className="block text-xs leading-relaxed text-zinc-300">
+          {watch ? "Timing, track map and the race feed, following it as it happens." : "Live mode waits for the start, then follows it."}
         </span>
+        {until != null && <span className="block max-w-[75ch] text-xs leading-relaxed text-amber-300">{waitText(until)}</span>}
       </span>
       <span className="flex-1" />
       <button
@@ -196,7 +186,6 @@ export function Home() {
     void s.refreshUsage();
     // Nobody wants a session's keyboard focus (e.g. the Races button) on Home.
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-    window.scrollTo(0, 0);
   }, []);
 
   // Early in a season, before its first race: last season's final race.
