@@ -149,7 +149,7 @@ interface ReplayState {
   t: number;
   race: RaceState | null;
   playing: boolean;
-  /** Playback latched on with P: ending a hold (space / play button) doesn't pause it. */
+  /** Playback latched on with P or the play button: ending a space hold doesn't pause it. */
   latched: boolean;
   speed: number;
   /** Drivers picked by the user, in the order picked. When non-empty, the track map shows only these. */
@@ -195,7 +195,7 @@ interface ReplayState {
   seekBy: (dt: number) => void;
   seekToLap: (lap: number) => void;
   setPlaying: (playing: boolean) => void;
-  /** P: latch playback on, or pause if it's latched (or following live). */
+  /** P and the play button: latch playback on, or pause if it's latched (or following live). */
   togglePlay: () => void;
   /** End of a hold-to-play gesture: pauses unless playback is latched. */
   releaseHold: () => void;

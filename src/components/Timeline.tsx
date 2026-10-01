@@ -95,14 +95,12 @@ export function Timeline() {
   // Live, the bar already ends at what has happened. Not chosen yet (the spoiler prompt is open over it): hidden.
   const noSpoilers = useReplay((s) => s.noSpoilers !== false && s.mode !== "live");
   const watchedTo = useReplay((s) => s.watchedTo);
-  const { setPlaying, releaseHold, setSpeed, seek, seekToLap, togglePlay, setNoSpoilers } = useReplay.getState();
+  const { setSpeed, seek, seekToLap, togglePlay, setNoSpoilers } = useReplay.getState();
   const barRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
   const [target, setTarget] = useState<Target | null>(null);
   const dragging = useRef(false);
-  // Whether the play button is being held (so hovering off it without a press doesn't pause space-held playback).
-  const holding = useRef(false);
 
   const hasSession = session != null;
   // Live, the bar grows with the live edge (its right end). No spoilers: it shows nothing past what has been
@@ -154,11 +152,6 @@ export function Timeline() {
     const d = session.drivers.get(n);
     return d ? d.pits.filter((p) => p.entry <= shownTo).map((p) => ({ driver: n, info: d.info, p })) : [];
   });
-  const release = () => {
-    if (!holding.current) return;
-    holding.current = false;
-    releaseHold();
-  };
   // By the scheduled distance: the laps actually run would give away a race cut short.
   const labelEvery = scheduledDistance(meta).totalLaps > 60 ? 10 : 5;
   const colorOf = (driver: number | null) => teamColor((driver != null && session.drivers.get(driver)?.info.teamColour) || "a1a1aa");
@@ -238,28 +231,17 @@ export function Timeline() {
         <button onClick={() => seekToLap(leaderLap - 1)} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white" title="Previous lap ([)">
           ⏮
         </button>
+        {/* A click plays and pauses, like P; holding to play is the space bar's. */}
         <button
-          onPointerDown={(e) => {
-            if (e.button !== 0) return;
-            // Playback latched with P (or following live): a press pauses it instead of starting a hold.
-            const s = useReplay.getState();
-            if (s.latched) return setPlaying(false);
-            if (s.mode === "live" && s.followLive) return togglePlay();
-            e.currentTarget.setPointerCapture(e.pointerId);
-            holding.current = true;
-            setPlaying(true);
+          onClick={(e) => {
+            e.currentTarget.blur();
+            togglePlay();
           }}
-          onPointerUp={release}
-          onPointerCancel={release}
-          onPointerLeave={release}
-          onLostPointerCapture={release}
-          onContextMenu={(e) => e.preventDefault()}
-          className={`flex h-9 w-9 touch-none select-none items-center justify-center rounded-full text-lg transition ${
+          className={`flex h-9 w-9 select-none items-center justify-center rounded-full text-lg transition ${
             playing ? "scale-95 bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"
           }`}
-          title="Hold to play (space) · P to play/pause"
-          aria-label={pauses ? "Pause" : playing ? "Playing (release to pause)" : "Hold to play"}
-          aria-pressed={playing}
+          title="Play / pause (P) · hold space to play"
+          aria-label={pauses ? "Pause" : "Play"}
         >
           {pauses ? "⏸" : <span className={playing ? "animate-pulse" : ""}>▶</span>}
         </button>
