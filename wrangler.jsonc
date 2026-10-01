@@ -1,0 +1,8 @@
+// Cloudflare Workers, static assets only (no Worker script): dist/ served at pitwall.plusminushalf.com.
+// `bun run deploy` builds and uploads; the custom domain's DNS record and certificate are created on first deploy.
+{
+  "name": "pitwall",
+  "compatibility_date": "2026-09-01",
+  "assets": { "directory": "./dist" },
+  "routes": [{ "pattern": "pitwall.plusminushalf.com", "custom_domain": true }],
+}

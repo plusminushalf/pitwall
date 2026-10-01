@@ -12,3 +12,6 @@ data/
 
 # CodeGraph index (local code navigation)
 .codegraph/
+
+# Wrangler (Cloudflare deploy) local state
+.wrangler/

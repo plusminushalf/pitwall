@@ -11,6 +11,7 @@ bun install
 bun run dev                  # http://localhost:5173
 bun run build                # static site in dist/ (~0.5 MB): serve it from any static host
 bunx serve dist              # or `bun run preview`, or any plain static server
+bun run deploy               # build + upload to pitwall.plusminushalf.com (Cloudflare; CI does it on every push to main)
 ```
 
 - **Home** (the landing page; **← Races** in a session's header or the browser's Back returns to it) shows the latest race, the session you watched last, your library and every season's calendar: one click downloads a session or watches a downloaded one, which resumes where you left it. A download takes ~2.5 min for a race on OpenF1's free tier (one request every 2.2 s, no login) and stores ~13 MB of raw responses plus ~5 MB processed. One download runs at a time, also across tabs (Web Lock); cancel any time, and a reload or a later Resume only fetches what's missing.
