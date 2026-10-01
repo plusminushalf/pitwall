@@ -40,6 +40,8 @@ export type S3Helpers = {
   launchArgs: string[];
   appHmr: RegExp;
   keepAppLoaded: (ws: any) => void;
+  /** Home's Settings panel, opened, where the OpenF1 account controls are. */
+  account: (page: any) => Promise<any>;
   check: (name: string, ok: boolean, detail?: unknown) => void;
   up: (url: string) => Promise<boolean>;
   waitUp: (url: string, ms?: number) => Promise<void>;
@@ -249,15 +251,15 @@ export async function runS3(h: S3Helpers): Promise<void> {
     const A = await open("A");
     const B = await open("B");
     const popupP = A.waitForEvent("popup");
-    await A.getByTestId("vault-connect").click();
+    await (await h.account(A)).getByTestId("vault-connect").click();
     const popup = await popupP;
     await popup.locator("#login").waitFor({ timeout: 10_000 });
     const popupSays = await popup.getByTestId("popup-sim").isVisible();
     await popup.getByLabel("OpenF1 email").fill(fakeUser);
     await popup.getByLabel("OpenF1 password").fill(fakePass);
     await popup.getByRole("button", { name: "Connect" }).click();
-    await A.locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
-    await B.locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
+    await (await h.account(A)).locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
+    await (await h.account(B)).locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
     await popup.close().catch(() => {});
     check("S3: fake login (the simulation's /token), both tabs connected, the app and the login popup say SIMULATED", popupSays && (await A.getByTestId("vault-sim-badge").isVisible()) && (await B.getByTestId("vault-sim-badge").isVisible()));
     const sa = await st(A);
@@ -330,7 +332,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
     const tookB = await waitFor("B takes over", B, (s) => s.tab.role === "leader" && s.stream?.phase === "connected", 30_000).catch((e) => e);
     check("S3: the leader tab closed: B takes over and streams", !(tookB instanceof Error), tookB instanceof Error ? tookB.message : "");
     let C = await open("C");
-    await C.locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
+    await (await h.account(C)).locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
     let openC = await record(C);
     check("S3: a new tab C follows B, connected with the shared login", (await st(C)).tab.role === "follower" && (await st(C)).tab.leader === (await st(B)).tab.id);
     log("opened tab C (follower)");
@@ -340,7 +342,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
     await dump("C1", C, openC);
     await C.reload();
     await C.waitForFunction(() => !!(window as any).__vault?.getState().status?.tab, null, { timeout: 30_000 });
-    await C.locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
+    await (await h.account(C)).locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
     openC = await record(C);
     log(`reloaded the follower C (${(await st(C)).tab.role})`);
 

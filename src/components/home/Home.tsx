@@ -11,12 +11,13 @@ import { currentYear, FIRST_YEAR, liveWindowOf, rowState, useLibrary, type RowSt
 import { LIVE_RELAY } from "../../live/client";
 import { raceClock } from "../../lib/format";
 import { useReplay, watchHistory } from "../../store";
-import { LiveControl, LiveDot } from "../LiveControl";
+import { LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
 import { Action, approx, Attribution, clockTime, estimateText, LABEL, left, mb, relativeDay, RowDetails, sessionDot, size, useNow, useRowState } from "./common";
 import { Calendar, Chip, resumeClocks } from "./Calendar";
 import { Library } from "./Library";
-import { VaultStatus } from "../vault/VaultStatus";
+import { Settings } from "./Settings";
+import { VaultIndicators } from "../vault/VaultStatus";
 
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 
@@ -502,8 +503,8 @@ export function Home() {
           </h1>
           <span className="hidden text-xs text-zinc-500 md:inline">Every race, sprint and qualifying since {FIRST_YEAR}, replayed from OpenF1 data</span>
           <span className="flex-1" />
-          <VaultStatus />
-          <LiveControl />
+          <VaultIndicators />
+          <Settings />
         </div>
         <Banners />
       </header>

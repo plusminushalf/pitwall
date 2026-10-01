@@ -19,6 +19,8 @@ export function useKeyboard() {
       const s = useReplay.getState();
       // Nothing to control on Home (the session left there stays paused).
       if (!s.session || s.view !== "replay") return;
+      // The spoiler prompt is open: keys are its own.
+      if (s.noSpoilers === null) return;
       // Don't let space/arrows also activate whatever button was clicked last.
       if (e.target instanceof HTMLButtonElement) e.target.blur();
       const speedIndex = SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);

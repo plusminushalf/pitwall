@@ -31,20 +31,22 @@ function label(s: VaultState): Label {
 
 const button = "rounded px-1.5 py-0.5 text-[11px] font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-40";
 
-/** A compact "OpenF1 account: …" chip with Connect / Unlock / Disconnect. With ?vault=debug, also the vault debug panel. */
-export function VaultStatus() {
+/** The OpenF1 account, in Home's Settings: its state and what it's for, with Connect / Unlock / Disconnect. */
+export function VaultAccount() {
   const state = useVault();
-  const [debug] = useState(vaultDebug);
   const { text, dot, title } = label(state);
   const account = state.phase === "ready" ? state.status?.state : undefined;
   const reauth = needsReauth(state);
   const vault = getVault();
   // connect() / unlock() open the vault's popup: they must run synchronously inside the click.
   return (
-    <>
-      <span className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded bg-zinc-900 py-0.5 pl-2 pr-0.5 text-[11px] font-semibold text-zinc-400" title={title} data-vault-phase={state.phase}>
-        <span className={`h-1.5 w-1.5 rounded-full ${dot}`} />
-        OpenF1 account: <span className="text-zinc-200" data-testid="vault-state" data-state={account ?? state.phase}>{text}</span>
+    <div data-vault-phase={state.phase}>
+      <div className="flex items-center gap-1.5 text-xs">
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />
+        <span className="font-semibold text-zinc-200" data-testid="vault-state" data-state={account ?? state.phase}>
+          {text}
+        </span>
+        <span className="flex-1" />
         {account === "locked" && (
           <button type="button" className={button} data-testid="vault-unlock" onClick={() => void vault.unlock()}>
             Unlock
@@ -60,7 +62,36 @@ export function VaultStatus() {
             Disconnect
           </button>
         )}
-      </span>
+      </div>
+      <p className="mt-1 text-[11px] leading-snug text-zinc-500">{title}</p>
+      {state.actionError && (
+        <p className="mt-1 text-[11px] text-red-400" data-testid="vault-action-error">
+          {state.actionError}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** A dot for the Settings button while the account needs the user (locked, failing, or to reconnect); else null. */
+export function useVaultAttention(): string | null {
+  const state = useVault();
+  const account = state.phase === "ready" ? state.status?.state : undefined;
+  if (account === "error") return "bg-red-500";
+  if (account === "locked" || needsReauth(state)) return "bg-amber-500";
+  return null;
+}
+
+/**
+ * What stays on Home's header whatever Settings shows: the SIMULATED badge, the reconnect banner and,
+ * with ?vault=debug, the vault debug panel. Mounting it starts the vault.
+ */
+export function VaultIndicators() {
+  const state = useVault();
+  const [debug] = useState(vaultDebug);
+  const reauth = needsReauth(state);
+  return (
+    <>
       {state.status?.sim && (
         <span
           className="shrink-0 rounded bg-amber-500 px-1.5 py-0.5 text-[10px] font-bold tracking-wider text-zinc-950"
@@ -68,11 +99,6 @@ export function VaultStatus() {
           title={`Simulated live data: a replay of ${state.status.sim.label} (#${state.status.sim.sessionKey}) at ${state.status.sim.speed}x from the vault dev server, not OpenF1`}
         >
           SIMULATED
-        </span>
-      )}
-      {state.actionError && (
-        <span className="shrink-0 text-[11px] text-red-400" data-testid="vault-action-error">
-          {state.actionError}
         </span>
       )}
       {/* Portals: the header's backdrop-blur would otherwise be the fixed elements' containing block. */}

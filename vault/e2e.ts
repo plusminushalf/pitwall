@@ -221,9 +221,15 @@ function keepAppLoaded(ws: any) {
   server.onClose(() => {});
 }
 
-const state = (page: any) => page.getByTestId("vault-state").getAttribute("data-state");
+/** The OpenF1 account controls are in Home's Settings panel: open it (unless it is) and return it. */
+async function account(page: any) {
+  const panel = page.getByTestId("settings-panel");
+  if (!(await panel.isVisible())) await page.getByRole("button", { name: "Settings" }).click();
+  return panel;
+}
+const state = async (page: any) => (await account(page)).getByTestId("vault-state").getAttribute("data-state");
 async function waitState(page: any, want: string, ms = 20_000) {
-  await page.locator(`[data-testid=vault-state][data-state=${want}]`).waitFor({ timeout: ms });
+  await (await account(page)).locator(`[data-testid=vault-state][data-state=${want}]`).waitFor({ timeout: ms });
 }
 const closeCalls = (popup: any) => popup.evaluate(() => (window as any).__closeCalls as number);
 async function waitClosed(popup: any, ms = 20_000) {
@@ -270,12 +276,12 @@ async function leakCheck(page: any, label: string) {
 async function openPopup(context: any, page: any, testId: "vault-connect" | "vault-unlock", reuse?: any) {
   if (reuse) {
     const nav = reuse.waitForEvent("load");
-    await page.getByTestId(testId).click();
+    await (await account(page)).getByTestId(testId).click();
     await nav;
     return reuse;
   }
   const popupP = page.waitForEvent("popup");
-  await page.getByTestId(testId).click();
+  await (await account(page)).getByTestId(testId).click();
   const popup = await popupP;
   await popup.waitForLoadState();
   return popup;
@@ -312,7 +318,7 @@ async function popupError(popup: any, ms = 20_000): Promise<string> {
 async function main() {
   const { chromium } = playwright();
   if (S3) {
-    return runS3({ chromium, repo, APP, VAULT, launchArgs: CHROME_AS_SHIPPED, appHmr: APP_HMR, keepAppLoaded, check, up, waitUp, start, stop, findAppSecrets, headed: HEADED });
+    return runS3({ chromium, repo, APP, VAULT, launchArgs: CHROME_AS_SHIPPED, appHmr: APP_HMR, keepAppLoaded, account, check, up, waitUp, start, stop, findAppSecrets, headed: HEADED });
   }
   const downloads = () =>
     HAVE_LOGIN
@@ -380,7 +386,8 @@ async function main() {
     const phase = await page.getByTestId("vault-phase").textContent();
     check("handshake completes", phase === "ready", `phase ${phase}`);
     await waitState(page, "disconnected", 5000);
-    check("chip shows not connected", (await page.getByTestId("vault-state").textContent()) === "not connected");
+    check("chip shows not connected", (await (await account(page)).getByTestId("vault-state").textContent()) === "not connected");
+    await page.keyboard.press("Escape"); // Settings, closed again: it would cover the debug panel's buttons
     await page.getByRole("button", { name: "Measure status round trip" }).click();
     const ping = await page.getByTestId("vault-ping").textContent({ timeout: 10_000 });
     check("status round trips", /ms median of 20/.test(ping ?? ""), ping ?? "");
@@ -712,7 +719,7 @@ async function main() {
       check("401 from /token: needsReauth, refresh stopped", afterReauth.needsReauth === true && afterReauth.refresh === "stopped", `${afterReauth.needsReauth} ${afterReauth.refresh}`);
       await p.getByTestId("vault-reauth-banner").waitFor({ timeout: 5000 }).catch(() => {});
       check("the reconnect banner shows", await p.getByTestId("vault-reauth-banner").isVisible(), (await p.getByTestId("vault-reauth-banner").textContent().catch(() => "")) ?? "");
-      check("the chip says reconnect needed and offers Reconnect", (await p.getByTestId("vault-state").textContent()) === "reconnect needed" && (await p.getByTestId("vault-connect").isVisible()));
+      check("the chip says reconnect needed and offers Reconnect", (await (await account(p)).getByTestId("vault-state").textContent()) === "reconnect needed" && (await (await account(p)).getByTestId("vault-connect").isVisible()));
       await Bun.sleep(12_000);
       const g4 = (await gets()).slice(g3);
       check(`gets keep working on the current token (${g4.length} after the 401, all authenticated)`, g4.length >= 3 && bad(g4).length === 0, JSON.stringify(bad(g4).slice(0, 3)));
@@ -735,7 +742,7 @@ async function main() {
       await leakCheck(p, "after the refresh run (leader tab)");
       await leakCheck(p2, "after the refresh run (follower tab)");
       check("refresh run: no page errors", pageErrors.length === 0, pageErrors.join(" | "));
-      await p.getByTestId("vault-disconnect").click();
+      await (await account(p)).getByTestId("vault-disconnect").click();
       await waitState(p, "disconnected");
       check("disconnect clears the banner", (await p.getByTestId("vault-reauth-banner").count()) === 0);
     } finally {
@@ -917,7 +924,7 @@ async function main() {
       const sTake = (await st(b)).stream;
       check("takeover: gap-filled from the lastSeen the follower tracked; never more than 2 sessions", sTake.gapFilled > 0 && broker.stats.max <= 2, `${sTake.gapFilled} gap-filled, broker max ${broker.stats.max}`);
 
-      await b.getByTestId("vault-disconnect").click();
+      await (await account(b)).getByTestId("vault-disconnect").click();
       await waitState(b, "disconnected");
       await waitFor("the stream to stop", b, (s) => s.stream?.sessions === 0, 5000).catch(() => {});
       check("disconnect: the stream closes", broker.sessions().length === 0, `${broker.sessions().length} open`);
@@ -1017,7 +1024,7 @@ async function main() {
     check("browser restart: one /token request", tokenRequests.length - n === 1, tokenRequests.length - n);
 
     console.log("disconnect");
-    await page.getByTestId("vault-disconnect").click();
+    await (await account(page)).getByTestId("vault-disconnect").click();
     await waitState(page, "disconnected");
     check("disconnect: not connected", true);
     check("disconnect: panel has no account or expiry", (await page.getByTestId("vault-panel-account").count()) === 0 && (await page.getByTestId("vault-token-expiry").count()) === 0);
@@ -1039,7 +1046,7 @@ async function main() {
     await waitState(page, "connected");
     check("no PRF -> stay connected: connected, stored on this device", (await page.getByTestId("vault-panel-mode").textContent()) === "on this device");
     await noPrf.close();
-    await page.getByTestId("vault-disconnect").click();
+    await (await account(page)).getByTestId("vault-disconnect").click();
     await waitState(page, "disconnected");
 
     console.log("passkey");
@@ -1058,7 +1065,7 @@ async function main() {
     await waitState(page, "locked");
     check("passkey: reload shows locked", true);
     check("locked: no /token request (nothing to decrypt with)", tokenRequests.length - n === 0, tokenRequests.length - n);
-    check("locked: the chip offers Unlock", await page.getByTestId("vault-unlock").isVisible());
+    check("locked: the chip offers Unlock", await (await account(page)).getByTestId("vault-unlock").isVisible());
     await openPopup(context, page, "vault-unlock", pk);
     check("Unlock reopens the vault popup in unlock mode", pk.url().includes("#mode=unlock&ticket="));
     const closedBefore = await closeCalls(pk);
@@ -1069,7 +1076,7 @@ async function main() {
     await leakCheck(page, "passkey unlock");
     await pk.close();
 
-    await page.getByTestId("vault-disconnect").click();
+    await (await account(page)).getByTestId("vault-disconnect").click();
     await waitState(page, "disconnected");
     await page.reload();
     await waitState(page, "disconnected");

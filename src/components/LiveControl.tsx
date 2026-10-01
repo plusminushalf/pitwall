@@ -1,5 +1,5 @@
-// Live mode UI: the header control (LIVE / Go live / relay status, and the switch between live and
-// replays), the Go live button, and the screen shown while there's no live session to display.
+// Live mode UI: the header control (LIVE / Go live / relay status, and the way back to replays), the Go
+// live button, and the screen shown while there's no live session to display.
 
 import { LIVE_RELAY } from "../live/client";
 import { liveTarget, useReplay, type LiveInfo } from "../store";
@@ -117,31 +117,17 @@ export function GoLiveButton({ className = "" }: { className?: string }) {
   );
 }
 
-/** Header control: a way into live mode from replays; in live mode its state, Go live and the way back. */
+/**
+ * Header control in live mode: its state, Go live and the way back to replays. Nothing in replays: live
+ * mode is entered from Home's weekend card while a session is on (or a ?live=1 link).
+ */
 export function LiveControl() {
   const mode = useReplay((s) => s.mode);
   const live = useReplay((s) => s.live);
   const hasSession = useReplay((s) => s.session != null);
-  const enterLive = useReplay((s) => s.enterLive);
   const exitLive = useReplay((s) => s.exitLive);
 
-  if (mode === "replay") {
-    // A static build has no relay to follow a session with: no way into live mode.
-    if (!LIVE_RELAY) return null;
-    return (
-      <button
-        onClick={(e) => {
-          e.currentTarget.blur();
-          enterLive();
-        }}
-        className="flex shrink-0 items-center gap-1.5 rounded border border-zinc-700 px-2 py-0.5 text-xs font-semibold text-zinc-300 hover:border-zinc-500 hover:text-zinc-100"
-        title="Follow a race or sprint live (needs the live relay: bun run live)"
-      >
-        <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-        Live
-      </button>
-    );
-  }
+  if (mode === "replay") return null;
 
   const status = statusText(live, hasSession);
   return (

@@ -14,6 +14,7 @@ Replay any F1 race, sprint or qualifying session since 2023. Built on [OpenF1](h
 ## What it does
 
 - **Tracking.** Every car on the track map, about 4 times a second. Timing, gaps, tyres, pit stops, race control, weather and team radio. All on one timeline. Pause, scrub, or play at up to 64×.
+- **No spoilers.** Watching a race you missed? The timeline shows only what you've watched: safety cars, retirements, penalties and the finish stay hidden until you get there. Pitwall asks when you open a race, or remembers your answer (Settings, on the home page).
 - **Qualifying.** Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Modules.** The screen is a grid of blocks. Move, resize, add or remove them. Your layout is saved.
 - **Live.** Follow a race as it happens. Needs an OpenF1 account. Local only for now, not yet on the hosted site.
@@ -31,7 +32,7 @@ OpenF1's free tier is slow. Connect an OpenF1 account and a race downloads in ab
 
 1. Sponsor OpenF1 at [openf1.org](https://openf1.org) (€9.90/month).
 2. You get an OpenF1 account: an email and a password.
-3. In Pitwall, click **Connect** next to "OpenF1 account", top right.
+3. In Pitwall, open **Settings** (top right of the home page) and click **Connect** under "OpenF1 account".
 4. Sign in in the popup. Stay connected on this device, or lock it behind a passkey.
 
 Pitwall's code never sees your password. A small vault on a separate site (`pitwall-auth.garvit.in`) holds it and talks to OpenF1. Pitwall only gets the data. Details: [vault/README.md](vault/README.md).

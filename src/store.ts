@@ -33,6 +33,8 @@ export interface Watched {
   /** Race clock (ms from lights out) and share of the session watched, for display. */
   raceTime: number | null;
   frac: number;
+  /** Furthest time watched (no-spoiler mode shows the timeline up to there); absent in older entries. */
+  watchedTo?: number;
   /** When it was last watched (ms since epoch). */
   at: number;
 }
@@ -66,6 +68,23 @@ export function saveWatched(key: number, v: Omit<Watched, "at">) {
     localStorage.setItem(WATCHED_KEY, JSON.stringify(Object.fromEntries(keep)));
   } catch {}
 }
+
+/** What happens when a race opens: ask whether to hide spoilers, or a remembered answer. */
+export type SpoilerPref = "ask" | "hide" | "show";
+
+const SPOILERS_KEY = "f1-replay:spoilers";
+
+function readSpoilerPref(): SpoilerPref {
+  try {
+    const v = localStorage.getItem(SPOILERS_KEY);
+    return v === "hide" || v === "show" ? v : "ask";
+  } catch {
+    return "ask";
+  }
+}
+
+/** No-spoiler mode for a race being opened: the saved answer, or null to ask. */
+const spoilerChoice = (pref: SpoilerPref): boolean | null => (pref === "ask" ? null : pref === "hide");
 
 export interface LiveInfo {
   /** The relay's state; null until its first status message. */
@@ -101,7 +120,7 @@ function endOf(s: { mode: Mode; session: Session | null }): number {
 
 let live: LiveConnection | null = null;
 /** The replay being watched when live mode was entered, brought back by exitLive(). */
-let replayStash: { session: Session; t: number; selected: number[]; focused: number | null } | null = null;
+let replayStash: { session: Session; t: number; watchedTo: number; noSpoilers: boolean | null; selected: number[]; focused: number | null } | null = null;
 /** Live mode was entered from Home: leaving it goes back there. */
 let liveFromHome = false;
 /** From a shared live link: applied to the first live snapshot (`t` only if it's the same session). */
@@ -143,6 +162,15 @@ interface ReplayState {
   liveEdge: number;
   /** Live mode: the clock tracks the live edge (a few seconds behind). False while watching back (DVR). */
   followLive: boolean;
+  /** Saved in this browser: whether opening a race asks about spoilers, or hides / shows them. */
+  spoilerPref: SpoilerPref;
+  /**
+   * No-spoiler mode for the race on screen: its timeline shows only what has been watched. Null until
+   * chosen (the spoiler prompt asks over the blurred replay, which hides them meanwhile).
+   */
+  noSpoilers: boolean | null;
+  /** Furthest time watched in this session, kept across visits (in watch history). */
+  watchedTo: number;
 
   loadIndex: () => Promise<void>;
   loadSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => Promise<void>;
@@ -177,6 +205,8 @@ interface ReplayState {
   exitLive: () => void;
   /** Jump to the live edge and follow it. */
   goLive: () => void;
+  setNoSpoilers: (on: boolean) => void;
+  setSpoilerPref: (pref: SpoilerPref) => void;
 }
 
 export const useReplay = create<ReplayState>((set, get) => {
@@ -195,11 +225,11 @@ export const useReplay = create<ReplayState>((set, get) => {
     replayStash = null;
     loadToken++;
     if (!stash) {
-      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false });
+      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0 });
       return false;
     }
     clock.t = stash.t;
-    set({ session: stash.session, selected: stash.selected, focused: stash.focused, playing: false, latched: false, error: null });
+    set({ session: stash.session, watchedTo: stash.watchedTo, noSpoilers: stash.noSpoilers, selected: stash.selected, focused: stash.focused, playing: false, latched: false, error: null });
     get().publish();
     return true;
   };
@@ -237,7 +267,7 @@ export const useReplay = create<ReplayState>((set, get) => {
           const target = liveTarget(wall);
           const dvr = opts?.t != null && opts.session === session.meta.sessionKey && opts.t < target - followSnap();
           clock.t = dvr ? Math.max(0, opts!.t!) : target;
-          set({ session, liveEdge: msg.now, followLive: !dvr, playing: false, latched: false, selected, focused });
+          set({ session, liveEdge: msg.now, followLive: !dvr, playing: false, latched: false, selected, focused, watchedTo: 0 });
         }
         get().publish();
         return;
@@ -277,6 +307,9 @@ export const useReplay = create<ReplayState>((set, get) => {
     live: NO_LIVE,
     liveEdge: 0,
     followLive: false,
+    spoilerPref: readSpoilerPref(),
+    noSpoilers: false,
+    watchedTo: 0,
 
     loadIndex: async () => {
       try {
@@ -306,7 +339,10 @@ export const useReplay = create<ReplayState>((set, get) => {
         // Drop drivers (e.g. from a shared link) who aren't in this session.
         const selected = [...new Set(opts.drivers ?? [])].filter((n) => session.drivers.has(n));
         const focus = opts.focus != null && session.drivers.has(opts.focus) ? opts.focus : null;
-        set({ session, loading: null, selected, focused: focus });
+        // Spoilers: asked about for each race opened (unless an answer is saved); a reload keeps the choice.
+        const prev = get();
+        const noSpoilers = session.meta.quali ? false : prev.session?.meta.sessionKey === key ? prev.noSpoilers : spoilerChoice(prev.spoilerPref);
+        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers });
         get().publish();
       } catch (e) {
         if (token === loadToken) set({ loading: null, error: `Failed to load session ${key}: ${e}` });
@@ -315,7 +351,7 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     closeSession: () => {
       loadToken++;
-      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false });
+      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0 });
       get().goHome();
     },
 
@@ -341,8 +377,8 @@ export const useReplay = create<ReplayState>((set, get) => {
     },
 
     publish: () => {
-      const { session } = get();
-      if (session) set({ t: clock.t, race: raceStateAt(session, clock.t) });
+      const { session, watchedTo } = get();
+      if (session) set({ t: clock.t, race: raceStateAt(session, clock.t), watchedTo: Math.max(watchedTo, clock.t) });
     },
 
     seek: (t) => {
@@ -418,7 +454,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       liveFromHome = s.view === "home";
       if (liveFromHome) pushFromHome("?live=1");
       loadToken++; // a replay still loading is no longer wanted
-      if (s.session) replayStash = { session: s.session, t: clock.t, selected: s.selected, focused: s.focused };
+      if (s.session) replayStash = { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused };
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
       set({
@@ -435,6 +471,8 @@ export const useReplay = create<ReplayState>((set, get) => {
         latched: false,
         selected: [],
         focused: null,
+        watchedTo: 0,
+        noSpoilers: false,
       });
       // No relay behind this site (a static build): LiveScreen explains, nothing to connect to.
       if (!LIVE_RELAY) return;
@@ -456,6 +494,15 @@ export const useReplay = create<ReplayState>((set, get) => {
       clock.t = liveTarget();
       set({ followLive: true, playing: false, latched: false });
       get().publish();
+    },
+
+    setNoSpoilers: (on) => set({ noSpoilers: on }),
+
+    setSpoilerPref: (pref) => {
+      try {
+        localStorage.setItem(SPOILERS_KEY, pref);
+      } catch {}
+      set({ spoilerPref: pref });
     },
   };
 });

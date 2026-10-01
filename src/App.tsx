@@ -4,6 +4,7 @@ import { Header } from "./components/Header";
 import { LiveScreen } from "./components/LiveControl";
 import { Logo } from "./components/Logo";
 import { ReadyToast } from "./components/Navigation";
+import { SpoilerPrompt, useSpoilerPrompt } from "./components/SpoilerPrompt";
 import { Timeline } from "./components/Timeline";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
@@ -68,6 +69,7 @@ export function App() {
   const supported = useLibrary((s) => s.supported);
   const link = useLibrary((s) => s.link);
   const live = useReplay((s) => s.mode === "live");
+  const spoilerPrompt = useSpoilerPrompt();
 
   useEffect(() => {
     void (async () => {
@@ -96,16 +98,20 @@ export function App() {
   }
 
   return (
-    <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
-      <Header />
-      <Grid />
-      <Timeline />
-      {loading && (
-        <div className="absolute inset-0 z-10 bg-zinc-950/80">
-          <LoadingScreen />
-        </div>
-      )}
+    <>
+      {/* Behind the spoiler prompt: blurred, and out of reach of focus and clicks. */}
+      <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]" inert={spoilerPrompt}>
+        <Header />
+        <Grid />
+        <Timeline />
+        {loading && (
+          <div className="absolute inset-0 z-10 bg-zinc-950/80">
+            <LoadingScreen />
+          </div>
+        )}
+      </div>
+      <SpoilerPrompt />
       <ReadyToast />
-    </div>
+    </>
   );
 }

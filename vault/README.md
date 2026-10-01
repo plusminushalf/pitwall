@@ -384,7 +384,7 @@ the scheduler and the tabs are unchanged.
 - **Sessions and faults** live in the dev server, so they are shared by every frame: its session table (a
   frozen tab's session stays until 1.5 x keepalive, like OpenF1's broker; a reused clientId kicks the older
   session, whichever frame holds it) gives the concurrent-session count; drops and refusals are counted there.
-- The app shows **SIMULATED** (an amber badge by the account chip) whenever `status.sim` is set, and the login
+- The app shows **SIMULATED** (an amber badge by Home's Settings button) whenever `status.sim` is set, and the login
   popup says so too (any email and password; don't type a real one).
 
 | Variable (vault dev server) | Default | |

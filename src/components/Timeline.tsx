@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { stepAt } from "../engine/lookup";
+import { spoilerFreeEnd } from "../engine/noSpoilers";
+import { scheduledDistance } from "../engine/raceDistance";
 import { leaderLapAt } from "../engine/raceState";
 import { clusterEvents, EVENT_PRIORITY, timelineEvents, type EventCluster, type TimelineEventKind } from "../engine/timelineEvents";
 import { raceClock, teamColor, TRACK_STATUS } from "../lib/format";
@@ -90,7 +92,10 @@ export function Timeline() {
   const live = useReplay((s) => s.mode === "live");
   const followLive = useReplay((s) => s.followLive);
   const liveEdge = useReplay((s) => s.liveEdge);
-  const { setPlaying, releaseHold, setSpeed, seek, seekToLap, togglePlay } = useReplay.getState();
+  // Live, the bar already ends at what has happened. Not chosen yet (the spoiler prompt is open over it): hidden.
+  const noSpoilers = useReplay((s) => s.noSpoilers !== false && s.mode !== "live");
+  const watchedTo = useReplay((s) => s.watchedTo);
+  const { setPlaying, releaseHold, setSpeed, seek, seekToLap, togglePlay, setNoSpoilers } = useReplay.getState();
   const barRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
@@ -100,8 +105,10 @@ export function Timeline() {
   const holding = useRef(false);
 
   const hasSession = session != null;
-  // Live, the bar grows with the live edge (its right end).
-  const duration = session ? (live ? Math.max(liveEdge, session.meta.duration) : session.meta.duration) : 0;
+  // Live, the bar grows with the live edge (its right end). No spoilers: it shows nothing past what has been
+  // watched, and its length (until the flag) doesn't give the race away.
+  const duration = !session ? 0 : live ? Math.max(liveEdge, session.meta.duration) : noSpoilers ? spoilerFreeEnd(session.meta, watchedTo) : session.meta.duration;
+  const shownTo = noSpoilers ? watchedTo : Infinity;
   useEffect(() => {
     const el = barRef.current;
     if (!el) return;
@@ -118,13 +125,16 @@ export function Timeline() {
       .filter((b) => BAND[b.status]);
   }, [session]);
 
-  // Race events are derived once per session; only their clustering depends on the bar's width.
+  // Race events are derived once per session; only their clustering depends on the bar's width
+  // (and, with no spoilers, on how many have been watched: they're sorted by time).
   const events = useMemo(() => (session ? timelineEvents(session.meta) : []), [session]);
+  const ahead = events.findIndex((e) => e.t > shownTo);
+  const shownEvents = ahead < 0 ? events.length : ahead;
   const markers = useMemo(() => {
-    const clusters = clusterEvents(events, duration, barWidth, (kind) => MARKER_PX[kind]);
+    const clusters = clusterEvents(events.slice(0, shownEvents), duration, barWidth, (kind) => MARKER_PX[kind]);
     // Lowest priority first, so the most important markers are drawn on top.
     return clusters.sort((a, b) => EVENT_PRIORITY[a.kind] - EVENT_PRIORITY[b.kind]);
-  }, [events, duration, barWidth]);
+  }, [events, shownEvents, duration, barWidth]);
 
   if (!session) return null;
   const { meta } = session;
@@ -142,14 +152,15 @@ export function Timeline() {
   const pitDrivers = selected.length > 0 ? selected : focused != null ? [focused] : [];
   const pitMarkers = [...pitDrivers].sort((a, b) => Number(a === focused) - Number(b === focused)).flatMap((n) => {
     const d = session.drivers.get(n);
-    return d ? d.pits.map((p) => ({ driver: n, info: d.info, p })) : [];
+    return d ? d.pits.filter((p) => p.entry <= shownTo).map((p) => ({ driver: n, info: d.info, p })) : [];
   });
   const release = () => {
     if (!holding.current) return;
     holding.current = false;
     releaseHold();
   };
-  const labelEvery = meta.totalLaps > 60 ? 10 : 5;
+  // By the scheduled distance: the laps actually run would give away a race cut short.
+  const labelEvery = scheduledDistance(meta).totalLaps > 60 ? 10 : 5;
   const colorOf = (driver: number | null) => teamColor((driver != null && session.drivers.get(driver)?.info.teamColour) || "a1a1aa");
   const lapAt = (ms: number) => Math.max(leaderLapAt(session, ms), 0);
   const clockAt = (ms: number) => raceClock(ms - meta.lightsOut);
@@ -195,6 +206,8 @@ export function Timeline() {
     };
   } else if (target?.type === "chequered") {
     tip = { t: target.t, content: `🏁 Chequered flag · ${clockAt(target.t)}` };
+  } else if (hover && hover.t > shownTo) {
+    tip = { t: hover.t, content: `${clockAt(hover.t)} · not watched yet` };
   } else if (hover) {
     const status = HOVER_STATUS[stepAt(meta.trackStatus, session.trackStatusTimes, hover.t)?.status ?? "GREEN"];
     tip = {
@@ -290,14 +303,27 @@ export function Timeline() {
         {/* track */}
         <div className="absolute inset-x-0 top-8 h-2 overflow-hidden rounded bg-zinc-800">
           <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
-          {bands.map((b, i) => (
-            <div key={i} className={`absolute inset-y-0 ${BAND[b.status]}`} style={{ left: pct(b.from), width: `calc(${pct(b.to)} - ${pct(b.from)})` }} />
-          ))}
+          {bands.map((b, i) =>
+            b.from < shownTo ? (
+              <div
+                key={i}
+                className={`absolute inset-y-0 ${BAND[b.status]}`}
+                style={{ left: pct(b.from), width: `calc(${pct(Math.min(b.to, shownTo))} - ${pct(b.from)})` }}
+              />
+            ) : null,
+          )}
+          {/* not watched yet */}
+          {noSpoilers && watchedTo < duration && (
+            <div
+              className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(-45deg,var(--color-zinc-700)_0_2px,transparent_2px_6px)]"
+              style={{ left: pct(watchedTo) }}
+            />
+          )}
         </div>
 
         {/* lap ticks */}
         {session.lapStartTimes.map((lt, lap) =>
-          lap === 0 || lt === undefined ? null : (
+          lap === 0 || lt === undefined || lt > shownTo ? null : (
             <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
               <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
               {(lap % labelEvery === 0 || lap === 1) && (
@@ -335,7 +361,7 @@ export function Timeline() {
         ))}
 
         {/* chequered flag */}
-        {meta.chequered != null && (
+        {meta.chequered != null && meta.chequered <= shownTo && (
           <div
             className="absolute top-4 -translate-x-1/2 text-xs"
             style={{ left: pct(meta.chequered) }}
@@ -374,7 +400,20 @@ export function Timeline() {
       </div>
 
       <div className="w-20 text-right text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</div>
-      {live && <GoLiveButton className="-ml-1 shrink-0" />}
+      {live ? (
+        <GoLiveButton className="-ml-1 shrink-0" />
+      ) : (
+        <button
+          onClick={() => setNoSpoilers(!noSpoilers)}
+          className={`shrink-0 whitespace-nowrap rounded border px-2 py-1 text-xs ${
+            noSpoilers ? "border-zinc-100 bg-zinc-100 font-bold text-zinc-900" : "border-zinc-800 text-zinc-400 hover:bg-zinc-800"
+          }`}
+          title={noSpoilers ? "No spoilers: the timeline shows only what you've watched (this race)" : "Show only what you've watched on the timeline (this race)"}
+          aria-pressed={noSpoilers}
+        >
+          No spoilers
+        </button>
+      )}
     </div>
   );
 }

@@ -80,8 +80,14 @@ export function useUrlSync() {
     const write = () => {
       if (useReplay.getState().view !== "replay") return;
       const s = useReplay.getState();
-      if (!live && session != null && s.session) {
-        saveWatched(session, { t: second * 1000, raceTime: s.race?.raceTime ?? null, frac: Math.min(1, (second * 1000) / s.session.meta.duration) });
+      // (Only into this session's entry: the store may have moved on to another one.)
+      if (!live && session != null && s.session?.meta.sessionKey === session) {
+        saveWatched(session, {
+          t: second * 1000,
+          raceTime: s.race?.raceTime ?? null,
+          frac: Math.min(1, (second * 1000) / s.session.meta.duration),
+          watchedTo: s.watchedTo,
+        });
       }
       // Built by hand (all values are numbers) so the driver list keeps readable commas instead of %2C.
       const q = live ? ["live=1"] : [];
