@@ -1,0 +1,10 @@
+// Cloudflare Workers, static assets only (no Worker script): vault/dist served at pitwall-auth.garvit.in, a different
+// site from the app (docs/modular-hypotheses.md, H2.4). `bun run vault:deploy` builds with the app's origin baked in
+// and uploads; the custom domain's DNS record and certificate are created on first deploy. dist/_headers sets the CSP.
+{
+  "name": "pitwall-auth",
+  "compatibility_date": "2026-09-01",
+  // Serve /frame.html and /popup.html as they are (the default redirects them to /frame and /popup).
+  "assets": { "directory": "./dist", "html_handling": "none" },
+  "routes": [{ "pattern": "pitwall-auth.garvit.in", "custom_domain": true }],
+}

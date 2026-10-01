@@ -58,6 +58,7 @@ The build is unminified, so the deployed JavaScript reads like this source.
 bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite client: reload by hand)
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
+bun run vault:deploy    # build for the app at pitwall.plusminushalf.com, upload to pitwall-auth.garvit.in (Cloudflare; CI does it on every push to main)
 bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
 bun run vault:e2e --s3  # only the S3 success check: a simulated session in two tabs, ~22 min (needs data/raw/11291)
 bun run vault:e2e --downloads  # only the download check, ~6 min (the real login from .env; race 11377 three times)

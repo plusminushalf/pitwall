@@ -1,5 +1,8 @@
-# Builds the static site and deploys it to pitwall.plusminushalf.com (Cloudflare, wrangler.jsonc) on every push to main.
-# Repo secrets: CLOUDFLARE_API_TOKEN (template "Edit Cloudflare Workers", zone plusminushalf.com) and CLOUDFLARE_ACCOUNT_ID.
+# Builds and deploys on every push to main (Cloudflare): the vault to pitwall-auth.garvit.in (vault/wrangler.jsonc),
+# then the app to pitwall.plusminushalf.com (wrangler.jsonc). The vault goes first, so the app never points at a
+# vault that isn't there yet.
+# Repo secrets: CLOUDFLARE_API_TOKEN (template "Edit Cloudflare Workers", zones plusminushalf.com and garvit.in) and
+# CLOUDFLARE_ACCOUNT_ID.
 name: Deploy
 
 on:
@@ -18,11 +21,12 @@ permissions:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
     steps:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      - run: bun run vault:deploy
       - run: bun run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

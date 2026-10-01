@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "VITE_VAULT_ORIGIN=off vite build && bunx wrangler@4 deploy",
+    "deploy": "VITE_VAULT_ORIGIN=https://pitwall-auth.garvit.in vite build && bunx wrangler@4 deploy",
     "test": "bun test",
     "races": "bun scripts/list-races.ts",
     "ingest": "bun scripts/ingest.ts",
@@ -19,6 +19,7 @@
     "lint": "bun scripts/lint-blocks.ts src/blocks",
     "vault": "vite --config vault/vite.config.ts",
     "vault:build": "vite build --config vault/vite.config.ts",
+    "vault:deploy": "VAULT_APP_ORIGINS=https://pitwall.plusminushalf.com vite build --config vault/vite.config.ts && bunx wrangler@4 deploy --config vault/wrangler.jsonc",
     "vault:serve": "bun vault/serve.ts",
     "vault:e2e": "bun vault/e2e.ts"
   },
