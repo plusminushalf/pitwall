@@ -100,6 +100,16 @@ All in `src/protocol.ts`. Version `v: 1` on every message.
 5. From then on, only the port. Requests `{v:1, id, type, ...args}`, responses `{v:1, id, ok:true, result}`
    or `{v:1, id, ok:false, error:{code, message}}`, and unsolicited `{v:1, type:"event", ...}`.
 
+Something else on the page can remove the iframe (seen: a browser extension, some time after the handshake),
+and its port dies with it, silently. The app's client (`src/vault/client.ts`) watches the iframe's parent (a
+MutationObserver, and `isConnected` before every call), rejects the requests pending on the old port at once
+(`unavailable`), and mounts a new iframe: a new page load, so steps 1–5 again with the same checks. Settings keeps
+the last status meanwhile and calls wait for the new port (measured: 10–110 ms locally, about 2 s with 1 s added to
+every vault request). The new frame is subscribed to the tab's live topics again and, while the popup is open, told
+its ticket again (`connect` / `unlock`, below). Ports from `openPort` aren't moved over: the download worker's ping
+notices the silence and goes direct. More than 3 removals in a minute and the client stops: unavailable, "something
+on this page keeps removing the vault".
+
 | Method | Arguments | Result |
 | --- | --- | --- |
 | `status` | | `{state, mode?, account?, error?, live, version, stream?, tab?, budget?}` plus the refresh status (below) |
@@ -447,12 +457,15 @@ and the frame don't share IndexedDB. The popup stores nothing: it hands the logi
 
 1. The user clicks Connect in the app. `VaultClient.connect()` opens `popup.html#mode=connect&ticket=T`
    synchronously in that click (window name `f1-vault`, so a second click reuses the window), then sends
-   `connect {ticket:T}` to its frame. `T` is 128 random bits.
+   `connect {ticket:T}` to its frame. `T` is 128 random bits. If the frame was removed, the click mounts a new
+   one and sends `connect` once its port is up; a frame mounted while the popup is open is sent it too.
 2. The popup posts `popup:hello {ticket}` to every frame of the app window with targetOrigin = the vault origin:
    breadth-first from `opener.top`, at most 64 (not just `opener.frames`: an extension that wraps `window.open`
    can open the popup from a frame of its own, with no frames under it). Only the frame expecting `T` answers
    (to `event.source`); other vault frames stay quiet. The frame binds the ticket to that popup window. A popup
    nobody answers within 4 s says it couldn't reach Pitwall. Tickets expire after 10 minutes and are single-use.
+   A popup stays with the frame that answered: if that frame is removed later, its next step waits out its 45 s,
+   then says the vault didn't answer; Connect again works.
 3. The user submits the form (JS only; `form-action 'none'`). `popup:login {username, password, mode}` goes to
    the frame, which calls `POST https://api.openf1.org/token` and answers ok, or `wrong_credentials` (401),
    `rate_limited` (429), `network`, `server`. The popup shows the error or closes itself. Nothing in the

@@ -125,6 +125,7 @@ export function VaultPanel() {
         {state.reason && row("Reason", state.reason)}
         {row("Origin", state.origin ?? "none")}
         {state.handshakeMs != null && row("Handshake time", `${state.handshakeMs} ms`)}
+        {state.remounts != null && row("Frame re-mounted", <span data-testid="vault-remounts">{state.remounts}×</span>)}
         {status && row("State", <span data-testid="vault-panel-state">{status.state}</span>)}
         {status?.mode && row("Stored", <span data-testid="vault-panel-mode">{status.mode === "device" ? "on this device" : "behind a passkey"}</span>)}
         {status?.account && row("Account", <span data-testid="vault-panel-account">{status.account}</span>)}
