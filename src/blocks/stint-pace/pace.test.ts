@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
-// (Here, not next to it: blocks may only import block-kit, and bun:test isn't that.)
-import { neutralPeriods, pacePoints, stintFits, trendText, type PaceLap, type PaceStint } from "../blocks/stint-pace/pace";
+// describe/test/expect are bun test's globals: a block folder may only import react, block-kit and its own
+// files (bun run lint), so not "bun:test".
+
+import { neutralPeriods, pacePoints, stintFits, trendText, type PaceLap, type PaceStint } from "./pace";
 
 const LAP_MS = 90_000;
 

@@ -1,6 +1,7 @@
-import { describe, expect, test } from "bun:test";
-// (Here, not next to it: blocks may only import block-kit, and bun:test isn't that.)
-import { crossingsOf, gapScale, gapSeries, INTERVAL_CAP, leaderCrossings, neutralisedLaps, neutralisedPeriods, orderAtLine, type Crossings } from "../blocks/gap-chart/gaps";
+// describe/test/expect are bun test's globals: a block folder may only import react, block-kit and its own
+// files (bun run lint), so not "bun:test".
+
+import { crossingsOf, gapScale, gapSeries, INTERVAL_CAP, leaderCrossings, neutralisedLaps, neutralisedPeriods, orderAtLine, type Crossings } from "./gaps";
 
 // Crossings in seconds from lights out at t = 0 (index = lap), as ms.
 const at = (...s: (number | null)[]): Crossings => [null, ...s.map((v) => (v == null ? null : v * 1000))];
