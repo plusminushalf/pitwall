@@ -12,6 +12,8 @@ import { OpenF1Source } from "./openf1Source";
 import { simulate } from "./simulate";
 
 const port = Number(process.env.LIVE_PORT || 8787);
+// Loopback only by default: the relay streams your own sponsor-account feed, so keep it on this machine.
+const hostname = process.env.LIVE_HOST || "127.0.0.1";
 const simulateKey = process.env.LIVE_SIMULATE ? Number(process.env.LIVE_SIMULATE) : null;
 if (simulateKey != null && !Number.isInteger(simulateKey)) {
   console.error(`LIVE_SIMULATE must be a session key, got "${process.env.LIVE_SIMULATE}"`);
@@ -23,6 +25,7 @@ const start = Number(process.env.LIVE_SIMULATE_START || -60);
 const hub = new Hub(simulateKey != null ? "simulate" : "openf1");
 
 const server = Bun.serve({
+  hostname,
   port,
   fetch(req, server) {
     const { pathname } = new URL(req.url);
@@ -41,7 +44,7 @@ const server = Bun.serve({
   },
 });
 hub.attach(server);
-console.log(`[live] relay on ws://localhost:${server.port}/live (health: http://localhost:${server.port}/live/health)`);
+console.log(`[live] relay on ws://${hostname}:${server.port}/live (health: http://${hostname}:${server.port}/live/health)`);
 
 let openf1: OpenF1Source | null = null;
 if (simulateKey != null) {

@@ -496,7 +496,7 @@ export function Home() {
     <div className="h-full overflow-y-auto">
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-6">
-          <h1 className="text-lg font-black tracking-tight text-zinc-100">F1 Race Replay</h1>
+          <h1 className="text-lg font-black tracking-tight text-zinc-100">Pitwall</h1>
           <span className="hidden text-xs text-zinc-500 md:inline">Every race, sprint and qualifying since {FIRST_YEAR}, replayed from OpenF1 data</span>
           <span className="flex-1" />
           <VaultStatus />

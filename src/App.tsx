@@ -45,7 +45,7 @@ function Unsupported() {
   return (
     <div className="flex h-full items-center justify-center px-4">
       <div className="max-w-md text-center text-sm text-zinc-400">
-        <h1 className="mb-2 text-xl font-black tracking-tight text-zinc-100">F1 Race Replay</h1>
+        <h1 className="mb-2 text-xl font-black tracking-tight text-zinc-100">Pitwall</h1>
         <p>
           This browser can't store races for this site. It needs a secure page (https, or localhost) and a current Chrome, Edge, Firefox or Safari.
         </p>

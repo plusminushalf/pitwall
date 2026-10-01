@@ -5,6 +5,10 @@ code ever to see a user's OpenF1 password or access token. The app embeds it as 
 data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
+Note: OpenF1's auth docs say the token exchange should happen in a backend. The vault does it in the browser
+on purpose (each user brings their own OpenF1 account; there is no shared backend login), isolated on its own
+site. It's an experiment, not something OpenF1 endorses.
+
 Status: spike S3, all 6 steps. The handshake, the protocol, the headers, the popup login, both storage
 modes (stay connected, passkey PRF), silent token refresh, `get` in parallel within one REST budget per browser,
 the live MQTT stream (token handover, reconnect + REST gap-fill), the cross-tab leader (with heartbeat takeover

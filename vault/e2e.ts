@@ -534,7 +534,7 @@ async function main() {
       await down.goto(`${APP}/?vault=debug`);
       await down.getByTestId("vault-phase").filter({ hasText: "unavailable" }).waitFor({ timeout: 15_000 });
       check("vault down: unavailable", true, `${Date.now() - t0} ms`);
-      check("vault down: home still renders", await down.getByRole("heading", { name: "F1 Race Replay" }).isVisible());
+      check("vault down: home still renders", await down.getByRole("heading", { name: "Pitwall" }).isVisible());
       check("vault down: no page errors", downErrors.length === 0, downErrors.join(" | "));
     } else {
       console.log("(skipping the vault-down check: the vault server wasn't started by this script)");

@@ -77,7 +77,7 @@ const ticket = hash.get("ticket");
 const mode = hash.get("mode") === "unlock" ? "unlock" : "connect";
 if (mode === "unlock") {
   ui.title.textContent = "Unlock your OpenF1 login";
-  document.title = "Unlock your OpenF1 login · F1 Replay vault";
+  document.title = "Unlock your OpenF1 login · Pitwall vault";
 }
 
 // ---------------------------------------------------------------- talking to the frame
@@ -176,7 +176,7 @@ async function createPasskey(username: string, salt: ArrayBuffer): Promise<PrfOu
   try {
     cred = (await navigator.credentials.create({
       publicKey: {
-        rp: { id: location.hostname, name: "F1 Replay vault" },
+        rp: { id: location.hostname, name: "Pitwall vault" },
         user: { id: random(16), name: username, displayName: `OpenF1: ${username}` },
         challenge: random(32),
         pubKeyCredParams: [
@@ -342,7 +342,7 @@ function unlockFlow(welcome: Extract<PopupWelcome, { kind: "unlock" }>) {
 async function main() {
   if (!isTicket(ticket) || !window.opener) {
     progress("");
-    return error("Open this window with the Connect button in F1 Replay.");
+    return error("Open this window with the Connect button in Pitwall.");
   }
   const welcome = await findFrame();
   if (!welcome) {
