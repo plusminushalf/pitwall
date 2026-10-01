@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title">
+  <title id="title">Pitwall icon</title>
+  <rect width="256" height="256" rx="52" fill="#0B0B0D"/>
+  <path fill="#F5F5F5" d="
+    M39 211 L75 45
+    Q79 31 95 31
+    H159
+    Q201 31 211 63
+    Q221 95 199 119
+    Q181 138 151 138
+    H112
+    L96 211 Z
+    M119 105 H148
+    Q164 105 170 94
+    Q175 84 169 75
+    Q163 67 148 67
+    H128 Z"/>
+  <path fill="#E50914" d="M36 211 H78 L90 169 H47 Z"/>
+  <path fill="#FF3030" d="M91 211 H130 L143 163 H104 Z"/>
+  <path fill="#E50914" d="M61 157 H98 L109 119 H72 Z"/>
+</svg>

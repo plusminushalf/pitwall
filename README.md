@@ -1,4 +1,9 @@
-# Pitwall
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="public/pitwall-logo.svg" />
+    <img src="public/pitwall-logo-on-light.svg" alt="Pitwall" height="56" />
+  </picture>
+</h1>
 
 Replay any past F1 race, sprint or qualifying session (2023+) from [OpenF1](https://openf1.org) data: car positions (~4 Hz), telemetry, timing, pit stops, tyres, race control, weather and team radio on one timeline.
 

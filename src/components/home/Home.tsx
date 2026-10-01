@@ -12,6 +12,7 @@ import { LIVE_RELAY } from "../../live/client";
 import { raceClock } from "../../lib/format";
 import { useReplay, watchHistory } from "../../store";
 import { LiveControl, LiveDot } from "../LiveControl";
+import { Logo } from "../Logo";
 import { Action, approx, Attribution, clockTime, estimateText, LABEL, left, mb, relativeDay, RowDetails, sessionDot, size, useNow, useRowState } from "./common";
 import { Calendar, Chip, resumeClocks } from "./Calendar";
 import { Library } from "./Library";
@@ -496,7 +497,9 @@ export function Home() {
     <div className="h-full overflow-y-auto">
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-4 px-6">
-          <h1 className="text-lg font-black tracking-tight text-zinc-100">Pitwall</h1>
+          <h1 className="text-zinc-100">
+            <Logo className="h-7 w-auto" />
+          </h1>
           <span className="hidden text-xs text-zinc-500 md:inline">Every race, sprint and qualifying since {FIRST_YEAR}, replayed from OpenF1 data</span>
           <span className="flex-1" />
           <VaultStatus />
