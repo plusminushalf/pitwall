@@ -9,6 +9,7 @@
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BlockHost } from "../blockkit/BlockHost";
+import type { BlockDefinition, BlockSettings } from "../blockkit/defineBlock";
 import { heightInputOf } from "../blockkit/select";
 import { useReplay } from "../store";
 import { BlockPicker, unplaced } from "./BlockPicker";
@@ -224,6 +225,24 @@ export const Grid = memo(function Grid() {
     window.addEventListener("pointercancel", end);
   }, []);
 
+  // Stable, so a Grid render (a new drop target) re-renders only the boxes whose props changed.
+  const actions = useMemo<BoxActions>(
+    () => ({
+      register: (id, el) => {
+        if (el) els.current.set(id, el);
+        else els.current.delete(id);
+      },
+      setSettings: (id, settings) => useLayout.getState().setSettings(id, settings),
+      startMove,
+      startResize,
+      toggleSettings: (id) => setSettingsFor((open) => (open === id ? null : id)),
+      remove: (id) => {
+        setSettingsFor((open) => (open === id ? null : open));
+        useLayout.getState().setLayout(removeBlock(useLayout.getState().layout, id));
+      },
+    }),
+    [startMove, startResize],
+  );
   const cut = useMemo(() => new Set(editing && ctx ? cutOff(layout, ctx) : []), [editing, layout, ctx]);
   const colEdge = (c: number) => Math.round((c * size.width) / layout.columns);
   const slotBox = (slot: { x: number; width: number; top: number; height: number }): Box => ({
@@ -256,44 +275,25 @@ export const Grid = memo(function Grid() {
           const p = shown[byId.get(id)!];
           const dragged = drag?.id === id;
           const state: ChromeState = dragged ? (drag.ok ? "dragging" : "refused") : resizing?.id === id ? (resizing.blocked ? "blocked" : "resizing") : "idle";
+          const b = dragged ? originalBox(id) : shownBoxes[byId.get(id)!];
           return (
-            // Contained: a block's DOM changes restyle and relayout only inside its own box. The hairlines
-            // between groups are the box's own top and left borders, outside the block.
-            <div
+            <BlockBox
               key={id}
-              ref={(el) => {
-                if (el) els.current.set(id, el);
-                else els.current.delete(id);
-              }}
-              data-block={id}
-              className={`absolute border-zinc-800 [contain:strict] ${p.dividerTop ? "border-t" : ""} ${p.dividerLeft ? "border-l" : ""}${
-                dragged ? " z-20 bg-zinc-950 shadow-2xl" : ""
-              }`}
-              style={dragged ? originalBox(id) : shownBoxes[byId.get(id)!]}
-            >
-              <BlockHost
-                block={p.block}
-                settings={layout.blocks[id]?.settings ?? shownLayout.blocks[id].settings}
-                onSettingsChange={(s) => setSettings(id, s)}
-                className="h-full w-full overflow-hidden"
-              />
-              {editing && (
-                <BlockChrome
-                  name={p.block.name}
-                  hasSettings={shownFields(p.block).length > 0}
-                  settingsOpen={settingsFor === id}
-                  cutOff={cut.has(id)}
-                  state={state}
-                  onMoveStart={(e) => startMove(id, e)}
-                  onResizeStart={(side, e) => startResize(id, side, e)}
-                  onSettings={() => setSettingsFor((open) => (open === id ? null : id))}
-                  onRemove={() => {
-                    if (settingsFor === id) setSettingsFor(null);
-                    useLayout.getState().setLayout(removeBlock(useLayout.getState().layout, id));
-                  }}
-                />
-              )}
-            </div>
+              id={id}
+              block={p.block}
+              dividerTop={p.dividerTop}
+              dividerLeft={p.dividerLeft}
+              left={b.left}
+              top={b.top}
+              width={b.width}
+              height={b.height}
+              settings={layout.blocks[id]?.settings ?? shownLayout.blocks[id].settings}
+              editing={editing}
+              state={state}
+              cutOff={cut.has(id)}
+              settingsOpen={settingsFor === id}
+              actions={actions}
+            />
           );
         })}
       {editing && size.width > 0 && <ColumnGuides columns={layout.columns} width={size.width} strong={drag != null || resizing != null} />}
@@ -336,6 +336,85 @@ export const Grid = memo(function Grid() {
             }}
           />
         </Popover>
+      )}
+    </div>
+  );
+});
+
+interface BoxActions {
+  register: (id: string, el: HTMLDivElement | null) => void;
+  setSettings: (id: string, settings: Partial<BlockSettings>) => void;
+  startMove: (id: string, e: ReactPointerEvent) => void;
+  startResize: (id: string, side: "left" | "right", e: ReactPointerEvent) => void;
+  toggleSettings: (id: string) => void;
+  remove: (id: string) => void;
+}
+
+/** One block's box (and in edit mode its chrome). Memoised on plain values: moving a box doesn't re-render its block. */
+const BlockBox = memo(function BlockBox({
+  id,
+  block,
+  dividerTop,
+  dividerLeft,
+  left,
+  top,
+  width,
+  height,
+  settings,
+  editing,
+  state,
+  cutOff,
+  settingsOpen,
+  actions,
+}: {
+  id: string;
+  block: BlockDefinition;
+  dividerTop: boolean;
+  dividerLeft: boolean;
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+  settings: Partial<BlockSettings>;
+  editing: boolean;
+  state: ChromeState;
+  cutOff: boolean;
+  settingsOpen: boolean;
+  actions: BoxActions;
+}) {
+  const ref = useCallback((el: HTMLDivElement | null) => actions.register(id, el), [actions, id]);
+  const onSettingsChange = useCallback((s: Partial<BlockSettings>) => actions.setSettings(id, s), [actions, id]);
+  const host = useMemo(
+    () => <BlockHost block={block} settings={settings} onSettingsChange={onSettingsChange} className="h-full w-full overflow-hidden" />,
+    [block, settings, onSettingsChange],
+  );
+  const hasSettings = useMemo(() => shownFields(block).length > 0, [block]);
+  // Floating: its own compositor layer, so the box and its shadow aren't repainted on every pointer move.
+  const floating = state === "dragging" || state === "refused";
+  return (
+    // Contained: a block's DOM changes restyle and relayout only inside its own box. The hairlines
+    // between groups are the box's own top and left borders, outside the block.
+    <div
+      ref={ref}
+      data-block={id}
+      className={`absolute border-zinc-800 [contain:strict] ${dividerTop ? "border-t" : ""} ${dividerLeft ? "border-l" : ""}${
+        floating ? " z-20 bg-zinc-950 shadow-2xl will-change-transform" : ""
+      }`}
+      style={{ left, top, width, height }}
+    >
+      {host}
+      {editing && (
+        <BlockChrome
+          name={block.name}
+          hasSettings={hasSettings}
+          settingsOpen={settingsOpen}
+          cutOff={cutOff}
+          state={state}
+          onMoveStart={(e) => actions.startMove(id, e)}
+          onResizeStart={(side, e) => actions.startResize(id, side, e)}
+          onSettings={() => actions.toggleSettings(id)}
+          onRemove={() => actions.remove(id)}
+        />
       )}
     </div>
   );

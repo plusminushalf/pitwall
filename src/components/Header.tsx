@@ -139,6 +139,7 @@ const TOP_BUTTON = "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibo
 function LayoutControls() {
   const editing = useLayout((s) => s.editing);
   const pickerOpen = useLayout((s) => s.picker != null && s.picker.slot == null);
+  const paused = useLayout((s) => s.pausedPlayback);
   const blur = (e: { currentTarget: HTMLButtonElement }) => e.currentTarget.blur();
   if (!editing) {
     return (
@@ -158,6 +159,11 @@ function LayoutControls() {
   const s = useLayout.getState();
   return (
     <div className="flex items-center gap-1.5">
+      {paused && (
+        <span className="mr-1.5 whitespace-nowrap" title="Done resumes playback">
+          <Label>Paused while editing</Label>
+        </span>
+      )}
       <button
         type="button"
         data-picker-toggle=""
