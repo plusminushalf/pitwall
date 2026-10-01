@@ -1,7 +1,8 @@
 // describe/test/expect are bun test's globals: a block folder may only import react, block-kit and its own
 // files (bun run lint), so not "bun:test".
 
-import { neutralPeriods, pacePoints, stintFits, trendText, type PaceLap, type PaceStint } from "./pace";
+import type { NeutralPeriod } from "block-kit";
+import { pacePoints, stintFits, trendText, type PaceLap, type PaceStint } from "./pace";
 
 const LAP_MS = 90_000;
 
@@ -62,29 +63,25 @@ describe("stint pace", () => {
     expect(pacePoints(lapsOf(times), STINTS, []).find((p) => p.lap === 5)?.excluded).toBeNull();
   });
 
-  test("laps touched by a safety car or VSC period don't count", () => {
-    const neutral = neutralPeriods([
-      { t: 4 * LAP_MS + 30_000, text: "SAFETY CAR DEPLOYED" },
-      { t: 6 * LAP_MS + 10_000, text: "SAFETY CAR IN THIS LAP" },
-      { t: 14 * LAP_MS + 5_000, text: "VSC DEPLOYED" },
-      { t: 14 * LAP_MS + 50_000, text: "VSC ENDING" },
-    ]);
-    expect(neutral).toEqual([
-      { from: 4 * LAP_MS + 30_000, to: 6 * LAP_MS + 10_000, kind: "SC" },
-      { from: 14 * LAP_MS + 5_000, to: 14 * LAP_MS + 50_000, kind: "VSC" },
-    ]);
-    // Equal laps, so the times don't move lap boundaries.
-    const points = pacePoints(lapsOf(Array(20).fill(90)), STINTS, neutral);
-    const reasons = Object.fromEntries(points.filter((p) => p.excluded && p.lap > 1 && p.lap !== 10 && p.lap !== 11).map((p) => [p.lap, p.excluded]));
-    expect(reasons).toEqual({ 5: "SC", 6: "SC", 7: "SC", 15: "VSC" });
+  // Equal laps, so the times don't move lap boundaries; lap 1, the in lap and the out lap left out of the reasons.
+  const neutralReasons = (neutral: NeutralPeriod[]) =>
+    Object.fromEntries(
+      pacePoints(lapsOf(Array(20).fill(90)), STINTS, neutral)
+        .filter((p) => p.excluded && p.lap > 1 && p.lap !== 10 && p.lap !== 11)
+        .map((p) => [p.lap, p.excluded]),
+    );
+
+  test("laps touched by a safety car, VSC or red flag period don't count", () => {
+    const neutral: NeutralPeriod[] = [
+      { status: "SC", start: 4 * LAP_MS + 30_000, end: 6 * LAP_MS + 10_000 },
+      { status: "VSC", start: 14 * LAP_MS + 5_000, end: 14 * LAP_MS + 50_000 },
+      { status: "RED", start: 17 * LAP_MS + 60_000, end: 17 * LAP_MS + 80_000 },
+    ];
+    expect(neutralReasons(neutral)).toEqual({ 5: "SC", 6: "SC", 7: "SC", 15: "VSC", 18: "RED" });
   });
 
-  test("a safety car still out runs on; a VSC turned into a safety car hands over", () => {
-    expect(neutralPeriods([{ t: 1000, text: "VIRTUAL SAFETY CAR DEPLOYED" }, { t: 5000, text: "SAFETY CAR DEPLOYED" }])).toEqual([
-      { from: 1000, to: 5000, kind: "VSC" },
-      { from: 5000, to: Infinity, kind: "SC" },
-    ]);
-    expect(neutralPeriods([{ t: 1000, text: "SAFETY CAR THROUGH THE PIT LANE" }])).toEqual([]);
+  test("a period still out runs on to the last lap", () => {
+    expect(neutralReasons([{ status: "SC", start: 16 * LAP_MS + 30_000, end: null }])).toEqual({ 17: "SC", 18: "SC", 19: "SC", 20: "SC" });
   });
 
   test("the trend per stint is the slope through its clean laps", () => {

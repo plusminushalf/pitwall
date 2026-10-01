@@ -1,5 +1,7 @@
 // Which laps show a driver's pace, and the trend of each stint. Pure: the block feeds it the laps,
-// stints and race control messages it has so far (nothing past t).
+// stints and safety car, VSC and red flag periods it has so far (nothing past t).
+
+import type { NeutralPeriod } from "block-kit";
 
 /** The part of a completed lap this needs. */
 export interface PaceLap {
@@ -20,15 +22,8 @@ export interface PaceStint {
   open: boolean;
 }
 
-/** A safety car or VSC period, in ms; `to` is Infinity while it's still out. */
-export interface Neutral {
-  from: number;
-  to: number;
-  kind: "SC" | "VSC";
-}
-
 /** Why a lap doesn't count towards pace. */
-export type Excluded = "lap-1" | "pit-in" | "pit-out" | "SC" | "VSC" | "slow";
+export type Excluded = "lap-1" | "pit-in" | "pit-out" | NeutralPeriod["status"] | "slow";
 
 export interface PacePoint {
   lap: number;
@@ -60,33 +55,10 @@ export interface StintFit {
   open: boolean;
 }
 
-/** Slower than this share of the driver's median clean lap: traffic, a mistake, a red flag. */
+/** Slower than this share of the driver's median clean lap: traffic, a mistake. */
 export const SLOW = 1.07;
 /** Fewer clean laps than this and a stint gets no trend: a line through a few laps on a fresh set is noise. */
 export const MIN_FIT_LAPS = 5;
-
-/**
- * Safety car and VSC periods from race control's safety car messages (oldest first). A period starts at
- * DEPLOYED and ends at "IN THIS LAP" (SC) or ENDING (VSC), or when the other kind is deployed.
- */
-export function neutralPeriods(messages: readonly { t: number; text: string }[]): Neutral[] {
-  const out: Neutral[] = [];
-  let open: { from: number; kind: Neutral["kind"] } | null = null;
-  for (const { t, text } of messages) {
-    const msg = text.toUpperCase();
-    // "VIRTUAL SAFETY CAR DEPLOYED" until 2025, "VSC DEPLOYED" from 2026.
-    const kind = msg.includes("VIRTUAL") || /\bVSC\b/.test(msg) ? "VSC" : "SC";
-    if (msg.includes("DEPLOYED")) {
-      if (open) out.push({ from: open.from, to: t, kind: open.kind });
-      open = { from: t, kind };
-    } else if (open && (msg.includes("ENDING") || msg.includes("IN THIS LAP"))) {
-      out.push({ from: open.from, to: t, kind: open.kind });
-      open = null;
-    }
-  }
-  if (open) out.push({ from: open.from, to: Infinity, kind: open.kind });
-  return out;
-}
 
 const median = (xs: number[]) => {
   const s = [...xs].sort((a, b) => a - b);
@@ -96,10 +68,10 @@ const median = (xs: number[]) => {
 
 /**
  * One point per timed lap, each marked with why it doesn't show pace, if it doesn't: lap 1, the laps
- * into and out of the pits, laps touched by a safety car or VSC, and laps slower than 107% of the
- * driver's median of the rest.
+ * into and out of the pits, laps touched by a safety car, VSC or red flag, and laps slower than 107% of
+ * the driver's median of the rest.
  */
-export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[], neutral: readonly Neutral[]): PacePoint[] {
+export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[], neutral: readonly NeutralPeriod[]): PacePoint[] {
   const out: PacePoint[] = [];
   for (const l of laps) {
     if (l.duration == null || !(l.duration > 0)) continue;
@@ -108,7 +80,8 @@ export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[
     if (!s) continue;
     const next = stints[i + 1];
     const end = l.end ?? l.start + l.duration * 1000;
-    const flag = neutral.find((p) => p.from < end && l.start < p.to);
+    // A period with no `end` is still out.
+    const flag = neutral.find((p) => p.start < end && l.start < (p.end ?? Infinity));
     const excluded: Excluded | null =
       l.lap === 1
         ? "lap-1"
@@ -117,7 +90,7 @@ export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[
           : next && l.lap === next.lapStart - 1
             ? "pit-in"
             : flag
-              ? flag.kind
+              ? flag.status
               : null;
     out.push({ lap: l.lap, start: l.start, time: l.duration, stint: s.stint, compound: s.compound, age: s.ageAtStart + l.lap - s.lapStart, excluded });
   }
@@ -171,5 +144,6 @@ export const EXCLUDED_TEXT: Record<Excluded, string> = {
   "pit-out": "Out lap",
   SC: "Safety car",
   VSC: "VSC",
+  RED: "Red flag",
   slow: "Over 107% of median",
 };

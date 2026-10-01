@@ -5,25 +5,24 @@ import {
   lapTime,
   teamColor,
   TyreBadge,
+  useAllLaps,
+  useAllStints,
   useBlockSize,
   useDrivers,
-  useFeed,
   useFrame,
-  useLaps,
   useLeaderLap,
+  useNeutralPeriods,
   usePlayback,
   useSelectedDriver,
   useSelection,
   useSettings,
-  useStints,
   useTotalLaps,
   type DriverInfo,
   type DriverSetting,
-  type FeedEntry,
   type Lap,
   type StintView,
 } from "block-kit";
-import { EXCLUDED_TEXT, MIN_FIT_LAPS, neutralPeriods, pacePoints, stintFits, trendText, type Neutral, type PaceLap, type PacePoint, type PaceStint, type StintFit } from "./pace";
+import { EXCLUDED_TEXT, MIN_FIT_LAPS, pacePoints, stintFits, trendText, type PaceLap, type PacePoint, type PaceStint, type StintFit } from "./pace";
 
 type XAxis = "lap" | "age";
 type Colour = "auto" | "tyre" | "team";
@@ -63,19 +62,6 @@ interface Series {
 const slimLaps = (laps: readonly Lap[]): PaceLap[] => laps.map((l) => ({ lap: l.lap, start: l.start, end: l.end, duration: l.duration, pitOut: l.pitOut }));
 const slimStints = (stints: readonly StintView[]): PaceStint[] =>
   stints.map((s) => ({ stint: s.stint, lapStart: s.lapStart, lapEnd: s.lapEnd, compound: s.compound, ageAtStart: s.ageAtStart, open: s.open }));
-/** Safety car messages so far, oldest first: a new one re-renders the block, nothing else in the feed does. */
-const safetyCarMessages = (feed: readonly FeedEntry[]) =>
-  feed.filter((f) => f.kind === "safety-car").map((f) => ({ t: f.t, text: f.text })).reverse();
-
-/** Car n's pace points and stint trends; recomputed when it completes a lap (or a stint starts). */
-function usePace(n: number | null, neutral: readonly Neutral[]) {
-  const laps = useLaps(n, slimLaps);
-  const stints = useStints(n, slimStints);
-  return useMemo(() => {
-    const points = pacePoints(laps, stints, neutral);
-    return { points, fits: stintFits(points, stints) };
-  }, [laps, stints, neutral]);
-}
 
 const compoundColor = (c: string) => (COMPOUND[c] ?? COMPOUND.UNKNOWN).color;
 const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase();
@@ -336,10 +322,11 @@ function StintPace() {
   const shown = !pinned && selected.length > 0 ? selected.slice(0, MAX_DRIVERS) : fallback != null ? [fallback] : [];
   const more = pinned ? 0 : Math.max(selected.length - MAX_DRIVERS, 0);
 
-  const scMessages = useFeed(safetyCarMessages);
-  const neutral = useMemo(() => neutralPeriods(scMessages), [scMessages]);
-  // A fixed number of slots, so the hooks are the same every render.
-  const paces = [usePace(shown[0] ?? null, neutral), usePace(shown[1] ?? null, neutral), usePace(shown[2] ?? null, neutral), usePace(shown[3] ?? null, neutral)];
+  // The shown drivers' laps and stints, in `shown` order: a re-render when one of them completes a lap
+  // (or starts a stint), not when the rest of the field does.
+  const laps = useAllLaps((all) => shown.map((n) => slimLaps(all.get(n) ?? [])));
+  const stints = useAllStints((all) => shown.map((n) => slimStints(all.get(n) ?? [])));
+  const neutral = useNeutralPeriods();
   const drivers = useDrivers();
   const totalLaps = useTotalLaps();
   const leaderLap = useLeaderLap();
@@ -354,11 +341,12 @@ function StintPace() {
       if (!info) return;
       // Hollow: a teammate earlier in the session's order is shown too.
       const hollow = shown.some((m) => m !== n && drivers.find((d) => d.number === m)?.team === info.team && order.get(m)! < order.get(n)!);
-      out.push({ n, info, team: teamColor(info.teamColour), hollow, ...paces[i] });
+      const points = pacePoints(laps[i], stints[i], neutral);
+      out.push({ n, info, team: teamColor(info.teamColour), hollow, points, fits: stintFits(points, stints[i]) });
     });
     return out;
-    // `paces[i]` keep their identity until a lap is completed.
-  }, [drivers, shown.join(), ...paces]);
+    // `laps` and `stints` keep their identity until a shown driver completes a lap (or a stint starts).
+  }, [drivers, shown.join(), laps, stints, neutral]);
 
   const byTyre = colour === "tyre" || (colour === "auto" && series.length === 1);
   const [hover, setHover] = useState<Hit | null>(null);
