@@ -120,6 +120,20 @@ export class MemoryStore implements LoginStore {
   }
 }
 
+/**
+ * IndexedDB answers in milliseconds. A request the browser leaves hanging fails after this instead, so the vault
+ * can't wait for ever (a login in the popup would go unanswered, and the vault stay busy with it).
+ */
+const IDB_MS = 10_000;
+
+function bounded<T>(p: Promise<T>, what: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what}: no answer in ${IDB_MS / 1000} s`)), IDB_MS);
+  });
+  return Promise.race([p, late]).finally(() => clearTimeout(timer));
+}
+
 const DB = "f1-vault";
 const STORE = "login";
 const KEY = "login";
@@ -132,13 +146,14 @@ export class IdbStore implements LoginStore {
   constructor(private name = DB) {}
 
   private open(): Promise<IDBDatabase> {
-    return (this.db ??= new Promise<IDBDatabase>((resolve, reject) => {
+    const opening = new Promise<IDBDatabase>((resolve, reject) => {
       const req = indexedDB.open(this.name, 1);
       req.onupgradeneeded = () => req.result.createObjectStore(STORE);
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
       req.onblocked = () => reject(new Error("blocked"));
-    }).catch((e) => {
+    });
+    return (this.db ??= bounded(opening, "indexedDB.open").catch((e) => {
       this.db = null;
       throw e;
     }));
@@ -146,13 +161,14 @@ export class IdbStore implements LoginStore {
 
   private async run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
     const db = await this.open();
-    return new Promise<T>((resolve, reject) => {
+    const done = new Promise<T>((resolve, reject) => {
       const tx = db.transaction(STORE, mode);
       const req = fn(tx.objectStore(STORE));
       tx.oncomplete = () => resolve(req.result);
       tx.onerror = () => reject(tx.error);
       tx.onabort = () => reject(tx.error);
     });
+    return bounded(done, `indexedDB ${mode}`);
   }
 
   async load() {

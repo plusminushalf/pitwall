@@ -22,7 +22,7 @@ import { fromParent, parentOrigin } from "./origins";
 import { isHello, parsePopupMessage, type Ready, type VaultEvent, type VaultStatus } from "./protocol";
 import { REST_BASE, Rest, type RestFetch, type TokenSource } from "./rest";
 import { Rpc, type PortLike, type Vault } from "./rpc";
-import type { Timers } from "./scheduler";
+import { TOKEN_TIMEOUT_MS, type Timers } from "./scheduler";
 import { SimBroker, loadSimConfig } from "./sim";
 import { IdbStore } from "./storage";
 import { CHANNEL, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
@@ -57,12 +57,15 @@ async function boot(parent: string) {
   let knobs: DevKnobs | null = null;
   let node: VaultNode | null = null;
   let live: LiveManager | null = null;
-  const tokenFetch = (url: string, init: RequestInit) => gFetch(sim && url === TOKEN_URL ? `${simBase}/token` : url, init);
+  // /token gets the scheduler's timeout on every call, a login's too (not just refreshes): a hung request then
+  // fails as a network error instead of leaving the popup unanswered.
+  const tokenInit = (init: RequestInit): RequestInit => ({ ...init, signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS) });
+  const tokenFetch = (url: string, init: RequestInit) => gFetch(sim && url === TOKEN_URL ? `${simBase}/token` : url, tokenInit(init));
   const core = new VaultCore({
     // Simulate mode keeps its (fake) login apart from the real one.
     store: new IdbStore(sim ? "f1-vault-sim" : undefined),
     // Dev vault only: /token through the failure injection (debug:failToken), and to the simulation's /token.
-    fetch: __VAULT_DEV__ ? (url, init) => knobs!.tokenFetch((u, i) => tokenFetch(u, i))(url, init) : (url, init) => fetch(url, init),
+    fetch: __VAULT_DEV__ ? (url, init) => knobs!.tokenFetch((u, i) => tokenFetch(u, i))(url, init) : (url, init) => fetch(url, tokenInit(init)),
     now: Date.now,
     ...(gate && { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout }),
     version: __VAULT_VERSION__,

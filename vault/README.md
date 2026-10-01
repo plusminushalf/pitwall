@@ -455,7 +455,9 @@ and the frame don't share IndexedDB. The popup stores nothing: it hands the logi
    nobody answers within 4 s says it couldn't reach Pitwall. Tickets expire after 10 minutes and are single-use.
 3. The user submits the form (JS only; `form-action 'none'`). `popup:login {username, password, mode}` goes to
    the frame, which calls `POST https://api.openf1.org/token` and answers ok, or `wrong_credentials` (401),
-   `rate_limited` (429), `network`, `server`. The popup shows the error or closes itself.
+   `rate_limited` (429), `network`, `server`. The popup shows the error or closes itself. Nothing in the
+   frame can hang it: `/token` times out after 30 s (`network`) and every IndexedDB request after 10 s
+   (`storage`), well inside the popup's 45 s wait.
 4. Storage (`src/storage.ts`):
    - **Stay connected** (default): an AES-GCM-256 key from `generateKey` with `extractable: false`, stored as a
      CryptoKey in the frame's IndexedDB beside the ciphertext. Restored silently on every load.
