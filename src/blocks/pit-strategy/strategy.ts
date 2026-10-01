@@ -1,6 +1,9 @@
 // Pit stops and undercuts, worked out from lap-line crossings, stints and pit records. Pure: the block
-// passes in what the hooks return at t (completed laps, stints started, stops finished), so nothing here
-// can see past t either. An undercut shows only once both cars have stopped and crossed the line after.
+// passes in what the hooks return at t (completed laps, stints started, stops finished, neutral periods),
+// so nothing here can see past t either. An undercut shows only once both cars have stopped and crossed
+// the line after.
+
+import type { NeutralPeriod } from "block-kit";
 
 /** A completed lap: when the car crossed the line at its end. */
 export interface LapLine {
@@ -28,14 +31,6 @@ export interface CarInput {
   stints: readonly StintStart[];
   /** Empty in early 2023 races (OpenF1 has no pit records): stops then come from the stints alone. */
   pits: readonly PitRecord[];
-}
-
-/** A race control message from the feed (kinds "safety-car" and "flag"). */
-export interface ControlMsg {
-  t: number;
-  kind: string;
-  text: string;
-  flag?: string | null;
 }
 
 export type Neutralised = "SC" | "VSC" | null;
@@ -82,8 +77,6 @@ export const CLOSE_S = 3;
 export const REPLY_LAPS = 5;
 /** Without a pit record, pit entry is taken as this long before the in-lap ends (the line is in the pit lane). */
 export const ENTRY_BEFORE_LINE_MS = 15_000;
-/** VSC ENDING: green this long after, as the core's track status has it. */
-const VSC_ENDING_MS = 15_000;
 
 /** Every car's line crossings, by car and by lap. */
 interface Lines {
@@ -92,14 +85,11 @@ interface Lines {
   position: (driver: number, lap: number) => number | null;
   /** The cars just ahead and just behind at that line, with the gap to each (ms, positive). */
   neighbours: (driver: number, lap: number) => { driver: number; gap: number; ahead: boolean }[];
-  /** The first crossing of any line after t (the leader, normally). */
-  firstAfter: (t: number) => number | null;
 }
 
 function linesOf(cars: readonly CarInput[]): Lines {
   const byCar = new Map<number, Map<number, number>>();
   const byLap = new Map<number, { driver: number; end: number }[]>();
-  const all: number[] = [];
   for (const c of cars) {
     const own = new Map<number, number>();
     for (const l of c.laps) {
@@ -107,12 +97,10 @@ function linesOf(cars: readonly CarInput[]): Lines {
       const line = byLap.get(l.lap) ?? [];
       line.push({ driver: c.driver, end: l.end });
       byLap.set(l.lap, line);
-      all.push(l.end);
     }
     byCar.set(c.driver, own);
   }
   for (const line of byLap.values()) line.sort((a, b) => a.end - b.end);
-  all.sort((a, b) => a - b);
   const end = (driver: number, lap: number) => byCar.get(driver)?.get(lap) ?? null;
   const indexAt = (driver: number, lap: number) => byLap.get(lap)?.findIndex((x) => x.driver === driver) ?? -1;
   return {
@@ -131,33 +119,18 @@ function linesOf(cars: readonly CarInput[]): Lines {
       if (i + 1 < line.length) out.push({ driver: line[i + 1].driver, gap: line[i + 1].end - own, ahead: false });
       return out;
     },
-    firstAfter: (t) => all.find((e) => e > t) ?? null,
   };
 }
 
 /**
- * Safety car or VSC at x, from the race control messages so far: deployed until "IN THIS LAP" and the
- * next line crossing (SC) or "ENDING" and 15 s (VSC); a track green, red or chequered flag ends either.
- * `control` is oldest first.
+ * Safety car or VSC at x (a pit entry), from the periods so far. A period ends with the track going green:
+ * the leader's next line after "IN THIS LAP", 15 s after "VSC ENDING". No grace after that: the core's
+ * track status already holds the ending phase, and a car entering the pits later stops at racing speed.
+ * Under a red flag it's neither (the cars wait in the pit lane, nobody gains).
  */
-export function neutralisedAt(control: readonly ControlMsg[], x: number, firstAfter: (t: number) => number | null): Neutralised {
-  let state: Neutralised = null;
-  let until = Infinity;
-  for (const m of control) {
-    if (m.t > x) break;
-    const text = m.text.toUpperCase();
-    if (m.kind === "safety-car") {
-      // "VIRTUAL SAFETY CAR DEPLOYED" until 2025, "VSC DEPLOYED" from 2026.
-      const virtual = text.includes("VIRTUAL") || /\bVSC\b/.test(text);
-      if (virtual && text.includes("ENDING")) [state, until] = ["VSC", m.t + VSC_ENDING_MS];
-      else if (virtual && text.includes("DEPLOYED")) [state, until] = ["VSC", Infinity];
-      else if (!virtual && text.includes("IN THIS LAP")) [state, until] = ["SC", firstAfter(m.t) ?? Infinity];
-      else if (!virtual && text.includes("DEPLOYED")) [state, until] = ["SC", Infinity];
-    } else if (m.kind === "flag" && ["GREEN", "CLEAR", "RED", "CHEQUERED"].includes(m.flag ?? "")) {
-      state = null;
-    }
-  }
-  return x < until ? state : null;
+export function neutralisedAt(periods: readonly NeutralPeriod[], x: number): Neutralised {
+  const p = periods.find((p) => p.start <= x && (p.end == null || x < p.end));
+  return p?.status === "SC" || p?.status === "VSC" ? p.status : null;
 }
 
 /**
@@ -165,7 +138,7 @@ export function neutralisedAt(control: readonly ControlMsg[], x: number, firstAf
  * a lap) to the pit record entered on that lap for its timing. A record with no new stint is a stop with
  * no tyre change (a drive-through, say); a new stint with no record is a stop without timing.
  */
-function stopsOf(car: CarInput, lines: Lines, control: readonly ControlMsg[]): Stop[] {
+function stopsOf(car: CarInput, lines: Lines, periods: readonly NeutralPeriod[]): Stop[] {
   const stints = [...car.stints].sort((a, b) => a.stint - b.stint);
   const compoundOn = (lap: number) => stints.filter((s) => s.lapStart <= lap).at(-1)?.compound ?? null;
   // The lap in progress at t: one past the last lap completed by then.
@@ -200,7 +173,7 @@ function stopsOf(car: CarInput, lines: Lines, control: readonly ControlMsg[]): S
         stationary: pit?.stopDuration ?? null,
         before: lap >= 2 ? lines.position(car.driver, lap - 1) : null,
         after: lines.position(car.driver, lap + 1),
-        under: neutralisedAt(control, t, lines.firstAfter),
+        under: neutralisedAt(periods, t),
         t,
       };
     });
@@ -212,10 +185,9 @@ function stopsOf(car: CarInput, lines: Lines, control: readonly ControlMsg[]): S
  * laps later, the first didn't stop again in between, and both have crossed the line after the second
  * car's out-lap: whoever is ahead there won it. A car that retires before then settles nothing.
  */
-export function analyse(cars: readonly CarInput[], messages: readonly ControlMsg[]): { stops: Stop[]; duels: Duel[] } {
+export function analyse(cars: readonly CarInput[], periods: readonly NeutralPeriod[]): { stops: Stop[]; duels: Duel[] } {
   const lines = linesOf(cars);
-  const control = [...messages].sort((a, b) => a.t - b.t);
-  const stopsBy = new Map(cars.map((c) => [c.driver, stopsOf(c, lines, control)]));
+  const stopsBy = new Map(cars.map((c) => [c.driver, stopsOf(c, lines, periods)]));
   const duels: Duel[] = [];
   for (const [a, stops] of stopsBy) {
     for (const first of stops) {

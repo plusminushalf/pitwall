@@ -4,21 +4,20 @@ import {
   teamColor,
   textOn,
   TyreBadge,
+  useAllLaps,
+  useAllPitStops,
+  useAllStints,
   useDrivers,
-  useFeed,
-  useLaps,
-  usePitStops,
+  useNeutralPeriods,
   usePlayback,
   useSelection,
   useSettings,
-  useStints,
   type DriverInfo,
-  type FeedEntry,
   type Lap,
   type PitStop,
   type StintView,
 } from "block-kit";
-import { analyse, type CarInput, type ControlMsg, type Duel, type LapLine, type Neutralised, type PitRecord, type StintStart, type Stop } from "./strategy";
+import { analyse, type CarInput, type Duel, type LapLine, type Neutralised, type PitRecord, type StintStart, type Stop } from "./strategy";
 
 type Show = "all" | "selected";
 type Settings = { show: Show };
@@ -27,23 +26,21 @@ type Settings = { show: Show };
 const LEAD_MS = 5_000;
 
 // What the analysis reads of each hook: the block re-renders when a lap, stint or stop is added, not at 10 Hz.
-const toLines = (laps: readonly Lap[]): LapLine[] => laps.flatMap((l) => (l.end == null ? [] : [{ lap: l.lap, end: l.end }]));
-const toStarts = (stints: readonly StintView[]): StintStart[] => stints.map(({ stint, lapStart, compound }) => ({ stint, lapStart, compound }));
-const toRecords = (pits: readonly PitStop[]): PitRecord[] => pits.map(({ entry, exit, laneDuration, stopDuration }) => ({ entry, exit, laneDuration, stopDuration }));
-/** Safety car messages, and the flags that end one. */
-const toControl = (feed: readonly FeedEntry[]): ControlMsg[] =>
-  feed
-    .filter((f) => f.kind === "safety-car" || (f.kind === "flag" && ["GREEN", "CLEAR", "RED", "CHEQUERED"].includes(f.flag ?? "")))
-    .map(({ t, kind, text, flag }) => ({ t, kind, text, flag }));
+const each =
+  <T, R>(pick: (v: readonly T[]) => R[]) =>
+  (all: ReadonlyMap<number, readonly T[]>) =>
+    new Map([...all].map(([n, v]) => [n, pick(v)]));
+const toLines = each((laps: readonly Lap[]): LapLine[] => laps.flatMap((l) => (l.end == null ? [] : [{ lap: l.lap, end: l.end }])));
+const toStarts = each((stints: readonly StintView[]): StintStart[] => stints.map(({ stint, lapStart, compound }) => ({ stint, lapStart, compound })));
+const toRecords = each((pits: readonly PitStop[]): PitRecord[] => pits.map(({ entry, exit, laneDuration, stopDuration }) => ({ entry, exit, laneDuration, stopDuration })));
 
-/**
- * Every car's completed laps, stints and finished stops. One set of hooks per car: `numbers` is fixed for
- * the component's life (PitStrategy remounts it when the session's drivers change), so the hook order is too.
- */
-function useCars(numbers: readonly number[]): CarInput[] {
-  const cars = numbers.map((n) => ({ driver: n, laps: useLaps(n, toLines), stints: useStints(n, toStarts), pits: usePitStops(n, toRecords) }));
+/** Every car's completed laps, stints and finished stops, in session order. */
+function useCars(): CarInput[] {
+  const laps = useAllLaps(toLines);
+  const stints = useAllStints(toStarts);
+  const pits = useAllPitStops(toRecords);
   // The hooks keep their result while it's unchanged, so this changes only when one of them does.
-  return useMemo(() => cars, cars.flatMap((c) => [c.laps, c.stints, c.pits]));
+  return useMemo(() => [...laps].map(([driver, l]) => ({ driver, laps: l, stints: stints.get(driver) ?? [], pits: pits.get(driver) ?? [] })), [laps, stints, pits]);
 }
 
 type Row = { key: string; t: number; stop: Stop; duel?: undefined } | { key: string; t: number; duel: Duel; stop?: undefined };
@@ -154,16 +151,17 @@ const MomentRow = memo(function MomentRow({ row, info, onRow }: { row: Row; info
   );
 });
 
-function Moments({ numbers }: { numbers: readonly number[] }) {
-  const cars = useCars(numbers);
-  const control = useFeed(toControl);
+/** Pit stops and undercut outcomes so far, newest first; a click jumps to just before the stop. */
+function PitStrategy() {
+  const cars = useCars();
+  const periods = useNeutralPeriods();
   const [{ show }] = useSettings<Settings>();
   const selected = useSelection((s) => s.selected);
   const focus = useSelection((s) => s.focus);
   const seek = usePlayback((p) => p.seek);
   const drivers = useDrivers();
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
-  const { stops, duels } = useMemo(() => analyse(cars, control), [cars, control]);
+  const { stops, duels } = useMemo(() => analyse(cars, periods), [cars, periods]);
 
   // Newest first, like the race feed: the latest stop is on top while you watch, and an undercut's
   // outcome arrives on top as soon as it's settled. With nobody selected, the filter shows everyone.
@@ -207,12 +205,6 @@ function Moments({ numbers }: { numbers: readonly number[] }) {
       </ol>
     </section>
   );
-}
-
-/** Pit stops and undercut outcomes so far, newest first; a click jumps to just before the stop. */
-function PitStrategy() {
-  const numbers = useDrivers((ds) => ds.map((d) => d.number));
-  return <Moments key={numbers.join(",")} numbers={numbers} />;
 }
 
 export default defineBlock({

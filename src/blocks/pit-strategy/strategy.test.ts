@@ -1,7 +1,8 @@
 // Stops and undercuts on synthetic races: 90 s laps, a stop costs 5 s on the in-lap and 15 s on the
 // out-lap. (bun test's describe/test/expect are globals: a block may only import react and block-kit.)
 
-import { analyse, CLOSE_S, type CarInput, type ControlMsg, type PitRecord, type StintStart } from "./strategy";
+import type { NeutralPeriod } from "block-kit";
+import { analyse, CLOSE_S, type CarInput, type PitRecord, type StintStart } from "./strategy";
 
 const LAP_MS = 90_000;
 
@@ -149,17 +150,20 @@ describe("stops", () => {
     expect([s.lap, s.from, s.to, s.lane]).toEqual([18, "MEDIUM", null, 22]);
   });
 
-  test("under a VSC or safety car, from race control so far", () => {
+  test("under a VSC or safety car: pit entry within a period so far", () => {
     const entry = endOf(ham, 18) - 10_000;
-    const msg = (t: number, text: string, kind = "safety-car", flag: string | null = null): ControlMsg => ({ t, kind, text, flag });
-    const under = (control: ControlMsg[]) => analyse([ver, ham, nor], control).stops[0].under;
-    expect(under([msg(entry - 60_000, "VIRTUAL SAFETY CAR DEPLOYED")])).toBe("VSC");
-    expect(under([msg(entry - 60_000, "VSC DEPLOYED"), msg(entry - 20_000, "VSC ENDING")])).toBeNull();
-    expect(under([msg(entry - 60_000, "SAFETY CAR DEPLOYED")])).toBe("SC");
-    expect(under([msg(entry - 60_000, "SAFETY CAR DEPLOYED"), msg(entry - 50_000, "TRACK CLEAR", "flag", "CLEAR")])).toBeNull();
-    // "In this lap": still under the safety car until the leader next crosses the line (after the entry here).
-    expect(under([msg(entry - 60_000, "SAFETY CAR DEPLOYED"), msg(entry - 5_000, "SAFETY CAR IN THIS LAP")])).toBe("SC");
-    expect(under([msg(entry + 1_000, "SAFETY CAR DEPLOYED")])).toBeNull();
+    const period = (status: NeutralPeriod["status"], start: number, end: number | null = null): NeutralPeriod => ({ status, start, end });
+    const under = (periods: NeutralPeriod[]) => analyse([ver, ham, nor], periods).stops[0].under;
+    expect(under([period("VSC", entry - 60_000)])).toBe("VSC");
+    expect(under([period("SC", entry - 60_000, entry + 5_000)])).toBe("SC");
+    expect(under([period("SC", entry)])).toBe("SC");
+    // Over by the time the car came in (no grace after the green), or not out yet.
+    expect(under([period("VSC", entry - 60_000, entry)])).toBeNull();
+    expect(under([period("SC", entry - 60_000, entry - 1_000)])).toBeNull();
+    expect(under([period("SC", entry + 1_000)])).toBeNull();
+    // A red flag is neither; the safety car out after it is.
+    expect(under([period("RED", entry - 60_000)])).toBeNull();
+    expect(under([period("RED", entry - 60_000, entry - 5_000), period("SC", entry - 5_000)])).toBe("SC");
   });
 
   test("no stop before it happens", () => {
