@@ -41,6 +41,7 @@
 //     useCarHistory(n, windowMs, select?)  telemetry samples in [t - windowMs, t]
 //     useLaps(n, select?)        completed laps
 //     useStints(n, select?)      stints started so far (the current one open)
+//     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
 //     useBestSectors(select?)    fastest time in each sector by anyone so far
 //   Selection
@@ -62,6 +63,7 @@
 //     useFeed() entries          `inferred`: cars that caused a sector yellow, inferred from telemetry
 //     useRadio()                 team radio played by the core, one clip at a time app-wide
 //     useFrame() frame.now       the frame's wall-clock time (rAF timestamp), for real-time animation
+//     usePitStops()              pit stop timing (pit lane and stationary time), not just the stints
 //     useFrame() car(n).pit      the car is in the pit lane (map: a smaller, fainter dot); .pitLane: on
 //                                useTrack().pitLane's stretch, 2 s more each side (map: cars ride the drawn lane)
 //
@@ -83,6 +85,7 @@ export {
   useFrame,
   useLaps,
   useLeaderLap,
+  usePitStops,
   usePlayback,
   usePositions,
   useRadio,
@@ -107,7 +110,7 @@ export type { DrawFn, Frame } from "./frame";
 export type { CarHistory, CarPosition, FeedEntry, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
 export type { FeedItem, FeedKind } from "../data/session";
 export type { DriverState, DriverStatus, SectorFlag, Telemetry } from "../engine/raceState";
-export type { DriverInfo, Lap, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
+export type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
 
 // ---------------------------------------------------------------- provisional UI kit (step 4 replaces it)
 

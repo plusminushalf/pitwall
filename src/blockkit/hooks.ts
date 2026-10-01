@@ -8,7 +8,7 @@ import type { Session } from "../data/session";
 import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
-import type { DriverInfo, Lap, TrackStatus, WeatherSample } from "../types";
+import type { DriverInfo, Lap, PitStop, TrackStatus, WeatherSample } from "../types";
 import { SettingsContext, SizeContext, VisibilityContext, type BlockSize, type Visibility } from "./context";
 import type { BlockSettings } from "./defineBlock";
 import { deepEqual } from "./equal";
@@ -23,6 +23,7 @@ import {
   historyRange,
   lapsAt,
   orderOf,
+  pitsAt,
   positionsOf,
   selectedDriverOf,
   sessionInfoOf,
@@ -295,6 +296,23 @@ export function useStints<R = readonly StintView[]>(n: number | null, select?: S
       const d = n == null ? undefined : s.session.drivers.get(n);
       const state = s.race.drivers.find((x) => x.driver === n);
       return d && state ? stintsAt(d, state.lap) : NO_STINTS;
+    },
+    [n],
+    select,
+  );
+}
+
+const NO_PITS: readonly PitStop[] = [];
+
+/**
+ * API gap: car n's pit stops finished by t, oldest first, with pit entry and exit times, pit lane time
+ * and stationary time when reported (stints have the tyres, not the timing). Early 2023 races have none.
+ */
+export function usePitStops<R = readonly PitStop[]>(n: number | null, select?: Select<readonly PitStop[], R>): R {
+  return useKit(
+    (s) => {
+      const d = n == null ? undefined : s.session.drivers.get(n);
+      return d ? pitsAt(d, s.t) : NO_PITS;
     },
     [n],
     select,

@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { buildSession, type CarSeries, type DriverData, type Session } from "../data/session";
 import { driverStateAt, raceStateAt } from "../engine/raceState";
 import type { DriverTelemetry, Lap, SessionMeta, Stint } from "../types";
-import { feedEndAt, feedUpTo, historyRange, historySlice, lapsAt, selectedDriverOf, stintsAt, trackOf } from "./select";
+import { feedEndAt, feedUpTo, historyRange, historySlice, lapsAt, pitsAt, selectedDriverOf, stintsAt, trackOf } from "./select";
 
 const lap = (n: number, start: number, end: number | null): Lap => ({
   driver: 1,
@@ -61,6 +61,16 @@ describe("stints", () => {
   test("nothing past the current lap leaks, even from bad data", () => {
     const d = { stints: [stint(1, 1, 9, "SOFT"), stint(2, 3, 9, "HARD")] } as unknown as DriverData;
     expect(Math.max(...stintsAt(d, 4).map((s) => s.lapEnd))).toBe(4);
+  });
+});
+
+describe("pit stops", () => {
+  test("only stops the car has left the pit lane from", () => {
+    const stop = { driver: 1, lap: 3, entry: 300_000, exit: 322_000, laneDuration: 22, stopDuration: 2.4 };
+    const d = { pits: [stop] } as unknown as DriverData;
+    expect(pitsAt(d, 299_000)).toEqual([]);
+    expect(pitsAt(d, 310_000)).toEqual([]); // in the pit lane: its times aren't known yet
+    expect(pitsAt(d, 322_000)).toEqual([stop]);
   });
 });
 

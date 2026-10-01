@@ -6,7 +6,7 @@ import type { CarSeries, DriverData, FeedItem, Session } from "../data/session";
 import { indexAtOrBefore } from "../engine/lookup";
 import { scheduledDistance } from "../engine/raceDistance";
 import { carPositionAt, mapOpacity, type RaceState } from "../engine/raceState";
-import type { DriverInfo, Lap, SessionMeta, Stint, TrackGeometry } from "../types";
+import type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackGeometry } from "../types";
 import { deepEqual } from "./equal";
 
 export type SessionKind = "race" | "qualifying";
@@ -102,6 +102,11 @@ export function stintsAt(d: DriverData, lap: number): StintView[] {
   const upTo = Math.max(lap, 1);
   const started = d.stints.filter((s) => s.lapStart <= upTo);
   return started.map((s, i) => ({ ...s, lapEnd: Math.min(s.lapEnd, upTo), open: i === started.length - 1 }));
+}
+
+/** API gap: the driver's pit stops finished by t (out of the pit lane), so lane and stationary times are known. */
+export function pitsAt(d: DriverData, t: number): PitStop[] {
+  return d.pits.filter((p) => p.exit <= t);
 }
 
 /** Every completed lap in the session by end time, with the running best per sector. */
