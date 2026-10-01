@@ -3,6 +3,7 @@
 import type { BlockDefinition } from "../blockkit/defineBlock";
 import battles from "../blocks/battles";
 import driverHeader from "../blocks/driver-header";
+import gapChart from "../blocks/gap-chart";
 import lapTimes from "../blocks/lap-times";
 import pitStrategy from "../blocks/pit-strategy";
 import raceFeed from "../blocks/race-feed";
@@ -15,6 +16,6 @@ import trackMap from "../blocks/track-map";
 import tyreStrip from "../blocks/tyre-strip";
 import weather from "../blocks/weather";
 
-const ALL: BlockDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, pitStrategy, battles];
+const ALL: BlockDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, pitStrategy, battles];
 
 export const BUILTIN_BLOCKS: ReadonlyMap<string, BlockDefinition> = new Map(ALL.map((b) => [b.id, b as BlockDefinition]));
