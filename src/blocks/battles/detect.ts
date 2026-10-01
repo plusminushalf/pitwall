@@ -7,6 +7,8 @@
 // car crossing the line in the pit lane between two others doesn't split their battle, but a third car
 // running between them does.
 
+import type { NeutralPeriod } from "block-kit";
+
 /** A completed lap's crossings (Lap from block-kit has these and more). */
 export interface LapLine {
   lap: number;
@@ -20,34 +22,25 @@ export interface CarLaps {
   driver: number;
   /** Completed laps, in lap order. */
   laps: readonly LapLine[];
-  /** First lap of each stint so far (useStints): a stint after the first starts with an out-lap. */
+  /** First lap of each stint so far (useAllStints): a stint after the first starts with an out-lap. */
   stintStarts: readonly number[];
   /** Retired, or took the chequered flag: its laps end here. */
   out: boolean;
   finished: boolean;
 }
 
-export type NeutralKind = "sc" | "vsc" | "red";
-
-/** A spell under the safety car, VSC or red flag, in ms (to = Infinity while it lasts). */
-export interface Neutral {
-  from: number;
-  to: number;
-  kind: NeutralKind;
-}
-
-/** An overtake from the race feed (OpenF1's position changes, timed on track). */
+/** An overtake from the race feed (OpenF1's position changes, timed on track): `by` passed `on`. */
 export interface FeedPass {
   t: number;
   by: number;
-  /** The car passed, when the feed names it. */
-  on: number | null;
+  on: number;
 }
 
 export interface Inputs {
   cars: readonly CarLaps[];
-  neutral: readonly Neutral[];
-  /** Pit-lane entries so far (race feed). */
+  /** Safety car, VSC and red flag periods so far (useNeutralPeriods). */
+  neutral: readonly NeutralPeriod[];
+  /** Pit-lane entries so far (race feed: known as the car goes in, useAllPitStops only once it's out). */
   pitEntries: readonly { driver: number; t: number }[];
   passes: readonly FeedPass[];
 }
@@ -88,40 +81,7 @@ export interface Battle {
   passes: Pass[];
   ongoing: boolean;
   /** Why it ended (null while ongoing); `driver` is who pitted or retired, `neutral` what neutralised the race. */
-  end: { reason: EndReason; driver: number | null; neutral: NeutralKind | null } | null;
-}
-
-/** A VSC ENDING turns green about this long after (as the track status does). */
-const VSC_ENDING_MS = 15_000;
-
-/** Safety car, VSC and red flag spells from the race feed (oldest first). */
-export function neutralSpells(feed: readonly { t: number; kind: string; text: string; flag?: string | null }[]): Neutral[] {
-  const out: Neutral[] = [];
-  let open: { from: number; kind: NeutralKind; scNext: boolean } | null = null;
-  const close = (to: number) => {
-    if (open) out.push({ from: open.from, to, kind: open.kind });
-    open = null;
-  };
-  for (const f of feed) {
-    const text = f.text.toUpperCase();
-    if (f.kind === "safety-car") {
-      // "VIRTUAL SAFETY CAR DEPLOYED" until 2025, "VSC DEPLOYED" from 2026.
-      const vsc = text.includes("VIRTUAL") || /\bVSC\b/.test(text);
-      if (open?.kind === "red") open.scNext = true; // the restart will be behind the safety car
-      else if (text.includes("DEPLOYED")) open ??= { from: f.t, kind: vsc ? "vsc" : "sc", scNext: false };
-      if (vsc && text.includes("ENDING")) close(f.t + VSC_ENDING_MS);
-      else if (!vsc && text.includes("IN THIS LAP")) close(f.t);
-    } else if (f.flag === "RED" || text.startsWith("RED FLAG")) {
-      if (open) open.kind = "red";
-      else open = { from: f.t, kind: "red", scNext: false };
-    } else if (open?.kind === "red" && f.kind === "flag" && f.flag === "GREEN") {
-      // The pit exit opens: a standing restart, or one behind the safety car (still neutral).
-      if (open.scNext) open.kind = "sc";
-      else close(f.t);
-    }
-  }
-  close(Infinity);
-  return out;
+  end: { reason: EndReason; driver: number | null; neutral: NeutralPeriod["status"] | null } | null;
 }
 
 /**
@@ -158,7 +118,7 @@ const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
 export function detectBattles(input: Inputs, opts: Options): Battle[] {
   const gapMs = opts.gap * 1000;
   const minLaps = Math.max(1, opts.minLaps);
-  const neutralAt = (start: number, end: number) => input.neutral.some((n) => start < n.to && end > n.from);
+  const neutralAt = (start: number, end: number) => input.neutral.some((n) => start < (n.end ?? Infinity) && end > n.start);
 
   const cars = new Map<number, Car>();
   let maxLap = 0;
@@ -215,15 +175,13 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
     const lo = Math.min(cb.end.get(k - 1)!, co.end.get(k - 1)!) - 1_000;
     const crossing = Math.min(cb.end.get(k)!, co.end.get(k)!);
     const hi = Math.max(cb.end.get(k)!, co.end.get(k)!) + 500;
-    const fromFeed = input.passes.filter((p) => p.by === by && p.t > lo && p.t <= hi);
-    const named = fromFeed.filter((p) => p.on === on);
-    const hit = (named.length > 0 ? named : fromFeed.filter((p) => p.on == null)).at(-1);
+    const hit = input.passes.filter((p) => p.by === by && p.on === on && p.t > lo && p.t <= hi).at(-1);
     return hit ? { lap: k, by, on, t: hit.t, exact: true } : { lap: k, by, on, t: crossing, exact: false };
   };
 
-  /** The first neutral spell still on after time t. */
-  const spellAfter = (t: number) => input.neutral.find((n) => n.to > t)?.kind ?? null;
-  const ended = (reason: EndReason, driver: number | null = null, neutral: NeutralKind | null = null) => ({ reason, driver, neutral });
+  /** The first neutral period still on after time t. */
+  const spellAfter = (t: number) => input.neutral.find((n) => (n.end ?? Infinity) > t)?.status ?? null;
+  const ended = (reason: EndReason, driver: number | null = null, neutral: NeutralPeriod["status"] | null = null) => ({ reason, driver, neutral });
 
   const battles: Battle[] = [];
   for (const { a, b, laps } of close.values()) {

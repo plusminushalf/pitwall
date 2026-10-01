@@ -1,7 +1,7 @@
 // Battle detection on synthetic laps. describe/test/expect are bun test's globals: a block folder may only
 // import react, block-kit and its own files (bun run lint), so not "bun:test".
 
-import { detectBattles, neutralSpells, pitLapsOf, type CarLaps, type Inputs, type LapLine } from "./detect";
+import { detectBattles, pitLapsOf, type CarLaps, type Inputs, type LapLine } from "./detect";
 
 const LAP = 90_000;
 
@@ -26,7 +26,9 @@ describe("detectBattles", () => {
     const two = car(2, 10, (k) => (k <= 5 ? 500 : k <= 8 ? -300 : -3_000));
     const leader = car(3, 10, () => -20_000);
     const pass = { t: 5 * LAP + 40_000, by: 2, on: 1 };
-    const [b, ...rest] = detectBattles(input([one, two, leader], { passes: [pass] }), OPTS);
+    // 2 passing someone else in that lap isn't this pass.
+    const other = { t: 5 * LAP + 60_000, by: 2, on: 3 };
+    const [b, ...rest] = detectBattles(input([one, two, leader], { passes: [pass, other] }), OPTS);
     expect(rest).toHaveLength(0);
     expect(b).toMatchObject({ from: 1, to: 8, ahead: 2, behind: 1, position: 2, ongoing: false, end: { reason: "gap" } });
     expect(b.closest).toBeCloseTo(0.3);
@@ -73,6 +75,9 @@ describe("detectBattles", () => {
     // A pit-lane entry after the line ends it before the lap does.
     const pitted = detectBattles(input([one, two], { pitEntries: [{ driver: 1, t: 12 * LAP + 80_000 }] }), OPTS)[0];
     expect(pitted).toMatchObject({ ongoing: false, end: { reason: "pit", driver: 1 } });
+    // So does a VSC still out.
+    const vsc = detectBattles(input([one, two], { neutral: [{ status: "VSC", start: 12 * LAP + 30_000, end: null }] }), OPTS)[0];
+    expect(vsc).toMatchObject({ ongoing: false, end: { reason: "neutral", neutral: "VSC" } });
   });
 
   test("a pit stop shuffling the order isn't a battle", () => {
@@ -98,13 +103,13 @@ describe("detectBattles", () => {
   test("laps under the safety car don't count, and split a battle", () => {
     const one = car(1, 12, () => 0);
     const two = car(2, 12, () => 500);
-    const neutral = [{ from: 5 * LAP + 10_000, to: 7 * LAP + 10_000, kind: "sc" as const }];
+    const neutral = [{ status: "SC" as const, start: 5 * LAP + 10_000, end: 7 * LAP + 10_000 }];
     const battles = detectBattles(input([one, two], { neutral }), OPTS);
     expect(battles.map((b) => [b.from, b.to])).toEqual([
       [9, 12],
       [1, 5],
     ]);
-    expect(battles[1].end).toEqual({ reason: "neutral", driver: null, neutral: "sc" });
+    expect(battles[1].end).toEqual({ reason: "neutral", driver: null, neutral: "SC" });
   });
 
   test("only cars next to each other: a third car between them splits the pair", () => {
@@ -125,36 +130,5 @@ describe("pitLapsOf", () => {
     expect([...pitLapsOf(c, [])].sort()).toEqual([3, 4]);
     expect([...pitLapsOf({ ...c, stintStarts: [1], laps: lapsOf(c.laps.map((l) => l.end!), [7]) }, [])].sort()).toEqual([6, 7]);
     expect([...pitLapsOf({ ...c, stintStarts: [1] }, [{ driver: 1, t: 8 * LAP - 5_000 }])].sort()).toEqual([8, 9]);
-  });
-});
-
-describe("neutralSpells", () => {
-  test("safety car to 'in this lap', VSC to 'ending' plus 15 s, red flag to the pit exit opening", () => {
-    const sc = (t: number, text: string) => ({ t, kind: "safety-car", text });
-    const spells = neutralSpells([
-      sc(100, "SAFETY CAR DEPLOYED"),
-      sc(200, "SAFETY CAR IN THIS LAP"),
-      sc(300, "VSC DEPLOYED"),
-      sc(400, "VSC ENDING"),
-      { t: 500, kind: "control", text: "RED FLAG - RACE SUSPENDED" },
-      { t: 600, kind: "flag", text: "GREEN LIGHT - PIT EXIT OPEN", flag: "GREEN" },
-      sc(700, "VIRTUAL SAFETY CAR DEPLOYED"),
-    ]);
-    expect(spells).toEqual([
-      { from: 100, to: 200, kind: "sc" },
-      { from: 300, to: 15_400, kind: "vsc" },
-      { from: 500, to: 600, kind: "red" },
-      { from: 700, to: Infinity, kind: "vsc" },
-    ]);
-  });
-
-  test("a red flag restarting behind the safety car stays neutral until it comes in", () => {
-    const spells = neutralSpells([
-      { t: 100, kind: "flag", text: "RED FLAG", flag: "RED" },
-      { t: 150, kind: "safety-car", text: "SAFETY CAR DEPLOYED" },
-      { t: 200, kind: "flag", text: "GREEN LIGHT - PIT EXIT OPEN", flag: "GREEN" },
-      { t: 300, kind: "safety-car", text: "SAFETY CAR IN THIS LAP" },
-    ]);
-    expect(spells).toEqual([{ from: 100, to: 300, kind: "sc" }]);
   });
 });

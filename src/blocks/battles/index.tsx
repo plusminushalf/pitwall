@@ -1,20 +1,23 @@
-import { useCallback, useLayoutEffect, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import {
   defineBlock,
   teamColor,
   textOn,
-  useDriver,
+  useAllLaps,
+  useAllStints,
   useDrivers,
   useFeed,
-  useLaps,
+  useNeutralPeriods,
   usePlayback,
   useSelection,
   useSettings,
-  useStints,
+  useTotalLaps,
   type DriverInfo,
   type FeedEntry,
+  type NeutralPeriod,
+  type StintView,
 } from "block-kit";
-import { detectBattles, neutralSpells, type Battle, type CarLaps, type NeutralKind, type Pass } from "./detect";
+import { detectBattles, type Battle, type CarLaps, type Pass } from "./detect";
 
 type Show = "all" | "selected";
 type Settings = { gap: number; minLaps: number; show: Show };
@@ -22,27 +25,14 @@ type Settings = { gap: number; minLaps: number; show: Show };
 /** A click jumps to this long before the moment, like the race feed. */
 const LEAD_MS = 5_000;
 
-const NEUTRAL: Record<NeutralKind, string> = { sc: "Safety car", vsc: "VSC", red: "Red flag" };
+const NEUTRAL: Record<NeutralPeriod["status"], string> = { SC: "Safety car", VSC: "VSC", RED: "Red flag" };
 
-/** The feed items the detector reads: pit entries, overtakes, and safety car, VSC and red flag messages. */
-const relevant = (f: FeedEntry) =>
-  f.kind === "pit" || f.kind === "overtake" || f.kind === "safety-car" || f.kind === "flag" || (f.kind === "control" && f.text.startsWith("RED FLAG"));
+/** The feed items the detector reads: pit-lane entries, overtakes and retirements. */
+const relevant = (f: FeedEntry) => f.kind === "pit" || f.kind === "overtake" || f.kind === "retired";
 
 const pickFeed = (feed: readonly FeedEntry[]) => feed.filter(relevant);
-const stintStarts = (stints: readonly { lapStart: number }[]) => stints.map((s) => s.lapStart);
-const outOrFinished = (d: { status: string }) => (d.status === "OUT" ? "out" : d.status === "FINISHED" ? "finished" : null);
-
-/**
- * One car's completed laps, stints and status, reported up to the block when they change (once a lap, or
- * on a seek): block-kit's lap hooks are per car, and the battles need every car.
- */
-function CarProbe({ n, report }: { n: number; report: (car: CarLaps) => void }) {
-  const laps = useLaps(n);
-  const starts = useStints(n, stintStarts);
-  const done = useDriver(n, outOrFinished);
-  useLayoutEffect(() => report({ driver: n, laps, stintStarts: starts, out: done === "out", finished: done === "finished" }), [n, laps, starts, done, report]);
-  return null;
-}
+/** Each car's stint starts only: the open stint's end moves every lap, and the block re-renders only when a stint starts. */
+const stintStarts = (all: ReadonlyMap<number, readonly StintView[]>) => new Map([...all].map(([n, stints]) => [n, stints.map((s) => s.lapStart)]));
 
 /** A driver's team-coloured acronym. */
 function DriverChip({ n, d }: { n: number; d: DriverInfo | undefined }) {
@@ -82,7 +72,7 @@ function BattleRow({
         : e.reason === "retired"
           ? `${name(e.driver!)} retired`
           : e.reason === "neutral"
-            ? NEUTRAL[e.neutral ?? "sc"]
+            ? NEUTRAL[e.neutral ?? "SC"]
             : e.reason === "flag"
               ? "to the flag"
               : "gap opened";
@@ -132,25 +122,37 @@ function BattleRow({
 function Battles() {
   const drivers = useDrivers();
   const feed = useFeed(pickFeed);
+  const laps = useAllLaps();
+  const starts = useAllStints(stintStarts);
+  const neutral = useNeutralPeriods();
+  const totalLaps = useTotalLaps();
   const selected = useSelection((s) => s.selected);
   const focus = useSelection((s) => s.focus);
   const seek = usePlayback((p) => p.seek);
   const [{ gap, minLaps, show }, update] = useSettings<Settings>();
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
 
-  const [cars, setCars] = useState<ReadonlyMap<number, CarLaps>>(new Map());
-  const report = useCallback((car: CarLaps) => setCars((m) => new Map(m).set(car.driver, car)), []);
-
   const battles = useMemo(() => {
     const oldestFirst = [...feed].reverse();
-    const number = new Map(drivers.map((d) => [d.acronym, d.number]));
-    // The feed names the car passed only in its text: "VER passes NOR for P3".
     const passes = oldestFirst
-      .filter((f) => f.kind === "overtake" && f.driver != null)
-      .map((f) => ({ t: f.t, by: f.driver!, on: number.get(/ passes (\S+)/.exec(f.text)?.[1] ?? "") ?? null }));
+      .filter((f) => f.kind === "overtake" && f.driver != null && f.passed != null)
+      .map((f) => ({ t: f.t, by: f.driver!, on: f.passed! }));
     const pitEntries = oldestFirst.filter((f) => f.kind === "pit" && f.driver != null).map((f) => ({ driver: f.driver!, t: f.t }));
-    return detectBattles({ cars: [...cars.values()].filter((c) => info.has(c.driver)), neutral: neutralSpells(oldestFirst), pitEntries, passes }, { gap, minLaps });
-  }, [cars, feed, drivers, info, gap, minLaps]);
+    const retired = new Set(oldestFirst.filter((f) => f.kind === "retired").map((f) => f.driver));
+    // The winner took the flag at the end of the race distance; every car crossing the line since has too.
+    let flag = Infinity;
+    for (const car of laps.values()) for (const l of car) if (l.lap === totalLaps && l.end != null) flag = Math.min(flag, l.end);
+    const cars = [...laps].map(
+      ([driver, own]): CarLaps => ({
+        driver,
+        laps: own,
+        stintStarts: starts.get(driver) ?? [],
+        out: retired.has(driver),
+        finished: (own.at(-1)?.end ?? -Infinity) >= flag,
+      }),
+    );
+    return detectBattles({ cars, neutral, pitEntries, passes }, { gap, minLaps });
+  }, [feed, laps, starts, neutral, totalLaps, gap, minLaps]);
 
   const shown = show === "selected" ? battles.filter((b) => selected.includes(b.ahead) || selected.includes(b.behind)) : battles;
 
@@ -172,9 +174,6 @@ function Battles() {
 
   return (
     <section className="flex h-full flex-col text-sm">
-      {drivers.map((d) => (
-        <CarProbe key={d.number} n={d.number} report={report} />
-      ))}
       <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5">
         <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Battles</h2>
         <span className="truncate text-[11px] text-zinc-400">
