@@ -61,6 +61,10 @@ OpenF1 data is licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/b
 
 Pitwall is an unofficial fan project. It is not associated with the Formula 1 companies or with OpenF1. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks are trade marks of Formula One Licensing B.V.
 
+## Analytics
+
+The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home, a session, live), plus country, browser and referrer. No cookies. Builds you run yourself have none.
+
 ## License
 
 Code: [GNU AGPL v3.0](LICENSE) (`AGPL-3.0-only`), © 2026 plusminushalf. Use it, change it, share it. If you distribute a modified version, or run one that others use over a network, publish its source under the same license.
