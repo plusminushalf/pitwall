@@ -14,6 +14,7 @@ import type {
   Stint,
 } from "../types";
 import { yellowCulprits } from "../engine/yellowCause";
+import { carPathOf } from "../engine/carPath";
 
 export interface LocSeries {
   t: Float64Array;
@@ -159,11 +160,12 @@ function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string, cul
   return feed.sort((a, b) => a.t - b.t);
 }
 
-export function buildSession(meta: SessionMeta, telemetry: DriverTelemetry[]): Session {
-  return assemble(meta, new Map(telemetry.map((t) => [t.driver, decodeSeries(t)])));
+/** `live`: a live session's snapshot, to be grown by appendTelemetry (cars' paths then never look ahead). */
+export function buildSession(meta: SessionMeta, telemetry: DriverTelemetry[], opts: { live?: boolean } = {}): Session {
+  return assemble(meta, new Map(telemetry.map((t) => [t.driver, decodeSeries(t)])), opts.live ?? false);
 }
 
-function assemble(meta: SessionMeta, series: Map<number, DriverSeries>): Session {
+function assemble(meta: SessionMeta, series: Map<number, DriverSeries>, live: boolean): Session {
   const drivers = new Map<number, DriverData>();
   const lapsOf = byDriver(meta.laps);
   const stintsOf = byDriver(meta.stints);
@@ -182,7 +184,7 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>): Session
     const laps = (lapsOf.get(n) ?? []).sort((a, b) => a.lap - b.lap);
     const positions = positionsOf.get(n) ?? [];
     const intervals = intervalsOf.get(n) ?? [];
-    drivers.set(n, {
+    const d: DriverData = {
       info,
       loc: s.loc,
       car: s.car,
@@ -196,7 +198,10 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>): Session
       intervalTimes: timesOf(intervals),
       result: resultOf.get(n) ?? null,
       gridPosition: gridOf.get(n) ?? null,
-    });
+    };
+    drivers.set(n, d);
+    // The car's path on the map, computed here (behind the loading screen) rather than on the first frame.
+    carPathOf(d, live);
   }
 
   const lapStartTimes: number[] = [];
@@ -229,7 +234,7 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>): Session
  */
 export function withMeta(session: Session, meta: SessionMeta): Session {
   const same = meta.track === session.meta.track || JSON.stringify(meta.track) === JSON.stringify(session.meta.track);
-  return assemble(same ? { ...meta, track: session.meta.track } : meta, new Map(session.series));
+  return assemble(same ? { ...meta, track: session.meta.track } : meta, new Map(session.series), true);
 }
 
 type Column = Float64Array | Float32Array | Uint8Array;
@@ -302,9 +307,10 @@ export function appendTelemetry(session: Session, chunks: DriverTelemetry[]): Se
     if (d) {
       d.loc = s.loc;
       d.car = s.car;
+      carPathOf(d, true); // extends the path with the new samples
     } else if (session.meta.drivers.some((info) => info.number === chunk.driver)) {
       added = true;
     }
   }
-  return added ? assemble(session.meta, new Map(session.series)) : session;
+  return added ? assemble(session.meta, new Map(session.series), true) : session;
 }

@@ -2,7 +2,8 @@
 
 import type { Lap, Ms, TrackStatus, WeatherSample } from "../types";
 import type { DriverData, FeedItem, Session } from "../data/session";
-import { catmullRom, indexAtOrBefore, lerpAt, stepAt } from "./lookup";
+import { carPathPosition } from "./carPath";
+import { indexAtOrBefore, lerpAt, stepAt } from "./lookup";
 
 /** Retired cars stay on the map (faded) this long after they stop, then disappear. */
 const RETIRED_VISIBLE_MS = 20_000;
@@ -48,25 +49,11 @@ export interface Telemetry {
 }
 
 /**
- * Smoothed (Catmull-Rom) car position at t, or null outside the recorded range.
- * Finished cars stay parked at their last position: the location feed stops before the replay ends.
+ * The car's position at t (moved along its racing line at telemetry speed, see carPath.ts), or null outside
+ * the recorded range. Finished cars stay parked at the end: the location feed stops before the replay ends.
  */
 export function carPositionAt(d: DriverData, t: Ms): { x: number; y: number } | null {
-  const { t: ts, x, y } = d.loc;
-  const n = ts.length;
-  const i = indexAtOrBefore(ts, t);
-  if (i < 0) return null;
-  if (i >= n - 1) {
-    const finished = d.result?.finish != null && t >= d.result.finish;
-    return finished && n > 0 ? { x: x[n - 1], y: y[n - 1] } : null;
-  }
-  const u = (t - ts[i]) / (ts[i + 1] - ts[i]);
-  const i0 = i > 0 ? i - 1 : i;
-  const i3 = i + 2 < n ? i + 2 : i + 1;
-  return {
-    x: catmullRom(x[i0], x[i], x[i + 1], x[i3], u),
-    y: catmullRom(y[i0], y[i], y[i + 1], y[i3], u),
-  };
+  return carPathPosition(d, t, d.result?.finish != null && t >= d.result.finish);
 }
 
 /** 1 = on track, between 0 and 1 = recently retired (fading), 0 = hidden. */

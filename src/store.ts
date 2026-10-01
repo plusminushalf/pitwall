@@ -222,7 +222,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         });
         return;
       case "snapshot": {
-        const session = buildSession(msg.meta, msg.telemetry);
+        const session = buildSession(msg.meta, msg.telemetry, { live: true });
         liveEdge.update(msg.now, wall, true);
         if (s.session?.meta.sessionKey === session.meta.sessionKey) {
           // Reconnected to the same session: carry on (following or watching back) with the fresh data.
