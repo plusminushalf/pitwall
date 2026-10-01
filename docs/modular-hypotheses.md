@@ -162,8 +162,9 @@ Precedents outside F1:
 export default defineBlock({
   id: "speed-gear",
   name: "Speed & gear",
-  shape: 1,                    // width : height, or a function of session info
-  width: { min: 1, default: 1, max: 3 },
+  version: "1.0.0",
+  height: 70,                  // CSS px, or { min } to stretch (H3.8)
+  width: { min: 7, default: 7, max: 12 },  // percent of the grid, snapped to columns
   sessions: ["race"],
   settings: { driver: "follow-selection" },
   Component: () => {
@@ -191,51 +192,67 @@ export default defineBlock({
 - Race state is computed once at 10 Hz and shared; React hooks update at most that often.
 - `useFrame` blocks draw every animation frame, reading the clock directly.
 - Off-screen blocks pause.
-- A slow block drops its own frames; it never stalls playback for everyone else (don't copy Foxglove's `done()` rule).
+- A slow block drops its own frames; it never stalls playback for everyone else (don't copy Foxglove's `done()` rule). As built: a block whose draws typically take more than 4 ms (half the screen's budget; the median of its last 5 draws, so one GC pause skips nothing) skips the next frames in proportion, but still draws a few times a second. Each block's timing is its own.
+- Edit mode pauses playback (H3.10), so dragging blocks never competes with the race for frames.
 - *Test:* today's full screen as blocks at 60 fps within 8 ms per frame on a mid-range laptop.
 
 **H3.7: A shared UI kit.** `Stat`, `Bar`, `Sparkline`, `DriverTag`, team colours, fonts and the theme, so community blocks look like they belong in the app. Looks are what sets us apart, so this matters almost as much as the hooks.
 
 ### Layout
 
-**H3.8: A snap grid, with each block's shape set by the block.**
-- The grid is a fixed number of columns wide with unlimited rows. **10 columns is a placeholder**; the right number comes from trying layouts on real screen sizes.
-- Each block declares its **shape** (a width-to-height ratio) and a minimum, default and maximum width in columns. The user only sets the width; the shape sets the height. Contents scale with the block's width.
-- A shape can depend on session info but never on live data. The tower's shape comes from the driver count, and the track map's from the circuit outline. The race feed has a fixed shape and scrolls inside it, so the layout never jumps.
-- Heights rarely land on whole rows, so the vertical snap step is fine-grained (around a quarter of a column's width).
-- Blocks settle upwards, so removing one never leaves a hole.
-- Cells grow with the screen, so every block scales with it. The minimum width keeps text readable. Narrow screens (fewer columns, blocks repacked into a stack) come later; we're desktop-first.
-- *Wrong if:* blocks with different shapes won't pack without ugly gaps, or text-scales-with-width makes blocks unreadable on common laptop sizes.
+**H3.8: A grid of equal columns exactly as tall as the screen; heights come from the blocks.** Rewritten 2026-09-30 to match what's built; the earlier "shape" idea (a width-to-height ratio, contents zooming with width, unlimited rows, a fine vertical snap step) is dropped.
+- **Columns:** `COLUMNS` in `src/grid/layout.ts` is the one tunable number. It's 38, chosen so the default layout's side columns match the old fixed 410 px and 360 px at a 1720 px wide window, while the speed column still fits its contents at 1440 px.
+- **Widths** are declared in percent (`width: {min, default, max}`), so they mean the same at any column count, and snapped to whole columns.
+- **Fixed type sizes.** Block contents never zoom: a wider block gets more room, not bigger text.
+- **Heights come from the block, never from the user.** `height` is a fixed number of CSS px (what its contents need; it may depend on session info, the selection or the block's own settings, never on live data, so the layout doesn't move while the race plays), or `{ min }` to stretch. Heights never depend on width.
+- **Every column ends flush.** Blocks settle upwards in stacking order; then the last stretching block in each column grows to the bottom of the grid (a block spanning several columns grows by the least room any of them has).
+- **A column with no stretching block** (e.g. the feed removed) keeps empty space at the bottom; fixed blocks aren't stretched to hide it. Normal mode shows plain background there; edit mode shows it as an empty slot with "+ Add block".
+- **Blocks spanning several columns whose stacks differ** rest below the lowest block above them in any of their columns, so the shorter columns get a gap above them, which edit mode also shows as an empty slot.
+- **Too tall for the screen:** stretching blocks give up room down to their minimum. If a column still overflows, the edit is refused (H3.10). A saved layout that overflows only because the window got shorter is left alone: the bottom is cut off, and edit mode labels those blocks "Cut off at this window height".
+- **Groups:** blocks in the same `group` read as one panel, with no divider between them. Dividers (1 px hairlines) appear only between touching blocks of different groups.
+- Narrow screens (fewer columns, blocks repacked into a stack) come later; we're desktop-first.
+- *Wrong if:* common layouts can't be made to end flush without gaps, or fixed type sizes leave blocks cramped on common laptop sizes.
 
-**H3.9: The top bar and the timeline are fixed.** Blocks fill everything between them, and only that middle area scrolls. Play and seek are always reachable, and no layout can end up without them. The default layout should fit a normal laptop screen without scrolling.
+**H3.9: The top bar and the timeline are fixed**, and the grid is exactly the height between them. Nothing scrolls: blocks that have more to show (the tower, the feed) scroll inside themselves. Play and seek are always reachable, and no layout can end up without them. The default layout fits a normal laptop screen.
 
-**H3.10: Normal mode and edit mode**, like the iPhone home screen.
-- *Normal mode:* blocks are locked. Clicking a car or row selects a driver as today, and nothing moves by accident.
-- *Edit mode*, from an "Edit layout" button in the top bar: the grid becomes visible; drag to move (other blocks slide out of the way); drag a corner to change width a column at a time; ✕ removes a block and ⚙ opens its settings; **+** opens the block picker (installed blocks, plus a link to the marketplace); **Done** saves and **Reset** restores the default.
-- The race keeps playing while editing if performance allows. If re-rendering during drags costs too much, playback pauses in edit mode.
+**H3.10: Normal mode and edit mode**, like the iPhone home screen. Built 2026-09-30 (`src/grid/`, core code: blocks know nothing about it).
+- *Normal mode:* blocks are locked. Clicking a car or row selects a driver as before, and nothing moves by accident. It's pixel-identical to the screen without edit mode.
+- *Edit mode*, from "Edit layout" in the top bar (race sessions; that's the top bar's only change, and in edit mode its slot shows "+ Add block", "Reset" and "Done"):
+  - Faint column guides show, and each block gets a thin ring, its name, ⚙ (only if it has settings) and ✕. Block contents don't receive clicks while editing.
+  - **Drag to move.** The drop target is a column and a position in the stack of blocks under the dragged one. Other blocks slide out of the way (animated by position only; sizes snap, so canvases don't reallocate every frame). A drop that doesn't fit turns red ("Doesn't fit") and snaps back; Esc cancels.
+  - **Drag a bottom corner to change width**, one column at a time, within the block's min and max. **Neighbours give way**, since every column is full by default: widening takes the column from the touching blocks on that side (each shrinks if above its min, otherwise shifts over and passes the column on); narrowing hands the column to touching neighbours below their max, otherwise leaves a gap. A step that would push something off the grid or overflow is refused, and the corner turns red.
+  - **✕** removes a block. **⚙** opens a generic editor over the block's settings: blocks declare how each setting is shown (`fields`: choice, driver, toggle, number); a `driver` setting is "Follow selection" or "Pinned to #N" from the session's drivers. The tower's gap/interval mode is a choice.
+  - **+** (or an empty slot) opens the picker: the race blocks not yet placed, with their `description` and default width, "No room" when a block fits nowhere, and a disabled "Marketplace · Coming soon" entry.
+  - **Done** saves; **Reset** restores the default (Done then saves it).
+- Groups survive moves: a block keeps its `group`, so moved away from its group-mates it gets its dividers back, and moved back it re-joins the panel. Blocks added from the picker are their own group. Resizing never changes groups.
+- **Playback pauses while editing.** We tried keeping it running: dragging then dropped frames (production build, 16×, 20 s runs: 1440×900 at 4× CPU throttle 40 fps and ~390 dropped vs 56 fps and ~70 in normal mode, worst frames 83–100 ms; 1920×1080 unthrottled 54 fps and ~125 dropped vs 60 and 0). Entering edit mode now pauses ("Paused while editing" in the top bar), and Done resumes if the race was playing and the user hasn't taken over playback meanwhile. With the pause, plus a compositor layer for the dragged box and memoised block frames, a drag runs at 60 fps unthrottled at 1440 (57 fps at 1920) and 51 fps at 4× throttle; edit mode with nothing moving costs ~0.3 ms per frame. Normal mode is unchanged within noise (1440 at 16× and 4× throttle: 13.8 ± 0.4 ms of main-thread work per frame before and after). Still costly: each resize step resizes and reallocates block canvases (37 long frames in 20 s at 1920 with 4× throttle).
 
 **H3.11: One layout per browser, and each block at most once.**
-- Stored in the browser. No multiple saved layouts and no share links for now.
+- Stored in `localStorage` (`f1-replay:layout`; synchronous, so the default never flashes before the saved layout loads). No multiple saved layouts and no share links for now.
 - A block can be placed only once, so its id also identifies it in the layout and the picker hides blocks already placed. "Pinned to #16" still works for a single block.
-- Format: `{version, columns, blocks: {blockId: {blockVersion, x, y, width, settings}}}`. Heights are derived from shapes.
+- Format: `{version, columns, blocks: {blockId: {blockVersion, x, y, width, group?, settings}}}`. `x` and `width` are in columns; `y` is the stacking order (blocks settle upwards in order of y, then x), not a pixel position. Heights are derived (H3.8).
+- **Loading** validates it and falls back to the default layout if it's missing, corrupt, of an unknown version, or has no usable block left. Unknown block ids and blocks without race support are dropped. Settings keep only keys the block has, with values its fields accept.
+- **A different column count** (`columns` != `COLUMNS`) is rescaled proportionally by block edges, so neighbours stay adjacent, then clamped to each block's range.
+- **The layout pins `blockVersion`.** With only compiled-in blocks there's one version to run: same major version keeps the settings, a different major resets that block's settings, and the pin moves to the running version. Offering updates comes with the marketplace (H3.16).
+- Settings changed outside edit mode (the tower's own gap/interval toggle) save at once; everything done in edit mode saves on Done.
 
-**H3.12: The default layout is today's screen, split into blocks.** New users see what they see now.
+**H3.12: The default layout is today's screen, split into blocks** (`src/grid/defaultLayout.ts`). New users see what they saw before blocks (commit 07d720a): the tower on the left, the map filling the middle, the driver panel on the right (header; speed and gear beside the throttle/brake/RPM bars; the last-60 s trace; lap times and sectors; tyres) with the race feed filling the rest. Weather is back in the top bar; its block exists but isn't placed.
 
-| Block | Shape | Min width |
+| Block | Height | Width (percent: min / default / max) |
 |---|---|---|
-| Timing tower | from the driver count (tall and thin) | 2 |
-| Track map | from the circuit outline | 3 |
-| Driver header (headshot, name, position, places gained) | wide strip, about 4:1 | 2 |
-| Speed and gear | square-ish | 1 |
-| Throttle, brake and RPM bars | wide strip | 2 |
-| Last-60 s trace | about 2:1 | 2 |
-| Lap times (lap, last, best) | wide strip | 2 |
-| Sectors with mini-sectors | wide strip | 2 |
-| Tyre strip | thin strip | 2 |
-| Race feed | fixed and tall, scrolls inside | 2 |
-| Weather (moved out of the top bar) | small | 1 |
+| Timing tower | stretches (min: header + 5 rows); scrolls inside | 22 / 35 / 45 |
+| Track map | stretches (min 200 px) | 20 / 55 / 80 |
+| Driver header (headshot, name, position, places gained) | fixed, from the selection and its driver setting | 15 / 21 / 40 |
+| Speed and gear | 70 px | 7 / 7 / 12 |
+| Throttle, brake and RPM bars | 70 px | 10 / 15 / 30 |
+| Last-60 s trace | fixed | 12 / 21 / 60 |
+| Lap times (lap, last, best) | fixed | 12 / 21 / 40 |
+| Sectors with mini-sectors | fixed | 12 / 21 / 40 |
+| Tyre strip | fixed | 12 / 21 / 60 |
+| Race feed | stretches (min 150 px); scrolls inside | 15 / 21 / 40 |
+| Weather (not placed; in the top bar) | 72 px | 8 / 10 / 25 |
 
-All the driver blocks follow the selected driver by default, so stacked together they look like today's driver panel.
+All the driver blocks follow the selected driver by default, so stacked together they look like the old driver panel. Speed-and-gear and the bars share the "telemetry" group with the trace; lap times and sectors share "laps".
 
 ### Trust and the marketplace
 
@@ -247,7 +264,7 @@ All the driver blocks follow the selected driver by default, so stacked together
 
 **H3.14: The marketplace is a folder in this repo, not a service.**
 - Community blocks live in `blocks/` in this repo. Submitting a block means opening a PR. A separate repo can come later if block PRs crowd out app PRs.
-- On merge, CI builds each block into a content-hashed ES bundle and regenerates a static `registry.json` (id, name, author, version, block-kit version, hash, shape, sessions, screenshots, whether it uses `useWholeSession`). Both are served from the same static host as the app. No accounts, database or backend.
+- On merge, CI builds each block into a content-hashed ES bundle and regenerates a static `registry.json` (id, name, author, version, block-kit version, hash, width and height, sessions, screenshots, whether it uses `useWholeSession`). Both are served from the same static host as the app. No accounts, database or backend.
 - Building from reviewed source means users run exactly the code that was reviewed, unlike the Obsidian model.
 - *Wrong if:* review becomes the bottleneck, or authors want to ship updates without waiting for review.
 
@@ -276,9 +293,9 @@ Static checks catch mistakes, not a determined attacker (e.g. building the name 
 
 ### Build order
 
-1. **Block kit:** the hooks and `defineBlock`, built on the current store. Nothing visible changes.
-2. **Today's screen as blocks:** split the driver panel into its sections and place everything in a fixed default layout on the grid. Check performance with everything on screen.
-3. **Grid and edit mode:** dragging, width resizing, the block picker, saving the layout. Tune the column count here.
+1. **Block kit:** the hooks and `defineBlock`, built on the current store. Nothing visible changes. *Done.*
+2. **Today's screen as blocks:** split the driver panel into its sections and place everything in a fixed default layout on the grid. Check performance with everything on screen. *Done.*
+3. **Grid and edit mode:** dragging, width resizing, the block picker, saving the layout. Tune the column count here. *Done 2026-09-30* (H3.8–H3.12): 38 columns; blocks needed nothing new from the kit beyond `description` and `fields` on `defineBlock`.
 4. **Shared UI kit:** pull the common pieces out of the rebuilt blocks.
 5. **Marketplace:** the `blocks/` folder, CI build and import check, `registry.json`, install and update in the app, the template with a fixture race, developer mode.
 6. **Open submissions.**
@@ -352,5 +369,5 @@ Steps 1–3 prove the idea: if our own blocks can be built using only the hooks,
 6. Should we contact OpenF1 before building? Two questions for them: is a user's own login held in their own browser acceptable, and would they offer refresh tokens or scoped API keys (H2.4)?
 7. Do we keep the Bun server as an optional companion, or retire it? With the vault handling live data in the browser, its only remaining role would be local caching of team radio.
 8. Which domain hosts the vault, and who holds its deploy credentials?
-9. How many grid columns, and how fine a vertical step? 10 columns is a placeholder; settle it by trying layouts on real screens (H3.8).
+9. ~~How many grid columns, and how fine a vertical step?~~ Resolved 2026-09-30: 38 columns (`COLUMNS`), and no vertical step: heights come from the blocks (H3.8).
 10. What do the qualifying hooks look like (ghost clock, distance axis, compared laps)? Deferred until the race hooks have settled (H3.5).
