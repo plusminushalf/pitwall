@@ -1,7 +1,7 @@
 // describe/test/expect are bun test's globals: a block folder may only import react, block-kit and its own
 // files (bun run lint), so not "bun:test".
 
-import { crossingsOf, gapScale, gapSeries, INTERVAL_CAP, leaderCrossings, neutralisedLaps, neutralisedPeriods, orderAtLine, type Crossings } from "./gaps";
+import { crossingsOf, gapScale, gapSeries, INTERVAL_CAP, leaderCrossings, neutralisedLaps, orderAtLine, type Crossings, type NeutralPeriod } from "./gaps";
 
 // Crossings in seconds from lights out at t = 0 (index = lap), as ms.
 const at = (...s: (number | null)[]): Crossings => [null, ...s.map((v) => (v == null ? null : v * 1000))];
@@ -62,32 +62,34 @@ describe("gap chart: gaps", () => {
 
 describe("gap chart: safety car laps", () => {
   const leader = [null, 90_000, 180_000, 270_000, 360_000];
-  const msg = (t: number, text: string, flag: string | null = null) => ({ t: t * 1000, text, flag });
+  // A period in seconds; no end: still out.
+  const period = (status: NeutralPeriod["status"], start: number, end: number | null = null): NeutralPeriod => ({
+    status,
+    start: start * 1000,
+    end: end == null ? null : end * 1000,
+  });
 
-  test("safety car: from deployed to the leader's next crossing after 'in this lap'", () => {
-    const messages = [msg(100, "SAFETY CAR DEPLOYED"), msg(200, "SAFETY CAR IN THIS LAP")];
-    expect(neutralisedPeriods(messages, leader)).toEqual([{ kind: "SC", from: 100_000, to: 270_000 }]);
+  test("a lap is marked when the period overlaps it, from the leader's crossing before to theirs at its end", () => {
     // Lap 2 (90-180 s) and lap 3 (180-270 s); lap 4 and the lap in progress are green.
-    expect(neutralisedLaps(messages, leader, 0)).toEqual([null, null, "SC", "SC", null, null]);
+    expect(neutralisedLaps([period("SC", 100, 250)], leader, 0)).toEqual([null, null, "SC", "SC", null, null]);
+    // Ending as the leader crosses the line: the next lap is green.
+    expect(neutralisedLaps([period("SC", 100, 270)], leader, 0)).toEqual([null, null, "SC", "SC", null, null]);
   });
 
-  test("VSC: ends 15 s after 'ending'; one still running marks the lap in progress", () => {
-    const vsc = [msg(30, "VIRTUAL SAFETY CAR DEPLOYED"), msg(60, "VIRTUAL SAFETY CAR ENDING")];
-    expect(neutralisedLaps(vsc, leader, 0)).toEqual([null, "VSC", null, null, null, null]);
-    // 2026 wording, still running at t: the lap in progress is under it.
-    expect(neutralisedLaps([msg(365, "VSC DEPLOYED")], leader, 0)).toEqual([null, null, null, null, null, "VSC"]);
+  test("VSC; one still out marks the lap in progress", () => {
+    expect(neutralisedLaps([period("VSC", 30, 75)], leader, 0)).toEqual([null, "VSC", null, null, null, null]);
+    expect(neutralisedLaps([period("VSC", 365)], leader, 0)).toEqual([null, null, null, null, null, "VSC"]);
   });
 
-  test("a red flag ends it; a VSC turned into a safety car marks SC", () => {
-    expect(neutralisedPeriods([msg(100, "SAFETY CAR DEPLOYED"), msg(120, "RED FLAG", "RED")], leader)).toEqual([
-      { kind: "SC", from: 100_000, to: 120_000 },
-    ]);
-    const upgraded = [msg(100, "VIRTUAL SAFETY CAR DEPLOYED"), msg(170, "SAFETY CAR DEPLOYED")];
+  test("a red flag isn't marked; a VSC turned into a safety car marks SC", () => {
+    expect(neutralisedLaps([period("SC", 100, 120), period("RED", 120, 200)], leader, 0)).toEqual([null, null, "SC", null, null, null]);
+    const upgraded = [period("VSC", 100, 170), period("SC", 170)];
     expect(neutralisedLaps(upgraded, leader, 0)).toEqual([null, null, "SC", "SC", "SC", "SC"]);
   });
 
   test("no laps yet: only lap 1, from lights out", () => {
-    expect(neutralisedLaps([msg(10, "SAFETY CAR DEPLOYED")], [null], 5_000)).toEqual([null, "SC"]);
+    expect(neutralisedLaps([period("SC", 10)], [null], 5_000)).toEqual([null, "SC"]);
+    expect(neutralisedLaps([period("SC", 1, 4)], [null], 5_000)).toEqual([null, null]);
     expect(neutralisedLaps([], [null], 5_000)).toEqual([null, null]);
   });
 });

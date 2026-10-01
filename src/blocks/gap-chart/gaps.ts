@@ -1,5 +1,5 @@
 // Gaps lap by lap from lap-line crossing times, the safety car laps, and the y scale. Pure.
-// Everything here works on what the hooks give at t (completed laps, the feed so far), so the chart
+// Everything here works on what the hooks give at t (completed laps, the SC/VSC periods so far), so the chart
 // only ever shows the race up to now. No imports, so its test can live outside the block (src/engine).
 
 export type GapMode = "leader" | "interval";
@@ -16,7 +16,7 @@ export interface GapSeries {
   gaps: Gap[];
 }
 
-/** A car's completed laps as crossing times (useLaps' select: changes only when a lap is completed). */
+/** A car's completed laps as crossing times (for useAllLaps' select: changes only when a lap is completed). */
 export function crossingsOf(laps: readonly { lap: number; end: number | null }[]): (number | null)[] {
   const last = laps.reduce((m, l) => Math.max(m, l.lap), 0);
   const out: (number | null)[] = Array.from({ length: last + 1 }, () => null);
@@ -92,64 +92,25 @@ export function orderAtLine(all: ReadonlyMap<number, Crossings>): number[] {
 
 // ---------------------------------------------------------------- safety car laps
 
-/** A race control message, as the feed gives it. */
-export interface ControlMessage {
-  t: number;
-  text: string;
-  flag?: string | null;
-}
-
 export type Neutralised = "SC" | "VSC";
 
-/** Green this long after "VSC ENDING" when no other message comes first (as the ingest does). */
-const VSC_ENDING_MS = 15_000;
-
-/**
- * The safety car and VSC periods so far, from race control's messages (oldest first). A period still
- * running ends at Infinity. "SAFETY CAR IN THIS LAP" ends it when the leader next crosses the line;
- * a red flag or the chequered flag ends whatever was running. Restarts after a red flag behind the
- * safety car aren't always announced, so those laps may go unmarked.
- */
-export function neutralisedPeriods(
-  messages: readonly ControlMessage[],
-  leader: readonly (number | null)[],
-): { kind: Neutralised; from: number; to: number }[] {
-  const periods: { kind: Neutralised; from: number; to: number }[] = [];
-  let open: { kind: Neutralised; from: number } | null = null;
-  const close = (to: number) => {
-    if (open) periods.push({ ...open, to: Math.max(to, open.from) });
-    open = null;
-  };
-  for (const m of messages) {
-    const msg = m.text.toUpperCase();
-    if (m.flag === "RED" || msg.startsWith("RED FLAG") || m.flag === "CHEQUERED") {
-      close(m.t);
-    } else if (msg.includes("VIRTUAL") || /\bVSC\b/.test(msg)) {
-      if (msg.includes("ENDING") && open?.kind === "VSC") close(m.t + VSC_ENDING_MS);
-      else if (msg.includes("DEPLOYED") && !open) open = { kind: "VSC", from: m.t };
-    } else if (msg.includes("SAFETY CAR")) {
-      if (msg.includes("IN THIS LAP") && open?.kind === "SC") close(leader.find((t) => t != null && t > m.t) ?? Infinity);
-      else if (msg.includes("DEPLOYED")) {
-        if (open?.kind === "VSC") close(m.t); // a VSC upgraded to a safety car
-        if (!open) open = { kind: "SC", from: m.t };
-      }
-    }
-  }
-  if (open) close(Infinity);
-  return periods;
+/** A safety car, VSC or red flag period, as useNeutralPeriods gives it: `end` is null while it's still out. */
+export interface NeutralPeriod {
+  status: "SC" | "VSC" | "RED";
+  start: number;
+  end: number | null;
 }
 
 /**
  * laps[n]: whether the leader's lap n (from their crossing at lap n - 1, or lights out, to lap n) ran
- * partly under a safety car or VSC (SC wins). One more entry than the leader's completed laps: the lap
- * in progress, which counts as running until now.
+ * partly under a safety car or VSC (SC wins; red flags aren't marked). One more entry than the leader's
+ * completed laps: the lap in progress, which counts as running until now.
  */
 export function neutralisedLaps(
-  messages: readonly ControlMessage[],
+  periods: readonly NeutralPeriod[],
   leader: readonly (number | null)[],
   lightsOut: number,
 ): (Neutralised | null)[] {
-  const periods = neutralisedPeriods(messages, leader);
   const laps: (Neutralised | null)[] = [null];
   for (let n = 1; n <= leader.length; n++) {
     const from = n === 1 ? lightsOut : leader[n - 1];
@@ -158,7 +119,7 @@ export function neutralisedLaps(
       laps.push(null);
       continue;
     }
-    const kinds = periods.filter((p) => p.from < to && p.to > from).map((p) => p.kind);
+    const kinds = periods.filter((p) => p.start < to && (p.end ?? Infinity) > from).map((p) => p.status);
     laps.push(kinds.includes("SC") ? "SC" : kinds.includes("VSC") ? "VSC" : null);
   }
   return laps;

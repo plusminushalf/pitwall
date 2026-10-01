@@ -3,18 +3,18 @@ import {
   defineBlock,
   gap,
   teamColor,
+  useAllLaps,
   useBlockSize,
   useDrivers,
-  useFeed,
   useFrame,
-  useLaps,
+  useNeutralPeriods,
   usePlayback,
   useSelection,
   useSessionInfo,
   useSettings,
   useTotalLaps,
   type DriverInfo,
-  type FeedEntry,
+  type Lap,
 } from "block-kit";
 import {
   crossingsOf,
@@ -23,7 +23,6 @@ import {
   leaderCrossings,
   neutralisedLaps,
   orderAtLine,
-  type ControlMessage,
   type Crossings,
   type Gap,
   type GapMode,
@@ -59,12 +58,9 @@ const NEUTRALISED: Record<Neutralised, { fill: string; label: string; title: str
   VSC: { fill: "rgba(255, 210, 48, 0.06)", label: "VSC", title: "Virtual safety car" },
 };
 
-/** Safety car, VSC, red and chequered flag messages, oldest first: the feed's, so nothing after t. */
-const controlMessages = (feed: readonly FeedEntry[]): ControlMessage[] =>
-  feed
-    .filter((f) => f.kind === "safety-car" || f.flag === "RED" || f.flag === "CHEQUERED" || f.text.startsWith("RED FLAG"))
-    .map((f) => ({ t: f.t, text: f.text, flag: f.flag ?? null }))
-    .reverse();
+/** Every car's crossings, by car number: compared by value, so the chart re-renders only when someone completes a lap. */
+const allCrossings = (laps: ReadonlyMap<number, readonly Lap[]>): ReadonlyMap<number, Crossings> =>
+  new Map([...laps].map(([n, l]) => [n, crossingsOf(l)]));
 
 /** A line as drawn: its car, colour and dash. */
 interface Line {
@@ -255,16 +251,14 @@ function Tooltip({ lap, lines, sc, left }: { lap: number; lines: Line[]; sc: Neu
   );
 }
 
-/** One chart per set of cars: `numbers` never changes for an instance (GapChart keys it), so neither does the hook count. */
-function Chart({ numbers }: { numbers: readonly number[] }) {
-  // Every car's crossings, not just the shown ones: the leader at each lap can be anyone. Each re-renders
-  // the chart only when that car completes a lap.
-  const crossings = numbers.map((n) => useLaps(n, crossingsOf));
-  const all = useMemo(() => new Map<number, Crossings>(numbers.map((n, i) => [n, crossings[i]])), [numbers, ...crossings]);
+/** Gaps lap by lap for the selected drivers (else the first few at the line), to the leader or the car ahead. */
+function GapChart() {
+  // Every car's crossings, not just the shown ones: the leader at each lap can be anyone.
+  const all = useAllLaps(allCrossings);
   const drivers = useDrivers();
   const selected = useSelection((s) => s.selected);
   const [{ gapMode }, update] = useSettings<Settings>();
-  const messages = useFeed(controlMessages);
+  const periods = useNeutralPeriods();
   const lightsOut = useSessionInfo((i) => i.lightsOut);
   const totalLaps = useTotalLaps();
   const seekToLap = usePlayback((p) => p.seekToLap);
@@ -274,7 +268,7 @@ function Chart({ numbers }: { numbers: readonly number[] }) {
   const markerRef = useRef<HTMLDivElement>(null);
 
   const leader = useMemo(() => leaderCrossings([...all.values()]), [all]);
-  const sc = useMemo(() => neutralisedLaps(messages, leader, lightsOut), [messages, leader, lightsOut]);
+  const sc = useMemo(() => neutralisedLaps(periods, leader, lightsOut), [periods, leader, lightsOut]);
   const shown = useMemo(
     () => (selected.length > 0 ? selected.filter((n) => all.has(n)) : orderAtLine(all).slice(0, FALLBACK)),
     [selected, all],
@@ -395,12 +389,6 @@ function Chart({ numbers }: { numbers: readonly number[] }) {
       </div>
     </div>
   );
-}
-
-/** Gaps lap by lap for the selected drivers (else the first few at the line), to the leader or the car ahead. */
-function GapChart() {
-  const numbers = useDrivers((ds) => ds.map((d) => d.number));
-  return <Chart key={numbers.join(",")} numbers={numbers} />;
 }
 
 export default defineBlock({
