@@ -22,6 +22,8 @@ const CHIPS_H = 12 + 20 + 1;
 const HEAD_H = 16 + Math.max(48, 18 * 1.25 + 16 + line(11));
 /** The hint under the header: mt-1 and lines of 10 px text (the hints with a selection take two). */
 const hintHeight = (lines: number) => 4 + lines * line(10);
+/** Pinned to a driver in this race: the block ignores the selection, so it has no chips, hint or clear. */
+const pinnedIn = (setting: DriverSetting, drivers: readonly DriverInfo[]) => typeof setting === "number" && drivers.some((d) => d.number === setting);
 
 const STATUS_PILL: Record<Exclude<DriverStatus, "RUNNING">, string> = {
   PIT: "bg-zinc-200 text-zinc-900",
@@ -100,22 +102,24 @@ function DriverHeader() {
   const info = drivers.find((d) => d.number === n);
   if (!s || !info) return null;
 
+  const pinned = pinnedIn(setting, drivers);
   const following = focused === s.driver;
-  // The same test as the block's height (below), so there's room for it exactly when it's shown.
+  // The same tests as the block's height (below), so there's room for them exactly when they're shown.
+  const chips = selected.length > 0 && !pinned;
   const hint =
-    focused != null || typeof setting === "number"
+    focused != null || pinned
       ? null
       : selected.length === 0
         ? "Showing the leader · click a car or row to select drivers"
         : selected.length === 1
           ? "Showing the selected driver · pick the chip to highlight on the map"
           : "Showing the highest-placed selected driver · pick a chip to highlight on the map";
-  const canClear = following || selected.length > 0;
+  const canClear = !pinned && (following || selected.length > 0);
   const color = teamColor(info.teamColour || "71717a");
 
   return (
     <section className="flex h-full flex-col text-sm">
-      {selected.length > 0 && <FocusChips drivers={drivers} selected={selected} focused={focused} onFocus={focus} />}
+      {chips && <FocusChips drivers={drivers} selected={selected} focused={focused} onFocus={focus} />}
       {/* Flat: the screen before blocks faded this from the team colour (no gradients now). */}
       <div className="min-h-0 flex-1 border-l-[3px] px-3 py-2" style={{ borderLeftColor: color, background: `linear-gradient(90deg, ${color}2e, transparent 70%)` }}>
         <div className="flex items-center gap-3">
@@ -152,9 +156,11 @@ export default defineBlock({
   name: "Driver",
   description: "Headshot, name, team and position of the driver it shows, with focus chips for the selection.",
   version: "1.0.0",
-  // The focus chips with a selection; the hint unless a focused or pinned driver is shown.
-  height: ({ selection: { selected, focused }, settings }) =>
-    (selected.length > 0 ? CHIPS_H : 0) + HEAD_H + (focused != null || typeof settings.driver === "number" ? 0 : hintHeight(selected.length > 0 ? 2 : 1)),
+  // The focus chips with a selection, unless pinned; the hint unless a focused or pinned driver is shown.
+  height: ({ drivers, selection: { selected, focused }, settings }) => {
+    const pinned = pinnedIn(settings.driver, drivers);
+    return (selected.length > 0 && !pinned ? CHIPS_H : 0) + HEAD_H + (focused != null || pinned ? 0 : hintHeight(selected.length > 0 ? 2 : 1));
+  },
   width: { min: 15, default: 21, max: 40 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },
