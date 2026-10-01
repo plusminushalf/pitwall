@@ -108,7 +108,7 @@ describe("default layout", () => {
   const heights = [610, 767, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
   // Weather is in the top bar; the analysis blocks are added from the block picker.
-  const NOT_IN_DEFAULT = ["weather", "gap-chart", "pit-strategy", "battles"];
+  const NOT_IN_DEFAULT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles"];
 
   test("places every built-in block but those off the default screen once, within its width range", () => {
     expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_DEFAULT.includes(id)).sort());
