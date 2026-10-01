@@ -19,6 +19,7 @@ import {
   type TrackStatus,
   type TrackTransform,
 } from "block-kit";
+import { labelOrder, stackOrder } from "./stacking";
 
 const PADDING = 56;
 const HIT_RADIUS = 14;
@@ -32,6 +33,12 @@ const LABEL_REST_MS = 200;
 const LABEL_FADE_IN_MS = 150;
 /** A label that goes away, or leaves a corner, fades out there over this long (wall-clock ms). */
 const LABEL_FADE_OUT_MS = 150;
+/**
+ * Dots closer than this (CSS px, centre to centre) overlap, so which is on top shows: they keep their stacking
+ * while the running order says otherwise, until they part or for this long at most (wall-clock ms).
+ */
+const STACK_OVERLAP = 15;
+const STACK_HOLD_MS = 2_000;
 /** In the pit lane a dot (and focus ring) is this much smaller in radius, CSS px, and half as opaque ... */
 const PIT_SHRINK = 1.5;
 const PIT_OPACITY = 0.5;
@@ -505,6 +512,7 @@ function TrackMap() {
   const carsOnScreen = useRef<{ driver: number; x: number; y: number }[]>([]);
   const labelSlots = useRef(new Map<number, number>()); // driver -> label corner used last frame
   const hiddenAt = useRef(new Map<number, number>()); // driver -> when its label last had to be hidden
+  const stackHeldSince = useRef<number | null>(null); // since when a swap of overlapping dots is held back
   const drawn = useRef<Drawn | null>(null);
 
   const layer = useMemo(() => (w > 0 && h > 0 ? drawStatic(track, w, h, pixelRatio) : null), [track, w, h, pixelRatio]);
@@ -533,17 +541,16 @@ function TrackMap() {
     const inputs = [running, positions, selected, focused, info];
     let changed = !last || last.resting || last.animating || inputs.some((v, i) => v !== last.inputs[i]);
 
-    // Draw back-markers first so the leader (and the focused car) end up on top.
-    // With a selection, only the selected cars are drawn.
+    // Draw back-markers first so the leader (and the focused car) end up on top; dots that overlap keep their
+    // stacking through changes of the running order (below). With a selection, only the selected cars are drawn.
     const shown = selected.length > 0 ? new Set(selected) : null;
-    const order = [...running].reverse().filter((n) => shown?.has(n) ?? true);
-    const drawOrder = focused != null && order.includes(focused) ? [...order.filter((n) => n !== focused), focused] : order;
+    const target = [...running].reverse().filter((n) => shown?.has(n) ?? true);
 
     // Every car at its exact position, every frame: holding back sub-pixel moves makes dots stutter.
-    const cars: DrawnCar[] = [];
+    const at = new Map<number, DrawnCar>();
     const { now } = frame;
     let animating = false;
-    for (const n of drawOrder) {
+    for (const n of target) {
       const d = info.get(n);
       const p = d && frame.car(n);
       if (!d || !p) continue;
@@ -555,14 +562,26 @@ function TrackMap() {
       if (pit.until > now || lane.until > now) animating = true;
       const [cx, cy] = lane.v > 0 && pitLane ? onPitLane(pitLane, ...tf(p.x, p.y), lane.v) : tf(p.x, p.y);
       if (!before || cx !== before.cx || cy !== before.cy || before.alpha !== p.opacity || before.pit.on !== pit.on || before.lane.on !== lane.on) changed = true;
-      cars.push({ n, color: teamColor(d.teamColour), cx, cy, alpha: p.opacity, focused: n === focused, pit, lane, label: null, ghosts: [], parts: [] });
+      at.set(n, { n, color: teamColor(d.teamColour), cx, cy, alpha: p.opacity, focused: n === focused, pit, lane, label: null, ghosts: [], parts: [] });
     }
+    const overlap = (a: number, b: number) => {
+      const p = at.get(a);
+      const q = at.get(b);
+      return p != null && q != null && Math.hypot(p.cx - q.cx, p.cy - q.cy) < STACK_OVERLAP;
+    };
+    const since = stackHeldSince.current;
+    const stack = stackOrder(last ? last.cars.map((c) => c.n) : null, target, focused, overlap, since != null && now - since >= STACK_HOLD_MS);
+    stackHeldSince.current = stack.holding ? (since ?? now) : null;
+    // (Holding: redraw until the order catches up, also when nothing moves.)
+    if (stack.holding) animating = true;
+    const cars = stack.order.flatMap((n) => at.get(n) ?? []);
     // Nothing moved, appeared or disappeared, and the inputs are the same: the layer is up to date.
     if (!changed && cars.length === last!.cars.length) return;
 
     const ctx = canvas.getContext("2d")!;
-    // Labels in priority order (focused car, then the leader down), each in the first corner
-    // around its dot that doesn't overlap a label already placed; cars in a tight pack may go unlabelled.
+    // Labels in priority order (focused car, then the cars labelled last frame, then the rest, each from the top of
+    // the stack down), each in the first corner around its dot that doesn't overlap a label already placed; cars
+    // in a tight pack may go unlabelled, and a label stays with its car while it fits.
     ctx.font = "700 11px ui-sans-serif, system-ui";
     const placed: { x: number; y: number; w: number }[] = [];
     let resting = false;
@@ -573,8 +592,7 @@ function TrackMap() {
       x + lw <= w &&
       y + LABEL_H <= h &&
       placed.every((r) => x + lw + gap <= r.x || r.x + r.w + gap <= x || y + LABEL_H + gap <= r.y || r.y + LABEL_H + gap <= y);
-    for (let i = cars.length - 1; i >= 0; i--) {
-      const car = cars[i];
+    for (const car of labelOrder(cars, (c) => c.focused, (c) => last?.byDriver.get(c.n)?.label != null)) {
       const { n, cx, cy } = car;
       const pos = positions.get(n);
       const text = info.get(n)!.acronym;
