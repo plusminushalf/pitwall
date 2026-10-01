@@ -20,8 +20,8 @@ const line = (fontSize: number) => (fontSize * 20) / 14;
 const CHIPS_H = 12 + 20 + 1;
 /** py-2 around the headshot's 48 px, or the name (text-lg, tight), full name (text-xs) and team if taller. */
 const HEAD_H = 16 + Math.max(48, 18 * 1.25 + 16 + line(11));
-/** The hint under the header: mt-1 and lines of 10 px text (the hints with a selection take two). */
-const hintHeight = (lines: number) => 4 + lines * line(10);
+/** The hint under the header with one driver selected: mt-1 and two lines of 10 px text. */
+const HINT_H = 4 + 2 * line(10);
 /** Pinned to a driver in this race: the block ignores the selection, so it has no chips, hint or clear. */
 const pinnedIn = (setting: DriverSetting, drivers: readonly DriverInfo[]) => typeof setting === "number" && drivers.some((d) => d.number === setting);
 
@@ -106,14 +106,7 @@ function DriverHeader() {
   const following = focused === s.driver;
   // The same tests as the block's height (below), so there's room for them exactly when they're shown.
   const chips = selected.length > 0 && !pinned;
-  const hint =
-    focused != null || pinned
-      ? null
-      : selected.length === 0
-        ? "Showing the leader · click a car or row to select drivers"
-        : selected.length === 1
-          ? "Showing the selected driver · pick the chip to highlight on the map"
-          : "Showing the highest-placed selected driver · pick a chip to highlight on the map";
+  const hint = focused == null && !pinned && selected.length === 1;
   const canClear = !pinned && (following || selected.length > 0);
   const color = teamColor(info.teamColour || "71717a");
 
@@ -145,7 +138,7 @@ function DriverHeader() {
             </button>
           )}
         </div>
-        {hint && <p className={`mt-1 text-[10px] text-zinc-500 ${selected.length > 0 ? "line-clamp-2" : "truncate"}`}>{hint}</p>}
+        {hint && <p className="mt-1 line-clamp-2 text-[10px] text-zinc-500">Showing the selected driver · pick the chip to highlight on the map</p>}
       </div>
     </section>
   );
@@ -156,10 +149,10 @@ export default defineBlock({
   name: "Driver",
   description: "Headshot, name, team and position of the driver it shows, with focus chips for the selection.",
   version: "1.0.0",
-  // The focus chips with a selection, unless pinned; the hint unless a focused or pinned driver is shown.
+  // The focus chips with a selection, unless pinned; the hint with one driver selected, unless it's focused or pinned.
   height: ({ drivers, selection: { selected, focused }, settings }) => {
     const pinned = pinnedIn(settings.driver, drivers);
-    return (selected.length > 0 && !pinned ? CHIPS_H : 0) + HEAD_H + (focused != null || pinned ? 0 : hintHeight(selected.length > 0 ? 2 : 1));
+    return (selected.length > 0 && !pinned ? CHIPS_H : 0) + HEAD_H + (focused == null && !pinned && selected.length === 1 ? HINT_H : 0);
   },
   width: { min: 15, default: 21, max: 40 },
   sessions: ["race"],
