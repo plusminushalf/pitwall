@@ -109,6 +109,71 @@ export function pitsAt(d: DriverData, t: number): PitStop[] {
   return d.pits.filter((p) => p.exit <= t);
 }
 
+/** The last value of `make` per session and count: blocks reading every car share one, kept until the count moves. */
+function byCount<V>(make: (session: Session, t: number) => V): (session: Session, count: number, t: number) => V {
+  let last: { session: Session; count: number; value: V } | null = null;
+  return (session, count, t) => {
+    if (last?.session !== session || last.count !== count) last = { session, count, value: make(session, t) };
+    return last.value;
+  };
+}
+
+const pitExits = cached((meta: SessionMeta) => Float64Array.from(meta.pits.map((p) => p.exit).sort((a, b) => a - b)));
+const allLaps = byCount((session, t) => new Map(session.driverNumbers.map((n) => [n, lapsAt(session.drivers.get(n)!, t)])));
+const allPits = byCount((session, t) => new Map(session.driverNumbers.map((n) => [n, pitsAt(session.drivers.get(n)!, t)])));
+
+/** API gap: every car's completed laps by t (lapsAt), in session order; a new map only when someone completes a lap. */
+export const allLapsAt = (session: Session, t: number): ReadonlyMap<number, readonly Lap[]> =>
+  allLaps(session, indexAtOrBefore(sectorIndex(session.meta).ends, t), t);
+
+/** API gap: every car's pit stops finished by t (pitsAt), in session order; a new map only when a stop finishes. */
+export const allPitsAt = (session: Session, t: number): ReadonlyMap<number, readonly PitStop[]> =>
+  allPits(session, indexAtOrBefore(pitExits(session.meta), t), t);
+
+let lastStints: { session: Session; laps: string; value: ReadonlyMap<number, readonly StintView[]> } | null = null;
+
+/** API gap: every car's stints by its current lap (stintsAt), in session order; a new map only when a car starts a lap. */
+export function allStintsAt(session: Session, race: RaceState): ReadonlyMap<number, readonly StintView[]> {
+  const lapOf = new Map(race.drivers.map((d) => [d.driver, d.lap]));
+  const laps = session.driverNumbers.map((n) => lapOf.get(n) ?? 0).join();
+  if (lastStints?.session === session && lastStints.laps === laps) return lastStints.value;
+  const value = new Map(session.driverNumbers.map((n) => [n, stintsAt(session.drivers.get(n)!, lapOf.get(n) ?? 0)]));
+  lastStints = { session, laps, value };
+  return value;
+}
+
+/** A safety car, virtual safety car or red flag; `end` is null while it's still out at t. */
+export interface NeutralPeriod {
+  status: "SC" | "VSC" | "RED";
+  start: number;
+  end: number | null;
+}
+
+const statusTimes = cached((meta: SessionMeta) => Float64Array.from(meta.trackStatus, (e) => e.t));
+
+const neutral = byCount((session, t): NeutralPeriod[] => {
+  const out: NeutralPeriod[] = [];
+  let open: NeutralPeriod | null = null;
+  for (const e of session.meta.trackStatus) {
+    if (e.t > t) break;
+    // "Ending" is the same period (the car comes in at the end of the lap, the VSC lifts in seconds).
+    const status = e.status === "SC" || e.status === "SC_ENDING" ? "SC" : e.status === "VSC" || e.status === "VSC_ENDING" ? "VSC" : e.status === "RED" ? "RED" : null;
+    if (open && open.status !== status) {
+      open.end = e.t;
+      open = null;
+    }
+    if (status && !open) out.push((open = { status, start: e.t, end: null }));
+  }
+  return out;
+});
+
+/**
+ * API gap: safety car, VSC and red flag periods started by t, oldest first, from the same track status the
+ * top bar and timeline show (SC_ENDING and VSC_ENDING count as part of their period).
+ */
+export const neutralPeriodsAt = (session: Session, t: number): readonly NeutralPeriod[] =>
+  neutral(session, indexAtOrBefore(statusTimes(session.meta), t), t);
+
 /** Every completed lap in the session by end time, with the running best per sector. */
 interface SectorIndex {
   ends: Float64Array;

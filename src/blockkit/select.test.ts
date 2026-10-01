@@ -3,9 +3,9 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { buildSession, type CarSeries, type DriverData, type Session } from "../data/session";
-import { driverStateAt, raceStateAt } from "../engine/raceState";
-import type { DriverTelemetry, Lap, SessionMeta, Stint } from "../types";
-import { feedEndAt, feedUpTo, historyRange, historySlice, lapsAt, pitsAt, selectedDriverOf, stintsAt, trackOf } from "./select";
+import { driverStateAt, raceStateAt, type RaceState } from "../engine/raceState";
+import type { DriverTelemetry, Lap, SessionMeta, Stint, TrackStatusEvent } from "../types";
+import { allLapsAt, allPitsAt, allStintsAt, feedEndAt, feedUpTo, historyRange, historySlice, lapsAt, neutralPeriodsAt, pitsAt, selectedDriverOf, stintsAt, trackOf } from "./select";
 
 const lap = (n: number, start: number, end: number | null): Lap => ({
   driver: 1,
@@ -71,6 +71,66 @@ describe("pit stops", () => {
     expect(pitsAt(d, 299_000)).toEqual([]);
     expect(pitsAt(d, 310_000)).toEqual([]); // in the pit lane: its times aren't known yet
     expect(pitsAt(d, 322_000)).toEqual([stop]);
+  });
+});
+
+describe("the whole field", () => {
+  const stop = { driver: 1, lap: 3, entry: 300_000, exit: 322_000, laneDuration: 22, stopDuration: 2.4 };
+  const other = { ...driver, laps: [lap(1, 1_000, 99_000)], stints: [], pits: [] } as unknown as DriverData;
+  const field = (trackStatus: TrackStatusEvent[] = []) =>
+    ({
+      meta: { laps: [...laps, ...other.laps], pits: [stop], trackStatus },
+      driverNumbers: [1, 2],
+      drivers: new Map([
+        [1, { ...driver, pits: [stop] }],
+        [2, other],
+      ]),
+    }) as unknown as Session;
+
+  test("every car's laps and stops by t, the same map until one more is in", () => {
+    const s = field();
+    const a = allLapsAt(s, 150_000);
+    expect([...a.keys()]).toEqual([1, 2]);
+    expect(a.get(1)!.map((l) => l.lap)).toEqual([1]);
+    expect(a.get(2)!.map((l) => l.lap)).toEqual([1]);
+    expect(allLapsAt(s, 199_000)).toBe(a);
+    expect(allLapsAt(s, 201_000).get(1)!.map((l) => l.lap)).toEqual([1, 2]);
+    expect(allPitsAt(s, 310_000).get(1)).toEqual([]);
+    expect(allPitsAt(s, 322_000).get(1)).toEqual([stop]);
+  });
+
+  test("every car's stints by its own lap", () => {
+    const s = field();
+    const race = { drivers: [{ driver: 1, lap: 5 }, { driver: 2, lap: 2 }] } as unknown as RaceState;
+    const a = allStintsAt(s, race);
+    expect(a.get(1)!.map((st) => [st.stint, st.open])).toEqual([
+      [1, false],
+      [2, true],
+    ]);
+    expect(a.get(2)).toEqual([]);
+    expect(allStintsAt(s, { drivers: [{ driver: 1, lap: 5 }, { driver: 2, lap: 2 }] } as unknown as RaceState)).toBe(a);
+  });
+
+  test("safety car, VSC and red periods so far; ending is part of the period, the open one has no end", () => {
+    const s = field([
+      { t: -1, status: "GREEN" },
+      { t: 100, status: "SC" },
+      { t: 200, status: "SC_ENDING" },
+      { t: 300, status: "GREEN" },
+      { t: 400, status: "VSC" },
+      { t: 450, status: "VSC_ENDING" },
+      { t: 470, status: "GREEN" },
+      { t: 600, status: "RED" },
+      { t: 700, status: "GREEN" },
+      { t: 900, status: "CHEQUERED" },
+    ]);
+    expect(neutralPeriodsAt(s, 50)).toEqual([]);
+    expect(neutralPeriodsAt(s, 250)).toEqual([{ status: "SC", start: 100, end: null }]);
+    expect(neutralPeriodsAt(s, 1_000)).toEqual([
+      { status: "SC", start: 100, end: 300 },
+      { status: "VSC", start: 400, end: 470 },
+      { status: "RED", start: 600, end: 700 },
+    ]);
   });
 });
 

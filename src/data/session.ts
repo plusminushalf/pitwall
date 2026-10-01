@@ -60,6 +60,8 @@ export interface FeedItem {
   url?: string;
   /** Sector yellows (race control names nobody): the cars inferred from telemetry to have caused it, when clear. */
   inferred?: number[];
+  /** Overtakes: the car passed (`driver` is the one passing). */
+  passed?: number;
 }
 
 /** One driver's decoded location + car streams. */
@@ -144,6 +146,7 @@ function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string, cul
       t: o.t,
       kind: "overtake",
       driver: o.overtaker,
+      passed: o.overtaken,
       text: `${acronym(o.overtaker)} passes ${acronym(o.overtaken)} for P${o.position}`,
     });
   }

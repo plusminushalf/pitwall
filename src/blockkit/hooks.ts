@@ -15,6 +15,9 @@ import { deepEqual } from "./equal";
 import { addFrameCallback, type DrawFn } from "./frame";
 import { playRadio, stopRadio, useRadioState } from "./radio";
 import {
+  allLapsAt,
+  allPitsAt,
+  allStintsAt,
   bestSectorsAt,
   driversOf,
   feedEndAt,
@@ -22,6 +25,7 @@ import {
   historyOf,
   historyRange,
   lapsAt,
+  neutralPeriodsAt,
   orderOf,
   pitsAt,
   positionsOf,
@@ -32,6 +36,7 @@ import {
   wholeSessionOf,
   type CarHistory,
   type FeedEntry,
+  type NeutralPeriod,
   type SessionInfo,
   type StintView,
   type Track,
@@ -317,6 +322,26 @@ export function usePitStops<R = readonly PitStop[]>(n: number | null, select?: S
     [n],
     select,
   );
+}
+
+/** API gap: every car's completed laps by t (as useLaps), by driver number in session order. For blocks about the whole field. */
+export function useAllLaps<R = ReadonlyMap<number, readonly Lap[]>>(select?: Select<ReadonlyMap<number, readonly Lap[]>, R>): R {
+  return useKit((s) => allLapsAt(s.session, s.t), [], select);
+}
+
+/** API gap: every car's stints started by t (as useStints), by driver number in session order. */
+export function useAllStints<R = ReadonlyMap<number, readonly StintView[]>>(select?: Select<ReadonlyMap<number, readonly StintView[]>, R>): R {
+  return useKit((s) => allStintsAt(s.session, s.race), [], select);
+}
+
+/** API gap: every car's pit stops finished by t (as usePitStops), by driver number in session order. */
+export function useAllPitStops<R = ReadonlyMap<number, readonly PitStop[]>>(select?: Select<ReadonlyMap<number, readonly PitStop[]>, R>): R {
+  return useKit((s) => allPitsAt(s.session, s.t), [], select);
+}
+
+/** API gap: safety car, VSC and red flag periods started by t, oldest first; the one still out has no `end`. */
+export function useNeutralPeriods<R = readonly NeutralPeriod[]>(select?: Select<readonly NeutralPeriod[], R>): R {
+  return useKit((s) => neutralPeriodsAt(s.session, s.t), [], select);
 }
 
 /** Race feed items up to t, newest first (race control, overtakes, pits, retirements, radio). */

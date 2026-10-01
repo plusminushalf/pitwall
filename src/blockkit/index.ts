@@ -44,6 +44,11 @@
 //     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
 //     useBestSectors(select?)    fastest time in each sector by anyone so far
+//   The whole field at t (for blocks about every car: one hook, not one per car)
+//     useAllLaps(select?)        every car's completed laps, by driver number
+//     useAllStints(select?)      every car's stints so far
+//     useAllPitStops(select?)    every car's pit stops finished so far
+//     useNeutralPeriods(select?) safety car, VSC and red flag periods so far (the top bar's track status)
 //   Selection
 //     useSelection(select?)      selected and focused drivers, with setters
 //     useSelectedDriver()        pinned by settings, else focused, else best-placed selected, else leader
@@ -67,6 +72,12 @@
 //     useFrame() car(n).pit      the car is in the pit lane (map: a smaller, fainter dot); .pitLane: on
 //                                useTrack().pitLane's stretch, 2 s more each side (map: cars ride the drawn lane)
 //
+//   API gaps found building the analysis blocks (gaps, stint pace, pit stops, battles):
+//     useAllLaps(), useAllStints(), useAllPitStops()   the whole field in one hook, not a hook per car (blocks
+//                                had to remount whenever the driver list changed to keep their hook order)
+//     useNeutralPeriods()        SC / VSC / red periods, so blocks stop parsing race control messages
+//     useFeed() entries          `passed` on overtakes: the car passed, so blocks stop parsing the text
+//
 //   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track
 //   projection, and TyreBadge, lifted as they are from the core.
 
@@ -74,6 +85,9 @@ export { defineBlock } from "./defineBlock";
 export type { BlockDefinition, BlockSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineBlock";
 
 export {
+  useAllLaps,
+  useAllPitStops,
+  useAllStints,
   useBestSectors,
   useBlockSize,
   useCar,
@@ -85,6 +99,7 @@ export {
   useFrame,
   useLaps,
   useLeaderLap,
+  useNeutralPeriods,
   usePitStops,
   usePlayback,
   usePositions,
@@ -107,7 +122,7 @@ export type { Playback, Radio, Select, Selection } from "./hooks";
 
 export type { BlockSize } from "./context";
 export type { DrawFn, Frame } from "./frame";
-export type { CarHistory, CarPosition, FeedEntry, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
+export type { CarHistory, CarPosition, FeedEntry, NeutralPeriod, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
 export type { FeedItem, FeedKind } from "../data/session";
 export type { DriverState, DriverStatus, SectorFlag, Telemetry } from "../engine/raceState";
 export type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
