@@ -10,17 +10,33 @@ import type { RawCircuit } from "./openf1Types";
 
 const BASE = "https://api.openf1.org/v1";
 export const TOKEN_URL = "https://api.openf1.org/token";
-// ~24 req/min: the free tier's 30/min, less room for the page's own requests (the calendar, a session lookup)
-// from the same IP. At 2.2 s (~27/min), a race download with requests in flight in parallel (ingestCore) hit a 429
-// once the catalogue's 4 requests counted in the same minute (vault:e2e --downloads, 2026-09-30).
-const FREE_INTERVAL_MS = 2_500;
-const SPONSOR_INTERVAL_MS = 1_100; // ~54 req/min
+/** How requests are paced: at most `perMinute` starts in any 60 s, and at least `gapMs` between two starts. */
+export interface Pace {
+  perMinute: number;
+  gapMs: number;
+}
+// 24 a minute: the free tier's 30/min, less room for the page's own requests (the calendar, a session lookup) from
+// the same IP. At ~27/min, a race download with requests in flight in parallel (ingestCore) hit a 429 once the
+// catalogue's 4 requests counted in the same minute (vault:e2e --downloads, 2026-09-30). In a burst (the start of a
+// download, which a replay is waiting for) 2/s: 0.4 s apart drew 429s (Retry-After: 1, the free tier's 3/s) when
+// connection set-up jitter brought four within a second (race 11377, 2026-10-01).
+export const FREE_PACE: Pace = { perMinute: 24, gapMs: 500 };
+export const SPONSOR_PACE: Pace = { perMinute: 54, gapMs: 250 }; // under 60/min and 6/s, with the same margin
 const MAX_RETRIES = 5;
 const TOKEN_MARGIN_MS = 5 * 60_000; // refresh tokens this long before they expire
 
-/** When the next request may start: each request reserves its slot, so concurrent callers stay spaced too. */
+/** Request starts reserved in the last minute (ascending): each request reserves its slot, so concurrent callers stay paced too. */
+let starts: number[] = [];
+/** No request starts before this (the gap after the last one, or a rate-limit backoff). */
 let nextSlotAt = 0;
-let intervalOverride: number | null = null;
+let paceOverride: Pace | null = null;
+
+/** The earliest start for the next request, at or after `now` and `notBefore`, given the starts reserved before it. */
+export function nextStart(reserved: readonly number[], now: number, notBefore: number, pace: Pace): number {
+  const at = Math.max(now, notBefore);
+  const k = reserved.length - pace.perMinute;
+  return k >= 0 ? Math.max(at, reserved[k]! + 60_000) : at;
+}
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -132,21 +148,51 @@ export function invalidateToken(): void {
   token = null;
 }
 
-/** Test hook: override the minimum gap between requests (null = tier default). */
+/**
+ * Requests that started elsewhere in the last minute (ms since epoch): an earlier worker's in the same browser, which
+ * OpenF1 counts against the same IP. The pace makes room for them.
+ */
+export function seedRequestStarts(at: readonly number[]): void {
+  const now = Date.now();
+  starts = [...starts, ...at.filter((t) => t > now - 60_000 && t <= now)].sort((a, b) => a - b);
+  if (starts.length) nextSlotAt = Math.max(nextSlotAt, starts[starts.length - 1]! + FREE_PACE.gapMs);
+}
+
+/** Test hook: a fixed gap between requests and no per-minute cap (null = the tier's pace). */
 export function setRequestInterval(ms: number | null): void {
-  intervalOverride = ms;
+  paceOverride = ms == null ? null : { perMinute: Infinity, gapMs: ms };
+  starts = [];
   nextSlotAt = 0;
 }
 
 /**
- * One request, started no sooner than the tier's interval after the previous start. Safe with concurrent
- * callers (ingest runs several requests at once): each one reserves the next slot before it waits.
+ * Resolves once a request could start at the tier's pace (without reserving it), leaving `reserve` of the minute's
+ * requests for others: a caller that picks what to request when it can go (ingest's telemetry slices, from wherever
+ * the replay is by then) waits here first.
+ */
+export async function untilRequestSlot(reserve = 0): Promise<void> {
+  for (;;) {
+    const base = paceOverride ?? (credentialSource() ? SPONSOR_PACE : FREE_PACE);
+    const pace = { ...base, perMinute: Math.max(1, base.perMinute - reserve) };
+    const now = Date.now();
+    starts = starts.filter((t) => t > now - 60_000);
+    const wait = nextStart(starts, now, nextSlotAt, pace) - now;
+    if (wait <= 0) return;
+    await sleep(wait);
+  }
+}
+
+/**
+ * One request, started when the tier's pace allows (Pace). Safe with concurrent callers (ingest runs several
+ * requests at once): each one reserves its start before it waits.
  */
 async function throttledFetch(url: string, bearer: string | null): Promise<Response> {
-  const interval = intervalOverride ?? (bearer ? SPONSOR_INTERVAL_MS : FREE_INTERVAL_MS);
+  const pace = paceOverride ?? (bearer ? SPONSOR_PACE : FREE_PACE);
   const now = Date.now();
-  const at = Math.max(now, nextSlotAt);
-  nextSlotAt = at + interval;
+  starts = starts.filter((t) => t > now - 60_000);
+  const at = nextStart(starts, now, nextSlotAt, pace);
+  starts.push(at);
+  nextSlotAt = at + pace.gapMs;
   if (at > now) await sleep(at - now);
   const t0 = Date.now();
   const res = await fetch(url, {
@@ -157,14 +203,24 @@ async function throttledFetch(url: string, bearer: string | null): Promise<Respo
   return res;
 }
 
+/**
+ * The query string. A name with a comparison suffix is written the way OpenF1 reads it, `date>=2024-03-02` (as
+ * the vault does, vault/src/rest.ts): `date%3E%3D=2024-03-02` (URLSearchParams) reads as `date >= "=2024-03-02"`.
+ */
+export function queryString(params: Record<string, string | number>): string {
+  return Object.entries(params)
+    .map(([k, v]) => {
+      const m = /^(.*?)(>=|<=|>|<)?$/.exec(k)!;
+      return `${encodeURIComponent(m[1]!)}${m[2] ?? "="}${encodeURIComponent(String(v))}`;
+    })
+    .join("&");
+}
+
 export async function fetchEndpoint<T>(
   endpoint: string,
   params: Record<string, string | number>,
 ): Promise<T[]> {
-  const qs = new URLSearchParams(
-    Object.entries(params).map(([k, v]): [string, string] => [k, String(v)]),
-  );
-  const url = `${BASE}/${endpoint}?${qs}`;
+  const url = `${BASE}/${endpoint}?${queryString(params)}`;
 
   let reauthed = false;
   for (let attempt = 0; ; attempt++) {
@@ -197,7 +253,8 @@ export async function fetchEndpoint<T>(
     }
     // Browsers can't read retry-after cross-origin (OpenF1 doesn't expose it), so there it's always the backoff.
     const retryAfter = Number(res.headers.get("retry-after"));
-    const backoff = retryAfter > 0 ? retryAfter * 1000 : 5_000 * 2 ** attempt;
+    // (A first 429 is usually the per-second limit: OpenF1 says Retry-After: 1.)
+    const backoff = retryAfter > 0 ? retryAfter * 1000 : res.status === 429 && attempt === 0 ? 2_000 : 5_000 * 2 ** attempt;
     console.warn(`  ${res.status} on ${endpoint}, retrying in ${backoff / 1000}s`);
     retryObserver?.({ endpoint, status: res.status, waitMs: backoff });
     // Over the limit: every other request waits too, not just this one.

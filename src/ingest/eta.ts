@@ -1,5 +1,11 @@
 // Cost model for downloading a session from OpenF1 in the browser: which raw files a download needs,
 // how long each takes, and a live ETA that learns the actual speed. Pure (tested in eta.test.ts).
+//
+// A race's telemetry comes in time slices (scripts/lib/slices.ts) whose number and names depend on its replay
+// window: until the files are in, they're placeholders (`location#0`, `car_data#3`), sized from the session's
+// slot, and the slices stored stand in for them in time order (placeholderFiles).
+
+import { isPerDriverFile, parseSliceFile, SLICE_MARGIN_MS, SLICE_MAX_UNITS, SLICE_UNIT_MS } from "../../scripts/lib/slices";
 
 /**
  * How a download reaches OpenF1: "free" (straight from the worker, no login: scripts/lib/openf1Http.ts's
@@ -8,19 +14,22 @@
 export type Tier = "sponsor" | "free";
 
 /**
- * Minimum gap between request starts: the direct client's free-tier interval (scripts/lib/openf1Http.ts), and
- * the vault budget's spacing at 6/s (vault/src/budget.ts; its 60/min only binds past one session's 57 requests).
+ * How request starts are paced: the direct client's free tier (scripts/lib/openf1Http.ts FREE_PACE: a burst 0.5 s
+ * apart, 24 in any minute) and the vault budget's (vault/src/budget.ts: 6/s, 60 a minute).
  */
-export const TIER_INTERVAL_S: Record<Tier, number> = { free: 2.5, sponsor: 1.15 / 6 };
+export const TIER_PACE: Record<Tier, { gapS: number; perMinute: number }> = {
+  free: { gapS: 0.5, perMinute: 24 },
+  sponsor: { gapS: 1.15 / 6, perMinute: 60 },
+};
 /** Requests in flight at once (src/ingest/worker.ts sets the ingest core's concurrency to these). */
-export const TIER_CONCURRENCY: Record<Tier, number> = { free: 3, sponsor: 6 };
+export const TIER_CONCURRENCY: Record<Tier, number> = { free: 4, sponsor: 6 };
 
 // Time for one OpenF1 request (server query + transfer + parse + gzip + write) is roughly
 // REQUEST_LATENCY_S + gzipped size × SECONDS_PER_BYTE. Requests overlap (TIER_CONCURRENCY at once), but one can't
-// start sooner than the tier interval after the previous one, so a file costs the larger of the interval and
-// its work shared among the requests in flight: the free tier stays interval-bound (as before), signed in it's
-// transfer-bound. Fitted to real downloads one at a time: 2025 Australia race telemetry (334 KB avg) 2.45 s
-// per file, 2025 China sprint (145 KB) 1.43 s; small files are interval-bound.
+// start sooner than the tier's gap after the previous one, so a file costs the larger of the gap and its work
+// shared among the requests in flight; past a minute's worth of requests the rest wait for the minute to roll over
+// (downloadSeconds). Fitted to real downloads one at a time: 2025 Australia race telemetry (334 KB avg) 2.45 s per
+// file, 2025 China sprint (145 KB) 1.43 s; a 2026 race's 30-minute slices (1.6-1.7 MB) 6-9 s.
 export const REQUEST_LATENCY_S = 0.64;
 export const SECONDS_PER_BYTE = 5.4e-6;
 /** Worker startup and reading what's already cached. */
@@ -76,17 +85,78 @@ const RAW_FILES: Record<string, { session: RawFileSpec[]; perDriver: RawFileSpec
   },
 };
 
+/** Gzipped bytes per 5-minute unit of a slice, for 22 cars (2026 Baku). */
+const SLICE_UNIT_BYTES = { location: 254_000, car_data: 235_000 };
+/** In the order ingest requests them, sliced: laps and race control plan the slices, the first one comes next. */
+const SLICED_ORDER = ["sessions", "meeting", "circuit", "drivers", "laps", "race_control", "position", "intervals", "stints", "pit", "session_result", "weather", "team_radio", "overtakes"];
+
 /** Drivers assumed before drivers.json is in: 22 from 2026 (11 teams), 20 before. */
 export const assumedDrivers = (year: number) => (year >= 2026 ? 22 : 20);
 
+/** How a session's telemetry downloads: in time slices, or one file per driver (downloads begun before slices). */
+export type Layout = "sliced" | "per-driver";
+
+/** A download begun before slices (per-driver files stored) carries on per driver, as ingest does. */
+export function layoutOf(stored: Iterable<string>): Layout {
+  for (const name of stored) if (isPerDriverFile(name)) return "per-driver";
+  return "sliced";
+}
+
+/**
+ * Slices per endpoint for a session window `scale` × 2 hours (sizeScale): a race's span is its running time (~85% of
+ * the slot) plus the replay's margins, in units; one short slice at the start, the rest up to SLICE_MAX_UNITS long,
+ * and one before the start.
+ */
+function slicePlan(scale: number): { parts: number; units: number } {
+  const minutes = 120 * scale * 0.85 + 8 + (2 * SLICE_MARGIN_MS) / 60_000;
+  const units = Math.ceil(minutes / (SLICE_UNIT_MS / 60_000));
+  return { units, parts: 2 + Math.ceil((units - 2) / SLICE_MAX_UNITS) };
+}
+
 /**
  * Raw files a session needs, in request order. Without the driver list (drivers.json not stored yet) the
- * per-driver files are placeholders for `assumed` drivers, named so they never match a file.
+ * per-driver files are placeholders for `assumed` drivers, named so they never match a file. Sliced (`scale`: the
+ * session window, sizeScale), the telemetry slices are placeholders for the slices stored (placeholderFiles).
  */
-export function expectedRawFiles(type: string, driverNumbers: readonly number[] | null, assumed = 22): RawFileSpec[] {
+export function expectedRawFiles(type: string, driverNumbers: readonly number[] | null, assumed = 22, layout: Layout = "per-driver", scale = 1): RawFileSpec[] {
   const { session, perDriver } = RAW_FILES[type] ?? RAW_FILES.Race;
+  if (layout === "sliced") {
+    const { parts, units } = slicePlan(scale);
+    const files = SLICED_ORDER.map((n) => session.find((f) => f.name === n)!);
+    const slice = (endpoint: "location" | "car_data", i: number): RawFileSpec => ({
+      name: `${endpoint}#${i}`,
+      required: true,
+      bytes: (SLICE_UNIT_BYTES[endpoint] * units * assumed) / 22 / parts,
+    });
+    // The first slice right after laps and race control; the rest after the session files.
+    return [
+      ...files.slice(0, 6),
+      slice("location", 0),
+      slice("car_data", 0),
+      ...files.slice(6),
+      ...Array.from({ length: parts - 1 }, (_, i) => [slice("location", i + 1), slice("car_data", i + 1)]).flat(),
+    ];
+  }
   const numbers = driverNumbers ?? Array.from({ length: assumed }, (_, i) => `?${i + 1}`);
   return [...session, ...numbers.flatMap((n) => perDriver.map((f) => ({ ...f, name: `${f.name}_${n}` })))];
+}
+
+/** Stored files, the telemetry slices renamed to the placeholders they fill (in time order per endpoint). */
+export function placeholderFiles(files: ReadonlyMap<string, number>): Map<string, number> {
+  const out = new Map<string, number>();
+  const slices: { endpoint: string; from: number; bytes: number }[] = [];
+  for (const [name, bytes] of files) {
+    const part = parseSliceFile(name);
+    if (part) slices.push({ endpoint: part.endpoint, from: part.span.from, bytes });
+    else out.set(name, bytes);
+  }
+  slices.sort((a, b) => a.from - b.from);
+  const next: Record<string, number> = {};
+  for (const s of slices) {
+    const i = (next[s.endpoint] = (next[s.endpoint] ?? -1) + 1);
+    out.set(`${s.endpoint}#${i}`, s.bytes);
+  }
+  return out;
 }
 
 export interface CacheProgress {
@@ -136,7 +206,29 @@ export const expectedBytes = (f: RawFileSpec, scale: number) => (f.scales ? f.by
 /** Expected seconds one file adds to a download (its share of the time, with the others in flight). */
 export function fileSeconds(f: RawFileSpec, tier: Tier, scale: number): number {
   const work = REQUEST_LATENCY_S + expectedBytes(f, scale) * SECONDS_PER_BYTE;
-  return f.external ? work : Math.max(TIER_INTERVAL_S[tier], work / TIER_CONCURRENCY[tier]);
+  return f.external ? work : Math.max(TIER_PACE[tier].gapS, work / TIER_CONCURRENCY[tier]);
+}
+
+/**
+ * Seconds to download `files`, `made` requests having started in the last minute (the first `sinceFirstS` ago):
+ * their own time, or longer when they don't fit in it: a minute's worth of requests start a gap apart, then the
+ * next ones wait for the minute to roll over.
+ */
+export function downloadSeconds(files: RawFileSpec[], tier: Tier, scale: number, made = 0, sinceFirstS = 0): number {
+  let s = 0;
+  for (const f of files) s += fileSeconds(f, tier, scale);
+  return Math.max(s, minuteFloor(files.filter((f) => !f.external).length, tier, made, sinceFirstS));
+}
+
+/**
+ * The least time `requests` more take at the tier's pace, `made` having started in the last minute (the first
+ * `sinceFirstS` ago): 0 while they fit in the minute, else until the last one can start (and its gap).
+ */
+export function minuteFloor(requests: number, tier: Tier, made = 0, sinceFirstS = 0): number {
+  const { perMinute, gapS } = TIER_PACE[tier];
+  const last = made + requests - 1;
+  if (requests <= 0 || last < perMinute) return 0;
+  return 60 * Math.floor(last / perMinute) + (last % perMinute) * gapS - sinceFirstS + gapS;
 }
 
 /**
@@ -152,12 +244,9 @@ export function estimate(
   processingS = PROCESSING_PRIOR_S,
   cachedBytes = 0,
 ): { seconds: number; mb: number } {
-  let download = 0;
+  const download = downloadSeconds(missing, tier, scale);
   let bytes = 0;
-  for (const f of missing) {
-    download += fileSeconds(f, tier, scale);
-    bytes += expectedBytes(f, scale);
-  }
+  for (const f of missing) bytes += expectedBytes(f, scale);
   const read = cachedBytes * CACHE_READ_S_PER_BYTE;
   return { seconds: Math.round(STARTUP_S + ratio * download + read + processingS), mb: Math.round(bytes / 1e5) / 10 };
 }
@@ -196,6 +285,8 @@ export interface EtaInput {
   ratio: number;
   /** Seconds left on a rate-limit / retry wait. */
   waitS?: number;
+  /** The least the download takes at the tier's pace (minuteFloor): not scaled by the speed ratio. */
+  floorS?: number;
   /** Seconds spent processing so far (processing phase). */
   processingS?: number;
   /** Expected processing time. */
@@ -211,34 +302,32 @@ export function etaSeconds(i: EtaInput): number {
   if (i.phase === "processing") return Math.max(1, prior - (i.processingS ?? 0));
   const all = i.ratio * i.remainingS;
   const afterCurrent = i.ratio * Math.max(0, i.remainingS - i.currentS);
-  const download = i.sinceMarkS == null ? STARTUP_S + all : Math.max(afterCurrent, all - i.sinceMarkS);
+  const download = Math.max(i.sinceMarkS == null ? STARTUP_S + all : Math.max(afterCurrent, all - i.sinceMarkS), i.floorS ?? 0);
   return Math.max(1, download + (i.waitS ?? 0) + prior);
 }
 
-/** 0-1 progress weighted by predicted seconds, consistent with the ETA. */
-export function progressOf(i: {
-  totalS: number;
-  remainingS: number;
-  currentS: number;
-  inFlight: number;
-  processingS?: number;
-  processingPriorS?: number;
-  phase: string;
-}): number {
+/**
+ * 0-1 progress by time, consistent with the ETA: the time gone over the time gone plus the ETA, with what earlier
+ * runs stored (`headS`: its predicted seconds) as a head start.
+ */
+export function progressOf(i: { headS: number; elapsedS: number; etaS: number; phase: string }): number {
   if (i.phase === "done") return 1;
-  const prior = i.processingPriorS ?? PROCESSING_PRIOR_S;
-  const total = i.totalS + prior;
-  if (!(total > 0)) return 0;
-  let done = i.totalS - i.remainingS + Math.min(0.95, Math.max(0, i.inFlight)) * i.currentS;
-  if (i.phase === "processing") done = i.totalS + Math.min(0.95 * prior, i.processingS ?? 0);
-  return Math.min(0.99, Math.max(0, done / total));
+  const done = Math.max(0, i.headS + i.elapsedS);
+  const total = done + Math.max(0, i.etaS);
+  return total > 0 ? Math.min(0.99, done / total) : 0;
 }
 
 // ---------------------------------------------------------------- labels
 
-/** Raw file a request fills: `car_data` + driver 44 -> `car_data_44`, `meetings` -> `meeting`. */
+/**
+ * Raw file a request fills: `car_data` + driver 44 -> `car_data_44`, a slice -> `location_<from>_<to>` (slices.ts),
+ * `meetings` -> `meeting`.
+ */
 export function fileForFetch(endpoint: string, params: Record<string, string | number>): string {
   if (endpoint === "meetings") return "meeting";
+  const from = params["date>="];
+  const to = params["date<"];
+  if (from != null && to != null) return `${endpoint}_${Date.parse(String(from)) / 1000}_${Date.parse(String(to)) / 1000}`;
   return params.driver_number != null ? `${endpoint}_${params.driver_number}` : endpoint;
 }
 
@@ -261,9 +350,15 @@ const STEP_LABELS: Record<string, string> = {
   location: "Track positions",
 };
 
-/** Human label for a request: "Lap times", "Car telemetry · #44 (12/22)". */
+/** Human label for a request: "Lap times", "Car telemetry · #44 (12/22)", "Track positions · 15:05–15:35" (local). */
 export function stepLabel(endpoint: string, params: Record<string, string | number>, drivers: readonly number[] | null): string {
   const base = STEP_LABELS[endpoint] ?? endpoint.replace(/_/g, " ");
+  const from = params["date>="];
+  const to = params["date<"];
+  if (from != null && to != null) {
+    const hm = (iso: string | number) => new Date(String(iso)).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+    return `${base} · ${hm(from)}–${hm(to)}`;
+  }
   const n = params.driver_number;
   if (n == null) return base;
   const i = drivers?.indexOf(Number(n)) ?? -1;

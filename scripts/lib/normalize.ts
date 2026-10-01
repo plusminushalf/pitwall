@@ -87,10 +87,27 @@ export interface LiveOptions {
   referenceLap?: { driver: number; lap: number } | null;
 }
 
+/**
+ * A finished session whose telemetry is still coming in (a race watched while it downloads, src/ingest/stream.ts):
+ * everything else is complete, car data and locations cover only some spans. What's worked out from telemetry (lap
+ * repairs, the outline, pit timing, retirements) only uses whole stretches of it, and nothing is driven across a gap.
+ */
+export interface PartialOptions {
+  /** Absolute ms spans with car data and locations, in order and disjoint. */
+  telemetry: { from: number; to: number }[];
+  /** Keep this reference lap for the outline while it qualifies, so the map doesn't shift as faster laps come in. */
+  referenceLap?: { driver: number; lap: number } | null;
+}
+
 export interface NormalizeOptions {
   /** A session in progress: see LiveOptions. Without it the session is treated as finished. */
   live?: LiveOptions;
+  /** A finished session with telemetry still coming in: see PartialOptions. */
+  partial?: PartialOptions;
 }
+
+/** Partial telemetry: a retirement counts once the car is seen standing for this long after it last moved. */
+const RETIRED_SEEN_MS = 60_000;
 
 /** Like DriverTelemetry, but with absolute times (ms since t0) instead of delta-encoded ones. */
 export interface CleanTelemetry {
@@ -401,8 +418,25 @@ export function estimateTotalLaps(
 
 // ---------------------------------------------------------------- normalize
 
+/**
+ * A finished session's replay window in absolute ms, from its laps and race control alone: t0 is 5 minutes
+ * before lights out (the formation lap), the end 3 minutes after the flag (or after the last lap, if later).
+ * Ingest plans its telemetry requests from it before any telemetry is in.
+ */
+export function replayWindow(raw: Pick<RawSessionData, "session" | "laps" | "raceControl">): { lightsOut: number; t0: number; end: number } {
+  const lap1Starts = raw.laps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
+  const lightsOut = lap1Starts.length ? Math.min(...lap1Starts) : abs(raw.session.date_start);
+  const chequered = raw.raceControl.find((m) => m.flag === "CHEQUERED");
+  const lastLapEnd = Math.max(
+    ...raw.laps.filter((l) => l.date_start && l.lap_duration != null).map((l) => abs(l.date_start!) + l.lap_duration! * 1000),
+  );
+  const end = Math.max((chequered ? abs(chequered.date) : lastLapEnd) + POST_FINISH_MS, lastLapEnd + 30_000);
+  return { lightsOut, t0: lightsOut - PRE_START_MS, end };
+}
+
 export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): NormalizeResult {
   const live = opts.live ?? null;
+  const partial = live ? null : (opts.partial ?? null);
   const { session, meeting, circuit } = raw;
   const rawDrivers = raw.drivers;
   const rawLaps = raw.laps;
@@ -423,8 +457,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   const lap1Starts = rawLaps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
   let lightsOutAbs: number;
-  if (lap1Starts.length) lightsOutAbs = Math.min(...lap1Starts);
-  else if (!live) lightsOutAbs = abs(session.date_start);
+  if (lap1Starts.length || !live) lightsOutAbs = replayWindow(raw).lightsOut;
   else {
     // Lap 1 undated but later laps known: back from lap 2's start; else not started yet.
     const lap2 = rawLaps.flatMap((l) => {
@@ -437,18 +470,16 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const chequeredMsg = rawRaceControl.find((m) => m.flag === "CHEQUERED");
   const chequeredAbs = chequeredMsg ? abs(chequeredMsg.date) : null;
 
-  const lapEndsAbs = rawLaps
-    .filter((l) => l.date_start && l.lap_duration != null)
-    .map((l) => abs(l.date_start!) + l.lap_duration! * 1000);
-  const lastLapEndAbs = Math.max(...lapEndsAbs);
-
   const t0 = live ? live.t0 : lightsOutAbs - PRE_START_MS;
-  const windowEndAbs = live
-    ? Math.max(live.now, t0)
-    : Math.max((chequeredAbs ?? lastLapEndAbs) + POST_FINISH_MS, lastLapEndAbs + 30_000);
+  const windowEndAbs = live ? Math.max(live.now, t0) : replayWindow(raw).end;
   const duration: Ms = windowEndAbs - t0;
   const rel = (iso: string): Ms => abs(iso) - t0;
   const inWindow = (t: Ms) => t >= 0 && t <= duration;
+  // Partial telemetry: the spans it covers (ms since t0); whether [from, to] lies in one of them.
+  const spans = partial ? partial.telemetry.map((s) => ({ from: s.from - t0, to: s.to - t0 })) : null;
+  const covered = (from: Ms, to: Ms) => !spans || spans.some((s) => s.from <= from && to <= s.to);
+  /** Partial telemetry: where the span with t in it ends (t if none); else, Infinity. */
+  const coveredUntil = (t: Ms) => (spans ? (spans.find((s) => s.from <= t && t <= s.to)?.to ?? t) : Infinity);
 
   /**
    * Keep events inside the window, plus the last event before it (per key) moved to t = 0,
@@ -569,7 +600,12 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     0.8 *
     median(
       rawLaps.flatMap((l) =>
-        l.lap_number > 1 && !l.is_pit_out_lap && l.date_start && l.lap_duration != null && carTimes.get(l.driver_number)?.length
+        l.lap_number > 1 &&
+        !l.is_pit_out_lap &&
+        l.date_start &&
+        l.lap_duration != null &&
+        carTimes.get(l.driver_number)?.length &&
+        covered(rel(l.date_start), rel(l.date_start) + l.lap_duration * 1000)
           ? [travelled(l.driver_number, rel(l.date_start), rel(l.date_start) + l.lap_duration * 1000)]
           : [],
       ),
@@ -672,8 +708,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       sources.push({ raw: l, start });
       if (i + 1 >= own.length) return;
       const nextStart = starts[i + 1];
-      // Could a lap boundary at t split this record into two real laps?
+      // Could a lap boundary at t split this record into two real laps? (Partial telemetry: only where it's in.)
       const fullLapsAround = (from: Ms, t: Ms) =>
+        covered(from, nextStart) &&
         t - from >= minLapMs &&
         nextStart - t >= minLapMs &&
         !(travelled(n, from, t) < minLapDistance) &&
@@ -773,7 +810,10 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       if (lap.lap === finalLap && lap.end == null) {
         const line = crossings
           .get(n)!
-          .find((c) => c - lap.start >= minLapMs && c - lap.start <= 3 * typicalLapMs && !(travelled(n, lap.start, c) < minLapDistance));
+          .find(
+            (c) =>
+              c - lap.start >= minLapMs && c - lap.start <= 3 * typicalLapMs && covered(lap.start, c) && !(travelled(n, lap.start, c) < minLapDistance),
+          );
         if (line != null) {
           lap.end = Math.round(line);
           finishFromLine++;
@@ -1035,6 +1075,11 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     for (let i = times.length - 1; i >= 0; i--) if (speeds[i] > 10) return times[i];
     return 0;
   }
+  /** When a car that didn't finish stopped; partial telemetry: null until it's been seen standing after that. */
+  function retiredAt(driver: number): Ms | null {
+    const t = lastMoving(driver);
+    return covered(t, t + RETIRED_SEEN_MS) ? t : null;
+  }
 
   const results: Result[] = rawResults
     .map((r) => {
@@ -1053,7 +1098,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
         duration: typeof d === "number" ? d : null,
         gapToLeader: lastNumber(r.gap_to_leader),
         finish: finished ? (finalLap?.end ?? null) : null,
-        retired: r.dnf || r.dns ? lastMoving(r.driver_number) : null,
+        retired: r.dnf || r.dns ? retiredAt(r.driver_number) : null,
       };
     })
     .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
@@ -1094,15 +1139,15 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     !inLaps.has(`${l.driver}:${l.lap}`) &&
     statusDuring(l.start, l.end) &&
     plausibleTrace(slice(l.driver, l.start, l.end), l.duration);
-  const pinned = live?.referenceLap;
+  const pinned = live?.referenceLap ?? partial?.referenceLap;
   const pinnedLap = pinned ? laps.find((l) => l.driver === pinned.driver && l.lap === pinned.lap) : undefined;
   const refLap =
     pinnedLap && isClean(pinnedLap)
       ? pinnedLap
       : laps.filter(isClean).reduce<Lap | null>((best, l) => (!best || l.duration! < best.duration! ? l : best), null);
-  if (!refLap && !live) throw new Error("No clean lap found to build the track outline");
+  if (!refLap && !live && !partial) throw new Error("No clean lap found to build the track outline");
 
-  // Live, before any clean lap: the MultiViewer circuit trace (same frame, starts at the line).
+  // Live (or partial), before any clean lap: the MultiViewer circuit trace (same frame, starts at the line).
   const outline: Polyline = refLap
     ? slice(refLap.driver, refLap.start, refLap.end!)
     : { x: [...(circuit?.x ?? [])], y: [...(circuit?.y ?? [])], z: (circuit?.x ?? []).map(() => 0) };
@@ -1232,11 +1277,14 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
         continue;
       }
       if (t >= until) break;
-      if (t - prev > LOC_GAP_MS) gaps.push({ from: prev, to: t, a: prevIndex, b: i });
+      // (Partial telemetry: not a gap where the fixes in between just aren't in yet.)
+      if (t - prev > LOC_GAP_MS && covered(prev, t)) gaps.push({ from: prev, to: t, a: prevIndex, b: i });
       prev = t;
       prevIndex = i;
     }
-    if (until - prev > trailingGap) gaps.push({ from: prev, to: until, a: prevIndex, b: -1 });
+    // After the last fix: up to where telemetry ends, when only some is in.
+    const tail = Math.min(until, coveredUntil(prev));
+    if (tail - prev > trailingGap) gaps.push({ from: prev, to: tail, a: prevIndex, b: -1 });
     if (!gaps.length) continue;
 
     const ct = carTimes.get(n)!;
@@ -1264,11 +1312,13 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
         }
         while (li + 1 < own.length && own[li + 1].start <= t) li++;
         const lap = own[li];
-        if (lap.start > t) continue;
+        // (Partial telemetry: not across a gap, where the distance driven isn't known.)
+        if (lap.start > t || !covered(lap.start, t)) continue;
         const done = distAt(t) - distAt(lap.start);
-        const lapDist = lap.end != null && t <= lap.end ? distAt(lap.end) - distAt(lap.start) : 0;
-        // A lap still running (live): scale the distance driven to the outline.
-        const along = live ? done * outlinePerDistance : done;
+        const whole = lap.end != null && t <= lap.end && covered(lap.start, lap.end);
+        const lapDist = whole ? distAt(lap.end!) - distAt(lap.start) : 0;
+        // A lap still running (live), or whose end isn't in yet (partial): scale the distance driven to the outline.
+        const along = live || (spans && !whole) ? done * outlinePerDistance : done;
         synth.push({ t, ...outlineAt(lapDist > 0 ? (done / lapDist) * outlineLength : Math.min(along, outlineLength * 0.999)) });
       }
     }

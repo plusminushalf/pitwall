@@ -5,6 +5,7 @@ import { LiveScreen } from "./components/LiveControl";
 import { Logo } from "./components/Logo";
 import { ReadyToast } from "./components/Navigation";
 import { SpoilerPrompt, useSpoilerPrompt } from "./components/SpoilerPrompt";
+import { StreamBuffering, StreamLoading } from "./components/StreamStatus";
 import { Timeline } from "./components/Timeline";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
@@ -69,6 +70,7 @@ export function App() {
   const supported = useLibrary((s) => s.supported);
   const link = useLibrary((s) => s.link);
   const live = useReplay((s) => s.mode === "live");
+  const streaming = useReplay((s) => s.stream != null);
   const spoilerPrompt = useSpoilerPrompt();
 
   useEffect(() => {
@@ -86,6 +88,8 @@ export function App() {
   if (!session && live) return <LiveScreen />;
   // A shared link to a session that isn't downloaded: offer to.
   if (link && !live && !loading && session?.meta.sessionKey !== link.key) return <DownloadPrompt sessionKey={link.key} />;
+  // Watched while it downloads, before it can start.
+  if (!session && streaming) return <StreamLoading />;
   if (!session) return <LoadingScreen />;
   // Qualifying sessions open in the lap comparison view.
   if (session.meta.quali) {
@@ -102,7 +106,10 @@ export function App() {
       {/* Behind the spoiler prompt: blurred, and out of reach of focus and clicks. */}
       <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]" inert={spoilerPrompt}>
         <Header />
-        <Grid />
+        <div className="relative grid min-h-0 grid-rows-[minmax(0,1fr)]">
+          <Grid />
+          <StreamBuffering />
+        </div>
         <Timeline />
         {loading && (
           <div className="absolute inset-0 z-10 bg-zinc-950/80">

@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { yellowCulprits } from "../engine/yellowCause";
 import { carPathOf } from "../engine/carPath";
+import type { StreamChunk } from "../ingest/protocol";
 
 export interface LocSeries {
   t: Float64Array;
@@ -229,12 +230,13 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>, live: bo
 // ---------------------------------------------------------------- live sessions
 
 /**
- * The session rebuilt around a new meta (a live `meta` update), reusing the telemetry already decoded.
- * An unchanged track keeps its object identity, so views keyed on it (the track map) don't redraw.
+ * The session rebuilt around a new meta (a live `meta` update, or a streamed race's), reusing the telemetry already
+ * decoded. An unchanged track keeps its object identity, so views keyed on it (the track map) don't redraw. `live`:
+ * the filter for cars' paths built now (a streamed race is a replay).
  */
-export function withMeta(session: Session, meta: SessionMeta): Session {
+export function withMeta(session: Session, meta: SessionMeta, live = true): Session {
   const same = meta.track === session.meta.track || JSON.stringify(meta.track) === JSON.stringify(session.meta.track);
-  return assemble(same ? { ...meta, track: session.meta.track } : meta, new Map(session.series), true);
+  return assemble(same ? { ...meta, track: session.meta.track } : meta, new Map(session.series), live);
 }
 
 type Column = Float64Array | Float32Array | Uint8Array;
@@ -313,4 +315,100 @@ export function appendTelemetry(session: Session, chunks: DriverTelemetry[]): Se
     }
   }
   return added ? assemble(session.meta, new Map(session.series), true) : session;
+}
+
+// ---------------------------------------------------------------- races streamed while they download
+
+/** A race being watched while it downloads (src/ingest/stream.ts): its first update. */
+export function streamSession(meta: SessionMeta, chunks: StreamChunk[]): Session {
+  const series = new Map<number, DriverSeries>();
+  for (const c of chunks) series.set(c.driver, mergeSeries(series.get(c.driver), c));
+  return assemble(meta, series, false);
+}
+
+/** Index of the first time >= t. */
+function lowerBound(times: Float64Array, t: number): number {
+  let lo = 0;
+  let hi = times.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** a[0, i) + b + a[j, end), in a new column. */
+function spliceColumn<T extends Column>(a: T, i: number, j: number, b: ArrayLike<number>): T {
+  const Ctor = a.constructor as { new (n: number): T };
+  const out = new Ctor(i + b.length + (a.length - j));
+  out.set(a.subarray(0, i));
+  out.set(b as never, i);
+  out.set(a.subarray(j), i + b.length);
+  return out;
+}
+
+/**
+ * A driver's series with a chunk's span replaced by the chunk: appended when it comes after everything there
+ * (amortised, and the car's path is extended), else spliced into new columns (the path is rebuilt).
+ */
+function mergeSeries(s: DriverSeries | undefined, c: StreamChunk): DriverSeries {
+  const { loc, car } = c;
+  if (!s) return { loc: { t: loc.t, x: loc.x, y: loc.y }, car: { ...car } };
+  const lt = s.loc.t;
+  const ct = s.car.t;
+  const zeros = (n: number) => new Uint8Array(n);
+  const drs = s.car.drs || car.drs ? { old: s.car.drs ?? zeros(ct.length), add: car.drs ?? zeros(car.t.length) } : null;
+  if ((!lt.length || lt[lt.length - 1] < c.from) && (!ct.length || ct[ct.length - 1] < c.from)) {
+    return {
+      loc: { t: appendColumn(lt, loc.t), x: appendColumn(s.loc.x, loc.x), y: appendColumn(s.loc.y, loc.y) },
+      car: {
+        t: appendColumn(ct, car.t),
+        speed: appendColumn(s.car.speed, car.speed),
+        rpm: appendColumn(s.car.rpm, car.rpm),
+        gear: appendColumn(s.car.gear, car.gear),
+        throttle: appendColumn(s.car.throttle, car.throttle),
+        brake: appendColumn(s.car.brake, car.brake),
+        drs: drs ? appendColumn(drs.old, drs.add) : null,
+      },
+    };
+  }
+  const li = lowerBound(lt, c.from);
+  const lj = lowerBound(lt, c.to);
+  const ci = lowerBound(ct, c.from);
+  const cj = lowerBound(ct, c.to);
+  return {
+    loc: { t: spliceColumn(lt, li, lj, loc.t), x: spliceColumn(s.loc.x, li, lj, loc.x), y: spliceColumn(s.loc.y, li, lj, loc.y) },
+    car: {
+      t: spliceColumn(ct, ci, cj, car.t),
+      speed: spliceColumn(s.car.speed, ci, cj, car.speed),
+      rpm: spliceColumn(s.car.rpm, ci, cj, car.rpm),
+      gear: spliceColumn(s.car.gear, ci, cj, car.gear),
+      throttle: spliceColumn(s.car.throttle, ci, cj, car.throttle),
+      brake: spliceColumn(s.car.brake, ci, cj, car.brake),
+      drs: drs ? spliceColumn(drs.old, ci, cj, drs.add) : null,
+    },
+  };
+}
+
+/**
+ * A streamed race's telemetry update merged in: each chunk replaces its driver's samples in its span. Drivers
+ * already in the session are updated in place (their paths extended or rebuilt) and the same session is returned;
+ * if a chunk brings the first samples of a driver in the meta, a new session including them.
+ */
+export function mergeTelemetry(session: Session, chunks: StreamChunk[]): Session {
+  let added = false;
+  for (const c of chunks) {
+    const s = mergeSeries(session.series.get(c.driver), c);
+    session.series.set(c.driver, s);
+    const d = session.drivers.get(c.driver);
+    if (d) {
+      d.loc = s.loc;
+      d.car = s.car;
+      carPathOf(d);
+    } else if (session.meta.drivers.some((info) => info.number === c.driver)) {
+      added = true;
+    }
+  }
+  return added ? assemble(session.meta, new Map(session.series), false) : session;
 }

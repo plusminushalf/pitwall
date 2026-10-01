@@ -2,20 +2,22 @@
 // Downloads run one at a time in a worker (src/ingest/), guarded by a Web Lock so two tabs never download
 // at once; the queue survives reloads of the tab (sessionStorage) and every run resumes from the raw
 // responses already stored. Separate from the replay store: finished downloads are handed to it through
-// useReplay.getState().loadIndex() / loadSession().
+// useReplay.getState().loadIndex() / loadSession(). Watching a race that isn't downloaded (stream()) downloads
+// it first in the queue, ahead of one running, and the replay store shows it as it comes in (openStream /
+// streamUpdate), telling the download where it's watched (onStreamWatch) so the telemetry comes from there on.
 
 import { create } from "zustand";
 import { FORMAT_VERSION } from "../scripts/lib/formatVersion";
-import { LiveWindowError } from "../scripts/lib/openf1Http";
+import { LiveWindowError, seedRequestStarts, setRequestObserver } from "../scripts/lib/openf1Http";
 import { FIRST_YEAR, isIngestible, LIVE_WINDOW_MARGIN_MS } from "../scripts/lib/season";
 import type { RawMeeting, RawSession } from "../scripts/lib/openf1Types";
 import { buildCatalog, catalogFresh, fetchCatalog, fetchSessionInfo, liveWindowNow, windowLabel, type Catalog, type CatalogRow } from "./ingest/catalog";
-import { assumedDrivers, cacheProgress, estimate, expectedRawFiles, sizeScale, type CacheProgress } from "./ingest/eta";
-import type { FailureKind } from "./ingest/protocol";
-import { loadLearned, runJob, type JobInfo, type Progress, type RunHandle } from "./ingest/runner";
+import { assumedDrivers, cacheProgress, estimate, expectedRawFiles, layoutOf, placeholderFiles, sizeScale, type CacheProgress } from "./ingest/eta";
+import type { FailureKind, FromWorker } from "./ingest/protocol";
+import { loadLearned, noteRequest, recentRequests, runJob, type JobInfo, type Progress, type RunHandle } from "./ingest/runner";
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
-import { clock, useReplay } from "./store";
+import { clock, onStreamWatch, useReplay } from "./store";
 import { getVault } from "./vault/client";
 
 export { FIRST_YEAR };
@@ -118,7 +120,6 @@ interface LibraryState {
   loadYear: (year: number, opts?: { force?: boolean }) => Promise<void>;
   lookup: (key: number) => Promise<void>;
   setLink: (link: { key: number; opts: WatchOpts } | null) => void;
-  download: (row: CatalogRow, opts?: { watch?: WatchOpts }) => void;
   reprocess: (entry: LibraryEntry, opts?: { watch?: WatchOpts }) => void;
   cancel: (key: number) => void;
   askDelete: (key: number | null) => void;
@@ -126,6 +127,11 @@ interface LibraryState {
   setWatch: (key: number | null) => void;
   /** Open a downloaded session (useReplay's openSession). */
   watchNow: (key: number, opts?: WatchOpts) => void;
+  /**
+   * Watch a session: a downloaded one opens; otherwise it's downloaded now (first in the queue, ahead of a download
+   * that's running, which carries on after) and watched while it comes in.
+   */
+  stream: (row: CatalogRow, opts?: WatchOpts) => void;
   dismissToast: () => void;
 }
 
@@ -136,6 +142,7 @@ const LOCK = "f1-replay:downloads";
 const QUEUE_KEY = "f1-replay:queue";
 /** Automatic retries of a failed download (network drop, OpenF1 hiccup), from what's stored. */
 const RETRY_DELAYS_S = [10, 30];
+const WATCHED_RETRY_DELAYS_S = [3, 10, 30];
 /** How long to wait before trying again after a live-window refusal we can't place on the calendar. */
 const BLOCKED_RECHECK_MS = 10 * 60_000;
 const PERMANENT = /not found|only races|isn't stored/i;
@@ -192,9 +199,11 @@ export type RowState =
 
 const REMOTE_STALE_MS = 5_000;
 
-function partialProgress(row: Pick<CatalogRow, "sessionType" | "year">, p: PartialRaw | undefined): CacheProgress | null {
+function partialProgress(row: Pick<CatalogRow, "sessionType" | "year" | "dateStart" | "dateEnd">, p: PartialRaw | undefined): CacheProgress | null {
   if (!p || !Object.keys(p.files).length) return null;
-  return cacheProgress(expectedRawFiles(row.sessionType, p.drivers, assumedDrivers(row.year)), new Map(Object.entries(p.files)));
+  const files = new Map(Object.entries(p.files));
+  const expected = expectedRawFiles(row.sessionType, p.drivers, assumedDrivers(row.year), layoutOf(files.keys()), sizeScale(row.dateStart, row.dateEnd));
+  return cacheProgress(expected, placeholderFiles(files));
 }
 
 export function rowState(
@@ -218,7 +227,7 @@ export function rowState(
   if (partial && partial.cachedFiles > 0) {
     return { kind: "partial", cache: partial, estimate: estimate(partial.missing, "free", scale, learned.ratio, learned.processingS, partial.cachedBytes) };
   }
-  const all = expectedRawFiles(row.sessionType, null, assumedDrivers(row.year)).filter((f) => f.required || !f.external);
+  const all = expectedRawFiles(row.sessionType, null, assumedDrivers(row.year), layoutOf([]), scale).filter((f) => f.required || !f.external);
   return { kind: "available", estimate: estimate(all, "free", scale, learned.ratio, learned.processingS) };
 }
 
@@ -276,6 +285,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 let initialized = false;
 let running: { key: number; handle: RunHandle } | null = null;
+/** The race being watched while it downloads, and where (ms since its t0), from the replay store. */
+let watched: { key: number; t: number | null } | null = null;
 let pumping = false;
 let lockAbort: AbortController | null = null;
 let resumeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -283,6 +294,14 @@ let persistAsked = false;
 
 export const useLibrary = create<LibraryState>((set, get) => {
   const store = () => sessionStore();
+
+  onStreamWatch((key, t) => {
+    const before = watched;
+    watched = key == null ? null : { key, t };
+    if (!running) return;
+    if (key != null && running.key === key) running.handle.send({ type: "watch", playhead: t });
+    else if (before?.key === running.key) running.handle.send({ type: "unwatch" });
+  });
 
   const setJob = (key: number, patch: Partial<Job>) => {
     const job = get().jobs[key];
@@ -352,7 +371,21 @@ export const useLibrary = create<LibraryState>((set, get) => {
     }
   }
 
+  /**
+   * The race being watched goes before a download of another race: a running one makes way (it's queued right after
+   * it, and resumes from what it stored); one that's processing is nearly done, and finishes first.
+   */
+  function makeWayFor(key: number) {
+    const r = running;
+    if (!r || r.key === key || get().jobs[r.key]?.phase !== "downloading") return;
+    if (nextRunnable() !== key) return; // (it can't run yet anyway: a live window)
+    setJob(r.key, { phase: "queued", progress: null });
+    r.handle.cancel();
+  }
+
   async function pump() {
+    // A watched download whose retry wait is over doesn't wait for the one running.
+    if (pumping && watched && get().queue.includes(watched.key)) makeWayFor(watched.key);
     if (pumping || nextRunnable() == null) return scheduleResume();
     pumping = true;
     try {
@@ -402,8 +435,13 @@ export const useLibrary = create<LibraryState>((set, get) => {
         broadcast({ type: "progress", key, label: info.label, progress });
       }
     };
-    // (Signed in to the vault: the worker downloads through it, faster.)
-    const handle = runJob(info, store().backend, learned, update, getVault());
+    // (Signed in to the vault: the worker downloads through it, faster.) Watched: it streams to the replay.
+    const onMessage = (m: FromWorker) => {
+      if (m.type === "stream") useReplay.getState().streamUpdate(m);
+      else update();
+    };
+    const watch = watched?.key === key ? { playhead: watched.t } : null;
+    const handle = runJob(info, store().backend, learned, onMessage, getVault(), watch);
     running = { key, handle };
     update();
     const timer = setInterval(update, 500);
@@ -429,7 +467,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
       setJob(key, { phase: "paused", progress: null, resumeAt: until, notice: `OpenF1 blocks free downloads during live sessions (${w?.label ?? "a session is live"}).` });
       return;
     }
-    const retryIn = RETRY_DELAYS_S[job.attempt - 1];
+    // (Watched: sooner.)
+    const retryIn = (watched?.key === key ? WATCHED_RETRY_DELAYS_S : RETRY_DELAYS_S)[job.attempt - 1];
     if ((outcome.kind === "error" || outcome.kind === "crashed") && retryIn != null && !PERMANENT.test(outcome.message)) {
       setJob(key, {
         phase: "paused",
@@ -461,6 +500,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
     void get().refreshUsage();
     const replay = useReplay.getState();
     await replay.loadIndex();
+    if (useReplay.getState().stream?.key === key) {
+      // Watched while it downloaded: the stored replay takes over where it is.
+      if (get().watch?.key === key) set({ watch: null });
+      if (get().link?.key === key) set({ link: null });
+      return void useReplay.getState().streamDone(key);
+    }
     // Opened for a shared link (its time and drivers), and/or asked to open when ready.
     const link = get().link?.key === key ? get().link : null;
     const watch = get().watch?.key === key ? get().watch : null;
@@ -496,23 +541,44 @@ export const useLibrary = create<LibraryState>((set, get) => {
     return wasRunning;
   }
 
-  function enqueue(info: JobInfo, watch?: WatchOpts) {
+  /** Queue a job (`first`: ahead of the others). */
+  function enqueue(info: JobInfo, watch?: WatchOpts, first = false) {
     const key = info.key;
     const existing = get().jobs[key];
     if (watch) set({ watch: { key, opts: watch } });
+    const others = get().queue.filter((k) => k !== key);
     if (existing && isActive(existing.phase)) {
+      if (first) set({ queue: [key, ...others] });
       saveQueue();
       return;
     }
-    set({ jobs: { ...get().jobs, [key]: newJob(info) }, queue: [...get().queue.filter((k) => k !== key), key] });
+    set({ jobs: { ...get().jobs, [key]: newJob(info) }, queue: first ? [key, ...others] : [...others, key] });
     saveQueue();
     void pump();
+  }
+
+  /** Ask once, on the first download (a user gesture), for persistent storage: keeps the browser from clearing the library. */
+  function askPersist() {
+    if (persistAsked || typeof navigator === "undefined" || !navigator.storage?.persist) return;
+    persistAsked = true;
+    void navigator.storage
+      .persist()
+      .catch(() => false)
+      .then(() => get().refreshUsage());
   }
 
   channel?.addEventListener("message", (e: MessageEvent<Broadcast>) => {
     const m = e.data;
     if (m.type === "changed") {
-      void get().refreshLibrary();
+      void get()
+        .refreshLibrary()
+        .then(() => {
+          // Downloaded by another tab meanwhile: done here (a race watched here opens), not left queued behind its lock.
+          for (const key of get().queue) {
+            const entry = get().entries[key];
+            if (entry?.format === FORMAT_VERSION && running?.key !== key && get().jobs[key]?.info.mode === "download") void finished(key, entry);
+          }
+        });
       void get().refreshUsage();
       void useReplay.getState().loadIndex();
     } else if (m.type === "progress") {
@@ -547,6 +613,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
     init: async () => {
       if (initialized) return;
       initialized = true;
+      // This page's own OpenF1 requests (the calendar, link lookups) pace around the downloads' and count for them.
+      seedRequestStarts(recentRequests());
+      setRequestObserver((e) => noteRequest(Date.now() - e.ms));
       if (!storageSupported()) {
         set({ supported: false, ready: true });
         return;
@@ -673,16 +742,21 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
     setLink: (link) => set({ link }),
 
-    download: (row, { watch } = {}) => {
-      if (!persistAsked && typeof navigator !== "undefined" && navigator.storage?.persist) {
-        // Ask once, on the first download (a user gesture): keeps the browser from clearing the library.
-        persistAsked = true;
-        void navigator.storage
-          .persist()
-          .catch(() => false)
-          .then(() => get().refreshUsage());
-      }
-      enqueue(jobInfo(row, "download"), watch);
+    stream: (row, opts = {}) => {
+      const key = row.sessionKey;
+      const state = rowState(row, get());
+      if (state.kind === "ready") return get().watchNow(key, opts);
+      if (state.kind === "stale") return get().reprocess(state.entry, { watch: opts });
+      if (state.kind === "upcoming" || state.kind === "cancelled") return;
+      set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
+      if (get().watch?.key === key) set({ watch: null });
+      useReplay.getState().openStream(key, opts);
+      askPersist();
+      enqueue(jobInfo(row, "download"), undefined, true);
+      // Waiting to retry: now (a live window pauses it again).
+      if (get().jobs[key]?.phase === "paused") setJob(key, { resumeAt: Date.now() });
+      makeWayFor(key);
+      void pump();
     },
 
     reprocess: (entry, { watch } = {}) => enqueue(entryInfo(entry), watch),
@@ -715,7 +789,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       void get().refreshUsage();
       const replay = useReplay.getState();
       await replay.loadIndex();
-      if (replay.session?.meta.sessionKey === key) useReplay.getState().closeSession();
+      if (replay.session?.meta.sessionKey === key || replay.stream?.key === key) useReplay.getState().closeSession();
     },
 
     setWatch: (key) => set({ watch: key == null ? null : { key, opts: {} } }),

@@ -13,7 +13,7 @@ import { raceClock } from "../../lib/format";
 import { useReplay, watchHistory } from "../../store";
 import { LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
-import { Action, approx, Attribution, clockTime, estimateText, LABEL, left, mb, relativeDay, RowDetails, sessionDot, size, useNow, useRowState } from "./common";
+import { Action, approx, Attribution, clockTime, LABEL, left, mb, relativeDay, RowDetails, sessionDot, size, useNow, useRowState } from "./common";
 import { Calendar, Chip, resumeClocks } from "./Calendar";
 import { Library } from "./Library";
 import { Settings } from "./Settings";
@@ -112,14 +112,14 @@ const heroButton = (filled: boolean, small = false) =>
     small ? "px-4 py-2 text-sm" : "px-6 py-3 text-base"
   } ${filled ? "bg-zinc-100 text-zinc-900 hover:bg-white" : "border border-zinc-700 text-zinc-200 hover:border-zinc-500 hover:text-white"}`;
 
-/** The latest race's one action: Download, Watch, or its download under way. */
+/** The latest race's one action: Watch (downloading it as it plays, if it isn't here), or its update. */
 function HeroAction({ row, state, resumeAt, filled, small }: { row: CatalogRow; state: RowState; resumeAt: string | null; filled: boolean; small: boolean }) {
-  const download = useLibrary((s) => s.download);
+  const stream = useLibrary((s) => s.stream);
   const reprocess = useLibrary((s) => s.reprocess);
   const cancel = useLibrary((s) => s.cancel);
   const watchNow = useLibrary((s) => s.watchNow);
   // Left for Home: Watch picks it up where it was.
-  const loaded = useReplay((s) => s.mode === "replay" && s.session?.meta.sessionKey === row.sessionKey);
+  const loaded = useReplay((s) => s.mode === "replay" && (s.session?.meta.sessionKey === row.sessionKey || s.stream?.key === row.sessionKey));
   const key = row.sessionKey;
   const status = (text: string) => <span className="whitespace-nowrap text-sm tabular-nums text-zinc-300">{text}</span>;
   const HERO_PRIMARY = heroButton(filled, small);
@@ -133,15 +133,10 @@ function HeroAction({ row, state, resumeAt, filled, small }: { row: CatalogRow; 
         </button>
       );
     case "available":
-      return (
-        <button onClick={() => download(row)} className={HERO_PRIMARY} title={`Download from OpenF1 into this browser (${estimateText(state.estimate)})`}>
-          Download the race
-        </button>
-      );
     case "partial":
       return (
-        <button onClick={() => download(row)} className={HERO_PRIMARY} title="Continue from the files already downloaded">
-          Resume download
+        <button onClick={() => stream(row)} className={HERO_PRIMARY} title="Plays in a few seconds; it downloads into this browser as you watch">
+          {loaded ? "Continue watching" : resumeAt ? `Continue from ${resumeAt}` : "Watch the race"}
         </button>
       );
     case "stale":
@@ -160,8 +155,8 @@ function HeroAction({ row, state, resumeAt, filled, small }: { row: CatalogRow; 
       const { job } = state;
       if (job.phase === "failed") {
         return (
-          <button onClick={() => download(row)} className={HERO_PRIMARY} title={state.cache ? "Continue from the files already downloaded" : "Try again"}>
-            Retry download
+          <button onClick={() => stream(row)} className={HERO_PRIMARY} title={state.cache ? "Carries on from what's downloaded" : "Try again"}>
+            Watch the race
           </button>
         );
       }
@@ -170,6 +165,11 @@ function HeroAction({ row, state, resumeAt, filled, small }: { row: CatalogRow; 
         job.phase === "queued" ? "Queued" : job.phase === "paused" ? "Waiting" : p ? `${Math.round(p.progress * 100)}% · ${left(p.etaSeconds)}` : job.info.mode === "reprocess" ? "Updating…" : "Starting…";
       return (
         <div className="flex items-center gap-4">
+          {job.info.mode === "download" && (
+            <button onClick={() => stream(row)} className={HERO_PRIMARY} title="Watch it while it downloads">
+              {loaded ? "Continue watching" : "Watch now"}
+            </button>
+          )}
           {status(text)}
           <button onClick={() => cancel(key)} className={HERO_SECONDARY} title="Stop; what's downloaded so far is kept">
             Cancel
@@ -190,9 +190,9 @@ function replayFact(state: RowState, resumeAt: string | null): string | null {
     case "stale":
       return `Needs an update (no download) · ${size(state.entry.processedBytes + state.entry.rawBytes)}`;
     case "available":
-      return `~${mb(state.estimate.mb * 1e6)} MB · ${approx(state.estimate.seconds)} to download`;
+      return `Plays in seconds · ~${mb(state.estimate.mb * 1e6)} MB, saved as you watch`;
     case "partial":
-      return `${state.cache.cachedFiles}/${state.cache.expectedFiles} files stored · ${approx(state.estimate.seconds)} left`;
+      return `Partly downloaded · ${approx(state.estimate.seconds)} left`;
     case "job":
       return state.job.phase === "failed" ? "Download failed" : "Downloading into this browser";
     case "remote":

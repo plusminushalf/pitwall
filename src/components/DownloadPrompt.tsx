@@ -1,11 +1,11 @@
-// A shared link (/session/<key>?t=…) to a session that isn't in this browser's library yet: offer to
-// download it, show the progress, and open it at the linked moment when it's ready (library.ts).
+// A shared link (/session/<key>?t=…) to a session that isn't in this browser's library yet: offer to watch it
+// (it downloads as it plays, from the linked moment: library.ts stream()).
 
 import { useEffect, type ReactNode } from "react";
 import { useLibrary } from "../library";
 import { raceClock } from "../lib/format";
 import { useReplay } from "../store";
-import { Action, approx, Attribution, JobProgress, SECONDARY, useRowState } from "./home/common";
+import { Action, Attribution, JobProgress, SECONDARY, useRowState } from "./home/common";
 
 const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric" });
 
@@ -37,7 +37,7 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
           : state?.kind === "cancelled"
             ? "This session was cancelled."
             : state?.kind === "available" || state?.kind === "partial"
-              ? `It isn't in your library yet. It downloads from OpenF1 straight into this browser (${approx(state.estimate.seconds)}, ~${Math.round(state.estimate.mb)} MB), then opens${t != null ? " at the linked moment" : ""}.`
+              ? `It isn't in your library yet. It plays in a few seconds${t != null ? " from the linked moment" : ""}, downloading from OpenF1 straight into this browser as you watch (~${Math.round(state.estimate.mb)} MB).`
               : null;
     body = (
       <>
@@ -54,9 +54,9 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
         {state && (
           <div className="mt-4">
             <div className="flex flex-wrap items-center gap-2">
-              {state.kind === "available" ? (
-                <button onClick={() => useLibrary.getState().download(row, { watch: link?.opts ?? {} })} className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white">
-                  Download this race
+              {state.kind === "available" || state.kind === "partial" ? (
+                <button onClick={() => useLibrary.getState().stream(row, link?.opts ?? {})} className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white">
+                  Watch now
                 </button>
               ) : (
                 <Action row={row} state={state} compact />

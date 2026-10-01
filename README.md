@@ -13,12 +13,13 @@ Replay any F1 race, sprint or qualifying session since 2023. Built on [OpenF1](h
 
 ## What it does
 
+- **Plays in seconds.** Pick a race and it starts about 5 seconds later. It downloads into your browser while you watch, so next time it opens instantly, even offline.
 - **Tracking.** Every car on the track map, about 4 times a second. Timing, gaps, tyres, pit stops, race control, weather and team radio. All on one timeline. Pause, scrub, or play at up to 64×.
 - **No spoilers.** Watching a race you missed? The timeline shows only what you've watched: safety cars, retirements, penalties and the finish stay hidden until you get there. Pitwall asks when you open a race, or remembers your answer (Settings, on the home page).
 - **Qualifying.** Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Modules.** The screen is a grid of blocks. Move, resize, add or remove them. Your layout is saved.
 - **Live.** Follow a race as it happens. Needs an OpenF1 account. Local only for now, not yet on the hosted site.
-- **Bring your own credentials.** Connect your own OpenF1 account. Downloads get about 4× faster.
+- **Bring your own credentials.** Connect your own OpenF1 account. Downloads get faster.
 
 | Qualifying | Edit the layout |
 | --- | --- |
@@ -26,7 +27,7 @@ Replay any F1 race, sprint or qualifying session since 2023. Built on [OpenF1](h
 
 ## Faster downloads with your own credentials
 
-OpenF1's free tier is slow. Connect an OpenF1 account and a race downloads in about 40 seconds instead of 2.5 minutes.
+On OpenF1's free tier a race plays about 5 seconds after you pick it, and the rest of it is downloaded within about a minute. Qualifying takes about 20 seconds to open. Connect an OpenF1 account and downloads get faster, and they also work during live sessions, when the free tier is blocked.
 
 **TL;DR: getting credentials**
 

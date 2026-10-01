@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { LiveEdge } from "./data/liveEdge";
-import { appendTelemetry, buildSession, withMeta, type Session } from "./data/session";
+import { appendTelemetry, buildSession, mergeTelemetry, streamSession, withMeta, type Session } from "./data/session";
+import type { StreamUpdate } from "./ingest/protocol";
 import { raceStateAt, timeForLap, type RaceState } from "./engine/raceState";
 import { connectLive, LIVE_RELAY, type LiveConnection } from "./live/client";
 import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
@@ -123,6 +124,86 @@ function endOf(s: { mode: Mode; session: Session | null }): number {
   return s.mode === "live" ? Math.max(liveEdge.now, s.session.meta.duration) : s.session.meta.duration;
 }
 
+/**
+ * A race being watched while it downloads: which, the spans of it in so far (ms since meta.t0, in order), where to
+ * open it once its first update is in, and whether the stored replay is being swapped in (the download is done).
+ */
+export interface StreamState {
+  key: number;
+  spans: [number, number][];
+  opts: { t?: number; drivers?: number[]; focus?: number | null };
+  finishing: boolean;
+}
+
+/** Playback stops this short of the end of what's in (cars need a sample or two ahead), unless that's the end. */
+const STREAM_EDGE_MS = 1_500;
+
+/** How far playback can run from `t` with the spans in: the end of the one it's in (minus the edge), else nowhere. */
+export function streamLimit(spans: readonly (readonly [number, number])[], t: number, duration: number): number {
+  for (const [from, to] of spans) {
+    if (t < from) break;
+    if (t < to) return to >= duration ? duration : Math.max(t, to - STREAM_EDGE_MS);
+  }
+  return t;
+}
+
+/** Whether `t` has telemetry (a streamed race): in a span, short of its edge. */
+export const streamed = (spans: readonly (readonly [number, number])[], t: number, duration: number) => streamLimit(spans, t, duration) > t || t >= duration;
+
+/**
+ * Tells the download (the library, src/library.ts) which race is watched and where (ms since its t0), so its
+ * telemetry comes from there on; key null: nothing is.
+ */
+let streamWatcher: ((key: number | null, t: number | null) => void) | null = null;
+export function onStreamWatch(fn: (key: number | null, t: number | null) => void): void {
+  streamWatcher = fn;
+}
+let watchedAt = { key: null as number | null, t: null as number | null, at: 0 };
+/** Report where the streamed race is watched: at once (`now`: a seek), else at most every second. */
+function reportPlayhead(now = false): void {
+  const { stream, session, mode } = useReplay.getState();
+  const key = mode === "replay" ? (stream?.key ?? null) : null;
+  const t = key != null && session?.meta.sessionKey === key ? clock.t : (stream?.opts.t ?? null);
+  const wall = performance.now();
+  if (key === watchedAt.key && !now && wall - watchedAt.at < 1_000) return;
+  if (key === watchedAt.key && t === watchedAt.t) return;
+  watchedAt = { key, t, at: wall };
+  streamWatcher?.(key, t);
+}
+
+/**
+ * A streamed race's telemetry updates, merged a few cars per animation frame (extending 22 cars' paths at once
+ * would stall playback for a few frames); an update's spans count once all its cars are in.
+ */
+const MERGE_DRIVERS_PER_FRAME = 4;
+const merging: StreamUpdate[] = [];
+let mergeFrame = 0;
+function mergeSoon(u: StreamUpdate): void {
+  merging.push(u);
+  if (!mergeFrame) mergeFrame = requestAnimationFrame(mergeStep);
+}
+function mergeStep(): void {
+  mergeFrame = 0;
+  const s = useReplay.getState();
+  const u = merging[0];
+  if (!u) return;
+  if (!s.stream || s.stream.key !== u.key || s.session?.meta.sessionKey !== u.key) {
+    merging.length = 0; // another race (or the stored replay) is on screen now
+    return;
+  }
+  const batch = u.chunks.splice(0, MERGE_DRIVERS_PER_FRAME);
+  if (batch.length) {
+    const session = mergeTelemetry(s.session, batch);
+    if (session !== s.session) useReplay.setState({ session });
+  }
+  if (!u.chunks.length) {
+    merging.shift();
+    useReplay.setState({ stream: { ...s.stream, spans: u.spans } });
+    s.publish();
+  }
+  if (merging.length) mergeFrame = requestAnimationFrame(mergeStep);
+}
+
 let live: LiveConnection | null = null;
 /** The replay being watched when live mode was entered, brought back by exitLive(). */
 let replayStash: { session: Session; t: number; watchedTo: number; noSpoilers: boolean | null; selected: number[]; focused: number | null } | null = null;
@@ -132,6 +213,8 @@ let liveFromHome = false;
 let liveOpts: LiveOpts | null = null;
 /** Bumped by every session load / mode switch, so a load that finishes late doesn't clobber a newer choice. */
 let loadToken = 0;
+/** A race just opened, to play once the spoiler question is answered. */
+let autoplayPending = false;
 
 export interface LiveOpts {
   session?: number | null;
@@ -176,6 +259,8 @@ interface ReplayState {
   noSpoilers: boolean | null;
   /** Furthest time watched in this session, kept across visits (in watch history). */
   watchedTo: number;
+  /** The race on screen is being watched while it downloads (null otherwise). */
+  stream: StreamState | null;
 
   loadIndex: () => Promise<void>;
   loadSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => Promise<void>;
@@ -212,9 +297,31 @@ interface ReplayState {
   goLive: () => void;
   setNoSpoilers: (on: boolean) => void;
   setSpoilerPref: (pref: SpoilerPref) => void;
+  /** Watch a race while it downloads (the library starts the download): shown from its first update. */
+  openStream: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => void;
+  /** An update from the download being watched. */
+  streamUpdate: (u: StreamUpdate) => void;
+  /** The download being watched is done: swap in the stored replay, where it is. */
+  streamDone: (key: number) => Promise<void>;
 }
 
 export const useReplay = create<ReplayState>((set, get) => {
+  /**
+   * A race that opens plays (latched, as with P), once the spoiler question is answered if it's asked. Qualifying has
+   * its own player (the ghost laps).
+   */
+  const autoplay = () => {
+    const s = get();
+    autoplayPending = false;
+    if (!s.session || s.session.meta.quali || s.mode !== "replay" || s.view !== "replay") return;
+    if (s.noSpoilers === null) {
+      autoplayPending = true;
+      return;
+    }
+    s.setPlaying(true);
+    if (get().playing) set({ latched: true });
+  };
+
   /** Leave live mode without choosing a replay (the caller loads one). */
   const disconnect = () => {
     live?.close();
@@ -315,6 +422,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     spoilerPref: readSpoilerPref(),
     noSpoilers: false,
     watchedTo: 0,
+    stream: null,
 
     loadIndex: async () => {
       try {
@@ -331,7 +439,9 @@ export const useReplay = create<ReplayState>((set, get) => {
         replayStash = null;
       }
       const token = ++loadToken;
-      set({ loading: { key, progress: 0 }, error: null, playing: false, latched: false });
+      autoplayPending = false;
+      set({ loading: { key, progress: 0 }, error: null, playing: false, latched: false, stream: null });
+      reportPlayhead(true);
       const last = watchHistory()[key];
       if (opts.t == null && last) opts = { ...opts, t: last.t };
       try {
@@ -349,6 +459,8 @@ export const useReplay = create<ReplayState>((set, get) => {
         const noSpoilers = session.meta.quali ? false : prev.session?.meta.sessionKey === key ? prev.noSpoilers : spoilerChoice(prev.spoilerPref);
         set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers });
         get().publish();
+        // (Not when the race on screen is reloaded where it was: an update.)
+        if (prev.session?.meta.sessionKey !== key) autoplay();
       } catch (e) {
         if (token === loadToken) set({ loading: null, error: `Failed to load session ${key}: ${e}` });
       }
@@ -356,7 +468,8 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     closeSession: () => {
       loadToken++;
-      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0 });
+      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0, stream: null });
+      reportPlayhead(true);
       get().goHome();
     },
 
@@ -364,8 +477,11 @@ export const useReplay = create<ReplayState>((set, get) => {
       const s = get();
       if (s.view === "home") pushFromHome(sessionPath(key));
       set({ view: "replay" });
+      // Being streamed (left for Home): just show it, playing.
+      if (s.mode === "replay" && s.stream?.key === key) return autoplay();
       const loaded = s.mode === "replay" && (s.loading ? s.loading.key === key : s.session?.meta.sessionKey === key && !s.error);
       if (!loaded) void get().loadSession(key, opts);
+      else if (!s.loading) autoplay();
     },
 
     goHome: () => {
@@ -377,13 +493,15 @@ export const useReplay = create<ReplayState>((set, get) => {
     },
 
     showHome: () => {
+      autoplayPending = false;
       if (get().mode === "live") restoreReplay();
       set({ view: "home", playing: false, latched: false });
     },
 
     publish: () => {
-      const { session, watchedTo } = get();
+      const { session, watchedTo, stream } = get();
       if (session) set({ t: clock.t, race: raceStateAt(session, clock.t), watchedTo: Math.max(watchedTo, clock.t) });
+      if (stream) reportPlayhead();
     },
 
     seek: (t) => {
@@ -399,6 +517,8 @@ export const useReplay = create<ReplayState>((set, get) => {
         clock.t = Math.min(Math.max(t, 0), s.session.meta.duration);
       }
       get().publish();
+      // A streamed race: its telemetry comes from here on next.
+      if (s.stream) reportPlayhead(true);
     },
 
     seekBy: (dt) => get().seek(clock.t + dt),
@@ -456,10 +576,17 @@ export const useReplay = create<ReplayState>((set, get) => {
     enterLive: (opts = {}) => {
       const s = get();
       if (s.mode === "live") return;
+      const streaming = s.stream != null;
+      if (streaming) {
+        // Live mode replaces the race on screen; its download carries on (Watch opens it again, as it is by then).
+        set({ stream: null });
+        reportPlayhead(true);
+      }
       liveFromHome = s.view === "home";
       if (liveFromHome) pushFromHome(livePath);
       loadToken++; // a replay still loading is no longer wanted
-      if (s.session) replayStash = { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused };
+      // (A race watched while it downloads isn't kept: its replay is provisional.)
+      replayStash = s.session && !streaming ? { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused } : null;
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
       set({
@@ -501,13 +628,102 @@ export const useReplay = create<ReplayState>((set, get) => {
       get().publish();
     },
 
-    setNoSpoilers: (on) => set({ noSpoilers: on }),
+    setNoSpoilers: (on) => {
+      set({ noSpoilers: on });
+      if (autoplayPending) autoplay();
+    },
 
     setSpoilerPref: (pref) => {
       try {
         localStorage.setItem(SPOILERS_KEY, pref);
       } catch {}
       set({ spoilerPref: pref });
+    },
+
+    openStream: (key, opts = {}) => {
+      const s = get();
+      if (s.mode === "live") {
+        disconnect();
+        replayStash = null;
+      }
+      if (s.view === "home") pushFromHome(sessionPath(key));
+      if (s.stream?.key === key) {
+        set({ view: "replay" });
+        return reportPlayhead(true);
+      }
+      loadToken++; // a replay still loading is no longer wanted
+      const last = watchHistory()[key];
+      set({
+        view: "replay",
+        mode: "replay",
+        session: null,
+        race: null,
+        loading: null,
+        error: null,
+        playing: false,
+        latched: false,
+        selected: [],
+        focused: null,
+        watchedTo: last?.watchedTo ?? 0,
+        stream: { key, spans: [], opts: opts.t == null && last ? { ...opts, t: last.t } : opts, finishing: false },
+      });
+      reportPlayhead(true);
+    },
+
+    streamUpdate: (u) => {
+      const s = get();
+      const st = s.stream;
+      if (!st || st.key !== u.key || s.mode !== "replay") return;
+      if (s.session?.meta.sessionKey !== u.key) {
+        if (!u.meta) return; // the first update always has one
+        const session = streamSession(u.meta, u.chunks);
+        const { opts } = st;
+        clock.t = Math.min(Math.max(opts.t ?? Math.max(0, session.meta.lightsOut - 10_000), 0), session.meta.duration);
+        const selected = [...new Set(opts.drivers ?? [])].filter((n) => session.drivers.has(n));
+        const focused = opts.focus != null && session.drivers.has(opts.focus) ? opts.focus : null;
+        set({ session, stream: { ...st, spans: u.spans }, selected, focused, noSpoilers: spoilerChoice(s.spoilerPref) });
+        get().publish();
+        reportPlayhead(true);
+        return autoplay();
+      }
+      if (u.meta) {
+        set({ session: withMeta(s.session, u.meta, false) });
+        get().publish();
+      }
+      mergeSoon(u);
+    },
+
+    streamDone: async (key) => {
+      const st = get().stream;
+      if (!st || st.key !== key || st.finishing) return;
+      set({ stream: { ...st, finishing: true } });
+      const token = loadToken;
+      try {
+        const stored = await fetchSession(key, () => {});
+        const s = get();
+        if (token !== loadToken || s.stream?.key !== key) return;
+        if (!s.session) {
+          // Nothing streamed (qualifying isn't): it opens now, as a download would.
+          const { opts } = st;
+          clock.t = Math.min(Math.max(opts.t ?? Math.max(0, stored.meta.lightsOut - 10_000), 0), stored.meta.duration);
+          const selected = [...new Set(opts.drivers ?? [])].filter((n) => stored.drivers.has(n));
+          const focused = opts.focus != null && stored.drivers.has(opts.focus) ? opts.focus : null;
+          const noSpoilers = stored.meta.quali ? false : spoilerChoice(s.spoilerPref);
+          set({ session: stored, stream: null, selected, focused, noSpoilers });
+          autoplay();
+        } else {
+          // The same race, as stored: carry on where it is.
+          clock.t = Math.min(clock.t, stored.meta.duration);
+          const selected = s.selected.filter((n) => stored.drivers.has(n));
+          const focused = s.focused != null && stored.drivers.has(s.focused) ? s.focused : null;
+          set({ session: stored, stream: null, selected, focused });
+        }
+      } catch (e) {
+        console.warn(`[stream ${key}] couldn't load the stored replay; keeping the streamed one`, e);
+        if (get().stream?.key === key) set({ stream: null });
+      }
+      reportPlayhead(true);
+      get().publish();
     },
   };
 });

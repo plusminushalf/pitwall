@@ -148,8 +148,8 @@ export function Library() {
         <div className="rounded-lg border border-dashed border-zinc-800 px-6 py-8 text-center">
           <p className="text-sm font-semibold text-zinc-200">Nothing downloaded yet</p>
           <p className="mx-auto mt-1 max-w-md text-xs leading-relaxed text-zinc-400">
-            Races you download are kept in this browser, ready to replay any time, even offline. Start with the latest race above, or pick one from the calendar
-            below: a race takes 2–3 minutes to download.
+            A race plays a few seconds after you pick it and downloads into this browser as you watch, to replay any time, even offline. Start with the latest
+            race above, or pick one from the calendar below.
           </p>
         </div>
       )}

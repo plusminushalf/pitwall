@@ -5,7 +5,9 @@
 // Raw responses are cached (gzipped) in data/raw/<key>/, output goes to data/sessions/<key>/ (used by the tests
 // and the live simulator; the app itself downloads races into the browser, see src/ingest/).
 
+import { readdir } from "node:fs/promises";
 import { bunCacheIO, fetchCircuit, fetchEndpoint } from "./openf1";
+import { untilRequestSlot } from "./lib/openf1Http";
 import type { Ms, SessionIndexEntry } from "../src/types";
 import { runIngest, type IngestIO } from "./lib/ingestCore";
 
@@ -22,6 +24,11 @@ const io: IngestIO = {
   fetchCircuit,
   // A few requests at once: the client's pacing (free tier, or the sponsor tier with a login) is the limit.
   concurrency: 4,
+  whenReady: (reserve) => untilRequestSlot(reserve),
+  async rawFiles(dir) {
+    const names = await readdir(dir).catch(() => [] as string[]);
+    return names.filter((n) => n.endsWith(".json.gz")).map((n) => n.slice(0, -".json.gz".length));
+  },
   async writeOutput(path, json) {
     await Bun.write(path, json);
     return Bun.gzipSync(json).length;

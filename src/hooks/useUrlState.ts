@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useLibrary } from "../library";
+import { rowForKey, rowState, useLibrary } from "../library";
 import { saveWatched, useReplay } from "../store";
 import { readUrl, upgradeUrl, urlFor } from "../url";
 
@@ -7,7 +7,7 @@ import { readUrl, upgradeUrl, urlFor } from "../url";
 const MIN_WRITE_INTERVAL_MS = 1_000;
 
 /**
- * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to download it), or Home. On
+ * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), or Home. On
  * startup (once the library is read) and on the browser's Back / Forward; never adds a history entry.
  */
 export function applyUrl() {
@@ -27,9 +27,16 @@ export function applyUrl() {
     library.setLink(null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
   }
-  // A shared link: open it if it's here, otherwise offer to download it (then open it at `t`).
-  if (useReplay.getState().index.some((e) => e.sessionKey === url.session)) library.watchNow(url.session!, opts);
-  else library.setLink({ key: url.session!, opts });
+  // A shared link: open it if it's here; carry on streaming it if its download is under way (a reload); otherwise
+  // offer to watch it (downloading it, from `t`).
+  const key = url.session!;
+  if (useReplay.getState().index.some((e) => e.sessionKey === key)) return library.watchNow(key, opts);
+  const row = rowForKey(key, library);
+  const state = row ? rowState(row, library) : null;
+  if (row && (state?.kind === "job" || state?.kind === "partial") && !(state.kind === "job" && state.job.phase === "failed")) {
+    return library.stream(row, opts);
+  }
+  library.setLink({ key, opts });
 }
 
 /** Back / Forward between Home and the replay. */

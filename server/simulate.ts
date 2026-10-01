@@ -18,6 +18,8 @@ import {
   type RawSession,
   type RawStint,
 } from "../scripts/openf1";
+import { readdir } from "node:fs/promises";
+import { parseSliceFile, sliceFile } from "../scripts/lib/slices";
 import type { Hub } from "./hub";
 import { LiveStore, type Topic } from "./store";
 
@@ -170,9 +172,23 @@ export async function simulate(hub: Hub, opts: SimulateOptions): Promise<void> {
     timed("team_radio", await read("team_radio")),
     timed("overtakes", await read("overtakes")),
   ];
+  // Telemetry: every car's in time slices (scripts/lib/slices.ts, from `bun run ingest`), or one file per driver (an
+  // ingest from before slices, the relay's own cache).
+  const names = (await readdir(dir).catch(() => [] as string[])).map((n) => n.replace(/\.json(\.gz)?$/, ""));
+  const slices = names.flatMap((n) => parseSliceFile(n) ?? []).sort((a, b) => a.span.from - b.span.from);
+  const sliced = new Map<string, Rec[]>();
+  for (const part of slices) {
+    for (const r of await read<Rec>(sliceFile(part))) {
+      const k = `${part.endpoint}_${r.driver_number}`;
+      const list = sliced.get(k);
+      if (list) list.push(r);
+      else sliced.set(k, [r]);
+    }
+  }
   for (const d of drivers) {
     for (const topic of ["car_data", "location"] as const) {
-      const recs = (await read<Rec>(`${topic}_${d.driver_number}`)).filter((r) => ms(r.date) >= t0Orig);
+      const name = `${topic}_${d.driver_number}`;
+      const recs = (sliced.get(name) ?? (await read<Rec>(name))).filter((r) => ms(r.date) >= t0Orig);
       streams.push({ ...stream(topic, recs.map((rec) => ({ at: ms(rec.date), rec }))), telemetry: true });
     }
   }

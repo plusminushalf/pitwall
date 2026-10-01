@@ -52,6 +52,7 @@ Build shells 2 and 3 only when a spike shows we need them.
 **H1.4: Share links are the real UX problem.** A link to lap 34 of a race the recipient hasn't downloaded means about 2 minutes of downloading first.
 - **Starting assumption:** show the track and metadata straight away and let drivers stream in with visible progress.
 - **Deferred:** fetching the time window around `t` first is possible with OpenF1 date filters, but it clashes with repairs that need the whole session.
+- **Built (2026-10-01):** a link (or Watch) plays in ~5 s on the free tier. Telemetry comes in time slices of every car, from `t` on; until it's all in, the replay is provisional and the repairs that need telemetry use only what's in (none drives a car across a gap). Then the stored replay, with every repair, takes over where the viewer is. It's byte-identical to a download's (docs/development.md, "Watching while it downloads").
 
 ## Want 2: bring your own data
 
@@ -310,7 +311,7 @@ Steps 1–3 prove the idea: if our own blocks can be built using only the hooks,
 
 - **Credentials and third-party code on the same website.** Solved by putting credentials on a separate site (H2.4). The vault must exist before P2.
 - **Browser-only and 700 MB normalize.** Phones may not be able to download races (H2.8).
-- **Browser-only and share links.** The recipient waits about 2 minutes on first open (H1.4).
+- **Browser-only and share links.** The recipient waited about 2 minutes on first open; with time slices it plays in ~5 s (H1.4).
 - **Fast data sharing with sandboxed blocks.** `SharedArrayBuffer` needs COOP/COEP headers, which can block cross-origin media such as team radio. Use transferables until it's truly needed.
 - **The vault iframe and cross-origin isolation.** If the app ever turns on COOP/COEP for `SharedArrayBuffer`, the vault must send matching `Cross-Origin-Resource-Policy` / COEP headers or it won't load.
 - **The free-tier live blackout.** The library must detect it, pause, and explain why.

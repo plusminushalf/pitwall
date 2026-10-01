@@ -1,5 +1,6 @@
 // Shared by Home, its library and calendar, and the shared-link prompt: formatting, a session's live state in
-// the library, its buttons (Watch / Download / Resume / Update / Cancel / Delete) and download progress.
+// the library, its buttons (Watch, which downloads a session as it plays / Update / Cancel / Delete) and download
+// progress.
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { CatalogRow } from "../../ingest/catalog";
@@ -78,6 +79,8 @@ export function useRowState(row: CatalogRow | null): RowState | null {
 export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) {
   const watchKey = useLibrary((s) => s.watch?.key);
   const setWatch = useLibrary((s) => s.setWatch);
+  // Being watched while it downloads: it's open already.
+  const streaming = useReplay((s) => s.stream != null && s.stream.key === (job?.info.key ?? remote?.key));
   const otherTab = useLibrary((s) => s.otherTab);
   const now = useNow(1000);
   const p = job?.progress ?? remote?.progress ?? null;
@@ -113,7 +116,7 @@ export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) 
       </div>
       <div className="mt-1 flex items-center gap-3 text-[11px]">
         <span className="min-w-0 flex-1 truncate tabular-nums text-zinc-400">{details.join(" · ")}</span>
-        {job && key != null && (
+        {job && key != null && !streaming && (
           <button
             onClick={() => setWatch(watching ? null : key)}
             className={`shrink-0 rounded px-1 hover:bg-zinc-800 ${watching ? "text-zinc-200" : "text-zinc-500 hover:text-zinc-200"}`}
@@ -146,7 +149,7 @@ function TrashButton({ sessionKey, title }: { sessionKey: number; title: string 
  * instead); `quiet`: outlined buttons only (Home's library, below its one filled button on the latest race).
  */
 export function Action({ row, state, compact = false, quiet = false }: { row: CatalogRow; state: RowState; compact?: boolean; quiet?: boolean }) {
-  const download = useLibrary((s) => s.download);
+  const stream = useLibrary((s) => s.stream);
   const reprocess = useLibrary((s) => s.reprocess);
   const cancel = useLibrary((s) => s.cancel);
   const watchNow = useLibrary((s) => s.watchNow);
@@ -154,9 +157,14 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
   const askDelete = useLibrary((s) => s.askDelete);
   const remove = useLibrary((s) => s.remove);
   // Left for Home: Watch picks it up where it was.
-  const loaded = useReplay((s) => s.mode === "replay" && s.session?.meta.sessionKey === row.sessionKey);
+  const loaded = useReplay((s) => s.mode === "replay" && (s.session?.meta.sessionKey === row.sessionKey || s.stream?.key === row.sessionKey));
   const key = row.sessionKey;
   const primary = quiet ? SECONDARY : PRIMARY;
+  const watch = (title: string) => (
+    <button onClick={() => stream(row)} className={primary} title={title}>
+      {loaded ? "Continue" : "Watch"}
+    </button>
+  );
 
   if (confirming) {
     const bytes = state.kind === "ready" || state.kind === "stale" ? state.entry.processedBytes + state.entry.rawBytes : state.kind === "partial" ? state.cache.cachedBytes : 0;
@@ -212,17 +220,19 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
         const cached = state.cache;
         return (
           <>
-            <button onClick={() => download(row)} className={SECONDARY} title={cached ? "Continue from the files already downloaded" : "Try again"}>
-              {cached && cached.cachedFiles > 0 ? `Retry · ${cached.cachedFiles}/${cached.expectedFiles} files` : "Retry"}
+            <button onClick={() => stream(row)} className={SECONDARY} title={cached ? "Watch it; the download carries on from what's stored" : "Try again"}>
+              Retry
             </button>
             {cached && <TrashButton sessionKey={key} title="Discard the partial download" />}
           </>
         );
       }
+      const watchable = job.info.mode === "download";
       if (job.phase === "queued" || job.phase === "paused") {
         return (
           <>
             {muted(job.phase === "paused" ? "Waiting" : "Queued")}
+            {watchable && watch("Watch it now: its download goes first")}
             <button onClick={() => cancel(key)} className={SECONDARY}>
               Cancel
             </button>
@@ -235,6 +245,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
           <span className="whitespace-nowrap text-xs tabular-nums text-zinc-300">
             {p ? `${Math.round(p.progress * 100)}% · ${left(p.etaSeconds)}` : job.info.mode === "reprocess" ? "Updating…" : "Starting…"}
           </span>
+          {watchable && watch("Watch it while it downloads")}
           <button onClick={() => cancel(key)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
             Cancel
           </button>
@@ -244,14 +255,8 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
     case "partial":
       return (
         <>
-          {!compact && muted(`${approx(state.estimate.seconds)} left`)}
-          <button
-            onClick={() => download(row)}
-            className={SECONDARY}
-            title={`Continue from the files already downloaded (${approx(state.estimate.seconds)} left)`}
-          >
-            Resume{compact ? "" : ` · ${state.cache.cachedFiles}/${state.cache.expectedFiles} files`}
-          </button>
+          {!compact && muted(`${approx(state.estimate.seconds)} left to download`)}
+          {watch(`Watch it; the rest downloads as you watch (${approx(state.estimate.seconds)} left)`)}
           <TrashButton sessionKey={key} title="Discard the partial download" />
         </>
       );
@@ -259,9 +264,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
       return (
         <>
           {!compact && muted(estimateText(state.estimate))}
-          <button onClick={() => download(row)} className={primary} title={`Download from OpenF1 into this browser (${estimateText(state.estimate)})`}>
-            Download
-          </button>
+          {watch(`Plays in a few seconds; downloads into this browser as you watch (${estimateText(state.estimate)})`)}
         </>
       );
   }

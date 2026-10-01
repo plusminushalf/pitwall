@@ -8,6 +8,7 @@ import { raceClock, teamColor, TRACK_STATUS } from "../lib/format";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, PitStop, TrackStatus } from "../types";
 import { GoLiveButton } from "./LiveControl";
+import { StreamBadge } from "./StreamStatus";
 
 const BAND: Partial<Record<TrackStatus, string>> = {
   SC: "bg-amber-400/70",
@@ -95,6 +96,8 @@ export function Timeline() {
   // Live, the bar already ends at what has happened. Not chosen yet (the spoiler prompt is open over it): hidden.
   const noSpoilers = useReplay((s) => s.noSpoilers !== false && s.mode !== "live");
   const watchedTo = useReplay((s) => s.watchedTo);
+  // A race watched while it downloads: what's in so far.
+  const spans = useReplay((s) => (s.stream && s.session?.meta.sessionKey === s.stream.key ? s.stream.spans : null));
   const { setSpeed, seek, seekToLap, togglePlay, setNoSpoilers } = useReplay.getState();
   const barRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
@@ -284,6 +287,12 @@ export function Timeline() {
       >
         {/* track */}
         <div className="absolute inset-x-0 top-8 h-2 overflow-hidden rounded bg-zinc-800">
+          {/* downloaded so far (a race watched while it downloads) */}
+          {spans?.map(([from, to]) =>
+            from < duration ? (
+              <div key={from} className="absolute inset-y-0 bg-zinc-700" style={{ left: pct(from), width: `calc(${pct(to)} - ${pct(from)})` }} />
+            ) : null,
+          )}
           <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
           {bands.map((b, i) =>
             b.from < shownTo ? (
@@ -381,7 +390,10 @@ export function Timeline() {
         )}
       </div>
 
-      <div className="w-20 text-right text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</div>
+      <div className="flex w-20 flex-col items-end leading-tight">
+        <span className="text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</span>
+        <StreamBadge />
+      </div>
       {live ? (
         <GoLiveButton className="-ml-1 shrink-0" />
       ) : (

@@ -1,5 +1,5 @@
 // Home's season calendar (from OpenF1): one row per race weekend, each session a chip that is its own action
-// (download, progress / cancel, watch, resume, update, retry).
+// (watch: downloading it as it plays when it isn't here, with its progress; update; retry).
 
 import { useMemo, useState, type ReactNode } from "react";
 import type { CatalogRow } from "../../ingest/catalog";
@@ -50,9 +50,8 @@ function dateRange(from: string, to: string) {
 
 const shortGp = (name: string) => name.replace(/ Grand Prix$/, " GP");
 
-/** SQ / Sprint / Q / Race. */
-const shortName = (r: CatalogRow) =>
-  r.sessionType === "Qualifying" ? (r.sessionName === "Qualifying" ? "Q" : "SQ") : r.sessionName === "Race" ? "Race" : r.sessionName;
+/** Sprint Qualifying (Sprint Shootout in 2023) / Sprint / Qualifying / Race. */
+const shortName = (r: CatalogRow) => r.sessionName;
 
 const fullName = (r: CatalogRow) => `${r.meetingName} ${r.sessionName}`;
 const estimateText = (e: { seconds: number; mb: number }) => `${approx(e.seconds)}, ${e.mb < 10 ? e.mb.toFixed(1) : Math.round(e.mb)} MB`;
@@ -60,8 +59,8 @@ const estimateText = (e: { seconds: number; mb: number }) => `${approx(e.seconds
 // ---------------------------------------------------------------- chips
 
 const ICONS = {
-  down: "M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10",
   play: "M5 3v10l8-5z",
+  playOutline: "M5 3.5v9l7-4.5z",
   x: "M4 4l8 8M12 4l-8 8",
   wait: "M8 4.5V8l2.5 1.5M14 8A6 6 0 1 1 2 8a6 6 0 0 1 12 0",
   retry: "M13 8a5 5 0 1 1-1.5-3.6M13 2.5v2.5h-2.5",
@@ -79,18 +78,25 @@ function Icon({ name }: { name: keyof typeof ICONS }) {
 
 const CHIP =
   "group/chip relative inline-flex h-7 items-center justify-center gap-1 overflow-hidden whitespace-nowrap rounded-md border px-2 text-xs tabular-nums transition-colors focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-zinc-300";
-const width = (r: CatalogRow) => (r.sessionName === "Race" ? "min-w-[4.75rem] px-3 font-black" : r.sessionName === "Sprint" ? "min-w-[4.25rem] font-semibold" : "min-w-[3rem] font-semibold");
+// Each kind of session the same width, so a season's chips line up in columns.
+const width = (r: CatalogRow) =>
+  r.sessionName === "Race"
+    ? "min-w-[4.75rem] px-3 font-black"
+    : r.sessionName === "Sprint"
+      ? "min-w-[4.25rem] font-semibold"
+      : r.sessionName === "Qualifying"
+        ? "min-w-[6.5rem] font-semibold"
+        : "min-w-[9rem] font-semibold";
 
 /** A fill behind the chip's label: download progress, or how much of a partial download is stored. */
 const Fill = ({ frac, className }: { frac: number; className: string }) => (
   <span className={`absolute inset-y-0 left-0 transition-all duration-700 ${className}`} style={{ width: `${Math.round(frac * 100)}%` }} aria-hidden />
 );
 
-/** A session's own action in its current state; `label` replaces the short name (SQ / Q / Race). */
+/** A session's own action in its current state; `label` replaces its name. */
 export function Chip({ row, state, resume, label = shortName(row) }: { row: CatalogRow; state: RowState; resume: string | null; label?: string }) {
-  const download = useLibrary((s) => s.download);
+  const stream = useLibrary((s) => s.stream);
   const reprocess = useLibrary((s) => s.reprocess);
-  const cancel = useLibrary((s) => s.cancel);
   const watchNow = useLibrary((s) => s.watchNow);
   const name = fullName(row);
   const when = day(row.dateStart);
@@ -146,16 +152,17 @@ export function Chip({ row, state, resume, label = shortName(row) }: { row: Cata
     case "partial":
       return (
         <button
-          onClick={() => download(row)}
+          onClick={() => stream(row)}
           className={`${cls} border-zinc-600 text-zinc-200 hover:border-zinc-400 hover:text-white`}
-          aria-label={`Resume downloading ${name} (${approx(state.estimate.seconds)} left)`}
-          title={`Resume · ${state.cache.cachedFiles}/${state.cache.expectedFiles} files stored · ${approx(state.estimate.seconds)} left`}
+          aria-label={resume ? `Continue ${name} at ${resume}` : `Watch ${name}`}
+          title={`Watch · partly downloaded, the rest comes as you watch (${approx(state.estimate.seconds)} left)`}
         >
           <Fill frac={state.cache.cachedFiles / Math.max(1, state.cache.expectedFiles)} className="bg-zinc-700/60" />
           {text(
             <>
-              <Icon name="down" />
+              <Icon name="play" />
               {label}
+              {resume && <span className="font-normal text-zinc-400">{resume}</span>}
             </>,
           )}
         </button>
@@ -163,14 +170,14 @@ export function Chip({ row, state, resume, label = shortName(row) }: { row: Cata
     case "available":
       return (
         <button
-          onClick={() => download(row)}
+          onClick={() => stream(row)}
           className={`${cls} border-zinc-700 text-zinc-300 hover:border-zinc-500 hover:text-white`}
-          aria-label={`Download ${name} (${estimateText(state.estimate)})`}
-          title={`Download · ${when} · ${estimateText(state.estimate)}`}
+          aria-label={`Watch ${name}`}
+          title={`Watch · ${when} · plays in seconds, downloads as you watch (${estimateText(state.estimate)})`}
         >
           {text(
             <>
-              <Icon name="down" />
+              <Icon name="playOutline" />
               {label}
             </>,
           )}
@@ -195,10 +202,10 @@ export function Chip({ row, state, resume, label = shortName(row) }: { row: Cata
       if (job.phase === "failed") {
         return (
           <button
-            onClick={() => download(row)}
+            onClick={() => stream(row)}
             className={`${cls} border-red-500/60 text-red-300 hover:border-red-400 hover:text-red-200`}
-            aria-label={`Retry downloading ${name}`}
-            title={`Failed: ${job.error ?? "download failed"} · click to retry`}
+            aria-label={`Retry ${name}`}
+            title={`Failed: ${job.error ?? "download failed"} · click to watch (the download carries on from what's stored)`}
           >
             {text(
               <>
@@ -211,19 +218,20 @@ export function Chip({ row, state, resume, label = shortName(row) }: { row: Cata
       }
       const waiting = job.phase === "queued" || job.phase === "paused";
       const pct = job.progress ? Math.round(job.progress.progress * 100) : 0;
+      // Downloading: watch it as it comes in (cancelling is in the library, above).
       return (
         <button
-          onClick={() => cancel(row.sessionKey)}
+          onClick={() => (job.info.mode === "download" ? stream(row) : watchNow(row.sessionKey))}
           className={`${cls} ${waiting ? "border-amber-500/40 text-amber-300" : "border-zinc-500 text-zinc-100"} hover:border-zinc-300`}
-          aria-label={waiting ? `Cancel ${job.phase} download of ${name}` : `Cancel downloading ${name} (${pct}%)`}
-          title={waiting ? `${job.phase === "paused" ? "Waiting" : "Queued"} · click to cancel` : `${job.progress?.step ?? "Starting"} · click to cancel (what's downloaded is kept)`}
+          aria-label={`Watch ${name} (${waiting ? (job.phase === "paused" ? "waiting" : "queued") : `${pct}% downloaded`})`}
+          title={waiting ? `${job.phase === "paused" ? "Waiting" : "Queued"} · click to watch it now` : `${job.progress?.step ?? "Starting"} · click to watch it while it downloads`}
         >
           {!waiting && <Fill frac={pct / 100} className={`bg-zinc-600/70 ${job.progress?.phase === "processing" ? "animate-pulse" : ""}`} />}
           {text(
             <>
               <span className="group-hover/chip:hidden group-focus-visible/chip:hidden">{waiting ? <Icon name="wait" /> : null}</span>
               <span className="hidden group-hover/chip:inline group-focus-visible/chip:inline">
-                <Icon name="x" />
+                <Icon name="play" />
               </span>
               {label}
               {!waiting && <span className="font-normal">{pct}%</span>}

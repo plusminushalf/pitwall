@@ -12,17 +12,22 @@ import {
   expectedBytes,
   expectedRawFiles,
   fileSeconds,
+  layoutOf,
+  minuteFloor,
   nextProcessingS,
   nextRatio,
+  placeholderFiles,
   PROCESSING_PRIOR_S,
   progressOf,
   REPROCESS_PRIOR_S,
   retryNotice,
   sizeScale,
   stepLabel,
+  type Layout,
   type RawFileSpec,
   type Tier,
 } from "./eta";
+import { parseSliceFile } from "../../scripts/lib/slices";
 import type { FailureKind, FromWorker, IngestRequest, JobMode, ToWorker } from "./protocol";
 
 /** What a job needs to know about its session up front (from the catalogue). */
@@ -82,7 +87,16 @@ export interface Progress {
   startedAt: number;
   /** Signed in (requests through the vault, the account's limits) or the free tier; null until known. */
   fast: boolean | null;
+  /** Watching it while it downloads: how much of what the replay needs to start is in (0-1). */
+  startup: number;
+  /** A race downloaded in slices: how much of its telemetry is in (0-1); null before they're planned (or per driver). */
+  telemetry: number | null;
+  /** It can be watched while it downloads (a race in slices); else it opens once it's downloaded. */
+  streams: boolean;
 }
+
+/** What a streamed replay needs to start (src/ingest/stream.ts): these files, and a slice of each telemetry endpoint. */
+const STARTUP_FILES = ["sessions", "meeting", "drivers", "laps", "race_control", "position", "intervals", "stints"];
 
 /** Follows one job's worker events; `view()` is its progress at any moment. */
 export class JobTracker {
@@ -99,11 +113,21 @@ export class JobTracker {
   private processingAt: number | null = null;
   /** Reading back what an earlier run stored (resumed downloads). */
   private cacheReadS = 0;
+  /** Predicted seconds of what was stored when the job started (a head start for progress). */
+  private headS = 0;
   private readonly scale: number;
   private readonly assumed: number;
   readonly startedAt: number;
   /** Which way the requests go (the worker's "path"): the cost model and the learned ratio follow it. */
   private tier: Tier | null = null;
+  private telemetry: number | null = null;
+  /** Races in slices, unless an earlier run stored per-driver files (known at "start"). */
+  private layout: Layout;
+  /** When this run's OpenF1 requests started (for the minute's worth the free tier allows), and how many are in. */
+  private requestStarts: number[] = [];
+  private requestsIn = 0;
+  /** Files in memory (read or downloaded): what a streamed replay waits for. */
+  private inMemory = new Set<string>();
 
   constructor(
     readonly info: JobInfo,
@@ -113,11 +137,12 @@ export class JobTracker {
     this.scale = sizeScale(info.dateStart, info.dateEnd);
     this.assumed = assumedDrivers(info.year);
     this.startedAt = now;
+    this.layout = layoutOf([]);
     if (info.mode === "reprocess") this.step = "Reading stored data";
   }
 
   private expected(): RawFileSpec[] {
-    return expectedRawFiles(this.info.sessionType, this.drivers, this.assumed);
+    return expectedRawFiles(this.info.sessionType, this.drivers, this.assumed, this.layout, this.scale);
   }
 
   private secs = (f: RawFileSpec) => fileSeconds(f, this.tier ?? "free", this.scale);
@@ -138,6 +163,11 @@ export class JobTracker {
           this.cacheReadS += bytes * CACHE_READ_S_PER_BYTE;
         }
         this.drivers ??= m.drivers;
+        this.layout = layoutOf(Object.keys(m.cached));
+        {
+          const p = cacheProgress(this.expected(), placeholderFiles(this.files));
+          this.headS = p.counted.filter((f) => !p.missing.includes(f)).reduce((s, f) => s + this.secs(f), 0);
+        }
         return;
       case "drivers":
         this.drivers = m.numbers;
@@ -149,15 +179,24 @@ export class JobTracker {
         this.step = stepLabel(m.endpoint, m.params, this.drivers);
         this.mark ??= now;
         this.retryStatus = null;
+        if (m.endpoint !== "circuit") this.requestStarts.push(now);
+        return;
+      case "telemetry":
+        this.telemetry = m.progress;
         return;
       case "fetched": {
+        this.inMemory.add(parseSliceFile(m.file)?.endpoint ?? m.file);
         if (m.source !== "network") return;
-        const spec = this.expected().find((f) => f.name === m.file);
+        // (A slice: as its endpoint's placeholders are, all alike.)
+        const part = parseSliceFile(m.file);
+        const spec = this.expected().find((f) => f.name === (part ? `${part.endpoint}#0` : m.file));
         // The circuit map isn't an OpenF1 request: not representative of the rest.
         if (spec && !spec.external && this.mark != null) {
           const observed = Math.max(0, now - this.mark - this.waitMs) / 1000;
-          this.ratio = nextRatio(this.ratio, observed, this.secs(spec));
+          // (Not across a wait for the minute's requests to roll over: that's the pace, not the speed.)
+          if (observed < 10 + 4 * this.secs(spec)) this.ratio = nextRatio(this.ratio, observed, this.secs(spec));
         }
+        if (m.file !== "circuit") this.requestsIn++;
         if (!this.files.has(m.file)) this.files.set(m.file, 0);
         this.mark = now;
         this.waitMs = 0;
@@ -190,7 +229,8 @@ export class JobTracker {
   }
 
   view(now = Date.now()): Progress {
-    const p = cacheProgress(this.expected(), this.files);
+    const p = cacheProgress(this.expected(), placeholderFiles(this.files));
+    const needed = [...STARTUP_FILES, "location", "car_data"];
     const base = {
       step: this.step,
       cachedFiles: p.cachedFiles,
@@ -198,6 +238,9 @@ export class JobTracker {
       cachedBytes: p.cachedBytes,
       startedAt: this.startedAt,
       fast: this.tier === null ? null : this.tier === "sponsor",
+      startup: needed.filter((f) => this.inMemory.has(f)).length / needed.length,
+      telemetry: this.telemetry,
+      streams: this.layout === "sliced" && this.info.sessionType !== "Qualifying",
     };
     if (this.info.mode === "reprocess") {
       const elapsed = (now - this.startedAt) / 1000;
@@ -211,9 +254,21 @@ export class JobTracker {
         etaSeconds: Math.max(1, Math.round(prior - elapsed)),
       };
     }
-    const remainingS = p.missing.reduce((s, f) => s + this.secs(f), 0);
+    // Requests of the last minute that are in (the ones in flight are still missing files): how long the rest take at
+    // least, waiting for the minute to roll over if they don't fit in it.
+    const recent = this.requestStarts.filter((t) => t > now - 60_000);
+    const made = Math.max(0, recent.length - Math.max(0, this.requestStarts.length - this.requestsIn));
+    // Slices: what's left of the telemetry is what the plan says (more slices than placeholders after a jump or a
+    // long race), at the placeholders' cost.
+    const isSlice = (f: RawFileSpec) => f.name.includes("#");
+    const slices = p.counted.filter(isSlice);
+    const sliceShare = this.layout === "sliced" && this.telemetry != null && slices.length ? 1 - this.telemetry : null;
+    const missing = sliceShare == null ? p.missing : p.missing.filter((f) => !isSlice(f));
+    const sliceS = sliceShare == null ? 0 : sliceShare * slices.reduce((s, f) => s + this.secs(f), 0);
+    const requestsLeft = missing.filter((f) => !f.external).length + (sliceShare == null ? 0 : Math.ceil(sliceShare * slices.length));
+    const floorS = minuteFloor(requestsLeft, this.tier ?? "free", made, recent.length ? (now - recent[0]) / 1000 : 0);
+    const remainingS = missing.reduce((s, f) => s + this.secs(f), 0) + sliceS;
     const currentS = p.missing[0] ? this.secs(p.missing[0]) : 0;
-    const totalS = p.counted.reduce((s, f) => s + this.secs(f), 0);
     const missingBytes = p.missing.reduce((s, f) => s + expectedBytes(f, this.scale), 0);
     const waitS = Math.max(0, this.waitUntil - now) / 1000;
     const ratio = this.ratio;
@@ -225,17 +280,37 @@ export class JobTracker {
     const eta =
       this.phase === "processing"
         ? etaSeconds({ phase: "processing", remainingS: 0, currentS: 0, sinceMarkS, ratio, processingS, processingPriorS: prior })
-        : etaSeconds({ phase: "downloading", remainingS, currentS, sinceMarkS, ratio, waitS, processingPriorS: prior });
-    const inFlight = this.mark != null && currentS > 0 ? (now - this.mark) / 1000 / (ratio * currentS) : 0;
+        : etaSeconds({ phase: "downloading", remainingS, currentS, sinceMarkS, ratio, waitS, floorS, processingPriorS: prior });
     return {
       ...base,
       phase: this.phase,
       notice: this.retryStatus != null && waitS > 0 ? retryNotice(this.retryStatus, waitS) : null,
       totalBytes: Math.round(p.cachedBytes + missingBytes),
-      progress: progressOf({ phase: this.phase, totalS, remainingS, currentS, inFlight, processingS, processingPriorS: prior }),
+      progress: progressOf({ phase: this.phase, headS: this.headS, elapsedS: (now - this.startedAt) / 1000, etaS: eta }),
       etaSeconds: Math.round(eta),
     };
   }
+}
+
+const REQUESTS_KEY = "f1-replay:requests";
+
+/**
+ * When this browser's direct OpenF1 requests of the last minute started, across workers and tabs (OpenF1 counts them
+ * per IP): a new job's worker paces itself around them (a reload mid-download, the next download in the queue).
+ */
+export function recentRequests(now = Date.now()): number[] {
+  try {
+    const v = JSON.parse(localStorage.getItem(REQUESTS_KEY) ?? "[]") as unknown;
+    return Array.isArray(v) ? v.filter((t): t is number => typeof t === "number" && t > now - 60_000) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function noteRequest(at: number): void {
+  try {
+    localStorage.setItem(REQUESTS_KEY, JSON.stringify([...recentRequests(), at]));
+  } catch {}
 }
 
 /** On cancel, the worker gets this long to tell the vault before it's terminated. */
@@ -250,6 +325,8 @@ export interface RunHandle {
   done: Promise<RunOutcome>;
   /** Stop now: stored raw files are kept (a later run resumes from them). */
   cancel(): void;
+  /** Tell the worker (a race being watched: where; or that nobody is). */
+  send(m: Extract<ToWorker, { type: "watch" | "unwatch" }>): void;
 }
 
 /** What runJob needs from the credential vault's client (src/vault/client.ts getVault()): a port for the worker. */
@@ -259,7 +336,14 @@ export type VaultLink = { origin: string | null; openPort(port: MessagePort): Pr
  * Start a job in its own worker. `onEvent` fires on every worker message (for re-rendering progress). `vault`:
  * a download asks it for a port, which the worker uses if the vault is signed in (else it goes direct).
  */
-export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, onEvent: (m: FromWorker) => void, vault: VaultLink | null = null): RunHandle {
+export function runJob(
+  info: JobInfo,
+  backend: StoreBackend,
+  learned: Learned,
+  onEvent: (m: FromWorker) => void,
+  vault: VaultLink | null = null,
+  watch: { playhead: number | null } | null = null,
+): RunHandle {
   const tracker = new JobTracker(info, learned);
   const worker = new Worker(new URL("./worker.ts", import.meta.url), { type: "module", name: `ingest-${info.key}` });
   const send = (m: ToWorker, transfer: MessagePort[] = []) => worker.postMessage(m, transfer);
@@ -282,6 +366,7 @@ export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, o
 
   worker.onmessage = (e: MessageEvent<FromWorker>) => {
     const m = e.data;
+    if (m.type === "request") return noteRequest(m.at);
     tracker.onMessage(m);
     if (m.type === "log") (m.warn ? console.warn : console.debug)(`[ingest ${info.key}] ${m.line}`);
     onEvent(m);
@@ -304,8 +389,23 @@ export function runJob(info: JobInfo, backend: StoreBackend, learned: Learned, o
         if (!finished) send({ type: "no-vault", reason: e.message });
       });
   }
-  const request: IngestRequest = { type: "ingest", key: info.key, mode: info.mode, backend, ...(vaultPort && { vault: vaultPort }) };
+  const request: IngestRequest = {
+    type: "ingest",
+    key: info.key,
+    mode: info.mode,
+    backend,
+    ...(vaultPort && { vault: vaultPort }),
+    ...(watch && { watch }),
+    recentRequests: recentRequests(),
+  };
   send(request, vaultPort ? [vaultPort] : []);
 
-  return { tracker, done, cancel: () => end({ ok: false, kind: "cancelled", message: "Cancelled" }) };
+  return {
+    tracker,
+    done,
+    cancel: () => end({ ok: false, kind: "cancelled", message: "Cancelled" }),
+    send: (m) => {
+      if (!finished) send(m);
+    },
+  };
 }
