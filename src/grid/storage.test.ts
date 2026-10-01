@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { defineBlock, settingField, type BlockDefinition } from "../blockkit/defineBlock";
 import { BUILTIN_BLOCKS } from "./builtins";
 import { DEFAULT_LAYOUT } from "./defaultLayout";
-import { COLUMNS, type Layout } from "./layout";
+import { COLUMNS, MIN_HEIGHT, type Layout } from "./layout";
 import { clearSavedLayout, loadLayout, parseLayout, rescaleLayout, saveLayout, STORAGE_KEY } from "./storage";
 
 /** A Map-backed localStorage; `broken` makes every call throw (private mode, quota, blocked). */
@@ -44,6 +44,28 @@ describe("load and save", () => {
     expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(tweaked);
   });
 
+  test("a height of its own comes back as it was; one that isn't a number is dropped, and it's at least MIN_HEIGHT", () => {
+    const sized: Layout = { ...DEFAULT_LAYOUT, blocks: { ...DEFAULT_LAYOUT.blocks, "timing-tower": { ...DEFAULT_LAYOUT.blocks["timing-tower"], height: 480 } } };
+    saveLayout(sized);
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(sized);
+    const read = (height: unknown) => parseLayout(stored({ "timing-tower": { ...entry(0, 0, 9), height } }), BUILTIN_BLOCKS)!.blocks["timing-tower"];
+    expect(read("480")).not.toHaveProperty("height");
+    expect(read(null)).not.toHaveProperty("height");
+    expect(read(Number.POSITIVE_INFINITY)).not.toHaveProperty("height");
+    expect(read(-5).height).toBe(MIN_HEIGHT);
+    expect(read(212.6).height).toBe(212.6);
+  });
+
+  test("more than one of a block comes back; copies of blocks the app doesn't have are dropped", () => {
+    const tower = DEFAULT_LAYOUT.blocks["timing-tower"];
+    const two: Layout = { ...DEFAULT_LAYOUT, blocks: { ...DEFAULT_LAYOUT.blocks, "lap-times:2": { ...DEFAULT_LAYOUT.blocks["lap-times"], block: "lap-times", y: 10, settings: { driver: 44 } } } };
+    saveLayout(two);
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(two);
+    const read = parseLayout(stored({ "timing-tower": entry(0, 0, 9), "x:2": { ...entry(0, 1, 9), block: "nope" }, "tower-copy": { ...entry(0, 2, 9), block: "timing-tower" } }), BUILTIN_BLOCKS)!;
+    expect(Object.keys(read.blocks).sort()).toEqual(["timing-tower", "tower-copy"]);
+    expect(read.blocks["tower-copy"]).toMatchObject({ block: "timing-tower", width: tower.width });
+  });
+
   test("nothing saved, corrupt JSON, the wrong version or a broken shape: the fallback", () => {
     expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
     for (const raw of [
@@ -57,6 +79,7 @@ describe("load and save", () => {
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), x: "0" } })),
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), settings: null } })),
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), group: 3 } })),
+      JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), block: 7 } })),
       JSON.stringify(stored({ "timing-tower": entry(0, Number.NaN, 9) })),
     ]) {
       storage.items.set(STORAGE_KEY, raw);

@@ -1,10 +1,10 @@
 // Edit mode's layout changes (H3.10): remove, move, resize and add blocks. Pure functions over the stored
 // layout; the grid packs the result. Each returns a new layout with every y renumbered 0..n-1 in pack
 // order, so pack order never depends on x ties. Whether a change fits is the caller's check (fits(),
-// fitsAsWell()), except resizeBlock and addBlock, which refuse steps that don't.
+// fitsAsWell()), except resizeBlock, resizeHeight, fitHeight and addBlock, which refuse steps that don't.
 
 import type { BlockDefinition } from "../blockkit/defineBlock";
-import { columnRange, DIVIDER, pack, type GridInput, type Layout, type LayoutEntry, type Placement } from "./layout";
+import { blockIdOf, columnRange, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type LayoutEntry, type Placement } from "./layout";
 
 export interface EditContext {
   blocks: ReadonlyMap<string, BlockDefinition>;
@@ -163,7 +163,7 @@ function resizeStep(layout: Layout, placed: readonly Placement[], id: string, si
  * "Fits" is fitsAsWell() against the input, so a layout already cut off by the window can still be resized.
  */
 export function resizeBlock(layout: Layout, ctx: EditContext, id: string, side: "left" | "right", edge: number): Layout {
-  if (!ctx.blocks.has(id) || !(id in layout.blocks)) return layout;
+  if (!(id in layout.blocks) || !ctx.blocks.has(blockIdOf(id, layout.blocks[id]))) return layout;
   const target = clamp(Math.round(edge), 0, layout.columns);
   const before = overflow(layout, ctx);
   let current = layout;
@@ -177,6 +177,79 @@ export function resizeBlock(layout: Layout, ctx: EditContext, id: string, side: 
     current = next;
   }
   return current;
+}
+
+/** `id` without a height of its own (`undefined`) or at `height` px; nothing else changes. */
+function withHeight(layout: Layout, id: string, height: number | undefined): Layout {
+  const { height: _, ...entry } = layout.blocks[id];
+  return renumber(layout, { ...layout.blocks, [id]: height === undefined ? entry : { ...entry, height } }, order(layout));
+}
+
+const placementOf = (layout: Layout, ctx: EditContext, id: string) => pack(layout, ctx.blocks, ctx.input, ctx.gridHeight).find((p) => p.id === id);
+
+/** Where a placed block's `side` edge is on screen (a top hairline is inside the box). */
+const edgeY = (p: Placement, side: HeightEdge["side"]) => (side === "bottom" ? p.top + p.height : boxTop(p));
+
+/** The edge of a block that moves when its height changes, and where it is in grid px. */
+export interface HeightEdge {
+  side: "top" | "bottom";
+  y: number;
+}
+
+/**
+ * Which edge of `id` its height moves: the bottom, or the top for a block resting on the grid's bottom
+ * under a stretching block (which gives or takes the room). null if it isn't placed.
+ */
+export function heightEdge(layout: Layout, ctx: EditContext, id: string): HeightEdge | null {
+  const p = id in layout.blocks ? placementOf(layout, ctx, id) : undefined;
+  if (!p) return null;
+  // A step shorter is always placeable: does the block's top come down, or its bottom up?
+  const shorter = placementOf(withHeight(layout, id, Math.max(p.height - ROW, 1)), ctx, id)!;
+  const side = Math.abs(shorter.top - p.top) > EPS ? "top" : "bottom";
+  return { side, y: edgeY(p, side) };
+}
+
+/** The lines a height resize snaps to: every ROW px from the grid's top, and its bottom. */
+function rowLines(gridHeight: number): number[] {
+  const lines = Array.from({ length: Math.floor(gridHeight / ROW) + 1 }, (_, k) => k * ROW);
+  if (gridHeight - lines[lines.length - 1] > EPS) lines.push(gridHeight);
+  return lines;
+}
+
+/**
+ * Moves the edge heightEdge() names to `y` (grid px), snapped like a width resize snaps to columns: to the
+ * nearest row line that leaves the block at least MIN_HEIGHT tall, or to where the block's own height puts
+ * it if that's nearer. There it goes back to having no height of its own, so a stretching block fills its
+ * column again. What's under the block moves with its bottom; a stretching block next to the edge gives or
+ * takes the room. If that doesn't fit (fitsAsWell() against the input), the nearest line that does; the
+ * input if none.
+ */
+export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: number): Layout {
+  const edge = heightEdge(layout, ctx, id);
+  if (!edge) return layout;
+  const p = placementOf(layout, ctx, id)!;
+  /** The block's height with the edge at `at`. */
+  const heightAt = (at: number) => (edge.side === "bottom" ? at - p.top : p.top + p.height - at - (p.dividerTop ? DIVIDER : 0));
+  const lines = rowLines(ctx.gridHeight).filter((l) => heightAt(l) >= MIN_HEIGHT - EPS);
+  if (lines.length === 0) return layout;
+  const nearest = lines.reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
+  const ok = (next: Layout) => fitsAsWell(layout, next, ctx);
+  const auto = withHeight(layout, id, undefined);
+  if (Math.abs(edgeY(placementOf(auto, ctx, id)!, edge.side) - y) <= Math.abs(nearest - y) + EPS && ok(auto)) return auto;
+  // From the nearest line down to shorter heights, which only fit better.
+  const tallestFirst = lines.filter((l) => heightAt(l) <= heightAt(nearest) + EPS).sort((a, b) => heightAt(b) - heightAt(a));
+  for (const l of tallestFirst) {
+    const next = withHeight(layout, id, heightAt(l));
+    if (ok(next)) return next;
+  }
+  return layout;
+}
+
+/** Back to the block's own height (or the nearest line to it that fits): what double-clicking its edge does. */
+export function fitHeight(layout: Layout, ctx: EditContext, id: string): Layout {
+  const edge = heightEdge(layout, ctx, id);
+  if (!edge) return layout;
+  return resizeHeight(layout, ctx, id, edgeY(placementOf(withHeight(layout, id, undefined), ctx, id)!, edge.side));
 }
 
 /**
@@ -214,23 +287,33 @@ export function freeSlots(placements: readonly Placement[], columns: number, gri
   return slots;
 }
 
+/** The key a new `blockId` gets: the block's id if it's free, else `<block id>:<n>` with the least free n from 2. */
+export function newKey(layout: Layout, blockId: string): string {
+  if (!(blockId in layout.blocks)) return blockId;
+  let n = 2;
+  while (`${blockId}:${n}` in layout.blocks) n++;
+  return `${blockId}:${n}`;
+}
+
 /**
- * Adds an unplaced block. With `slot`: in that slot (width = the block's default clamped to its range and the slot,
- * left-aligned). Without: at the bottom of the column run with the most free room that fits it, trying widths from
- * default down to min. Returns null if it fits nowhere. Its entry: blockVersion = block.version, settings {}, no group.
+ * Places block `blockId`, another one if it's placed already, under newKey(). With `slot`: in that slot (width =
+ * the block's default clamped to its range and the slot, left-aligned). Without: at the bottom of the column run
+ * with the most free room that fits it, trying widths from default down to min. Returns null if it fits nowhere.
+ * Its entry: blockVersion = block.version, settings {}, no group (and `block` if the key isn't the block's id).
  *
  * "Free room" is first the empty space on screen (e.g. under the blocks of a column without a stretching block);
  * if the block fits in none, the room stretching blocks can give up (pack at height 0). Race blocks only.
  */
-export function addBlock(layout: Layout, ctx: EditContext, id: string, slot?: Slot): Layout | null {
-  const block = ctx.blocks.get(id);
-  if (!block || id in layout.blocks || !block.sessions.includes("race")) return null;
+export function addBlock(layout: Layout, ctx: EditContext, blockId: string, slot?: Slot): Layout | null {
+  const block = ctx.blocks.get(blockId);
+  if (!block || !block.sessions.includes("race")) return null;
+  const id = newKey(layout, blockId);
   const { columns } = layout;
   const range = columnRange(block, columns);
   const initial = clamp(Math.round((block.width.default * columns) / 100), range.min, range.max);
   const ids = order(layout);
   const place = (x: number, width: number, at: number): Layout => {
-    const entry: LayoutEntry = { blockVersion: block.version, x, y: 0, width, settings: {} };
+    const entry: LayoutEntry = { ...(id !== blockId && { block: blockId }), blockVersion: block.version, x, y: 0, width, settings: {} };
     return renumber(layout, { ...layout.blocks, [id]: entry }, [...ids.slice(0, at), id, ...ids.slice(at)]);
   };
   const ok = (next: Layout) => fitsAsWell(layout, next, ctx);
@@ -281,6 +364,6 @@ export function addBlock(layout: Layout, ctx: EditContext, id: string, slot?: Sl
 }
 
 /** Whether addBlock would succeed (for the picker's "No room"). */
-export function canAdd(layout: Layout, ctx: EditContext, id: string, slot?: Slot): boolean {
-  return addBlock(layout, ctx, id, slot) !== null;
+export function canAdd(layout: Layout, ctx: EditContext, blockId: string, slot?: Slot): boolean {
+  return addBlock(layout, ctx, blockId, slot) !== null;
 }

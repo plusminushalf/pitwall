@@ -15,7 +15,19 @@ export function shownFields(block: BlockDefinition<any>): [string, SettingField]
   });
 }
 
-function Field({ field, value, drivers, onChange }: { field: SettingField; value: SettingValue; drivers: readonly DriverInfo[]; onChange: (v: SettingValue) => void }) {
+function Field({
+  field,
+  value,
+  drivers,
+  showing,
+  onChange,
+}: {
+  field: SettingField;
+  value: SettingValue;
+  drivers: readonly DriverInfo[];
+  showing: () => number | null;
+  onChange: (v: SettingValue) => void;
+}) {
   switch (field.kind) {
     case "choice":
       return (
@@ -65,29 +77,55 @@ function Field({ field, value, drivers, onChange }: { field: SettingField; value
           className={`${INPUT} tabular-nums`}
         />
       );
-    case "driver":
+    case "driver": {
+      const pinned = typeof value === "number" ? value : null;
       return (
-        <select
-          aria-label={field.label ?? "Driver"}
-          value={typeof value === "number" ? String(value) : "follow-selection"}
-          onChange={(e) => onChange(e.currentTarget.value === "follow-selection" ? "follow-selection" : Number(e.currentTarget.value))}
-          className={`${INPUT} cursor-pointer`}
-        >
-          <option value="follow-selection" className="bg-zinc-900">
-            Follow selection
-          </option>
-          {typeof value === "number" && !drivers.some((d) => d.number === value) && (
-            <option value={String(value)} className="bg-zinc-900">
-              Pinned to #{value}
-            </option>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex rounded-md bg-zinc-800 p-0.5" role="radiogroup" aria-label={field.label ?? "Driver"}>
+            {[
+              { label: "Selected driver", on: pinned == null, pick: () => onChange("follow-selection") },
+              // Pinning starts with whoever the block shows now.
+              { label: "Pinned", on: pinned != null, pick: () => pinned == null && onChange(showing() ?? drivers[0]?.number ?? "follow-selection") },
+            ].map((o) => (
+              <button
+                key={o.label}
+                type="button"
+                role="radio"
+                aria-checked={o.on}
+                onClick={o.pick}
+                className={`flex-1 whitespace-nowrap rounded px-2 py-0.5 text-xs font-semibold ${o.on ? "bg-zinc-600 text-zinc-50" : "text-zinc-400 hover:text-zinc-100"}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          {pinned == null ? (
+            <p className="text-[11px] leading-snug text-zinc-500">Follows the drivers you click in the tower or on the map.</p>
+          ) : (
+            <>
+              <select
+                aria-label="Pinned driver"
+                value={String(pinned)}
+                onChange={(e) => onChange(Number(e.currentTarget.value))}
+                className={`${INPUT} cursor-pointer`}
+              >
+                {!drivers.some((d) => d.number === pinned) && (
+                  <option value={String(pinned)} className="bg-zinc-900">
+                    #{pinned} · not in this race
+                  </option>
+                )}
+                {drivers.map((d) => (
+                  <option key={d.number} value={String(d.number)} className="bg-zinc-900">
+                    #{d.number} · {d.acronym} · {d.team}
+                  </option>
+                ))}
+              </select>
+              <p className="text-[11px] leading-snug text-zinc-500">Always this driver, whatever you select. In a race without them, it follows the selection.</p>
+            </>
           )}
-          {drivers.map((d) => (
-            <option key={d.number} value={String(d.number)} className="bg-zinc-900">
-              Pinned to #{d.number} · {d.acronym}
-            </option>
-          ))}
-        </select>
+        </div>
       );
+    }
   }
 }
 
@@ -95,11 +133,14 @@ export function SettingsEditor({
   block,
   settings,
   drivers,
+  showing,
   onChange,
 }: {
   block: BlockDefinition<any>;
   settings: Partial<BlockSettings>;
   drivers: readonly DriverInfo[];
+  /** Who the block shows now when it follows the selection: who a driver setting pins when switched to "Pinned". */
+  showing: () => number | null;
   onChange: (settings: Partial<BlockSettings>) => void;
 }) {
   const values: BlockSettings = { ...block.settings, ...settings };
@@ -108,7 +149,7 @@ export function SettingsEditor({
       {shownFields(block).map(([key, field]) => (
         <div key={key} className={field.kind === "toggle" ? "flex items-center justify-between gap-3" : "flex flex-col gap-1.5"}>
           <span className={LABEL}>{field.label ?? "Driver"}</span>
-          <Field field={field} value={values[key]} drivers={drivers} onChange={(v) => onChange({ ...settings, [key]: v })} />
+          <Field field={field} value={values[key]} drivers={drivers} showing={showing} onChange={(v) => onChange({ ...settings, [key]: v })} />
         </div>
       ))}
     </div>

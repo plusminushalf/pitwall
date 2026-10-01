@@ -1,10 +1,10 @@
 // The saved layout (H3.11): one per browser, in localStorage (sync, so the first frame already shows it).
-// What's read back is checked and repaired against the blocks the app has: unknown and non-race blocks
-// are dropped, widths clamped, settings the block no longer accepts dropped, and a layout saved at another
-// column count rescaled. Anything unusable falls back to the default layout.
+// What's read back is checked and repaired against the blocks the app has: entries of unknown and non-race
+// blocks are dropped, widths clamped, heights kept to at least MIN_HEIGHT, settings the block no longer accepts
+// dropped, and a layout saved at another column count rescaled. Anything unusable falls back to the default layout.
 
 import { settingField, type BlockDefinition, type BlockSettings, type SettingValue } from "../blockkit/defineBlock";
-import { COLUMNS, columnRange, type Layout, type LayoutEntry } from "./layout";
+import { blockIdOf, COLUMNS, columnRange, MIN_HEIGHT, type Layout, type LayoutEntry } from "./layout";
 
 export const STORAGE_KEY = "f1-replay:layout";
 
@@ -45,7 +45,7 @@ export function rescaleLayout(layout: Layout, blocks: ReadonlyMap<string, BlockD
   const scale = (c: number) => Math.round((c * columns) / layout.columns);
   const entries = Object.entries(layout.blocks).map(([id, e]) => {
     const x = scale(e.x);
-    return [id, clampEntry({ ...e, x, width: Math.max(scale(e.x + e.width) - x, 1) }, blocks.get(id), columns)] as const;
+    return [id, clampEntry({ ...e, x, width: Math.max(scale(e.x + e.width) - x, 1) }, blocks.get(blockIdOf(id, e)), columns)] as const;
   });
   return { ...layout, columns, blocks: Object.fromEntries(entries) };
 }
@@ -53,10 +53,13 @@ export function rescaleLayout(layout: Layout, blocks: ReadonlyMap<string, BlockD
 /** A stored entry's shape, or null if it isn't one. */
 function readEntry(raw: unknown): LayoutEntry | null {
   if (!isObject(raw) || typeof raw.blockVersion !== "string" || !isObject(raw.settings)) return null;
-  const { x, y, width, group } = raw;
+  const { block, x, y, width, height, group } = raw;
   if (![x, y, width].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
-  if (group !== undefined && typeof group !== "string") return null;
+  if ((group !== undefined && typeof group !== "string") || (block !== undefined && typeof block !== "string")) return null;
   const entry: LayoutEntry = { blockVersion: raw.blockVersion, x: Math.round(x as number), y: y as number, width: Math.round(width as number), settings: raw.settings as Partial<BlockSettings> };
+  if (block !== undefined) entry.block = block;
+  // A height that isn't one is dropped: the block takes its own.
+  if (typeof height === "number" && Number.isFinite(height)) entry.height = Math.max(height, MIN_HEIGHT);
   return group === undefined ? entry : { ...entry, group };
 }
 
@@ -70,7 +73,7 @@ export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefin
   for (const [id, value] of Object.entries(raw.blocks)) {
     const entry = readEntry(value);
     if (!entry) return null;
-    const block = blocks.get(id);
+    const block = blocks.get(blockIdOf(id, entry));
     if (!block || !block.sessions.includes("race")) continue;
     // One version of each block is available: the same major keeps the settings, another resets them.
     const settings = major(entry.blockVersion) === major(block.version) ? cleanSettings(block, entry.settings) : {};
@@ -79,7 +82,7 @@ export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefin
   if (Object.keys(kept).length === 0) return null;
 
   const layout = rescaleLayout({ version: 1, columns: stored, blocks: kept }, blocks, columns);
-  return { ...layout, blocks: Object.fromEntries(Object.entries(layout.blocks).map(([id, e]) => [id, clampEntry(e, blocks.get(id), columns)])) };
+  return { ...layout, blocks: Object.fromEntries(Object.entries(layout.blocks).map(([id, e]) => [id, clampEntry(e, blocks.get(blockIdOf(id, e)), columns)])) };
 }
 
 /** The saved layout, or `fallback`. Never throws (localStorage may be missing or throw). */

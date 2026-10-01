@@ -1,9 +1,9 @@
-// Edit mode's chrome on the grid (H3.10): column guides, each block's frame (name, settings, remove,
-// resize corners), free slots, the drop placeholder, and the popover shell. Quiet on purpose: thin rings
+// Edit mode's chrome on the grid (H3.10): column and row guides, each block's frame (name, settings,
+// remove, and the grips that change its width and height), free slots, the drop placeholder, and the popover shell. Quiet on purpose: thin rings
 // and small controls over the race, which keeps playing underneath.
 
 import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
-import type { Box } from "./layout";
+import { ROW, type Box } from "./layout";
 
 const SMALL_LABEL = "text-[10px] font-semibold uppercase tracking-wider";
 
@@ -17,6 +17,17 @@ export function ColumnGuides({ columns, width, strong }: { columns: number; widt
           className={`absolute inset-y-0 w-px transition-colors ${strong ? "bg-zinc-100/[0.09]" : "bg-zinc-100/[0.05]"}`}
           style={{ left: Math.round(((i + 1) * width) / columns) }}
         />
+      ))}
+    </div>
+  );
+}
+
+/** The lines a height resize snaps to (ROW apart from the top), shown only during one. */
+export function RowGuides({ height }: { height: number }) {
+  return (
+    <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
+      {Array.from({ length: Math.max(Math.ceil(height / ROW) - 1, 0) }, (_, i) => (
+        <div key={i} className="absolute inset-x-0 h-px bg-zinc-100/[0.09]" style={{ top: (i + 1) * ROW }} />
       ))}
     </div>
   );
@@ -60,6 +71,8 @@ const CloseIcon = () => (
 
 /** "refused": dragged somewhere it doesn't fit; "blocked": a resize step that's refused. */
 export type ChromeState = "idle" | "dragging" | "refused" | "resizing" | "blocked";
+/** What a resize changes: the width (the grip on a side) or the height (the grip on the top or bottom edge). */
+export type ResizeAxis = "width" | "height";
 
 /**
  * Over one block in edit mode, inside its box: catches every pointer event so the block's own controls
@@ -71,8 +84,12 @@ export function BlockChrome({
   settingsOpen,
   cutOff,
   state,
+  axis,
+  heightSide,
   onMoveStart,
   onResizeStart,
+  onHeightStart,
+  onFitHeight,
   onSettings,
   onRemove,
 }: {
@@ -81,11 +98,19 @@ export function BlockChrome({
   settingsOpen: boolean;
   cutOff: boolean;
   state: ChromeState;
+  /** While resizing: which handle is held. */
+  axis: ResizeAxis | null;
+  /** The edge a height change moves (edit.ts heightEdge()), where the height grip goes. */
+  heightSide: "top" | "bottom";
   onMoveStart: (e: ReactPointerEvent) => void;
   onResizeStart: (side: "left" | "right", e: ReactPointerEvent) => void;
+  onHeightStart: (e: ReactPointerEvent) => void;
+  onFitHeight: () => void;
   onSettings: () => void;
   onRemove: () => void;
 }) {
+  const handle = (of: ResizeAxis) =>
+    axis === of && state === "blocked" ? "border-red-400" : axis === of && state === "resizing" ? "border-zinc-200" : "border-zinc-500 group-hover/chrome:border-zinc-300";
   const ring =
     state === "blocked" || state === "refused"
       ? "ring-red-500/80"
@@ -133,15 +158,26 @@ export function BlockChrome({
             e.stopPropagation();
             onResizeStart(side, e);
           }}
-          className={`absolute bottom-0 flex h-4 w-4 cursor-ew-resize items-end p-[3px] ${side === "left" ? "left-0 justify-start" : "right-0 justify-end"}`}
+          className={`absolute top-1/2 flex h-12 w-2.5 -translate-y-1/2 cursor-ew-resize items-center ${side === "left" ? "left-0 justify-start pl-[3px]" : "right-0 justify-end pr-[3px]"}`}
         >
-          <span
-            className={`h-2 w-2 border-b-2 ${side === "left" ? "border-l-2" : "border-r-2"} ${
-              state === "blocked" ? "border-red-400" : state === "resizing" ? "border-zinc-200" : "border-zinc-500 group-hover/chrome:border-zinc-300"
-            }`}
-          />
+          <span className={`h-6 ${side === "left" ? "border-l-2" : "border-r-2"} ${handle("width")}`} />
         </div>
       ))}
+      <div
+        title="Drag to change the height · double-click to fit the contents"
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.stopPropagation();
+          onHeightStart(e);
+        }}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onFitHeight();
+        }}
+        className={`absolute inset-x-4 flex h-2.5 cursor-ns-resize justify-center ${heightSide === "bottom" ? "bottom-0 items-end pb-[3px]" : "top-0 items-start pt-[3px]"}`}
+      >
+        <span className={`w-6 ${heightSide === "bottom" ? "border-b-2" : "border-t-2"} ${handle("height")}`} />
+      </div>
     </div>
   );
 }

@@ -4,8 +4,25 @@ import type { Track } from "../blockkit/select";
 import type { DriverInfo } from "../types";
 import { BUILTIN_BLOCKS } from "./builtins";
 import { DEFAULT_LAYOUT } from "./defaultLayout";
-import { addBlock, canAdd, cutOff, dropTarget, fits, fitsAsWell, freeSlots, moveBlock, overflow, removeBlock, resizeBlock, type EditContext } from "./edit";
-import { columnRange, COLUMNS, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
+import {
+  addBlock,
+  canAdd,
+  cutOff,
+  dropTarget,
+  fitHeight,
+  fits,
+  fitsAsWell,
+  freeSlots,
+  heightEdge,
+  moveBlock,
+  newKey,
+  overflow,
+  removeBlock,
+  resizeBlock,
+  resizeHeight,
+  type EditContext,
+} from "./edit";
+import { columnRange, COLUMNS, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type Placement } from "./layout";
 
 const block = (id: string, height: BlockDefinition["height"], width = { min: 10, default: 20, max: 50 }, sessions: BlockDefinition["sessions"] = ["race"]) =>
   ({ id, name: id, version: "1.0.0", height, width, sessions, settings: {}, Component: () => null }) as BlockDefinition;
@@ -286,6 +303,93 @@ describe("resize", () => {
   });
 });
 
+describe("resize height", () => {
+  const c = ctx(767);
+  const heightOf = (layout: Layout, id: string) => byId(placed(layout, c))[id].height;
+  /** On a row line: every ROW px from the grid's top, or its bottom. */
+  const onLine = (y: number) => Math.abs(y - Math.round(y / ROW) * ROW) < 1e-6 || Math.abs(y - 767) < 1e-6;
+
+  test("the bottom edge snaps to the nearest row line; the tower stops stretching and frees the rest of its columns", () => {
+    expect(heightEdge(DEFAULT_LAYOUT, c, "timing-tower")).toEqual({ side: "bottom", y: 767 });
+    const l = resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 507);
+    expect(DEFAULT_LAYOUT).toEqual(frozen);
+    expect(l.blocks["timing-tower"].height).toBe(500);
+    expect(resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 512).blocks["timing-tower"].height).toBe(520);
+    expect(orderOf(l)).toHaveLength(10);
+    expect(freeSlots(placed(l, c), COLUMNS, 767)).toEqual([{ x: 0, width: TOWER, top: 500, height: 267 }]);
+    // Shorter than its contents (header and five rows): the box scrolls.
+    const short = byId(placed(resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 100), c))["timing-tower"];
+    expect(short.contentHeight).toBeGreaterThan(short.height);
+  });
+
+  test("the grid's bottom is a line too, and where the block's own height puts the edge snaps back to no height", () => {
+    const shrunk = resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 500);
+    // 765 is nearer the bottom (767, also where the tower stretches to) than the line at 760.
+    const back = resizeHeight(shrunk, c, "timing-tower", 765);
+    expect(back.blocks["timing-tower"]).not.toHaveProperty("height");
+    expect(heightOf(back, "timing-tower")).toBe(767);
+    expect(resizeHeight(shrunk, c, "timing-tower", 756).blocks["timing-tower"].height).toBe(760);
+    // A fixed block's own height is usually between lines: near it, the block goes back to fitting its contents.
+    const laps = byId(placed(DEFAULT_LAYOUT, c))["lap-times"];
+    const grown = resizeHeight(DEFAULT_LAYOUT, c, "lap-times", bottom(laps) + 30);
+    expect(onLine(bottom(byId(placed(grown, c))["lap-times"]))).toBe(true);
+    expect(resizeHeight(grown, c, "lap-times", bottom(laps) + 1).blocks["lap-times"]).not.toHaveProperty("height");
+  });
+
+  test("growing a panel block pushes the blocks under it down, and the feed gives up room down to its minimum", () => {
+    const feed = heightOf(DEFAULT_LAYOUT, "race-feed");
+    const laps = byId(placed(DEFAULT_LAYOUT, c))["lap-times"];
+    const l = resizeHeight(DEFAULT_LAYOUT, c, "lap-times", bottom(laps) + 50);
+    const now = byId(placed(l, c));
+    expect(onLine(bottom(now["lap-times"]))).toBe(true);
+    expect(now["race-feed"].height).toBeCloseTo(feed - (now["lap-times"].height - laps.height), 6);
+    expect(fits(l, c)).toBe(true);
+    // Past that, the furthest line that fits: the feed at no less than its minimum, and a line further doesn't fit.
+    const max = resizeHeight(DEFAULT_LAYOUT, c, "lap-times", 2000);
+    const m = byId(placed(max, c));
+    expect(onLine(bottom(m["lap-times"]))).toBe(true);
+    expect(m["race-feed"].height).toBeGreaterThanOrEqual(150);
+    expect(m["race-feed"].height).toBeLessThan(150 + ROW);
+    expect(resizeHeight(max, c, "lap-times", bottom(m["lap-times"]) + ROW)).toEqual(max);
+  });
+
+  test("under a stretching block, a block's top is what moves: it snaps to a line and the stretching block gives way", () => {
+    const l = addBlock(DEFAULT_LAYOUT, c, "weather")!;
+    expect(heightEdge(l, c, "weather")).toEqual({ side: "top", y: 767 - 72 - DIVIDER });
+    const up = resizeHeight(l, c, "weather", 604);
+    const p = byId(placed(up, c));
+    expect(p.weather.top - DIVIDER).toBe(600);
+    expect(bottom(p.weather)).toBe(767);
+    expect(bottom(p["track-map"])).toBe(600);
+    expect(fitHeight(up, c, "weather").blocks.weather).not.toHaveProperty("height");
+  });
+
+  test("never below MIN_HEIGHT: the first line that leaves it that tall; refused for a block that isn't there", () => {
+    const l = resizeHeight(DEFAULT_LAYOUT, c, "speed-trace", 0);
+    const s = byId(placed(l, c))["speed-trace"];
+    expect(s.height).toBeGreaterThanOrEqual(MIN_HEIGHT);
+    expect(s.height).toBeLessThan(MIN_HEIGHT + ROW);
+    expect(onLine(bottom(s))).toBe(true);
+    expect(resizeHeight(DEFAULT_LAYOUT, c, "weather", 100)).toBe(DEFAULT_LAYOUT);
+    expect(resizeHeight(DEFAULT_LAYOUT, c, "nope", 100)).toBe(DEFAULT_LAYOUT);
+    expect(fitHeight(DEFAULT_LAYOUT, c, "nope")).toBe(DEFAULT_LAYOUT);
+    expect(heightEdge(DEFAULT_LAYOUT, c, "weather")).toBeNull();
+  });
+
+  test("double-click: back to the block's own height", () => {
+    const l = resizeHeight(resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 300), c, "driver-header", 0);
+    const fit = fitHeight(fitHeight(l, c, "timing-tower"), c, "driver-header");
+    expect(placed(fit, c).map((p) => [p.id, p.top, p.height])).toEqual(placed(DEFAULT_LAYOUT, c).map((p) => [p.id, p.top, p.height]));
+  });
+
+  test("moves and width resizes keep the height", () => {
+    const l = resizeHeight(DEFAULT_LAYOUT, c, "timing-tower", 500);
+    expect(resizeBlock(l, c, "timing-tower", "right", TOWER + 1).blocks["timing-tower"].height).toBe(500);
+    const moved = moveBlock(l, placed(l, c), "timing-tower", { x: RIGHT, index: 0 });
+    expect(moved.blocks["timing-tower"].height).toBe(500);
+  });
+});
+
 describe("free slots", () => {
   test("adjacent columns merge only when their gap has the same top and bottom", () => {
     const l = grid({ a: at(0, 0, 2), b: at(2, 0, 2) });
@@ -345,14 +449,35 @@ describe("add", () => {
     expect(canAdd(l, ctx(400, small), "grow", gap)).toBe(true);
   });
 
-  test("null when it fits nowhere, it's placed already, unknown or not a race block", () => {
+  test("null when it fits nowhere, it's unknown or not a race block", () => {
     const c = ctx(150, small);
     const full = grid({ full: at(0, 0, 10) });
     expect(addBlock(full, c, "b")).toBeNull();
     expect(canAdd(full, c, "b")).toBe(false);
     expect(addBlock(full, ctx(200, small), "b")!.blocks.b).toEqual({ blockVersion: "1.0.0", x: 0, y: 1, width: 2, settings: {} });
+    // Another of a block that's placed: only if there's room for it.
     expect(addBlock(full, c, "full")).toBeNull();
     expect(addBlock(full, c, "nope")).toBeNull();
     expect(addBlock(grid({}), c, "quali")).toBeNull();
+  });
+
+  test("a block that's placed already can be placed again, under a key of its own, with settings of its own", () => {
+    const c = ctx(767);
+    const two = addBlock(DEFAULT_LAYOUT, c, "lap-times")!;
+    expect(two.blocks["lap-times:2"]).toMatchObject({ block: "lap-times", settings: {} });
+    expect(two.blocks["lap-times"]).toEqual({ ...DEFAULT_LAYOUT.blocks["lap-times"], y: two.blocks["lap-times"].y });
+    const p = byId(placed(two, c));
+    expect(p["lap-times:2"].block.id).toBe("lap-times");
+    expect(p["lap-times:2"].height).toBe(p["lap-times"].height);
+    // Keys: the least free n from 2; the block's own id again once it's free.
+    const three = addBlock(two, c, "lap-times")!;
+    expect(Object.keys(three.blocks).filter((k) => k.startsWith("lap-times"))).toEqual(expect.arrayContaining(["lap-times", "lap-times:2", "lap-times:3"]));
+    expect(newKey(removeBlock(three, "lap-times:2"), "lap-times")).toBe("lap-times:2");
+    const again = addBlock(removeBlock(DEFAULT_LAYOUT, "lap-times"), c, "lap-times")!;
+    expect(again.blocks["lap-times"]).not.toHaveProperty("block");
+    // Edits address the copy by its key.
+    const wider = resizeBlock(three, c, "lap-times:3", "right", three.blocks["lap-times:3"].x + 9);
+    expect(wider.blocks["lap-times:3"].width).toBe(9);
+    expect(wider.blocks["lap-times"]).toEqual(three.blocks["lap-times"]);
   });
 });

@@ -73,6 +73,17 @@ describe("pack", () => {
     expect(p.fill.height).toBe(80);
   });
 
+  test("a block with a height of its own is that tall and doesn't stretch; its contents keep what they take", () => {
+    const p = byId(pack(layout({ fill: { ...at(0, 0, 2), height: 300 }, a: { ...at(2, 0, 2), height: 60 }, b: at(2, 1, 2) }), blocks, input(), 600));
+    expect([p.fill.height, p.fill.stretch, p.fill.contentHeight]).toEqual([300, false, 80]);
+    // Shorter than its contents: the box scrolls (Grid), and what's under it rests on the box.
+    expect([p.a.height, p.a.contentHeight]).toEqual([60, 100]);
+    expect(p.b.top).toBe(60 + DIVIDER);
+    // Without one, a block's contents take its own height (a stretching block's minimum).
+    const auto = byId(pack(layout({ fill: at(0, 0, 2), a: at(2, 0, 2) }), blocks, input(), 600));
+    expect([auto.fill.height, auto.fill.contentHeight, auto.a.contentHeight]).toEqual([600, 80, 100]);
+  });
+
   test("heights can depend on the selection", () => {
     const l = layout({ chips: at(0, 0, 2) });
     expect(pack(l, blocks, input(), 500)[0].height).toBe(20);

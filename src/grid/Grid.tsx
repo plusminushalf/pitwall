@@ -1,6 +1,7 @@
 // The middle of the race screen: the layout's blocks on the grid, exactly the height between the top bar
 // and the timeline (layout.ts). Block contents are at a fixed type size: a wider block gets more room,
-// not bigger text. Nothing here scrolls; blocks that have more to show scroll inside themselves.
+// not bigger text. The grid doesn't scroll; blocks that have more to show scroll inside themselves, and a
+// block given a height shorter than its contents scrolls as a whole.
 //
 // Edit mode (H3.10) adds chrome inside each box and a few layers around them; normal mode renders exactly
 // the boxes. A drag moves its box by writing a transform from pointermove, and re-renders only when where
@@ -10,13 +11,28 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BlockHost } from "../blockkit/BlockHost";
 import type { BlockDefinition, BlockSettings } from "../blockkit/defineBlock";
-import { heightInputOf } from "../blockkit/select";
+import { heightInputOf, orderOf, selectedDriverOf } from "../blockkit/select";
 import { useReplay } from "../store";
-import { BlockPicker, unplaced } from "./BlockPicker";
+import { BlockPicker, raceBlocks } from "./BlockPicker";
 import { BUILTIN_BLOCKS } from "./builtins";
-import { BlockChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, type ChromeState } from "./EditChrome";
-import { addBlock, canAdd, cutOff, dropTarget, fitsAsWell, freeSlots, moveBlock, removeBlock, resizeBlock, type DropTarget, type EditContext } from "./edit";
-import { boxesOf, pack, type Box, type Layout } from "./layout";
+import { BlockChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
+import {
+  addBlock,
+  canAdd,
+  cutOff,
+  dropTarget,
+  fitHeight,
+  fitsAsWell,
+  freeSlots,
+  heightEdge,
+  moveBlock,
+  removeBlock,
+  resizeBlock,
+  resizeHeight,
+  type DropTarget,
+  type EditContext,
+} from "./edit";
+import { boxesOf, pack, ROW, type Box, type Layout } from "./layout";
 import { SettingsEditor, shownFields } from "./SettingsEditor";
 import { useLayout } from "./store";
 
@@ -30,6 +46,12 @@ interface Drag {
 }
 
 const GLIDE: KeyframeAnimationOptions = { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" };
+
+/** Who a block following the selection shows right now: who "Pinned" starts with. */
+const showing = () => {
+  const { race, selected, focused } = useReplay.getState();
+  return race ? selectedDriverOf(orderOf(race), selected, focused, null) : null;
+};
 
 // Memoised (no props): it re-renders only on its own state, not on every 10 Hz commit of the app above it.
 export const Grid = memo(function Grid() {
@@ -60,7 +82,7 @@ export const Grid = memo(function Grid() {
 
   // Edit mode.
   const [drag, setDrag] = useState<Drag | null>(null);
-  const [resizing, setResizing] = useState<{ id: string; blocked: boolean } | null>(null);
+  const [resizing, setResizing] = useState<{ id: string; axis: ResizeAxis; blocked: boolean } | null>(null);
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   if (!editing && settingsFor) setSettingsFor(null);
   const ctx = useMemo<EditContext | null>(() => (input ? { blocks: BUILTIN_BLOCKS, input, gridHeight: size.height } : null), [input, size.height]);
@@ -97,8 +119,9 @@ export const Grid = memo(function Grid() {
       next.set(id, box);
       const el = els.current.get(id);
       const was = drawn.current.get(id);
-      // The dragged box follows the pointer and the resized one snaps with its edges.
-      if (!editing || resized || !el || id === drag?.id || id === resizing?.id) continue;
+      // The dragged box follows the pointer and the resized one snaps with its edges, and so do the boxes
+      // under a bottom edge being dragged (gliding, they'd trail behind it).
+      if (!editing || resized || !el || id === drag?.id || id === resizing?.id || resizing?.axis === "height") continue;
       const glide = glides.current.get(id);
       const at = from.current.get(id) ?? (was && glide ? offsetNow(was, glide) : was);
       from.current.delete(id);
@@ -195,7 +218,7 @@ export const Grid = memo(function Grid() {
     const edge0 = side === "right" ? entry.x + entry.width : entry.x;
     let lastEdge = edge0;
     let blocked = false;
-    setResizing({ id, blocked });
+    setResizing({ id, axis: "width", blocked });
     document.body.style.cursor = "ew-resize";
 
     const onMove = (ev: PointerEvent) => {
@@ -206,12 +229,47 @@ export const Grid = memo(function Grid() {
       const next = resizeBlock(start, c, id, side, edge);
       const got = next.blocks[id];
       const reached = side === "right" ? got.x + got.width : got.x;
-      // Refused (a neighbour can't give way, or it wouldn't fit): the corner turns red.
+      // Refused (a neighbour can't give way, or it wouldn't fit): the grip turns red.
       if ((reached !== edge) !== blocked) {
         blocked = !blocked;
-        setResizing({ id, blocked });
+        setResizing({ id, axis: "width", blocked });
       }
       if (next !== useLayout.getState().layout) useLayout.getState().setLayout(next);
+    };
+    const end = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+      document.body.style.cursor = "";
+      setResizing(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }, []);
+
+  const startHeight = useCallback((id: string, e: ReactPointerEvent) => {
+    const { layout: start, ctx: c } = live.current;
+    const edge = c && heightEdge(start, c, id);
+    if (!c || !edge) return;
+    e.preventDefault();
+    setSettingsFor(null);
+    useLayout.getState().closePicker();
+    const y0 = e.clientY;
+    let blocked = false;
+    setResizing({ id, axis: "height", blocked });
+    document.body.style.cursor = "ns-resize";
+
+    const onMove = (ev: PointerEvent) => {
+      const y = edge.y + ev.clientY - y0;
+      // Always from the layout the resize started with, so going back gives back what the blocks under it gave up.
+      const next = resizeHeight(start, c, id, y);
+      // Refused (no room, or below the least height): the edge stops more than a snap from the pointer and turns red.
+      if ((Math.abs(heightEdge(next, c, id)!.y - y) > ROW / 2 + 0.5) !== blocked) {
+        blocked = !blocked;
+        setResizing({ id, axis: "height", blocked });
+      }
+      if (next.blocks[id].height !== useLayout.getState().layout.blocks[id]?.height) useLayout.getState().setLayout(next);
     };
     const end = () => {
       window.removeEventListener("pointermove", onMove);
@@ -235,15 +293,24 @@ export const Grid = memo(function Grid() {
       setSettings: (id, settings) => useLayout.getState().setSettings(id, settings),
       startMove,
       startResize,
+      startHeight,
+      fitHeight: (id) => {
+        const { layout: l, ctx: c } = live.current;
+        if (c) useLayout.getState().setLayout(fitHeight(l, c, id));
+      },
       toggleSettings: (id) => setSettingsFor((open) => (open === id ? null : id)),
       remove: (id) => {
         setSettingsFor((open) => (open === id ? null : open));
         useLayout.getState().setLayout(removeBlock(useLayout.getState().layout, id));
       },
     }),
-    [startMove, startResize],
+    [startMove, startResize, startHeight],
   );
   const cut = useMemo(() => new Set(editing && ctx ? cutOff(layout, ctx) : []), [editing, layout, ctx]);
+  const heightSides = useMemo(
+    () => new Map(editing && ctx ? placements.map((p) => [p.id, heightEdge(layout, ctx, p.id)?.side ?? "bottom"] as const) : []),
+    [editing, layout, ctx, placements],
+  );
   const colEdge = (c: number) => Math.round((c * size.width) / layout.columns);
   const slotBox = (slot: { x: number; width: number; top: number; height: number }): Box => ({
     left: colEdge(slot.x),
@@ -262,8 +329,14 @@ export const Grid = memo(function Grid() {
     return { ...box, top, height: Math.min(box.height, size.height - top) };
   }, [drag, input, shown, size, layout.columns]);
 
-  const settingsBlock = settingsFor ? BUILTIN_BLOCKS.get(settingsFor) : undefined;
+  const settingsBlock = settingsFor && byId.has(settingsFor) ? shown[byId.get(settingsFor)!].block : undefined;
   const settingsBox = settingsFor && byId.has(settingsFor) ? shownBoxes[byId.get(settingsFor)!] : null;
+  /** In edit mode, a block pinned to a driver says who: two of the same block can be told apart. */
+  const labelOf = (block: BlockDefinition, settings: Partial<BlockSettings> | undefined) => {
+    const driver = settings?.driver;
+    if (typeof driver !== "number") return block.name;
+    return `${block.name} · ${session?.drivers.find((d) => d.number === driver)?.acronym ?? `#${driver}`}`;
+  };
 
   return (
     <div ref={ref} className={editing ? "relative min-h-0 select-none overflow-hidden" : "relative min-h-0 overflow-hidden"}>
@@ -276,6 +349,7 @@ export const Grid = memo(function Grid() {
           const dragged = drag?.id === id;
           const state: ChromeState = dragged ? (drag.ok ? "dragging" : "refused") : resizing?.id === id ? (resizing.blocked ? "blocked" : "resizing") : "idle";
           const b = dragged ? originalBox(id) : shownBoxes[byId.get(id)!];
+          const settings = layout.blocks[id]?.settings ?? shownLayout.blocks[id].settings;
           return (
             <BlockBox
               key={id}
@@ -287,16 +361,21 @@ export const Grid = memo(function Grid() {
               top={b.top}
               width={b.width}
               height={b.height}
-              settings={layout.blocks[id]?.settings ?? shownLayout.blocks[id].settings}
+              contentHeight={p.contentHeight > p.height ? p.contentHeight : null}
+              label={labelOf(p.block, settings)}
+              settings={settings}
               editing={editing}
               state={state}
+              axis={resizing?.id === id ? resizing.axis : null}
+              heightSide={heightSides.get(id) ?? "bottom"}
               cutOff={cut.has(id)}
               settingsOpen={settingsFor === id}
               actions={actions}
             />
           );
         })}
-      {editing && size.width > 0 && <ColumnGuides columns={layout.columns} width={size.width} strong={drag != null || resizing != null} />}
+      {editing && size.width > 0 && <ColumnGuides columns={layout.columns} width={size.width} strong={drag != null || resizing?.axis === "width"} />}
+      {resizing?.axis === "height" && <RowGuides height={size.height} />}
       {placeholder && <DropPlaceholder box={placeholder} ok={drag!.ok} />}
       {editing && settingsBlock && settingsBox && session && (
         <Popover
@@ -304,15 +383,16 @@ export const Grid = memo(function Grid() {
           gridWidth={size.width}
           gridHeight={size.height}
           width={240}
-          title={`${settingsBlock.name} settings`}
+          title={`${labelOf(settingsBlock, layout.blocks[settingsFor!]?.settings)} settings`}
           ignore="[data-settings-toggle]"
           onClose={() => setSettingsFor(null)}
         >
           <SettingsEditor
             block={settingsBlock}
-            settings={layout.blocks[settingsBlock.id]?.settings ?? {}}
+            settings={layout.blocks[settingsFor!]?.settings ?? {}}
             drivers={session.drivers}
-            onChange={(s) => setSettings(settingsBlock.id, s)}
+            showing={showing}
+            onChange={(s) => setSettings(settingsFor!, s)}
           />
         </Popover>
       )}
@@ -328,7 +408,7 @@ export const Grid = memo(function Grid() {
         >
           <BlockPicker
             columns={layout.columns}
-            entries={unplaced(BUILTIN_BLOCKS, layout).map((block) => ({ block, room: canAdd(layout, ctx, block.id, picker.slot) }))}
+            entries={raceBlocks(BUILTIN_BLOCKS, layout).map(({ block, placed }) => ({ block, placed, room: canAdd(layout, ctx, block.id, picker.slot) }))}
             onPick={(id) => {
               const next = addBlock(layout, ctx, id, picker.slot);
               if (next) useLayout.getState().setLayout(next);
@@ -346,6 +426,9 @@ interface BoxActions {
   setSettings: (id: string, settings: Partial<BlockSettings>) => void;
   startMove: (id: string, e: ReactPointerEvent) => void;
   startResize: (id: string, side: "left" | "right", e: ReactPointerEvent) => void;
+  startHeight: (id: string, e: ReactPointerEvent) => void;
+  /** Back to the block's own height (or the tallest that fits). */
+  fitHeight: (id: string) => void;
   toggleSettings: (id: string) => void;
   remove: (id: string) => void;
 }
@@ -354,30 +437,40 @@ interface BoxActions {
 const BlockBox = memo(function BlockBox({
   id,
   block,
+  label,
   dividerTop,
   dividerLeft,
   left,
   top,
   width,
   height,
+  contentHeight,
   settings,
   editing,
   state,
+  axis,
+  heightSide,
   cutOff,
   settingsOpen,
   actions,
 }: {
   id: string;
   block: BlockDefinition;
+  /** Its name in edit mode. */
+  label: string;
   dividerTop: boolean;
   dividerLeft: boolean;
   left: number;
   top: number;
   width: number;
   height: number;
+  /** When it's taller than the box (a height set in edit mode): what the contents keep, scrolling. */
+  contentHeight: number | null;
   settings: Partial<BlockSettings>;
   editing: boolean;
   state: ChromeState;
+  axis: ResizeAxis | null;
+  heightSide: "top" | "bottom";
   cutOff: boolean;
   settingsOpen: boolean;
   actions: BoxActions;
@@ -385,8 +478,16 @@ const BlockBox = memo(function BlockBox({
   const ref = useCallback((el: HTMLDivElement | null) => actions.register(id, el), [actions, id]);
   const onSettingsChange = useCallback((s: Partial<BlockSettings>) => actions.setSettings(id, s), [actions, id]);
   const host = useMemo(
-    () => <BlockHost block={block} settings={settings} onSettingsChange={onSettingsChange} className="h-full w-full overflow-hidden" />,
-    [block, settings, onSettingsChange],
+    () => (
+      <BlockHost
+        block={block}
+        settings={settings}
+        onSettingsChange={onSettingsChange}
+        className="w-full overflow-hidden"
+        style={{ height: contentHeight ?? "100%" }}
+      />
+    ),
+    [block, settings, onSettingsChange, contentHeight],
   );
   const hasSettings = useMemo(() => shownFields(block).length > 0, [block]);
   // Floating: its own compositor layer, so the box and its shadow aren't repainted on every pointer move.
@@ -402,16 +503,21 @@ const BlockBox = memo(function BlockBox({
       }`}
       style={{ left, top, width, height }}
     >
-      {host}
+      {/* Always there, scrolling or not, so a block doesn't remount when its height changes. */}
+      <div className={contentHeight == null ? "h-full" : "h-full overflow-y-auto overflow-x-hidden"}>{host}</div>
       {editing && (
         <BlockChrome
-          name={block.name}
+          name={label}
           hasSettings={hasSettings}
           settingsOpen={settingsOpen}
           cutOff={cutOff}
           state={state}
+          axis={axis}
+          heightSide={heightSide}
           onMoveStart={(e) => actions.startMove(id, e)}
           onResizeStart={(side, e) => actions.startResize(id, side, e)}
+          onHeightStart={(e) => actions.startHeight(id, e)}
+          onFitHeight={() => actions.fitHeight(id)}
           onSettings={() => actions.toggleSettings(id)}
           onRemove={() => actions.remove(id)}
         />
