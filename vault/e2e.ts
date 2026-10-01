@@ -505,14 +505,31 @@ async function main() {
     check("popup opened without the app says to use the Connect button", /Connect button/.test(orphan), orphan);
     await popup.close();
 
-    // 6. A popup whose ticket no frame is expecting: no frame answers, it says it expired.
+    // 6. A popup whose ticket no frame is expecting: no frame answers, it says it can't reach the app.
     const staleP = page.waitForEvent("popup");
     await page.evaluate((v: string) => void window.open(`${v}/popup.html#mode=connect&ticket=${"s".repeat(22)}`, "stale"), VAULT);
     const stale = await staleP;
     const staleText = await popupError(stale, 10_000);
-    check("a popup with a stale ticket is ignored by every frame and says it expired", /expired/.test(staleText), staleText);
+    check("a popup with a stale ticket is ignored by every frame and says it can't reach Pitwall", /couldn't reach Pitwall/.test(staleText), staleText);
     check("its form never appears", !(await stale.locator("#login").isVisible()));
     await stale.close();
+
+    // 7. An extension that wraps window.open and calls it from a frame of its own inside the app: the popup's
+    // opener is that frame, with no frames under it. The popup still finds the vault frame, from the app's top.
+    await page.evaluate(() => {
+      const f = document.createElement("iframe");
+      f.hidden = true;
+      document.body.append(f);
+      const open = f.contentWindow!.open.bind(f.contentWindow);
+      (window as any).__open = window.open;
+      window.open = (...args: Parameters<typeof window.open>) => open(...args);
+    });
+    const wrapped = await openPopup(context, page, "vault-connect");
+    const wrappedFrames = await wrapped.evaluate(() => `opener ${window.opener?.frames.length}, top ${window.opener?.top?.frames.length}`);
+    await wrapped.locator("#login").waitFor({ timeout: 10_000 }).catch(() => {});
+    check("a popup opened from an extension's frame in the app still finds the vault frame", await wrapped.locator("#login").isVisible(), wrappedFrames);
+    await wrapped.close();
+    await page.evaluate(() => void (window.open = (window as any).__open));
 
     if (HAVE_LOGIN) await loginChecks();
     else console.log("(skipping the login checks: OPENF1_USERNAME / OPENF1_PASSWORD not set)");

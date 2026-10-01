@@ -37,10 +37,12 @@ describe("_headers", () => {
       expect(h["X-Content-Type-Options"]).toBe("nosniff");
       expect(h["Referrer-Policy"]).toBe("no-referrer");
       expect(h["Cross-Origin-Resource-Policy"]).toBe("cross-origin");
+      expect(h["Cache-Control"]).toContain("no-transform");
       expect(Object.keys(h).some((k) => k.toLowerCase() === "cross-origin-opener-policy")).toBe(false);
     }
     expect(headersFor(rules, "/assets/frame-abc.js")["Content-Security-Policy"]).toBeUndefined();
     expect(headersFor(rules, "/assets/frame-abc.js")["X-Content-Type-Options"]).toBe("nosniff");
+    expect(headersFor(rules, "/assets/frame-abc.js")["Cache-Control"]).toContain("no-transform");
   });
   test("pageOf", () => {
     expect(pageOf("/frame.html")).toBe("frame");

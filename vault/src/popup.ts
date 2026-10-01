@@ -2,9 +2,9 @@
 // (`popup.html#mode=connect|unlock&ticket=…`) and tells its vault frame to expect that ticket.
 //
 // Chrome partitions the frame's storage by the app's site, so this page can't store anything the frame
-// could read. It stores nothing: it finds the vault frame in the app window (`opener.frames`), sends it the
-// login (targetOrigin = this origin, so only a vault frame can receive it), and the frame checks it with
-// OpenF1 and keeps it. The passkey prompts run here because the hidden frame never gets a click.
+// could read. It stores nothing: it finds the vault frame in the app window (the frames under `opener.top`),
+// sends it the login (targetOrigin = this origin, so only a vault frame can receive it), and the frame checks
+// it with OpenF1 and keeps it. The passkey prompts run here because the hidden frame never gets a click.
 
 import { LOGIN_MESSAGES } from "./openf1";
 import {
@@ -22,6 +22,11 @@ import {
 const ORIGIN = location.origin;
 const HELLO_EVERY_MS = 250;
 const HELLO_FOR_MS = 4_000;
+/** How many frames of the app window to say hello to (the vault frame is one of the first: it's the app's own). */
+const FRAMES_MAX = 64;
+/** No vault frame answered: this window can't reach the app (unlike a stale ticket, which the frame reports). */
+const NO_FRAME =
+  "This window couldn't reach Pitwall. Close it and click Connect in Pitwall again. If that keeps happening, a browser extension may be in the way: try a private window.";
 /** A login check includes a round trip to OpenF1. */
 const ANSWER_MS = 45_000;
 
@@ -98,6 +103,26 @@ function send(msg: PopupMessage) {
   frame!.postMessage(msg, { targetOrigin: ORIGIN });
 }
 
+/**
+ * The frames of the app window, breadth-first from its top (cross-origin windows still expose `top`, `frames`
+ * and `length`). From the top, not the opener: an extension that wraps `window.open` can open this window from
+ * a frame of its own inside the app, and then the opener has no frames.
+ */
+function appFrames(opener: Window): Window[] {
+  const found: Window[] = [];
+  const queue = [opener.top ?? opener];
+  while (queue.length && found.length < FRAMES_MAX) {
+    const w = queue.shift()!;
+    try {
+      for (let i = 0; i < w.frames.length && found.length < FRAMES_MAX; i++) {
+        found.push(w.frames[i]!);
+        queue.push(w.frames[i]!);
+      }
+    } catch {}
+  }
+  return found;
+}
+
 /** Post a hello to every frame of the app window; the one expecting our ticket answers. */
 function findFrame(): Promise<PopupWelcome | PopupResult | null> {
   return new Promise((resolve) => {
@@ -105,10 +130,10 @@ function findFrame(): Promise<PopupWelcome | PopupResult | null> {
     const ping = () => {
       const w = window.opener as Window | null;
       if (!w) return;
-      for (let i = 0; i < w.frames.length; i++) {
+      for (const f of appFrames(w)) {
         try {
           // targetOrigin: our own origin, so only a vault frame can receive it.
-          w.frames[i]!.postMessage(hello, ORIGIN);
+          f.postMessage(hello, ORIGIN);
         } catch {}
       }
     };
@@ -347,7 +372,7 @@ async function main() {
   const welcome = await findFrame();
   if (!welcome) {
     progress("");
-    return error(LOGIN_MESSAGES.expired);
+    return error(NO_FRAME);
   }
   if (welcome.type === "popup:result") {
     progress("");

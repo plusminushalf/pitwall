@@ -445,10 +445,11 @@ and the frame don't share IndexedDB. The popup stores nothing: it hands the logi
 1. The user clicks Connect in the app. `VaultClient.connect()` opens `popup.html#mode=connect&ticket=T`
    synchronously in that click (window name `f1-vault`, so a second click reuses the window), then sends
    `connect {ticket:T}` to its frame. `T` is 128 random bits.
-2. The popup posts `popup:hello {ticket}` to every `opener.frames[i]` with targetOrigin = the vault origin.
-   Only the frame expecting `T` answers (to `event.source`); other vault frames stay quiet. The frame binds the
-   ticket to that popup window. A popup nobody answers within 4 s says it has expired. Tickets expire after
-   10 minutes and are single-use.
+2. The popup posts `popup:hello {ticket}` to every frame of the app window with targetOrigin = the vault origin:
+   breadth-first from `opener.top`, at most 64 (not just `opener.frames`: an extension that wraps `window.open`
+   can open the popup from a frame of its own, with no frames under it). Only the frame expecting `T` answers
+   (to `event.source`); other vault frames stay quiet. The frame binds the ticket to that popup window. A popup
+   nobody answers within 4 s says it couldn't reach Pitwall. Tickets expire after 10 minutes and are single-use.
 3. The user submits the form (JS only; `form-action 'none'`). `popup:login {username, password, mode}` goes to
    the frame, which calls `POST https://api.openf1.org/token` and answers ok, or `wrong_credentials` (401),
    `rate_limited` (429), `network`, `server`. The popup shows the error or closes itself.
@@ -481,7 +482,9 @@ From `headers.ts`, identical in dev, in `dist/_headers` and in `serve.ts`:
 - `popup.html`: the same, but `frame-ancestors 'none'`. The popup makes no requests at all; the frame does.
 - Dev server with `VAULT_FAKE_BROKER` only: the frame's `connect-src` also has that one local origin.
 - Every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
-  `Cross-Origin-Resource-Policy: cross-origin` (so the frame still loads if the app ever enables COEP).
+  `Cross-Origin-Resource-Policy: cross-origin` (so the frame still loads if the app ever enables COEP),
+  `Cache-Control: public, max-age=0, must-revalidate, no-transform` (no-transform: Cloudflare serves the files
+  as built instead of injecting its Web Analytics script).
 - Deliberately **no** `Cross-Origin-Opener-Policy`: the popup must keep `window.opener` to reach the vault
   frame inside the app.
 - No inline scripts or styles anywhere. The dev server strips Vite's client script (with HMR off it would only

@@ -40,6 +40,10 @@ export const COMMON_HEADERS: Readonly<Record<string, string>> = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   "Cross-Origin-Resource-Policy": "cross-origin",
+  // no-transform: a CDN in front (Cloudflare) must serve the files as built, e.g. not inject its analytics
+  // script into the pages (the CSP would block it, but nothing else belongs in them). The rest is the static
+  // host's default: always revalidate.
+  "Cache-Control": "public, max-age=0, must-revalidate, no-transform",
 };
 
 /** Anything that isn't a page (404s, stray files): nothing may run, nothing may embed it. */
