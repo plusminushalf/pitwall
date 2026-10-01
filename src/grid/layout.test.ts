@@ -107,9 +107,11 @@ describe("default layout", () => {
   // From about 610 px (the driver panel and the feed's minimum) up; 767 is 1440x900's grid.
   const heights = [610, 767, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
+  // Weather is in the top bar; the analysis blocks are added from the block picker.
+  const NOT_IN_DEFAULT = ["weather", "battles"];
 
-  test("places every built-in block but weather (it's in the top bar) once, within its width range", () => {
-    expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => id !== "weather").sort());
+  test("places every built-in block but those off the default screen once, within its width range", () => {
+    expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_DEFAULT.includes(id)).sort());
     expect(DEFAULT_LAYOUT.columns).toBe(COLUMNS);
     for (const [id, e] of Object.entries(DEFAULT_LAYOUT.blocks)) {
       const { min, max } = columnRange(BUILTIN_BLOCKS.get(id)!, COLUMNS);
