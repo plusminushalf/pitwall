@@ -139,7 +139,7 @@ export interface StreamState {
 }
 
 /** Playback stops this short of the end of what's in (cars need a sample or two ahead), unless that's the end. */
-const STREAM_EDGE_MS = 1_500;
+export const STREAM_EDGE_MS = 1_500;
 
 /** How far playback can run from `t` with the spans in: the end of the one it's in (minus the edge), else nowhere. */
 export function streamLimit(spans: readonly (readonly [number, number])[], t: number, duration: number): number {

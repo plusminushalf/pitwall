@@ -22,12 +22,14 @@ import {
   REPROCESS_PRIOR_S,
   retryNotice,
   sizeScale,
+  sliceSeconds,
   stepLabel,
+  TIER_PACE,
   type Layout,
   type RawFileSpec,
   type Tier,
 } from "./eta";
-import { parseSliceFile } from "../../scripts/lib/slices";
+import { parseSliceFile, SLICE_ENDPOINTS, SLICE_UNIT_MS, type SliceEndpoint, type SlicePart, type Span } from "../../scripts/lib/slices";
 import type { FailureKind, FromWorker, IngestRequest, JobMode, ToWorker } from "./protocol";
 
 /** What a job needs to know about its session up front (from the catalogue). */
@@ -93,6 +95,65 @@ export interface Progress {
   telemetry: number | null;
   /** It can be watched while it downloads (a race in slices); else it opens once it's downloaded. */
   streams: boolean;
+  /**
+   * A race in slices, as its telemetry comes in (absolute ms): per endpoint the spans in (the stream has them), and
+   * the slices on their way. What a replay waiting for its telemetry is shown of it (telemetryAt).
+   */
+  slices: { in: Record<SliceEndpoint, Span[]>; coming: SliceComing[] };
+  /** The free tier's minute of requests is used up: when the next one can start (ms since epoch); else null. */
+  slotAt: number | null;
+}
+
+/** A telemetry slice on its way (absolute ms): asked for `since` (ms since epoch), `seconds` to answer. */
+export interface SliceComing {
+  endpoint: SliceEndpoint;
+  from: number;
+  to: number;
+  since: number;
+  seconds: number;
+}
+
+/**
+ * How much of the telemetry at moments `at` (absolute ms) is in (0-1), each endpoint at each moment alike: a slice on
+ * its way counts by the clock, slowing past the time it should take (never quite in until it is). `slowS`: one of them
+ * has taken more than twice that, this many seconds so far; else null.
+ */
+export function telemetryAt(slices: Progress["slices"], at: readonly number[], now = Date.now()): { progress: number; slowS: number | null } {
+  const covers = (s: Span, t: number) => s.from <= t && t < s.to;
+  let sum = 0;
+  let n = 0;
+  let slowS: number | null = null;
+  for (const t of at) {
+    for (const e of SLICE_ENDPOINTS) {
+      n++;
+      if (slices.in[e].some((s) => covers(s, t))) {
+        sum += 1;
+        continue;
+      }
+      // The furthest along of the slices on their way with it (a jump asks again for a short one).
+      let best: { s: number; x: number } | null = null;
+      for (const c of slices.coming) {
+        if (c.endpoint !== e || !covers(c, t)) continue;
+        const s = Math.max(0, now - c.since) / 1000;
+        if (!best || s / c.seconds > best.x) best = { s, x: s / c.seconds };
+      }
+      if (!best) continue;
+      sum += 0.95 * (1 - Math.exp(-2 * best.x));
+      if (best.x > 2) slowS = Math.max(slowS ?? 0, Math.floor(best.s));
+    }
+  }
+  return { progress: n ? sum / n : 1, slowS };
+}
+
+/** Spans in order, merged, with `s` among them. */
+function withSpan(spans: readonly Span[], s: Span): Span[] {
+  const out: Span[] = [];
+  for (const x of [...spans, s].sort((a, b) => a.from - b.from)) {
+    const last = out.at(-1);
+    if (last && x.from <= last.to) out[out.length - 1] = { from: last.from, to: Math.max(last.to, x.to) };
+    else out.push({ from: x.from, to: x.to });
+  }
+  return out;
 }
 
 /** What a streamed replay needs to start (src/ingest/stream.ts): these files, and a slice of each telemetry endpoint. */
@@ -128,6 +189,11 @@ export class JobTracker {
   private requestsIn = 0;
   /** Files in memory (read or downloaded): what a streamed replay waits for. */
   private inMemory = new Set<string>();
+  /** Telemetry slices on their way (by file), and per endpoint the spans in memory. */
+  private coming = new Map<string, SliceComing>();
+  private sliceIn: Record<SliceEndpoint, Span[]> = { location: [], car_data: [] };
+  /** How long slices take to answer here, against sliceSeconds (learned from this job's). */
+  private sliceRatio = 1;
 
   constructor(
     readonly info: JobInfo,
@@ -146,6 +212,8 @@ export class JobTracker {
   }
 
   private secs = (f: RawFileSpec) => fileSeconds(f, this.tier ?? "free", this.scale);
+
+  private sliceSecs = ({ endpoint, span }: SlicePart) => sliceSeconds(endpoint, (span.to - span.from) / SLICE_UNIT_MS, this.drivers?.length ?? this.assumed);
 
   private get ratio() {
     return this.tier === "sponsor" ? (this.learned.sponsorRatio ?? 1) : this.learned.ratio;
@@ -175,20 +243,29 @@ export class JobTracker {
       case "path":
         this.tier = m.path === "vault" ? "sponsor" : "free";
         return;
-      case "fetch":
+      case "fetch": {
         this.step = stepLabel(m.endpoint, m.params, this.drivers);
         this.mark ??= now;
         this.retryStatus = null;
         if (m.endpoint !== "circuit") this.requestStarts.push(now);
+        const part = parseSliceFile(m.file);
+        if (part) this.coming.set(m.file, { endpoint: part.endpoint, ...part.span, since: now, seconds: this.sliceRatio * this.sliceSecs(part) });
         return;
+      }
       case "telemetry":
         this.telemetry = m.progress;
         return;
       case "fetched": {
-        this.inMemory.add(parseSliceFile(m.file)?.endpoint ?? m.file);
-        if (m.source !== "network") return;
-        // (A slice: as its endpoint's placeholders are, all alike.)
         const part = parseSliceFile(m.file);
+        this.inMemory.add(part?.endpoint ?? m.file);
+        const coming = this.coming.get(m.file);
+        if (part) {
+          this.sliceIn[part.endpoint] = withSpan(this.sliceIn[part.endpoint], part.span);
+          this.coming.delete(m.file);
+        }
+        if (m.source !== "network") return;
+        if (part && coming) this.sliceRatio = nextRatio(this.sliceRatio, (now - coming.since) / 1000, this.sliceSecs(part));
+        // (A slice: as its endpoint's placeholders are, all alike.)
         const spec = this.expected().find((f) => f.name === (part ? `${part.endpoint}#0` : m.file));
         // The circuit map isn't an OpenF1 request: not representative of the rest.
         if (spec && !spec.external && this.mark != null) {
@@ -241,6 +318,7 @@ export class JobTracker {
       startup: needed.filter((f) => this.inMemory.has(f)).length / needed.length,
       telemetry: this.telemetry,
       streams: this.layout === "sliced" && this.info.sessionType !== "Qualifying",
+      slices: { in: { ...this.sliceIn }, coming: [...this.coming.values()] },
     };
     if (this.info.mode === "reprocess") {
       const elapsed = (now - this.startedAt) / 1000;
@@ -252,12 +330,16 @@ export class JobTracker {
         totalBytes: p.cachedBytes,
         progress: Math.min(0.95, elapsed / prior),
         etaSeconds: Math.max(1, Math.round(prior - elapsed)),
+        slotAt: null,
       };
     }
     // Requests of the last minute that are in (the ones in flight are still missing files): how long the rest take at
     // least, waiting for the minute to roll over if they don't fit in it.
     const recent = this.requestStarts.filter((t) => t > now - 60_000);
     const made = Math.max(0, recent.length - Math.max(0, this.requestStarts.length - this.requestsIn));
+    // The free tier's minute used up (the vault's budget is its own): the next request starts once the oldest is a minute old.
+    const { perMinute } = TIER_PACE.free;
+    const slotAt = (this.tier ?? "free") === "free" && recent.length >= perMinute ? recent[recent.length - perMinute] + 60_000 : null;
     // Slices: what's left of the telemetry is what the plan says (more slices than placeholders after a jump or a
     // long race), at the placeholders' cost.
     const isSlice = (f: RawFileSpec) => f.name.includes("#");
@@ -288,6 +370,7 @@ export class JobTracker {
       totalBytes: Math.round(p.cachedBytes + missingBytes),
       progress: progressOf({ phase: this.phase, headS: this.headS, elapsedS: (now - this.startedAt) / 1000, etaS: eta }),
       etaSeconds: Math.round(eta),
+      slotAt,
     };
   }
 }

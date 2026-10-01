@@ -19,10 +19,11 @@ import {
   progressOf,
   retryNotice,
   sizeScale,
+  sliceSeconds,
   STARTUP_S,
   stepLabel,
 } from "./eta";
-import { JobTracker, type JobInfo } from "./runner";
+import { JobTracker, telemetryAt, type JobInfo } from "./runner";
 import { TIER_PACE } from "./eta";
 
 const DRIVERS_2026 = [1, 3, 5, 6, 10, 11, 12, 14, 16, 18, 22, 23, 27, 30, 31, 41, 43, 44, 55, 63, 77, 87];
@@ -374,6 +375,57 @@ describe("job tracker", () => {
     expect(v.progress).toBeLessThan(0.9);
     t.onMessage({ type: "telemetry", progress: 1 }, 0);
     expect(t.view(0).etaSeconds).toBeLessThan(v.etaSeconds);
+  });
+
+  test("in slices: how much of the telemetry at a moment is in, by the clock while it's on its way", () => {
+    const t = new JobTracker(info, learned(), 0);
+    t.onMessage({ type: "start", cached: {}, drivers: DRIVERS_2026 }, 0);
+    const from = 1790420400_000;
+    const at = from + 60_000;
+    const slice = (endpoint: "location" | "car_data", units: number) => {
+      const params = { session_key: 11377, "date>=": new Date(from).toISOString(), "date<": new Date(from + units * 300_000).toISOString() };
+      return { file: fileForFetch(endpoint, params), endpoint, params };
+    };
+    expect(telemetryAt(t.view(0).slices, [at], 0)).toEqual({ progress: 0, slowS: null });
+    const loc = slice("location", 1);
+    t.onMessage({ type: "fetch", ...loc }, 1000);
+    t.onMessage({ type: "fetch", ...slice("car_data", 6) }, 1000);
+    const v = t.view(1000);
+    expect(v.slices.coming.map((c) => c.endpoint)).toEqual(["location", "car_data"]);
+    // A short slice answers sooner than a long one.
+    expect(v.slices.coming[0].seconds).toBeCloseTo(sliceSeconds("location", 1, 22));
+    expect(v.slices.coming[1].seconds).toBeGreaterThan(3 * v.slices.coming[0].seconds);
+    const early = telemetryAt(v.slices, [at], 1500);
+    const later = telemetryAt(v.slices, [at], 3000);
+    expect(early.progress).toBeGreaterThan(0);
+    expect(later.progress).toBeGreaterThan(early.progress);
+    expect(later.slowS).toBeNull();
+    // Long past its time: still short of in, and how long it's taking.
+    const slow = telemetryAt(v.slices, [at], 61_000);
+    expect(slow.progress).toBeLessThan(1);
+    expect(slow.slowS).toBe(60);
+    // The location's in: half of it, whatever the clock says; not a moment it doesn't cover.
+    t.onMessage({ type: "fetched", file: loc.file, source: "network", ms: 2000 }, 3000);
+    const w = t.view(3000);
+    expect(w.slices.coming.length).toBe(1);
+    expect(w.slices.in.location).toEqual([{ from, to: from + 300_000 }]);
+    expect(telemetryAt(w.slices, [at], 3000).progress).toBeGreaterThanOrEqual(0.5);
+    expect(telemetryAt(w.slices, [from + 400_000], 3000).progress).toBeLessThan(0.5);
+    // Nothing left to wait for (in, not merged yet): all of it.
+    expect(telemetryAt(w.slices, [], 3000).progress).toBe(1);
+  });
+
+  test("the free tier's minute used up: when the next request can start", () => {
+    const t = new JobTracker(info, learned(), 0);
+    t.onMessage({ type: "start", cached: {}, drivers: DRIVERS_2026 }, 0);
+    const { perMinute } = TIER_PACE.free;
+    for (let i = 0; i < perMinute - 1; i++) t.onMessage({ type: "fetch", file: "laps", endpoint: "laps", params: {} }, i * 1000);
+    expect(t.view(30_000).slotAt).toBeNull();
+    t.onMessage({ type: "fetch", file: "laps", endpoint: "laps", params: {} }, 30_000);
+    expect(t.view(30_000).slotAt).toBe(60_000);
+    // Signed in: the vault's budget, not the free tier's.
+    t.onMessage({ type: "path", path: "vault", reason: "signed in" }, 30_000);
+    expect(t.view(30_000).slotAt).toBeNull();
   });
 
   test("processing time is learned, within bounds", () => {

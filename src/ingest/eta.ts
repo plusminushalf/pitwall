@@ -87,6 +87,10 @@ const RAW_FILES: Record<string, { session: RawFileSpec[]; perDriver: RawFileSpec
 
 /** Gzipped bytes per 5-minute unit of a slice, for 22 cars (2026 Baku). */
 const SLICE_UNIT_BYTES = { location: 254_000, car_data: 235_000 };
+/** Seconds OpenF1 takes to answer one slice request on its own: `units` grid units of an endpoint, for `drivers` cars. */
+export function sliceSeconds(endpoint: "location" | "car_data", units: number, drivers: number): number {
+  return REQUEST_LATENCY_S + ((SLICE_UNIT_BYTES[endpoint] * units * drivers) / 22) * SECONDS_PER_BYTE;
+}
 /** In the order ingest requests them, sliced: laps and race control plan the slices, the first one comes next. */
 const SLICED_ORDER = ["sessions", "meeting", "circuit", "drivers", "laps", "race_control", "position", "intervals", "stints", "pit", "session_result", "weather", "team_radio", "overtakes"];
 

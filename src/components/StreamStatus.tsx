@@ -3,7 +3,9 @@
 
 import { useMemo } from "react";
 import { useLibrary, rowForKey, labelOf } from "../library";
-import { streamed, useReplay } from "../store";
+import { STREAM_EDGE_MS, streamed, useReplay } from "../store";
+import { TIER_PACE } from "../ingest/eta";
+import { telemetryAt } from "../ingest/runner";
 import { clockTime, SECONDARY } from "./home/common";
 
 /** The download behind the stream, and what it's doing (from the library's job). */
@@ -91,21 +93,47 @@ export function StreamLoading() {
   );
 }
 
-/** Over the blocks while playback waits for the part being watched to come in. */
+/** Over the blocks while playback waits for the part being watched to come in, and how much of it is in. */
 export function StreamBuffering() {
-  const waiting = useReplay((s) => {
+  // Where playback waits (ms since t0), while it does.
+  const at = useReplay((s) => {
     const { stream, session, t } = s;
-    if (!stream || !session || session.meta.sessionKey !== stream.key) return false;
-    return !streamed(stream.spans, t, session.meta.duration);
+    if (!stream || !session || session.meta.sessionKey !== stream.key) return null;
+    return streamed(stream.spans, t, session.meta.duration) ? null : t;
   });
+  const spans = useReplay((s) => s.stream?.spans);
+  const t0 = useReplay((s) => s.session?.meta.t0);
   const { key, job, remote, otherTab } = useStreamJob();
   const resume = useLibrary((s) => s.stream);
   const rows = useLibrary((s) => s.years);
-  if (!waiting) return null;
+  if (at == null) return null;
   // Stopped (cancelled, or failed for good): it only comes in again when asked.
   const stopped = job?.phase === "failed" || job?.phase === "cancelled";
+  const p = stopped ? null : job?.progress;
+  // What it waits for: the telemetry at the playhead and just past it (playback stops short of the edge of what's in).
+  const here =
+    p && spans && t0
+      ? telemetryAt(
+          p.slices,
+          [at, at + STREAM_EDGE_MS].filter((t) => !spans.some(([a, b]) => a <= t && t < b)).map((t) => Date.parse(t0) + t),
+        )
+      : null;
+  // Nothing of it asked for yet: the free tier's minute of requests is used up.
+  const now = Date.now();
+  const slotS = here?.progress === 0 && p?.slotAt != null && p.slotAt > now ? Math.ceil((p.slotAt - now) / 1000) : null;
   const note =
-    job?.phase === "failed" ? (job.error ?? "The download failed.") : job?.phase === "cancelled" ? "The download was stopped." : waitingText(job, otherTab, remote != null);
+    job?.phase === "failed"
+      ? (job.error ?? "The download failed.")
+      : job?.phase === "cancelled"
+        ? "The download was stopped."
+        : (waitingText(job, otherTab, remote != null) ??
+          p?.notice ??
+          (slotS != null
+            ? `Loading this part in ${slotS} s (free tier: ${TIER_PACE.free.perMinute} requests a minute)`
+            : here?.slowS != null
+              ? `Still loading: OpenF1 is slow to answer (${here.slowS} s)`
+              : null));
+  const bar = here != null && slotS == null ? here.progress : null;
   const row = stopped && key != null ? rowForKey(key, { years: rows, entries: {}, partial: {}, jobs: { [key]: job } }) : null;
   // Dims the blocks: what they show is from before the part that's coming.
   return (
@@ -113,6 +141,21 @@ export function StreamBuffering() {
       <div className="flex max-w-md items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-200 shadow-xl">
         {stopped ? <span className="text-red-400">!</span> : <Spinner />}
         <span className="truncate">{note ?? "Loading this part of the race…"}</span>
+        {bar != null && (
+          <>
+            <span
+              className="h-1 w-14 shrink-0 overflow-hidden rounded-full bg-zinc-700"
+              role="progressbar"
+              aria-label="This part of the race"
+              aria-valuenow={Math.floor(bar * 100)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+            >
+              <span className="block h-full rounded-full bg-zinc-200 transition-[width] duration-500 ease-linear" style={{ width: `${bar * 100}%` }} />
+            </span>
+            <span className="w-8 shrink-0 text-right tabular-nums text-zinc-400">{Math.floor(bar * 100)}%</span>
+          </>
+        )}
         {row && (
           <button onClick={() => resume(row)} className="pointer-events-auto shrink-0 rounded px-1.5 font-semibold text-zinc-100 hover:bg-zinc-800">
             Resume
