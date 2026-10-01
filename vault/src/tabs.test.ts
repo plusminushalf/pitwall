@@ -81,6 +81,10 @@ class Locks {
   }
 }
 
+/** A browser that blocks third-party storage (Helium's default): every Web Locks call is a SecurityError. */
+const denied = () => Promise.reject(new DOMException("The request was denied.", "SecurityError"));
+const DENIED_LOCKS = { request: denied, query: denied };
+
 function world() {
   const clock = new FakeClock();
   const bus = new Bus();
@@ -93,7 +97,7 @@ function world() {
     return { status: 200, text: async () => JSON.stringify({ access_token: `eyJhbGciOiJIUzI1NiJ9.tok${tokens}.sig`, token_type: "bearer", expires_in: "3600" }) };
   };
   let seq = 0;
-  function frame(opts: { gate?: boolean; visible?: () => boolean; budget?: boolean; restDelay?: number } = {}) {
+  function frame(opts: { gate?: boolean; visible?: () => boolean; budget?: boolean; restDelay?: number; deniedLocks?: boolean } = {}) {
     const id = `frame${++seq}`;
     const gate = opts.gate ? new FreezeGate(clock) : null;
     const timers = gate ? gate.timers() : clock;
@@ -145,7 +149,7 @@ function world() {
       onStatus: () => node?.pushStatus(),
       lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
     });
-    const frameLocks = locks.forFrame(id);
+    const frameLocks = opts.deniedLocks ? DENIED_LOCKS : locks.forFrame(id);
     node = new VaultNode({
       id,
       core,
@@ -222,6 +226,16 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(b.status().state).toBe("disconnected");
     expect(w.locks.held.get(LEADER_LOCK)).toBe("frame1");
     expect(w.locks.held.has(FRAME_LOCK + "frame2")).toBe(true);
+  });
+
+  test("Web Locks refused (third-party storage blocked): the frame leads on its own and says unavailable", async () => {
+    const w = world();
+    w.store.fail = true; // and IndexedDB refuses too
+    const a = w.frame({ deniedLocks: true });
+    await a.node.start();
+    await w.run();
+    expect(a.status().tab).toMatchObject({ role: "leader", id: "frame1" });
+    expect(a.status().state).toBe("unavailable");
   });
 
   test("a login in a follower's popup reaches every frame; one /token call; the leader refreshes", async () => {

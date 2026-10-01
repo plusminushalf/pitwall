@@ -265,6 +265,9 @@ them: one trust boundary.
   leader alone calls `/token` (the refresh schedule), runs the stream and spends the REST budget. Followers
   forward `get` and the dev knobs to it, send it their subscriptions (the leader streams the union), and get
   data and status over the channel. `status.tab`: `{role, id, leader, frames}`.
+- A browser that refuses Web Locks (third-party storage blocked, e.g. Helium by default: every call is a
+  `SecurityError`) gets no election: each frame leads alone. It refuses IndexedDB too, so the vault says
+  `unavailable`, and the app asks the user to allow third-party cookies for its site.
 - A login, unlock or disconnect in any tab reaches every frame. The leader shares the login with the other
   vault frames **in memory** (the decrypted secret and the current token, on every refresh), never to the app
   or to storage. So a new tab is connected at once with no `/token`, and a passkey login is unlocked in every

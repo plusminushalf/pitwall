@@ -185,7 +185,9 @@ export class VaultNode {
   async start(): Promise<void> {
     this.deps.channel.onmessage = (e) => this.onMessage(e.data);
     const locks = this.deps.locks;
-    if (!locks) return this.lead(false);
+    // No Web Locks, or a browser that refuses them (third-party storage blocked, e.g. Helium's default: every
+    // call is a SecurityError, which hold() can't tell from "another frame has it"): no election, lead alone.
+    if (!locks || !(await this.locksWork(locks))) return this.lead(false);
     void this.hold(FRAME_LOCK + this.id, {}).then((ok) => void (ok && this.learnClientId()));
     if (await this.hold(LEADER_LOCK, { ifAvailable: true }, () => this.lostLock())) return this.lead(false);
     this.send({ k: "hello", from: this.id });
@@ -350,6 +352,16 @@ export class VaultNode {
         else onLost?.();
       });
     });
+  }
+
+  /** Whether this frame may use Web Locks at all (a browser that refuses them refuses query() too). */
+  private async locksWork(locks: LocksLike): Promise<boolean> {
+    try {
+      await locks.query();
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async learnClientId() {

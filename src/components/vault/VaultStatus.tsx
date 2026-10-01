@@ -23,7 +23,11 @@ function label(s: VaultState): Label {
     case "error":
       return { text: "needs attention", dot: "bg-red-500", title: error?.message ?? "Your stored login didn't work" };
     case "unavailable":
-      return { text: "unavailable", dot: "bg-zinc-600", title: "This browser won't let the vault store a login (third-party storage blocked?)" };
+      return {
+        text: "unavailable",
+        dot: "bg-zinc-600",
+        title: `Your browser blocks third-party cookies here, so the vault can't keep a login. To connect, allow third-party cookies for ${location.host} in your browser's settings. Everything else works without it.`,
+      };
     default:
       return { text: "not connected", dot: "bg-zinc-500", title: "Historical races need no login. An OpenF1 account adds live timing and faster downloads." };
   }
