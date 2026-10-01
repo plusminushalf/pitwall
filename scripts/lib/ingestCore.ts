@@ -366,7 +366,7 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
           const storedParts = stored.flatMap((name) => parseSliceFile(name) ?? []);
           const p = (plan = new SlicePlan(span, storedParts));
           onEvent?.({ kind: "plan", window, span, stored: storedParts });
-          const playhead = () => io.playhead?.() ?? window.lightsOut - 10_000;
+          const playhead = () => io.playhead?.() ?? window.lightsOut; // where a new race opens
           // Someone is watching (a jump is urgent only then).
           const watched = () => io.playhead?.() != null;
           const load = (part: SlicePart, urgent = false) => {

@@ -111,7 +111,7 @@ describe.skipIf(!available)(`ingest core: a race in slices (${KEY})`, () => {
     const before = starts.filter((t) => t < starts[0]);
     expect(starts.filter((t) => t >= starts[0])).toEqual([...starts.filter((t) => t >= starts[0])].sort((a, b) => a - b));
     expect(before).toEqual([...before].sort((a, b) => b - a));
-    expect(starts[0]).toBeLessThanOrEqual(plan.window.lightsOut - 10_000);
+    expect(starts[0]).toBeLessThanOrEqual(plan.window.lightsOut);
     expectReference(w.outputs);
   }, 60_000);
 

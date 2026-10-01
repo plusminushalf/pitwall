@@ -118,6 +118,9 @@ export function liveTarget(wall = performance.now()): number {
 /** Seeking at least this close to the follow position (in session ms) means following live again. */
 const followSnap = () => liveEdge.buffer() / 3;
 
+/** Where a replay opens (unless it was watched before) and restarts after the end: lights out, so play starts the race at once. */
+const startOf = (session: Session): number => Math.max(0, session.meta.lightsOut);
+
 /** Latest time that can be shown: the live edge in live mode, the end of the replay otherwise. */
 function endOf(s: { mode: Mode; session: Session | null }): number {
   if (!s.session) return 0;
@@ -449,7 +452,7 @@ export const useReplay = create<ReplayState>((set, get) => {
           if (token === loadToken) set({ loading: { key, progress } });
         });
         if (token !== loadToken) return;
-        const t = opts.t ?? Math.max(0, session.meta.lightsOut - 10_000);
+        const t = opts.t ?? startOf(session);
         clock.t = Math.min(Math.max(t, 0), session.meta.duration);
         // Drop drivers (e.g. from a shared link) who aren't in this session.
         const selected = [...new Set(opts.drivers ?? [])].filter((n) => session.drivers.has(n));
@@ -536,7 +539,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       const { session, mode } = get();
       if (!session) return;
       // Pressing play at the end restarts from lights out (live: the end is the live edge, which playback follows).
-      if (playing && mode === "replay" && clock.t >= session.meta.duration) clock.t = Math.max(0, session.meta.lightsOut - 10_000);
+      if (playing && mode === "replay" && clock.t >= session.meta.duration) clock.t = startOf(session);
       set(playing ? { playing } : { playing, latched: false });
       get().publish();
     },
@@ -678,7 +681,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         if (!u.meta) return; // the first update always has one
         const session = streamSession(u.meta, u.chunks);
         const { opts } = st;
-        clock.t = Math.min(Math.max(opts.t ?? Math.max(0, session.meta.lightsOut - 10_000), 0), session.meta.duration);
+        clock.t = Math.min(Math.max(opts.t ?? startOf(session), 0), session.meta.duration);
         const selected = [...new Set(opts.drivers ?? [])].filter((n) => session.drivers.has(n));
         const focused = opts.focus != null && session.drivers.has(opts.focus) ? opts.focus : null;
         set({ session, stream: { ...st, spans: u.spans }, selected, focused, noSpoilers: spoilerChoice(s.spoilerPref) });
@@ -705,7 +708,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         if (!s.session) {
           // Nothing streamed (qualifying isn't): it opens now, as a download would.
           const { opts } = st;
-          clock.t = Math.min(Math.max(opts.t ?? Math.max(0, stored.meta.lightsOut - 10_000), 0), stored.meta.duration);
+          clock.t = Math.min(Math.max(opts.t ?? startOf(stored), 0), stored.meta.duration);
           const selected = [...new Set(opts.drivers ?? [])].filter((n) => stored.drivers.has(n));
           const focused = opts.focus != null && stored.drivers.has(opts.focus) ? opts.focus : null;
           const noSpoilers = stored.meta.quali ? false : spoilerChoice(s.spoilerPref);
