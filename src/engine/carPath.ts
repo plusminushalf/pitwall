@@ -58,6 +58,17 @@ const MOVING_KMH = 30;
 /** Suspect samples are dropped if a good one follows within 6 samples / 1.5 s; otherwise the car moved there. */
 const DROP_MAX = 6;
 const DROP_MAX_MS = 1_500;
+/**
+ * Replays, around pit entry: OpenF1 puts a car turning into the pit lane on the lane at the wrong distance
+ * along it (from the branch-off, a few seconds before the stop's entry time) and corrects it at the pit-entry
+ * line. A held-back run that starts within 10 s before to 3 s after an entry time is held until that window
+ * ends, not 6 samples / 1.5 s: if a sample agrees with the last kept entry before then (25 m + 10% of the
+ * telemetry distance), the whole run is dropped and the car drives the chord at telemetry speed; otherwise it
+ * relocates, as anywhere else. Live sessions don't wait (pitWin is empty).
+ */
+const PIT_PRE_MS = 10_000;
+const PIT_POST_MS = 3_000;
+const PIT_FRAC = 0.1;
 /** Travel direction from the last chord at least 2 m long. */
 const DIR_MIN = 20;
 /** Stationary (< 10 cm of telemetry distance over a sample interval): samples within 3 m snap to the first. */
@@ -75,6 +86,8 @@ const BREAK = 4; // this entry starts a new run: the car relocated here, the fil
 
 export interface CarPath {
   filter: Filter;
+  /** Replays: the pit-entry windows (see PIT_PRE_MS) as [from, to, from, to, ...] (ms), sorted. */
+  pitWin: number[];
   /** Kept samples (entries) [0, m); arrays have spare capacity. */
   m: number;
   T: Float64Array; // stamp
@@ -141,7 +154,7 @@ export function carPathOf(d: DriverData, live = false): CarPath {
     const q = byLoc.get(loc.t);
     p = q !== undefined && (q.ct === car.t || extends_(q, loc, car)) ? q : undefined;
   }
-  if (p === undefined) p = build(loc, car, live ? LIVE : REPLAY);
+  if (p === undefined) p = build(loc, car, live ? LIVE : REPLAY, live ? [] : pitWindows(d));
   else if (p.lt !== loc.t || p.ct !== car.t) extend(p, loc, car);
   byDriver.set(d, p);
   byLoc.set(loc.t, p);
@@ -316,10 +329,17 @@ function extends_(p: CarPath, loc: LocSeries, car: CarSeries): boolean {
   return now.length === p.fp.length && now.every((v, i) => v === p.fp[i]);
 }
 
-function build(loc: LocSeries, car: CarSeries, filter: Filter): CarPath {
+function pitWindows(d: DriverData): number[] {
+  const out: number[] = [];
+  for (const s of [...d.pits].sort((a, b) => a.entry - b.entry)) out.push(s.entry - PIT_PRE_MS, s.entry + PIT_POST_MS);
+  return out;
+}
+
+function build(loc: LocSeries, car: CarSeries, filter: Filter, pitWin: number[]): CarPath {
   const cap = loc.t.length + 1;
   const p: CarPath = {
     filter,
+    pitWin,
     m: 0,
     T: new Float64Array(cap),
     X: new Float32Array(cap),
@@ -349,7 +369,7 @@ function extend(p: CarPath, loc: LocSeries, car: CarSeries): void {
   const from = p.final;
   const f = p.filter;
   if (from > 0 && p.tail.base > Math.max(0, from - (f.medBack + f.meanBack + 1))) {
-    Object.assign(p, build(loc, car, f));
+    Object.assign(p, build(loc, car, f, p.pitWin));
     return;
   }
   run(p, loc, car, from);
@@ -439,7 +459,9 @@ function run(p: CarPath, loc: LocSeries, car: CarSeries, from: number): void {
     jL = search(ct, nCar, T[m - 1]);
     cj = Math.max(0, jL);
   }
+  const PW = p.pitWin;
   let pend = -1; // first held-back (suspect) sample, -1 if none
+  let pendEnd = -Infinity; // the end of the pit-entry window the held-back run started in, if it did
   let nPend = 0;
   let brk = false;
   // Live: only samples with telemetry on both sides (or that have waited long enough for it).
@@ -496,7 +518,7 @@ function run(p: CarPath, loc: LocSeries, car: CarSeries, from: number): void {
     if (!brk && valid) {
       let suspect = false;
       const e = ch - dD;
-      const tol = SUSPECT + SUSPECT_FRAC * dD;
+      const tol = SUSPECT + (pendEnd > -Infinity ? PIT_FRAC : SUSPECT_FRAC) * dD;
       // Too far from where the telemetry says, or stale (it hardly moved while the car drove over 10 m).
       if (e > tol || -e > tol || (dD > STALE_DD && ch < STALE_FRAC * dD)) suspect = true;
       else if (dD * 360 > MOVING_KMH * (tj - T[L])) {
@@ -512,12 +534,21 @@ function run(p: CarPath, loc: LocSeries, car: CarSeries, from: number): void {
         }
       }
       if (suspect) {
-        if (pend < 0) pend = j;
+        if (pend < 0) {
+          pend = j;
+          for (let k = 0; k < PW.length; k += 2) {
+            if (tj >= PW[k] && tj <= PW[k + 1]) {
+              pendEnd = PW[k + 1];
+              break;
+            }
+          }
+        }
         nPend++;
-        if (nPend > DROP_MAX || tj - lt[pend] > DROP_MAX_MS) {
+        if (pendEnd > -Infinity ? tj > pendEnd : nPend > DROP_MAX || tj - lt[pend] > DROP_MAX_MS) {
           // Not a glitch: the car is over there now. Jump to the first held-back sample, then re-examine the rest.
           j = pend - 1;
           brk = true;
+          pendEnd = -Infinity;
         }
         continue;
       }
@@ -525,6 +556,7 @@ function run(p: CarPath, loc: LocSeries, car: CarSeries, from: number): void {
     // Keep j as entry q (held-back samples before it were glitches: dropped).
     pend = -1;
     nPend = 0;
+    pendEnd = -Infinity;
     const q = m++;
     T[q] = tj;
     sRAW[q - base] = j;

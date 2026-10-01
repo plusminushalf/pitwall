@@ -46,6 +46,8 @@ interface Options {
   edit?: (i: number, t: number, p: [number, number]) => [number, number] | null;
   /** Car samples to leave out / speeds to override. */
   carEdit?: (t: number, v: number) => number | null;
+  /** Pit-lane entry times (ms) of the driver's stops. */
+  pitEntries?: number[];
 }
 
 function drive(d: Drive, o: Options = {}): DriverData {
@@ -85,6 +87,7 @@ function drive(d: Drive, o: Options = {}): DriverData {
   return {
     loc: { t: Float64Array.from(lt), x: Float32Array.from(lx), y: Float32Array.from(ly) },
     car,
+    pits: (o.pitEntries ?? []).map((entry, k) => ({ driver: 1, lap: k + 1, entry, exit: entry + 20_000, laneDuration: 20, stopDuration: null })),
     result: null,
   } as unknown as DriverData;
 }
@@ -110,6 +113,13 @@ function speeds(f: ReturnType<typeof frames>) {
 const cv = (v: number[]) => {
   const mean = v.reduce((s, x) => s + x, 0) / v.length;
   return Math.sqrt(v.reduce((s, x) => s + (x - mean) ** 2, 0) / v.length) / mean;
+};
+
+/** Stamps of the path's relocations (entries flagged BREAK). */
+const breaks = (p: ReturnType<typeof carPathOf>) => {
+  const out: number[] = [];
+  for (let q = 0; q < p.m; q++) if (p.FL[q] & 4) out.push(p.T[q]);
+  return out;
 };
 
 /** Largest backward step (dm, positive = backwards) along +x. */
@@ -226,6 +236,33 @@ describe("car paths: motion", () => {
     for (const { p } of frames(d, 51_500, 60_000)) expect(Math.abs(p!.y - 2_000)).toBeLessThan(10);
   });
 
+  test("pit entry: a run of samples at the wrong distance along the lane is dropped (replays)", () => {
+    // Pit entry at 60 s; from 55 s to 58.5 s the feed puts the car 60 m further along, then corrects it.
+    const edit = (_i: number, t: number, p: [number, number]): [number, number] => (t >= 55_000 && t < 58_500 ? [p[0] + 600, p[1]] : p);
+    const o = { edit };
+    const d = drive(straight(100), { ...o, pitEntries: [60_000] });
+    const p = carPathOf(d);
+    expect(breaks(p)).toEqual([]);
+    for (let q = 0; q < p.m; q++) expect(p.T[q] >= 55_000 && p.T[q] < 58_500).toBe(false);
+    const f = frames(d, 50_000, 65_000);
+    for (const { t, p } of f) expect(Math.abs(p!.x - (100 * t) / 360)).toBeLessThan(30); // 3 m
+    expect(Math.max(...speeds(f))).toBeLessThan(110);
+    // Without the stop it's taken for a relocation there and back (the dot slides 60 m each way).
+    expect(breaks(carPathOf(drive(straight(100), o))).length).toBeGreaterThan(0);
+  });
+
+  test("a relocation stays a jump outside and inside a pit-entry window", () => {
+    // From 50 s on the samples are 200 m to the side, and stay there; the stop's entry 50 s later / 3 s later.
+    const edit = (_i: number, t: number, p: [number, number]): [number, number] => (t >= 50_000 ? [p[0], p[1] + 2_000] : p);
+    for (const entry of [100_000, 53_000]) {
+      const d = drive(straight(80), { edit, pitEntries: [entry] });
+      const first = d.loc.t.find((t) => t >= 50_000)!;
+      expect(breaks(carPathOf(d))).toEqual([first]);
+      for (const { p } of frames(d, 40_000, 49_000)) expect(Math.abs(p!.y)).toBeLessThan(10);
+      for (const { p } of frames(d, 51_500, 60_000)) expect(Math.abs(p!.y - 2_000)).toBeLessThan(10);
+    }
+  });
+
   test("null before the first sample and after the last; parked at the end once finished", () => {
     const d = drive(straight(200), { from: 10_000, to: 60_000 });
     const last = d.loc.t[d.loc.t.length - 1];
@@ -313,12 +350,16 @@ describe.skipIf(!available)("car paths: Baku 2026", () => {
     expect(cvs[cvs.length >> 1]).toBeLessThan(0.05);
   });
 
-  test("the 207 m pit-entry jump of #63 at 4482.4 s stays a jump", () => {
+  test("#63's pit entry at 4483 s: the samples 200 m along the lane (4479.3-4482.4 s) are dropped, no slide", () => {
     const d = s!.drivers.get(63)!;
+    const p = carPathOf(d);
+    for (let q = 0; q < p.m; q++) expect(p.T[q] > 4_479_000 && p.T[q] < 4_482_500).toBe(false);
+    expect(breaks(p).filter((t) => t > 4_470_000 && t < 4_490_000)).toEqual([]);
+    // The dot drives the chord at about the telemetry speed (under 140 km/h here) and is on the samples after.
+    expect(Math.max(...speeds(frames(d, 4_478_000, 4_485_000)))).toBeLessThan(200);
     const i = d.loc.t.findIndex((t) => t > 4_482_500);
-    const after = { x: d.loc.x[i + 1], y: d.loc.y[i + 1] };
-    const p = carPositionAt(d, d.loc.t[i + 1])!;
-    expect(Math.hypot(p.x - after.x, p.y - after.y)).toBeLessThan(50); // on the new samples, not smoothed over
+    const at = carPositionAt(d, d.loc.t[i + 1])!;
+    expect(Math.hypot(at.x - d.loc.x[i + 1], at.y - d.loc.y[i + 1])).toBeLessThan(50);
   });
 
   test("the precompute is fast (a rough guard: well under 20 ms per driver)", () => {
