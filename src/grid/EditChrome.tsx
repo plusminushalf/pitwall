@@ -2,7 +2,8 @@
 // remove, and the grips that change its width and height), free slots, the drop placeholder, and the popover shell. Quiet on purpose: thin rings
 // and small controls over the race, which keeps playing underneath.
 
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { createPortal } from "react-dom";
 import { ROW, type Box } from "./layout";
 
 const SMALL_LABEL = "text-[10px] font-semibold uppercase tracking-wider";
@@ -239,11 +240,14 @@ export function useDismiss(ref: RefObject<HTMLElement | null>, onClose: () => vo
   }, [ref, ignore]);
 }
 
-/** The popover shell, like the shortcuts help: positioned in grid px, kept inside the grid. */
+/**
+ * The popover shell, like the shortcuts help: anchored in grid px, but drawn over the whole window (a
+ * portal, out of the grid's overflow), so a slot low on the grid still gets a picker that fits. It opens
+ * at its anchor and slides up as far as it has to; only taller than the window does it scroll.
+ */
 export function Popover({
   anchor,
-  gridWidth,
-  gridHeight,
+  grid,
   width,
   title,
   onClose,
@@ -251,8 +255,7 @@ export function Popover({
   children,
 }: {
   anchor: { left: number; top: number; align: "left" | "right" };
-  gridWidth: number;
-  gridHeight: number;
+  grid: RefObject<HTMLElement | null>;
   width: number;
   title: string;
   onClose: () => void;
@@ -261,18 +264,29 @@ export function Popover({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useDismiss(ref, onClose, ignore);
-  const left = Math.min(Math.max(anchor.align === "right" ? anchor.left - width : anchor.left, 8), gridWidth - width - 8);
-  const top = Math.min(Math.max(anchor.top, 8), Math.max(8, gridHeight - 120));
-  return (
-    <div
-      ref={ref}
-      role="dialog"
-      aria-label={title}
-      className="absolute z-30 flex flex-col rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl"
-      style={{ left, top, width, maxHeight: gridHeight - top - 8 }}
-    >
-      <p className={`mb-2 shrink-0 text-zinc-500 ${SMALL_LABEL}`}>{title}</p>
-      <div className="-mx-1 min-h-0 overflow-y-auto px-1">{children}</div>
-    </div>
+  // Where the grid is on the window, read again whenever the grid re-renders (it does on a resize).
+  const [origin, setOrigin] = useState<{ x: number; y: number } | null>(null);
+  useLayoutEffect(() => {
+    const r = grid.current?.getBoundingClientRect();
+    if (r) setOrigin((o) => (o?.x === r.left && o.y === r.top ? o : { x: r.left, y: r.top }));
+  });
+  if (!origin) return null;
+  const x = origin.x + (anchor.align === "right" ? anchor.left - width : anchor.left);
+  return createPortal(
+    // The spacer gives way before the popover does: it keeps to its anchor until it would run off the bottom.
+    <div className="pointer-events-none fixed inset-0 z-30 flex flex-col p-2">
+      <div className="min-h-0" style={{ flex: `0 1 ${Math.max(origin.y + anchor.top - 8, 0)}px` }} />
+      <div
+        ref={ref}
+        role="dialog"
+        aria-label={title}
+        className="pointer-events-auto flex max-h-full flex-none flex-col rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl"
+        style={{ width, marginLeft: `clamp(0px, ${x - 8}px, calc(100% - ${width}px))` }}
+      >
+        <p className={`mb-2 shrink-0 text-zinc-500 ${SMALL_LABEL}`}>{title}</p>
+        <div className="-mx-1 min-h-0 overflow-y-auto px-1">{children}</div>
+      </div>
+    </div>,
+    document.body,
   );
 }

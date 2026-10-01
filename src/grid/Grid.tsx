@@ -380,8 +380,7 @@ export const Grid = memo(function Grid() {
       {editing && settingsBlock && settingsBox && session && (
         <Popover
           anchor={{ left: settingsBox.left + settingsBox.width - 4, top: settingsBox.top + 28, align: "right" }}
-          gridWidth={size.width}
-          gridHeight={size.height}
+          grid={ref}
           width={240}
           title={`${labelOf(settingsBlock, layout.blocks[settingsFor!]?.settings)} settings`}
           ignore="[data-settings-toggle]"
@@ -399,8 +398,7 @@ export const Grid = memo(function Grid() {
       {editing && picker && ctx && (
         <Popover
           anchor={picker.slot ? { left: slotBox(picker.slot).left + 6, top: picker.slot.top + 6, align: "left" } : { left: size.width - 8, top: 8, align: "right" }}
-          gridWidth={size.width}
-          gridHeight={size.height}
+          grid={ref}
           width={288}
           title="Add a block"
           ignore="[data-picker-toggle]"
