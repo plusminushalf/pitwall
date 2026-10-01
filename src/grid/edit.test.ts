@@ -5,7 +5,7 @@ import type { DriverInfo } from "../types";
 import { BUILTIN_BLOCKS } from "./builtins";
 import { DEFAULT_LAYOUT } from "./defaultLayout";
 import { addBlock, canAdd, cutOff, dropTarget, fits, fitsAsWell, freeSlots, moveBlock, overflow, removeBlock, resizeBlock, type EditContext } from "./edit";
-import { COLUMNS, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
+import { columnRange, COLUMNS, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
 
 const block = (id: string, height: BlockDefinition["height"], width = { min: 10, default: 20, max: 50 }, sessions: BlockDefinition["sessions"] = ["race"]) =>
   ({ id, name: id, version: "1.0.0", height, width, sessions, settings: {}, Component: () => null }) as BlockDefinition;
@@ -237,9 +237,10 @@ describe("resize", () => {
     const narrow = resizeBlock(DEFAULT_LAYOUT, c, "timing-tower", "right", 2);
     expect(xw(narrow, "timing-tower")).toEqual([0, 8]);
     expect(xw(narrow, "track-map")).toEqual([8, 22]);
+    const max = columnRange(BUILTIN_BLOCKS.get("timing-tower")!, COLUMNS).max;
     const wide = resizeBlock(DEFAULT_LAYOUT, c, "timing-tower", "right", 30);
-    expect(xw(wide, "timing-tower")).toEqual([0, 15]);
-    expect(xw(wide, "track-map")).toEqual([15, 15]);
+    expect(xw(wide, "timing-tower")).toEqual([0, max]);
+    expect(xw(wide, "track-map")).toEqual([max, RIGHT - max]);
   });
 
   test("refused at the grid's edges: the input comes back", () => {

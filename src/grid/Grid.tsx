@@ -7,7 +7,7 @@
 // it would land changes; the other blocks then glide to their new places (FLIP, transforms only: sizes
 // snap, so canvases reallocate once per step rather than every frame).
 
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { BlockHost } from "../blockkit/BlockHost";
 import { heightInputOf } from "../blockkit/select";
 import { useReplay } from "../store";
@@ -30,7 +30,8 @@ interface Drag {
 
 const GLIDE: KeyframeAnimationOptions = { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" };
 
-export function Grid() {
+// Memoised (no props): it re-renders only on its own state, not on every 10 Hz commit of the app above it.
+export const Grid = memo(function Grid() {
   const layout = useLayout((s) => s.layout);
   const editing = useLayout((s) => s.editing);
   const picker = useLayout((s) => s.picker);
@@ -338,7 +339,7 @@ export function Grid() {
       )}
     </div>
   );
-}
+});
 
 /** Where a gliding box is drawn right now: its place plus what's left of its glide. */
 function offsetNow(box: Box, glide: { anim: Animation; dx: number; dy: number }) {
