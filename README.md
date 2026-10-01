@@ -73,3 +73,9 @@ LIVE_SIMULATE=11299 LIVE_SIMULATE_SPEED=10 LIVE_SIMULATE_START=1800 bun server/l
 `LIVE_SIMULATE` is a session key with a raw cache (`bun run ingest <key>` first), `LIVE_SIMULATE_SPEED` a speed factor (1), `LIVE_SIMULATE_START` the start in seconds from lights out (-60). The relay reports `ended` when the data runs out.
 
 **From live to replay.** When a live session ends (or you stop the relay with Ctrl-C during one), the relay writes everything it received to `data/raw/<key>/` in ingest's cache format (for `bun run ingest <key>` and the simulator). The app doesn't read `data/`: download the session from the calendar once OpenF1's free tier opens up again, 30 min after it ends.
+
+## License
+
+Code: [GNU AGPL v3.0](LICENSE) (`AGPL-3.0-only`), copyright © 2026 plusminushalf. You may use, change and share it; if you distribute a modified version or run one that others use over a network, you must publish its source under the same license.
+
+Data is not covered by this license: race data comes from [OpenF1](https://openf1.org) under [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/) (non-commercial), and this repo contains none of it.
