@@ -1,44 +1,20 @@
 import { useEffect, useRef } from "react";
 import { useLibrary } from "../library";
 import { saveWatched, useReplay } from "../store";
+import { readUrl, upgradeUrl, urlFor } from "../url";
 
 /** Browsers rate-limit history.replaceState (Safari throws past ~100 calls per 30 s). */
 const MIN_WRITE_INTERVAL_MS = 1_000;
 
 /**
- * Shareable links: ?session=11377&t=3725&drivers=1,63,55&focus=63 (t in seconds of replay time).
- * The older single `driver=63` form is read as that driver selected and focused.
- * Live mode: ?live=1 (plus drivers/focus); watching back a live session adds its session and t.
- */
-export function readUrlState() {
-  const q = new URLSearchParams(location.search);
-  const num = (k: string) => (q.has(k) && !Number.isNaN(Number(q.get(k))) ? Number(q.get(k)) : null);
-  const t = num("t");
-  const legacy = num("driver");
-  const drivers = q.has("drivers")
-    ? (q.get("drivers") ?? "")
-        .split(",")
-        .filter((v) => v.trim() !== "")
-        .map(Number)
-        .filter(Number.isInteger)
-    : legacy != null
-      ? [legacy]
-      : [];
-  return {
-    live: q.get("live") === "1",
-    session: num("session"),
-    t: t != null ? t * 1000 : undefined,
-    drivers,
-    focus: num("focus") ?? legacy,
-  };
-}
-
-/**
- * Show what the URL says: live mode, a session (or the offer to download it), or Home. On startup (once the
- * library is read) and on the browser's Back / Forward; never adds a history entry.
+ * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to download it), or Home. On
+ * startup (once the library is read) and on the browser's Back / Forward; never adds a history entry.
  */
 export function applyUrl() {
-  const url = readUrlState();
+  // A link from before paths, or to a path the app doesn't have: today's address, in place.
+  const upgraded = upgradeUrl(location.pathname, location.search);
+  if (upgraded != null) history.replaceState(history.state, "", upgraded);
+  const url = readUrl(location.pathname, location.search);
   const library = useLibrary.getState();
   if (!url.live && url.session == null) {
     library.setLink(null);
@@ -89,16 +65,11 @@ export function useUrlSync() {
           watchedTo: s.watchedTo,
         });
       }
-      // Built by hand (all values are numbers) so the driver list keeps readable commas instead of %2C.
-      const q = live ? ["live=1"] : [];
-      if (session != null && second >= 0) q.push(`session=${session}`, `t=${second}`);
-      if (selected.length > 0) q.push(`drivers=${selected.join(",")}`);
-      if (focused != null) q.push(`focus=${focused}`);
-      const search = `?${q.join("&")}`;
-      if (search === location.search) return;
+      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused });
+      if (url === location.pathname + location.search) return;
       lastWrite.current = performance.now();
       // Keeps the entry's state (whether it was opened from Home).
-      history.replaceState(history.state, "", search);
+      history.replaceState(history.state, "", url);
     };
     // During fast playback `second` changes ~10×/s: write at most once per interval, always ending on the latest state.
     const wait = lastWrite.current + MIN_WRITE_INTERVAL_MS - performance.now();

@@ -3,8 +3,8 @@
 import type { LiveMessage } from "./protocol";
 
 /**
- * Whether this build has a live relay behind it: the dev server (proxying /live to `bun run live`), or a
- * build made with VITE_LIVE_RELAY=1 for a host that serves the relay at /live. A plain static build has
+ * Whether this build has a live relay behind it: the dev server (proxying /relay to `bun run live`), or a
+ * build made with VITE_LIVE_RELAY=1 for a host that serves the relay at /relay. A plain static build has
  * none, so live mode is hidden.
  */
 export const LIVE_RELAY = import.meta.env.DEV || import.meta.env.VITE_LIVE_RELAY === "1";
@@ -23,9 +23,9 @@ export interface LiveConnection {
   close: () => void;
 }
 
-/** `/live` on the page's own origin (the Vite dev server proxies it to the relay). */
+/** `/relay` on the page's own origin (the Vite dev server proxies it to the relay). */
 export function liveUrl(): string {
-  return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/live`;
+  return `${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/relay`;
 }
 
 /** Connects to the relay and stays connected (reconnecting with backoff) until `close()`. */

@@ -6,6 +6,7 @@ import { connectLive, LIVE_RELAY, type LiveConnection } from "./live/client";
 import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
 import { fetchSession, listPlayable } from "./storage/load";
 import type { SessionIndexEntry } from "./types";
+import { livePath, readUrl, sessionPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
 
@@ -22,10 +23,14 @@ export type Mode = "replay" | "live";
 export type View = "home" | "replay";
 
 /** Home, unless the link opens a session or live mode. */
-const initialView = (): View => (typeof location !== "undefined" && /[?&](session|live)=/.test(location.search) ? "replay" : "home");
+const initialView = (): View => {
+  if (typeof location === "undefined") return "home";
+  const url = readUrl(location.pathname, location.search);
+  return url.live || url.session != null ? "replay" : "home";
+};
 
 /** History entries opened from Home: the Races button goes back to it rather than stacking another one. */
-const pushFromHome = (search: string) => history.pushState({ fromHome: true }, "", search);
+const pushFromHome = (url: string) => history.pushState({ fromHome: true }, "", url);
 
 /** Where a session was left off (to resume it, and for Home's library order and progress). */
 export interface Watched {
@@ -357,7 +362,7 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     openSession: (key, opts) => {
       const s = get();
-      if (s.view === "home") pushFromHome(`?session=${key}`);
+      if (s.view === "home") pushFromHome(sessionPath(key));
       set({ view: "replay" });
       const loaded = s.mode === "replay" && (s.loading ? s.loading.key === key : s.session?.meta.sessionKey === key && !s.error);
       if (!loaded) void get().loadSession(key, opts);
@@ -368,7 +373,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       get().showHome();
       // Back to the Home entry this was opened from, or a new one (it was opened from a link).
       if (history.state?.fromHome) history.back();
-      else history.pushState(null, "", location.pathname);
+      else history.pushState(null, "", "/");
     },
 
     showHome: () => {
@@ -452,7 +457,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       const s = get();
       if (s.mode === "live") return;
       liveFromHome = s.view === "home";
-      if (liveFromHome) pushFromHome("?live=1");
+      if (liveFromHome) pushFromHome(livePath);
       loadToken++; // a replay still loading is no longer wanted
       if (s.session) replayStash = { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused };
       liveOpts = opts;

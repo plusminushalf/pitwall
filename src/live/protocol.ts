@@ -1,5 +1,5 @@
 // WebSocket protocol between the live relay (server/live.ts) and the app.
-// The app connects to `/live` (proxied to the relay by Vite in dev). Server -> client only.
+// The app connects to `/relay` (proxied to the relay by Vite in dev). Server -> client only.
 //
 // Live sessions use the same processed format as replays (src/types.ts), so the app can
 // build a normal `Session` from a snapshot and keep it growing:

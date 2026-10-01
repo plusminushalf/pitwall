@@ -119,7 +119,7 @@ export function GoLiveButton({ className = "" }: { className?: string }) {
 
 /**
  * Header control in live mode: its state, Go live and the way back to replays. Nothing in replays: live
- * mode is entered from Home's weekend card while a session is on (or a ?live=1 link).
+ * mode is entered from Home's weekend card while a session is on (or a /live link).
  */
 export function LiveControl() {
   const mode = useReplay((s) => s.mode);

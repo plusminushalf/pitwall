@@ -204,7 +204,7 @@ export async function runDownloads(h: DownloadHelpers): Promise<void> {
       if (m.type() === "error" && /ingest|download/i.test(text)) errors.push(text.slice(0, 200));
     });
     await page.evaluate((key: number) => {
-      history.pushState({}, "", `/?session=${key}&vault=debug`);
+      history.pushState({}, "", `/session/${key}?vault=debug`);
       dispatchEvent(new PopStateEvent("popstate"));
     }, KEY);
     await page.getByRole("button", { name: "Download this race" }).click({ timeout: 30_000 });

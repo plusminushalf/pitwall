@@ -1,4 +1,4 @@
-// A shared link (?session=<key>&t=…) to a session that isn't in this browser's library yet: offer to
+// A shared link (/session/<key>?t=…) to a session that isn't in this browser's library yet: offer to
 // download it, show the progress, and open it at the linked moment when it's ready (library.ts).
 
 import { useEffect, type ReactNode } from "react";

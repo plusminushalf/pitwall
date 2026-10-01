@@ -7,15 +7,15 @@ How Pitwall works and how to run every part of it. For what Pitwall is, see the 
 ```sh
 bun install
 bun run dev                  # http://localhost:5173
-bun run build                # static site in dist/ (~0.5 MB): serve it from any static host
-bunx serve dist              # or `bun run preview`, or any plain static server
+bun run build                # static site in dist/ (~0.5 MB): serve it at a domain's root, index.html for unknown paths
+bunx serve -s dist           # or `bun run preview`, or any static server with a single-page-app fallback
 bun run deploy               # build + upload to pitwall.plusminushalf.com (Cloudflare; CI does it on every push to main)
 ```
 
 ## The app
 
 - **Home** (the landing page; **← Races** in a session's header or the browser's Back returns to it) shows the latest race, the session you watched last, your library and every season's calendar: one click downloads a session or watches a downloaded one, which resumes where you left it. A download takes ~2.5 min for a race on OpenF1's free tier (one request every 2.2 s, no login) and stores ~13 MB of raw responses plus ~5 MB processed. One download runs at a time, also across tabs (Web Lock); cancel any time, and a reload or a later Resume only fetches what's missing.
-- **Links** (`?session=<key>&t=<s>&drivers=…`) to a race the recipient doesn't have offer "Download this race" and open at `t` when it's ready.
+- **Addresses** (`src/url.ts`): Home is `/`, a session `/session/<key>?t=<s>&drivers=…&focus=…`, live mode `/live`. Links to a race the recipient doesn't have offer "Download this race" and open at `t` when it's ready. Links from before paths (`/?session=<key>…`) still open, and are upgraded in place.
 - **Free-tier lockout:** OpenF1 blocks free users from 30 min before to 30 min after live sessions. Downloads then wait and start by themselves.
 - **Storage:** everything lives in the browser's origin-private file system (`src/storage/`, behind a `SessionStore` interface): raw OpenF1 responses (`raw/<key>/`, for resuming and re-processing) and the processed replay format (`sessions/<key>/`). The first download asks for persistent storage; Home shows usage and whether it's persistent. Each session records the processing format version (`scripts/lib/formatVersion.ts`); after an app update that changes it, "Update" re-processes from the stored raw data without the network.
 - **How:** a worker (`src/ingest/worker.ts`) runs the same pipeline as the CLI (`scripts/lib/ingestCore.ts`, pure `normalize.ts` / `quali.ts`) and writes byte-identical output. It needs a secure context (https or localhost).
@@ -50,12 +50,12 @@ bun run check:quali                   # CLI: sanity-check every qualifying sessi
 
 ## Live mode (dev only for now)
 
-Follow a race or sprint while it happens, in the same app: a small relay (`server/live.ts`) turns OpenF1's live feed into the replay format and streams it to the browser over a WebSocket (`/live`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`). A static build has no relay, so it hides live mode; moving live into the browser is spike S3.
+Follow a race or sprint while it happens, in the same app: a small relay (`server/live.ts`) turns OpenF1's live feed into the replay format and streams it to the browser over a WebSocket (`/relay`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`). A static build has no relay, so it hides live mode; moving live into the browser is spike S3.
 
 ```sh
 cp .env.example .env        # then fill in OPENF1_USERNAME / OPENF1_PASSWORD
 bun run live                # relay on :8787, next to `bun run dev`
-curl 127.0.0.1:8787/live/health
+curl 127.0.0.1:8787/relay/health
 ```
 
 - **Credentials.** Live data needs an OpenF1 sponsor account (€9.90/month at [openf1.org](https://openf1.org)): put its username and password in `.env` (gitignored; Bun loads it automatically). The relay exchanges them for a one-hour token, refreshes it before it expires, and never sends credentials or tokens to the browser. Without credentials the relay still runs and reports `state: "error"` with the reason.

@@ -3,7 +3,7 @@
 //   bun run live                              OpenF1 live timing (needs OPENF1_USERNAME/PASSWORD in .env)
 //   LIVE_SIMULATE=11377 bun server/live.ts    replay a cached session as if it were live
 //
-// WebSocket at /live (proxied by Vite in dev), health at GET /live/health. Env: LIVE_PORT (8787),
+// WebSocket at /relay (proxied by Vite in dev), health at GET /relay/health. Env: LIVE_PORT (8787),
 // LIVE_SIMULATE, LIVE_SIMULATE_SPEED (1), LIVE_SIMULATE_START (-60 s from lights out).
 // Credentials and tokens stay here: the browser only ever sees processed data.
 
@@ -29,8 +29,8 @@ const server = Bun.serve({
   port,
   fetch(req, server) {
     const { pathname } = new URL(req.url);
-    if (pathname === "/live/health") return Response.json(hub.health());
-    if (pathname === "/live" || pathname === "/live/") {
+    if (pathname === "/relay/health") return Response.json(hub.health());
+    if (pathname === "/relay" || pathname === "/relay/") {
       if (server.upgrade(req)) return undefined;
       return new Response("WebSocket upgrade expected", { status: 426 });
     }
@@ -44,7 +44,7 @@ const server = Bun.serve({
   },
 });
 hub.attach(server);
-console.log(`[live] relay on ws://${hostname}:${server.port}/live (health: http://${hostname}:${server.port}/live/health)`);
+console.log(`[live] relay on ws://${hostname}:${server.port}/relay (health: http://${hostname}:${server.port}/relay/health)`);
 
 let openf1: OpenF1Source | null = null;
 if (simulateKey != null) {
