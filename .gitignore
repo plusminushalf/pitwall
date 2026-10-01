@@ -15,3 +15,10 @@ data/
 
 # Wrangler (Cloudflare deploy) local state
 .wrangler/
+
+# Impeccable design tooling: per-run state (decision pages, review captures, local config)
+.impeccable/questions/
+.impeccable/decision/
+.impeccable/review/
+.impeccable/build/
+.impeccable/config.local.json

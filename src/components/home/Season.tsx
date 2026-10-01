@@ -1,0 +1,462 @@
+// Home's season sheet (from OpenF1): one row per race weekend, newest first, with the next weekend on top. Each
+// session has its column (SQ · Sprint · Quali · Race, so a season lines up), and each cell is that session's own
+// action in its state: watch (downloading it as it plays when it isn't here), resume, its download, update, retry.
+
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { isLive, type CatalogRow } from "../../ingest/catalog";
+import { loadLearned } from "../../ingest/runner";
+import { rowState, useLibrary, YEARS, type RaceFilter, type RowState } from "../../library";
+import { LiveDot } from "../LiveControl";
+import { resumeClocks } from "./resume";
+import { approx, clockTime, dateRange, dayTime, DANGER, day, FOCUS, Glyph, LABEL, SECONDARY, sessionTime, shortGp, size, storedBytes, useNow } from "./common";
+
+const FILTERS: { id: RaceFilter; label: string }[] = [
+  { id: "all", label: "All" },
+  { id: "Race", label: "Races" },
+  { id: "Qualifying", label: "Qualifying" },
+];
+
+interface Column {
+  id: string;
+  label: string;
+  title: string;
+  match: (r: CatalogRow) => boolean;
+}
+
+const SQ: Column = { id: "sq", label: "SQ", title: "Sprint qualifying (Sprint Shootout in 2023)", match: (r) => r.sessionType === "Qualifying" && r.sessionName !== "Qualifying" };
+const SPRINT: Column = { id: "sprint", label: "Sprint", title: "Sprint", match: (r) => r.sessionName === "Sprint" };
+const QUALI: Column = { id: "quali", label: "Quali", title: "Qualifying", match: (r) => r.sessionName === "Qualifying" };
+const RACE: Column = { id: "race", label: "Race", title: "Race", match: (r) => r.sessionName === "Race" };
+const COLUMNS: Record<RaceFilter, Column[]> = { all: [SQ, SPRINT, QUALI, RACE], Race: [SPRINT, RACE], Qualifying: [SQ, QUALI] };
+
+interface Meeting {
+  key: number;
+  name: string;
+  round: number | null;
+  circuit: string;
+  country: string;
+  rows: CatalogRow[];
+  /** Every session of the weekend was cancelled (before filtering). */
+  cancelled: boolean;
+}
+
+/** Rows (in date order) grouped by meeting; meetings left without rows by the filter are dropped. */
+function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
+  const meetings = new Map<number, Meeting>();
+  for (const r of rows) {
+    let m = meetings.get(r.meetingKey);
+    if (!m) meetings.set(r.meetingKey, (m = { key: r.meetingKey, name: r.meetingName, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true }));
+    m.round ??= r.round;
+    m.cancelled &&= r.cancelled;
+    if (filter === "all" || r.sessionType === filter) m.rows.push(r);
+  }
+  return [...meetings.values()].filter((m) => m.rows.length);
+}
+
+const fullName = (r: CatalogRow) => `${r.year} ${r.meetingName} ${r.sessionName}`;
+
+// ---------------------------------------------------------------- cells
+
+const CELL = `relative flex h-8 w-full items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md px-2 text-xs tabular-nums transition-colors ${FOCUS}`;
+
+/** A fill behind the cell's label: download progress, or how much of a partial download is stored. */
+const Fill = ({ frac, className }: { frac: number; className: string }) => (
+  <span className={`absolute inset-0 origin-left transition-transform duration-700 ease-out ${className}`} style={{ transform: `scaleX(${Math.min(1, Math.max(0, frac))})` }} aria-hidden />
+);
+
+const Label = ({ children }: { children: ReactNode }) => <span className="relative flex min-w-0 items-center gap-1.5">{children}</span>;
+
+/** A session's own action in its current state. Stored sessions are filled cells; the rest are quiet. */
+function Cell({ row, state, resume, now }: { row: CatalogRow; state: RowState; resume: string | null; now: number }) {
+  const stream = useLibrary((s) => s.stream);
+  const reprocess = useLibrary((s) => s.reprocess);
+  const watchNow = useLibrary((s) => s.watchNow);
+  const name = fullName(row);
+  const when = day(row.dateStart);
+
+  switch (state.kind) {
+    case "upcoming":
+      return isLive(row, now) ? (
+        <span className={`${CELL} font-semibold text-red-400`} title={`${row.sessionName} is live: it can be downloaded about 30 minutes after it ends`}>
+          <LiveDot pulse={false} />
+          Live
+        </span>
+      ) : (
+        <span className={`${CELL} text-zinc-400`} title={`${row.sessionName}: ${sessionTime(row.dateStart)}`}>
+          {dayTime(row.dateStart)}
+        </span>
+      );
+    case "cancelled":
+      return (
+        <span className={`${CELL} text-zinc-400 line-through`} title={`${row.sessionName}: cancelled`}>
+          Cancelled
+        </span>
+      );
+    case "ready":
+      return (
+        <button
+          onClick={() => watchNow(row.sessionKey)}
+          className={`${CELL} bg-zinc-800 font-semibold text-zinc-50 hover:bg-zinc-700`}
+          aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name} (stored)`}
+          title={`${resume ? `Resume at ${resume}` : "Watch"} · ${when} · stored, ${size(state.entry.processedBytes + state.entry.rawBytes)}`}
+        >
+          <Label>
+            <Glyph name="play" />
+            {resume ? `Resume ${resume}` : "Watch"}
+          </Label>
+        </button>
+      );
+    case "stale":
+      return (
+        <button
+          onClick={() => reprocess(state.entry)}
+          className={`${CELL} bg-zinc-800 font-semibold text-amber-300 hover:bg-zinc-700`}
+          aria-label={`Update ${name} (re-processed from the stored data, no download)`}
+          title="Processed by an older version of the app: update it from the stored OpenF1 data (no download)"
+        >
+          <Label>
+            <Glyph name="retry" />
+            Update
+          </Label>
+        </button>
+      );
+    case "partial":
+      return (
+        <button
+          onClick={() => stream(row)}
+          className={`${CELL} text-zinc-100 hover:bg-zinc-800`}
+          aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name}`}
+          title={`Watch · part stored, the rest comes as you watch (${approx(state.estimate.seconds)} left)`}
+        >
+          <Fill frac={state.cache.cachedFiles / Math.max(1, state.cache.expectedFiles)} className="bg-zinc-800" />
+          <Label>
+            <Glyph name="play" />
+            {resume ? `Resume ${resume}` : "Watch"}
+          </Label>
+        </button>
+      );
+    case "available":
+      return (
+        <button
+          onClick={() => stream(row)}
+          className={`${CELL} text-zinc-300 hover:bg-zinc-800 hover:text-zinc-50`}
+          aria-label={`Watch ${name}`}
+          title={`Watch · ${when} · plays in seconds, downloads as you watch (${approx(state.estimate.seconds)}, ~${Math.round(state.estimate.mb)} MB)`}
+        >
+          <Label>
+            <Glyph name="playOutline" />
+            Watch
+          </Label>
+        </button>
+      );
+    case "remote": {
+      const p = state.job.progress;
+      return (
+        <button disabled className={`${CELL} cursor-default text-zinc-300`} aria-label={`${name} is downloading in another tab`} title="Downloading in another tab">
+          {p && <Fill frac={p.progress} className="bg-zinc-800" />}
+          <Label>{p ? `${Math.round(p.progress * 100)}%` : "Other tab"}</Label>
+        </button>
+      );
+    }
+    case "job": {
+      const { job } = state;
+      if (job.phase === "failed") {
+        return (
+          <button
+            onClick={() => stream(row)}
+            className={`${CELL} text-red-400 hover:bg-zinc-800 hover:text-red-300`}
+            aria-label={`Retry ${name}`}
+            title={`Failed: ${job.error ?? "download failed"} · watch it (the download carries on from what's stored)`}
+          >
+            <Label>
+              <Glyph name="retry" />
+              Retry
+            </Label>
+          </button>
+        );
+      }
+      const waiting = job.phase === "queued" || job.phase === "paused";
+      const pct = job.progress ? Math.round(job.progress.progress * 100) : 0;
+      return (
+        <button
+          onClick={() => (job.info.mode === "download" ? stream(row) : watchNow(row.sessionKey))}
+          className={`${CELL} hover:bg-zinc-800 ${waiting ? "text-amber-300" : "text-zinc-50"}`}
+          aria-label={`Watch ${name} (${waiting ? (job.phase === "paused" ? "waiting" : "queued") : `${pct}% downloaded`})`}
+          title={waiting ? `${job.phase === "paused" ? "Waiting" : "Queued"} · click to watch it now` : "Downloading · click to watch it while it downloads"}
+        >
+          {!waiting && <Fill frac={pct / 100} className={`bg-zinc-700 ${job.progress?.phase === "processing" ? "animate-pulse" : ""}`} />}
+          <Label>
+            <Glyph name={waiting ? "wait" : "play"} />
+            {waiting ? (job.phase === "paused" ? "Waiting" : "Queued") : `${pct}%`}
+          </Label>
+        </button>
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------- rows
+
+/** One line of errors or waiting notices for a weekend, or null. */
+function Notice({ meeting, states, now }: { meeting: Meeting; states: RowState[]; now: number }) {
+  const otherTab = useLibrary((s) => s.otherTab);
+  const notes: { text: string; tone: string }[] = [];
+  meeting.rows.forEach((r, i) => {
+    const s = states[i];
+    if (s.kind !== "job") return;
+    const { job } = s;
+    const who = r.sessionName;
+    if (job.phase === "failed") notes.push({ text: `${who}: ${job.error ?? "download failed"}`, tone: "text-red-400" });
+    else if (job.phase === "paused") {
+      const wait = job.resumeAt != null ? Math.max(0, job.resumeAt - now) : null;
+      const at = wait == null ? "" : wait > 90_000 ? ` Starts by itself at ${clockTime(job.resumeAt!)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`;
+      notes.push({ text: `${who}: ${job.notice ?? "Paused"}${at}`, tone: "text-amber-300" });
+    } else if (job.phase === "queued" && otherTab) notes.push({ text: `${who}: another tab is downloading; this starts when it's done.`, tone: "text-zinc-300" });
+    else if (job.progress?.notice) notes.push({ text: `${who}: ${job.progress.notice}`, tone: "text-amber-300" });
+  });
+  if (!notes.length) return null;
+  return (
+    <p className="truncate pb-2 pl-11 text-xs" title={notes.map((n) => n.text).join("\n")}>
+      {notes.map((n, i) => (
+        <span key={i} className={n.tone}>
+          {i > 0 && <span className="text-zinc-500"> · </span>}
+          {n.text}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/**
+ * The sheet's columns, by the width it has (a container query): round and Grand Prix, circuit, dates, one per
+ * session (`--cells` of them), delete. Narrower, it drops the circuit, then the dates; narrower still it scrolls
+ * sideways with the round and Grand Prix pinned.
+ */
+const SHEET_GRID =
+  "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),7.25rem)_2rem] @[52rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),7.25rem)_2rem] @[64rem]:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_7rem_repeat(var(--cells),7.25rem)_2rem]";
+const cellsOf = (columns: Column[]) => ({ "--cells": columns.length }) as CSSProperties;
+/** Round and Grand Prix: pinned when the sheet scrolls sideways (its ground follows the row's). */
+const PINNED = "sticky left-0 z-[1] flex min-w-0 items-center gap-2 bg-zinc-950 group-hover:bg-zinc-900";
+
+function WeekendRow({ meeting, states, columns, resume, now, next = false }: { meeting: Meeting; states: RowState[]; columns: Column[]; resume: Resume; now: number; next?: boolean }) {
+  const confirm = useLibrary((s) => s.confirmDelete);
+  const askDelete = useLibrary((s) => s.askDelete);
+  const remove = useLibrary((s) => s.remove);
+  // Several sessions stored: pick which one to delete first.
+  const [picking, setPicking] = useState(false);
+  const first = meeting.rows[0];
+  const last = meeting.rows.at(-1)!;
+  const deletable = meeting.rows.flatMap((r, i) => (storedBytes(states[i]) != null ? [{ row: r, bytes: storedBytes(states[i])! }] : []));
+  const confirming = deletable.find((d) => d.row.sessionKey === confirm);
+  const span = { gridColumn: `span ${columns.length + 1} / -1` };
+
+  let cells: ReactNode;
+  if (confirming) {
+    cells = (
+      <div className="flex items-center justify-end gap-1.5" style={span}>
+        <span className="whitespace-nowrap text-xs text-zinc-200">
+          Delete {confirming.row.sessionName} ({size(confirming.bytes)})?
+        </span>
+        <button onClick={() => void remove(confirming.row.sessionKey)} className={DANGER}>
+          Delete
+        </button>
+        <button onClick={() => askDelete(null)} className={SECONDARY}>
+          Keep
+        </button>
+      </div>
+    );
+  } else if (picking) {
+    cells = (
+      <div className="flex items-center justify-end gap-1.5" style={span}>
+        <span className="text-xs text-zinc-300">Delete which?</span>
+        {deletable.map((d) => (
+          <button
+            key={d.row.sessionKey}
+            onClick={() => {
+              setPicking(false);
+              askDelete(d.row.sessionKey);
+            }}
+            className={`${SECONDARY} text-red-300`}
+            aria-label={`Delete ${fullName(d.row)} (${size(d.bytes)})`}
+          >
+            {d.row.sessionName}
+          </button>
+        ))}
+        <button onClick={() => setPicking(false)} className={SECONDARY}>
+          Keep
+        </button>
+      </div>
+    );
+  } else {
+    cells = (
+      <>
+        {columns.map((c) => {
+          const i = meeting.rows.findIndex(c.match);
+          return <div key={c.id}>{i >= 0 && <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} />}</div>;
+        })}
+        <div className="flex justify-end">
+          {deletable.length > 0 && (
+            <button
+              onClick={() => (deletable.length === 1 ? askDelete(deletable[0].row.sessionKey) : setPicking(true))}
+              className={`flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:opacity-100 group-hover:opacity-100 ${FOCUS}`}
+              aria-label={`Delete ${meeting.name} sessions from this browser`}
+              title="Delete from this browser"
+            >
+              <Glyph name="trash" className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <li className="group border-b border-zinc-800/70 px-3 hover:bg-zinc-900">
+      <div className={`${SHEET_GRID} min-h-11 py-1`} style={cellsOf(columns)}>
+        <span className={PINNED}>
+          <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{meeting.round != null ? `R${meeting.round}` : "–"}</span>
+          <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
+          {next && <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-zinc-200">Next</span>}
+        </span>
+        <span className="hidden min-w-0 truncate text-xs text-zinc-400 @[64rem]:block">
+          {meeting.circuit}
+          {meeting.country ? ` · ${meeting.country}` : ""}
+        </span>
+        <span className="hidden text-xs tabular-nums text-zinc-400 @[52rem]:block">{dateRange(first.dateStart, last.dateEnd)}</span>
+        {cells}
+      </div>
+      <Notice meeting={meeting} states={states} now={now} />
+    </li>
+  );
+}
+
+/** Race clock where each watched race was left, by session key. */
+type Resume = Record<number, string>;
+
+type Item = { kind: "weekend" | "next"; meeting: Meeting; states: RowState[] } | { kind: "cancelled"; meetings: Meeting[] };
+
+/** A row of pressed/unpressed buttons (the replay screen's segmented control). */
+function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
+  return (
+    <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label={label}>
+      {options.map((o) => (
+        <button
+          key={o.id}
+          onClick={() => onChange(o.id)}
+          aria-pressed={o.id === value}
+          className={`rounded px-2.5 py-1 text-xs font-semibold tabular-nums ${FOCUS} ${o.id === value ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Season() {
+  const year = useLibrary((s) => s.calendarYear);
+  const setYear = useLibrary((s) => s.setCalendarYear);
+  const state = useLibrary((s) => s.years[s.calendarYear]);
+  const filter = useLibrary((s) => s.filter);
+  const setFilter = useLibrary((s) => s.setFilter);
+  const loadYear = useLibrary((s) => s.loadYear);
+  const jobs = useLibrary((s) => s.jobs);
+  const remote = useLibrary((s) => s.remote);
+  const entries = useLibrary((s) => s.entries);
+  const partial = useLibrary((s) => s.partial);
+  const now = useNow(2000);
+  const rows = state?.catalog?.rows;
+  const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
+  const learned = useMemo(() => loadLearned(), [jobs]);
+  const columns = COLUMNS[filter];
+  // Read once per visit to Home (it's written while watching).
+  const [resume] = useState(resumeClocks);
+
+  // Newest first; of the future, only the next weekend (unless one is under way). Runs of cancelled ones collapse into one line.
+  const shown: { m: Meeting; states: RowState[] | null }[] = [];
+  let next: { m: Meeting; states: RowState[] } | null = null;
+  for (const m of meetings) {
+    const states = m.cancelled ? null : m.rows.map((r) => rowState(r, { jobs, remote, entries, partial }, now, learned));
+    if (!states || states.every((s) => s.kind === "cancelled")) {
+      shown.push({ m, states: null });
+      continue;
+    }
+    if (states.every((s) => s.kind === "upcoming" || s.kind === "cancelled")) {
+      if (!shown.some((x) => x.states?.some((s) => s.kind === "upcoming"))) next = { m, states };
+      break;
+    }
+    shown.push({ m, states });
+  }
+  const items: Item[] = next ? [{ kind: "next", meeting: next.m, states: next.states }] : [];
+  for (const { m, states } of shown.reverse()) {
+    const prev = items.at(-1);
+    if (states) items.push({ kind: "weekend", meeting: m, states });
+    else if (prev?.kind === "cancelled") prev.meetings.push(m);
+    else items.push({ kind: "cancelled", meetings: [m] });
+  }
+
+  let body;
+  if (!rows) {
+    body = state?.error ? (
+      <div className="border-y border-zinc-800 px-3 py-4 text-sm">
+        <p className="text-red-400">{state.error}</p>
+        <button onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
+          Try again
+        </button>
+      </div>
+    ) : (
+      <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the {year} season from OpenF1…</p>
+    );
+  } else if (!meetings.length) {
+    body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No sessions listed for {year} yet.</p>;
+  } else {
+    body = (
+      <>
+        {state.error && <p className="mb-2 px-3 text-xs text-amber-300">{state.error} Showing the season saved earlier.</p>}
+        <div className="overflow-x-auto @container">
+          <div className="min-w-[45rem]">
+            <div className={`${LABEL} ${SHEET_GRID} whitespace-nowrap border-b border-zinc-800 px-3 pb-2`} style={cellsOf(columns)} aria-hidden>
+              <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
+                <span className="w-9 shrink-0">Rd</span>
+                Grand Prix
+              </span>
+              <span className="hidden @[64rem]:block">Circuit</span>
+              <span className="hidden @[52rem]:block">Dates</span>
+              {columns.map((c) => (
+                <span key={c.id} className="px-2" title={c.title}>
+                  {c.label}
+                </span>
+              ))}
+              <span />
+            </div>
+            <ul aria-label={`${year} season`}>
+              {items.map((it, i) =>
+                it.kind === "cancelled" ? (
+                  <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
+                    <span className="line-through">{it.meetings.map((m) => shortGp(m.name)).join(" · ")}</span> cancelled
+                  </li>
+                ) : (
+                  <WeekendRow key={it.meeting.key} meeting={it.meeting} states={it.states} columns={columns} resume={resume} now={now} next={it.kind === "next"} />
+                ),
+              )}
+            </ul>
+          </div>
+        </div>
+      </>
+    );
+  }
+
+  return (
+    <section aria-labelledby="season-title" className="mt-12">
+      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <h2 id="season-title" className="text-2xl font-bold tracking-tight text-zinc-50">
+          Season
+        </h2>
+        <Segmented label="Season" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />
+        <span className="flex-1" />
+        <Segmented label="Sessions" value={filter} options={FILTERS} onChange={setFilter} />
+      </div>
+      {body}
+    </section>
+  );
+}

@@ -25,7 +25,15 @@ export function Settings() {
     setAt(at || !r ? null : { top: r.bottom + 8, right: window.innerWidth - r.right });
   };
 
-  // Closes on a click outside, Escape or a resize (not when focus moves to the vault's login window).
+  // Open: focus goes into the panel (its chosen spoiler option), so the keyboard doesn't have to travel the page to
+  // reach it (it's portaled to the end of the body).
+  const open = at != null;
+  useEffect(() => {
+    if (open) panel.current?.querySelector<HTMLElement>("input:checked, input, button")?.focus();
+  }, [open]);
+
+  // Closes on a click outside, Escape or a resize (not when focus moves to the vault's login window). Escape hands
+  // focus back to the Settings button.
   useEffect(() => {
     if (!at) return;
     const close = () => setAt(null);
@@ -34,7 +42,9 @@ export function Settings() {
       if (!panel.current?.contains(t) && !button.current?.contains(t)) close();
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
+      if (e.key !== "Escape") return;
+      close();
+      button.current?.focus();
     };
     document.addEventListener("pointerdown", onDown);
     document.addEventListener("keydown", onKey);
@@ -52,7 +62,7 @@ export function Settings() {
         ref={button}
         type="button"
         onClick={toggle}
-        className={`${SECONDARY} flex shrink-0 items-center gap-1.5 ${at ? "border-zinc-500 text-white" : ""}`}
+        className={`${SECONDARY} flex shrink-0 items-center gap-1.5 px-3 py-1.5 ${at ? "bg-zinc-700 text-white" : ""}`}
         aria-expanded={at != null}
         aria-haspopup="dialog"
       >
@@ -91,7 +101,7 @@ function SettingsPanel({ ref, at }: { ref: Ref<HTMLDivElement>; at: Position }) 
               />
               <span>
                 <span className="block text-xs font-semibold text-zinc-200">{o.label}</span>
-                <span className="block text-[11px] leading-snug text-zinc-500">{o.hint}</span>
+                <span className="block text-xs leading-snug text-zinc-400">{o.hint}</span>
               </span>
             </label>
           ))}

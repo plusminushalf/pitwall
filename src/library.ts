@@ -292,7 +292,35 @@ let lockAbort: AbortController | null = null;
 let resumeTimer: ReturnType<typeof setTimeout> | null = null;
 let persistAsked = false;
 
+/** Seasons being read or fetched, so asking twice makes one request. */
+const loadingYears = new Map<number, Promise<void>>();
+
 export const useLibrary = create<LibraryState>((set, get) => {
+  /** One season's calendar: from this browser when it's fresh enough, else from OpenF1 (and kept). */
+  const loadYearOnce = async (year: number, force: boolean) => {
+    const prev = get().years[year];
+    const setYear = (y: YearState) => set({ years: { ...get().years, [year]: y } });
+    let catalog = prev?.catalog ?? null;
+    if (!catalog && get().supported) catalog = (await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined)) ?? null;
+    if (catalog && catalogFresh(catalog) && !force) {
+      setYear({ catalog, loading: false, error: null });
+      return;
+    }
+    setYear({ catalog, loading: true, error: null });
+    try {
+      const fresh = await fetchCatalog(year);
+      if (get().supported) await store().writeDoc(`catalog-${year}`, fresh).catch(() => {});
+      setYear({ catalog: fresh, loading: false, error: null });
+    } catch (e) {
+      let error = `Couldn't load the ${year} calendar from OpenF1 (${message(e)}).`;
+      if (e instanceof LiveWindowError) {
+        const w = liveWindowOf(get());
+        set({ blocked: { until: w?.until ?? Date.now() + BLOCKED_RECHECK_MS, label: w?.label ?? "a live session" } });
+        error = "OpenF1 is blocking free access while a session is live; the calendar loads again once it's over.";
+      }
+      setYear({ catalog, loading: false, error });
+    }
+  };
   const store = () => sessionStore();
 
   onStreamWatch((key, t) => {
@@ -675,29 +703,12 @@ export const useLibrary = create<LibraryState>((set, get) => {
     setFilter: (filter) => set({ filter }),
 
     loadYear: async (year, { force = false } = {}) => {
-      const prev = get().years[year];
-      if (prev?.loading) return;
-      const setYear = (y: YearState) => set({ years: { ...get().years, [year]: y } });
-      let catalog = prev?.catalog ?? null;
-      if (!catalog && get().supported) catalog = (await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined)) ?? null;
-      if (catalog && catalogFresh(catalog) && !force) {
-        setYear({ catalog, loading: false, error: null });
-        return;
-      }
-      setYear({ catalog, loading: true, error: null });
-      try {
-        const fresh = await fetchCatalog(year);
-        if (get().supported) await store().writeDoc(`catalog-${year}`, fresh).catch(() => {});
-        setYear({ catalog: fresh, loading: false, error: null });
-      } catch (e) {
-        let error = `Couldn't load the ${year} calendar from OpenF1 (${message(e)}).`;
-        if (e instanceof LiveWindowError) {
-          const w = liveWindowOf(get());
-          set({ blocked: { until: w?.until ?? Date.now() + BLOCKED_RECHECK_MS, label: w?.label ?? "a live session" } });
-          error = "OpenF1 is blocking free access while a session is live; the calendar loads again once it's over.";
-        }
-        setYear({ catalog, loading: false, error });
-      }
+      // Asked again while it's being read or fetched (Home and the jump field both ask): the same request.
+      const running = loadingYears.get(year);
+      if (running) return running;
+      const load = loadYearOnce(year, force).finally(() => loadingYears.delete(year));
+      loadingYears.set(year, load);
+      return load;
     },
 
     lookup: async (key) => {
