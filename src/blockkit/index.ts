@@ -1,4 +1,4 @@
-// block-kit: the public API for blocks (docs/modular-hypotheses.md, want 3). Blocks import only
+// block-kit: the public API for blocks (docs/hypotheses.md, want 3). Blocks import only
 // this ("block-kit") and React; everything else in src/blockkit/ is the core's side.
 //
 // Blocks are drawn at a fixed type size in CSS px: a wider block gets more room, not bigger contents.

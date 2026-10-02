@@ -57,7 +57,7 @@ Success: a fan gets from the home screen to the session they want, and from ther
 ## Evidence on Hand
 
 - Screenshots: `docs/screenshots/race.png`, `docs/screenshots/qualifying.png`, `docs/screenshots/layout.png`.
-- Measured performance figures in `README.md` and `docs/modular-hypotheses.md`.
+- Measured performance figures in `README.md` and `docs/hypotheses.md`.
 - No testimonials, user counts, press or case studies exist. Do not invent them.
 - Team, driver and circuit imagery is not licensed for use. Do not add it.
 

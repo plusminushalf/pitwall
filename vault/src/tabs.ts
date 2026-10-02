@@ -1,6 +1,6 @@
 // Every tab of the app embeds its own vault frame. They share one storage partition (the vault's origin under
 // the app's site), so one BroadcastChannel and one set of Web Locks, and nothing else can join either: this is
-// one trust boundary. Among them, one leader (docs/modular-hypotheses.md, H2.10):
+// one trust boundary. Among them, one leader (docs/hypotheses.md, H2.10):
 //
 // - Election: navigator.locks.request(LEADER_LOCK) held for the frame's lifetime. The first frame gets it;
 //   the others queue for it, so when the leader's tab closes the next frame in line takes over at once.

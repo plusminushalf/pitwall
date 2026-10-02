@@ -2,7 +2,7 @@
 
 A tiny static site, deployed on a **different site** (registrable domain) from the app, that will be the only
 code ever to see a user's OpenF1 password or access token. The app embeds it as a hidden iframe and gets
-data from it, never credentials. Design and reasoning: `docs/modular-hypotheses.md`, H2.4 (why a separate
+data from it, never credentials. Design and reasoning: `docs/hypotheses.md`, H2.4 (why a separate
 site), H2.5 (the protocol), H2.10 (live streams and token refresh) and H2.11 (weak points and defences).
 
 Note: OpenF1's auth docs say the token exchange should happen in a backend. The vault does it in the browser
@@ -137,7 +137,7 @@ doesn't), or `stopped` (`needsReauth`). Every change is pushed as a status event
 
 ## Token refresh
 
-`src/scheduler.ts`, built on the facts in docs/modular-hypotheses.md (no refresh token, so a refresh is the
+`src/scheduler.ts`, built on the facts in docs/hypotheses.md (no refresh token, so a refresh is the
 password grant again; new tokens don't invalidate old ones; REST 401s from the first second after `exp`;
 `/token` 429s bursts):
 
@@ -171,15 +171,15 @@ says so. Live windows need the login. Every `get` goes through the REST budget (
 `src/budget.ts`, owned by the leader frame (followers forward their gets, so it is one budget per browser and
 account; see "Tabs"). Pure, tested with a fake clock (`budget.test.ts`).
 
-- **Limits**: OpenF1's (docs/modular-hypotheses.md, facts): 6 requests/s and 60/min with a token (sponsor tier),
+- **Limits**: OpenF1's (docs/hypotheses.md, facts): 6 requests/s and 60/min with a token (sponsor tier),
   3/s and 30/min without, whichever applies when a request may start. Starts are spaced 1.15 / perSecond apart
   (no bursts; the 15% is for network jitter, measured against the simulation's limiter) and at most perMinute
   start in any 60 s. Within that, requests run **in parallel**: at most 8 in flight.
 - **Priorities**: live gap-fills first (caller `live`, priority `live`). While the stream runs, everything else
   leaves 14 of each minute's requests (one per topic) for them, so a gap-fill after a drop never waits for a
   download's minute to roll over.
-- **Fairness**: each app port is a caller (`<frame id>/p<n>`: the app's main port, the download worker's, one per
-  future module); callers take turns, one start each (round robin), none has more than 6 in flight or 128
+- **Fairness**: each app port is a caller (`<frame id>/p<n>`: the app's main port, the download worker's, and any
+  added later); callers take turns, one start each (round robin), none has more than 6 in flight or 128
   queued (then `rate_limited`). So one busy or misbehaving caller can't starve the others, and whatever it asks,
   the account stays under OpenF1's limits. A closed port (`close`), a dropped one (the cap) or a closed tab
   (its frame lock gone, or its `bye`) has its queued gets dropped.
@@ -220,7 +220,7 @@ calendar requests counted in the same minute.
 ## The live stream
 
 `src/mqtt.ts` + `src/live.ts`, run by the leader frame (below) for the union of every tab's subscriptions. The
-broker facts it's built on (docs/modular-hypotheses.md, facts): the password is the token; the username must be the account's email (measured 2026-09-30 while building
+broker facts it's built on (docs/hypotheses.md, facts): the password is the token; the username must be the account's email (measured 2026-09-30 while building
 this step: any other username gets CONNACK 5 even with a valid token, correcting the facts table); at
 most 10 connections per account, the 11th refused with CONNACK 5, **the same code as an expired token**; a
 reused clientId kicks the older session; an open session outlives its token (the broker checks only at

@@ -8,7 +8,7 @@
 // - Handover: when the scheduler has a new token, open session B with it, subscribe, and once B's SUBACK
 //   is in, close A after OVERLAP_MS. (Not at once: a message published just before B subscribed may still be
 //   in flight on A's socket.) The overlap's duplicates are dropped by message identity.
-// - CONNACK 5 is ambiguous (docs/modular-hypotheses.md): an expired token or the account's 10-connection
+// - CONNACK 5 is ambiguous (docs/hypotheses.md): an expired token or the account's 10-connection
 //   cap. With a token that is still valid locally it's the cap: keep A, keep the token, back off, phase
 //   "connection-limit". With an expired one: refresh first, then retry.
 // - An unexpected drop: reconnect with backoff (a fresh token first if needed), then fill the gap over REST

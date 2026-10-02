@@ -42,7 +42,7 @@ export function restUrl(endpoint: RestEndpoint, params: Params, base = REST_BASE
   return `${base}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`;
 }
 
-/** OpenF1's published rate limits (docs/modular-hypotheses.md, facts): per second and per minute. */
+/** OpenF1's published rate limits (docs/hypotheses.md, facts): per second and per minute. */
 export type RateLimit = { perSecond: number; perMinute: number };
 export const AUTH_LIMIT: RateLimit = { perSecond: 6, perMinute: 60 };
 export const ANON_LIMIT: RateLimit = { perSecond: 3, perMinute: 30 };

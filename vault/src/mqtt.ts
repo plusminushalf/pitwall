@@ -7,7 +7,7 @@
 // only ever subscribe at QoS 0), PINGREQ / PINGRESP with a dead-connection timeout, DISCONNECT.
 // WebSocket framing: subprotocol "mqtt", binary frames; one frame may hold part of a packet or several.
 //
-// OpenF1 facts (docs/modular-hypotheses.md): the password is the access token and the username the account's
+// OpenF1 facts (docs/hypotheses.md): the password is the access token and the username the account's
 // email (measured 2026-09-30: another username is refused with CONNACK 5 even with a valid token); CONNACK 5 means an expired token OR the 10-connection cap (live.ts tells them apart); reusing a
 // clientId kicks the older session, so every session gets a fresh one (live.ts).
 

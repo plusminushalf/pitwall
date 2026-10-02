@@ -1,6 +1,6 @@
 // OpenF1 login: POST https://api.openf1.org/token. Pure apart from the injected fetch, so bun can test it.
 //
-// Verified 2026-09-30 (docs/modular-hypotheses.md, facts): a form body with username and password;
+// Verified 2026-09-30 (docs/hypotheses.md, facts): a form body with username and password;
 // 200 {"access_token", "token_type": "bearer", "expires_in": "3600"} with expires_in a STRING; 401 JSON
 // for a wrong login; an nginx HTML 429 on bursts. No refresh token: a new token needs the password again.
 

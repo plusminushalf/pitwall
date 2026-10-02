@@ -1,6 +1,6 @@
-# Modular rewrite: hypotheses
+# The rewrite: hypotheses
 
-Draft for discussion, 2026-09-29; module marketplace added 2026-09-30; want 3 redesigned around UI blocks on 2026-09-30. Want 1 and most of want 2 are now built for historical replay (commit 49515e4); want 3 is designed but not started. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
+Draft for discussion, 2026-09-29; block marketplace added 2026-09-30; want 3 redesigned around UI blocks on 2026-09-30. Want 1 and most of want 2 are now built for historical replay (commit 49515e4); want 3 is designed but not started. Facts come from research on 2026-09-29; hypotheses are marked **H** and each says what would prove it wrong.
 
 ## The three wants
 
@@ -30,7 +30,7 @@ Draft for discussion, 2026-09-29; module marketplace added 2026-09-30; want 3 re
 | Normalizing one race: about 8 s total, **600–730 MB peak memory** | measured, races 11377 and 11234 |
 | One race: 57 OpenF1 requests + 1 MultiViewer request. Into the browser: 144 s on the free tier (the worker's own requests, ~24/min to leave room for the page's), **36 s signed in through the vault** (6 in flight within its 6/s, 60/min budget), no 429 either way, identical output | measured (race 11377, `vault:e2e --downloads`, 2026-09-30) |
 | Storage: about 5 MB gzipped processed per race (110–150 MB per season); raw data 10–16 MB gzipped per race. Browser quotas are in the GBs; the risk is the browser deleting data, not size (Safari's 7-day rule unless added to the Home Screen) | du; MDN, WebKit |
-| No F1 tool combines user-arranged layouts, a plugin API and a synced replay timeline, let alone a community marketplace | see "Does anyone do this?" |
+| No F1 tool combines user-arranged layouts, an API for blocks and a synced replay timeline, let alone a community marketplace | see "Does anyone do this?" |
 
 ## Want 1: install and access
 
@@ -132,7 +132,7 @@ Build shells 2 and 3 only when a spike shows we need them.
 
 ## Want 3: everything is a block, and anyone can publish one
 
-Rewritten 2026-09-30 after a design discussion. The earlier draft treated modules as plugins that could publish their own data streams for each other, with nine contribution points (map layers, tower columns, timeline markers and so on) and dockview as the layout engine. That is dropped. A module is now simply a **UI block**: it reads the one shared data stream and decides what to show and how. The user arranges blocks on a grid.
+Rewritten 2026-09-30 after a design discussion. The earlier draft treated blocks as plugins that could publish their own data streams for each other, with nine contribution points (map layers, tower columns, timeline markers and so on) and dockview as the layout engine. That is dropped. A block is now simply **part of the UI**: it reads the one shared data stream and decides what to show and how. The user arranges blocks on a grid.
 
 ### Does anyone do this?
 
@@ -366,7 +366,7 @@ Steps 1–3 prove the idea: if our own blocks can be built using only the hooks,
 
 ## Open questions
 
-1. ~~Are third-party modules a day-one goal or a later phase?~~ Resolved 2026-09-30: they're a goal, but submissions open only after our own blocks have proved the API (H3.18).
+1. ~~Are third-party blocks a day-one goal or a later phase?~~ Resolved 2026-09-30: they're a goal, but submissions open only after our own blocks have proved the API (H3.18).
 2. ~~Marketplace in this repo or a separate repo?~~ Resolved 2026-09-30: this repo, in `blocks/`, for now (H3.14).
 3. ~~Who reviews submissions, and what's the bar?~~ Resolved 2026-09-30: the repo maintainer, against a published checklist, with polish as the reviewer's call (H3.15).
 4. Are phones first-class or desktop-first?

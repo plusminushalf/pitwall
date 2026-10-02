@@ -2,7 +2,7 @@
 // leader frame (tabs.ts; followers forward their gets), so it is one budget per browser, per account.
 // Pure (injected clock and timers), tested in budget.test.ts.
 //
-// - OpenF1's limits (docs/modular-hypotheses.md, facts): 6 requests/s and 60/min with a token (sponsor
+// - OpenF1's limits (docs/hypotheses.md, facts): 6 requests/s and 60/min with a token (sponsor
 //   tier), 3/s and 30/min without. Starts are spaced SPACING / perSecond apart (no bursts; the 15% margin
 //   is for network jitter, measured against the simulation's limiter) and at most perMinute start in any
 //   60 s. Requests run in parallel within that: up to MAX_IN_FLIGHT at once.

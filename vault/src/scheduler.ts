@@ -1,7 +1,7 @@
 // Silent token refresh. Pure: the clock, the timers, the randomness and the /token call are injected, so
 // bun tests drive it with a fake clock. No DOM (frame.ts calls wake() on visibilitychange / online).
 //
-// OpenF1 facts it is built on (docs/modular-hypotheses.md, facts, verified 2026-09-30): a token lasts
+// OpenF1 facts it is built on (docs/hypotheses.md, facts, verified 2026-09-30): a token lasts
 // `expires_in` (3600 s); there is no refresh token, so a refresh is the password grant again; a new token
 // doesn't invalidate older ones; REST answers 401 from the first second after `exp`, no grace; /token
 // answers an nginx 429 to bursts (about 8 requests in 1.6 s).
