@@ -5,39 +5,34 @@
   </picture>
 </h1>
 
-Replay or follow a live F1 race on a polished timing screen made of blocks you arrange. Replays cover every race, sprint and qualifying session since 2023. Built on [OpenF1](https://openf1.org) data. Runs entirely in your browser.
+Replay or follow a live F1 race on a polished timing screen made of blocks you arrange. Each block is a different kind of analysis. Built on [OpenF1](https://openf1.org) data. Runs in your browser.
 
-Each block reads the race its own way: timing, the track map, telemetry, gaps, stint pace, battles, pit stops and more. Anyone can [write a new one](#write-a-block).
+**Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**. The hosted site plays replays only. Live works only when you [run Pitwall locally](#run-it-locally), for now.
 
-**Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**
-
-![A race replay: timing tower, track map, race feed, gaps to the leader, stint pace, battles and pit stops](docs/screenshots/race.png)
+![A race replay on the default layout: timing tower, track map, race feed, gaps to the leader, stint pace, battles and pit stops](docs/screenshots/race.png)
 
 ## What it does
 
-- **Plays in seconds.** Pick a race and it starts about 5 seconds later. It downloads into your browser while you watch, so next time it opens instantly, even offline.
-- **Tracking.** Every car on the track map, about 4 times a second. Timing, gaps, tyres, pit stops, race control, weather and team radio. All on one timeline. Pause, scrub, or play at up to 64×.
-- **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether the undercut worked. Click a lap, a battle or a stop to watch it.
-- **No spoilers.** Watching a race you missed? The timeline shows only what you've watched: safety cars, retirements, penalties and the finish stay hidden until you get there. Pitwall asks when you open a race, or remembers your answer (Settings, on the home page).
-- **Qualifying.** Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
-- **Blocks.** The screen is a grid of blocks. Move, resize, add or remove them. Your layout is saved.
-- **Live.** Follow a race as it happens. Needs an OpenF1 account. Local only for now, not yet on the hosted site.
-- **Bring your own credentials.** Connect your own OpenF1 account. Downloads get faster.
+- **Replays.** Every race, sprint and qualifying session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
+- **One timeline** for timing, gaps, tyres, pit stops, race control, weather and team radio. Pause, scrub, or play at up to 64×.
+- **Blocks.** Move, resize, add or remove them. Your layout is saved.
+- **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Click a lap, a battle or a stop to watch it.
+- **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
+- **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
+- **Live.** Follow a race or sprint as it happens. It needs an OpenF1 account. It works only when you run Pitwall locally, not on the hosted site.
+- **Desktop only**, for now.
 
 | Qualifying | Edit the layout |
 | --- | --- |
-| ![Qualifying: three drivers' best laps compared on one distance axis](docs/screenshots/qualifying.png) | ![Edit mode: blocks with move and remove controls, and the block picker](docs/screenshots/layout.png) |
+| ![Qualifying: three drivers' best laps compared](docs/screenshots/qualifying.png) | ![Edit mode with the block picker open](docs/screenshots/layout.png) |
 
-## Faster downloads with your own credentials
+## Your own OpenF1 account (optional)
 
-On OpenF1's free tier a race plays about 5 seconds after you pick it, and the rest of it is downloaded within about a minute. Qualifying takes about 20 seconds to open. Connect an OpenF1 account and downloads get faster, and they also work during live sessions, when the free tier is blocked.
+Replays need no account. On OpenF1's free tier, a race is fully downloaded in about a minute, and qualifying opens in about 20 seconds. An account makes downloads faster. They also keep working during live sessions, when OpenF1 blocks the free tier. It doesn't add live mode to the hosted site yet.
 
-**TL;DR: getting credentials**
-
-1. Sponsor OpenF1 at [openf1.org](https://openf1.org) (€9.90/month).
-2. You get an OpenF1 account: an email and a password.
-3. In Pitwall, open **Settings** (top right of the home page) and click **Connect** under "OpenF1 account".
-4. Sign in in the popup. Stay connected on this device, or lock it behind a passkey.
+1. Sponsor OpenF1 at [openf1.org](https://openf1.org) (€9.90/month). You get an OpenF1 login: an email and a password.
+2. In Pitwall, open **Settings** (top right of the home page). Click **Connect** under "OpenF1 account".
+3. Sign in in the popup. Stay connected on this device, or lock it behind a passkey.
 
 Pitwall's code never sees your password. A small vault on a separate site (`pitwall-auth.garvit.in`) holds it and talks to OpenF1. Pitwall only gets the data. Details: [vault/README.md](vault/README.md).
 
@@ -51,20 +46,65 @@ bun run dev      # http://localhost:5173
 bun run build    # static site in dist/
 ```
 
-CLI ingest, live mode, the simulator and how it all works: [docs/development.md](docs/development.md).
+For live, put your OpenF1 login in `.env` and run a small relay next to the dev server. It's for your own use. Don't host it for others.
+
+```sh
+cp .env.example .env   # then fill in OPENF1_USERNAME and OPENF1_PASSWORD
+bun run live
+```
+
+CLI ingest, the live simulator and how it all works: [docs/development.md](docs/development.md).
 
 ## Write a block
 
-Have an idea for another way to read a race? Write it as a block and open a PR.
+A block is a folder in [`src/blocks/`](src/blocks). Its `index.tsx` default-exports `defineBlock({ ... })`. It reads the race through block-kit's hooks. The hooks return data only up to the replay's current time, so a block can't spoil a race by accident. The one opt-out is `useWholeSession()`.
 
-A block is a React component plus a `defineBlock()` call with its name, size and settings. It reads the race through block-kit's hooks: timing, positions, telemetry, laps, stints, pit stops, the race feed and more. The hooks return only what has happened so far in the replay, so a block can't spoil a race by accident.
+A whole block:
 
-1. Make a folder in [`src/blocks/`](src/blocks) with an `index.tsx` that exports `defineBlock({ ... })`. [`weather`](src/blocks/weather/index.tsx) is a whole block in about 40 lines.
-2. Pick your hooks. They're all listed in [`src/blockkit/index.ts`](src/blockkit/index.ts).
-3. Add the block to [`src/grid/builtins.ts`](src/grid/builtins.ts). It shows up in the block picker: **Edit layout**, then **+ Add block**.
-4. Run `bun run lint` and `bun test src/blocks`. A block may import only React, `block-kit` and its own files.
+```tsx
+// src/blocks/fastest-lap/index.tsx
+import { defineBlock, lapTime, Stat, useFastestLap } from "block-kit";
 
-For bigger examples, see the analysis blocks: `gap-chart`, `stint-pace`, `battles` and `pit-strategy`. Each keeps its logic in a separate file, with tests next to it.
+function FastestLap() {
+  const lap = useFastestLap(); // the fastest lap so far, never one still to come
+  return (
+    <Stat label="Fastest lap" className="h-full justify-center px-3">
+      <span className="text-sm tabular-nums">{lap ? `${lapTime(lap.duration)} by #${lap.driver}` : "None yet"}</span>
+    </Stat>
+  );
+}
+
+export default defineBlock({
+  id: "fastest-lap", // kebab-case, the same as the folder
+  name: "Fastest lap",
+  description: "The fastest lap so far, and who set it.", // shown in the block picker
+  version: "1.0.0",
+  height: 48, // px
+  width: { min: 8, default: 10, max: 25 }, // percent of the grid's width
+  sessions: ["race"], // races and sprints
+  settings: {},
+  Component: FastestLap,
+});
+```
+
+1. Make a folder in `src/blocks/` with an `index.tsx` like the one above.
+2. Pick your hooks. They're all listed in [`src/blockkit/index.ts`](src/blockkit/index.ts). Import them from `"block-kit"`.
+3. Register the block in [`src/grid/builtins.ts`](src/grid/builtins.ts): import it and add it to the `ALL` list. It then shows up under **Edit layout** → **+ Add block**.
+4. Run `bun run lint` and `bun test src/blocks`. The lint checks that a block imports only React, `block-kit` and files in its own folder.
+5. Open a PR.
+
+[`weather`](src/blocks/weather/index.tsx) is the smallest real block. `gap-chart`, `stint-pace`, `battles` and `pit-strategy` are bigger. Each keeps its logic in a separate file, with tests next to it.
+
+To match the app's look, use block-kit's UI pieces: `Label`, `Stat`, `Icon`, `DriverTag` and `TyreBadge`. See [DESIGN.md](DESIGN.md).
+
+### What a block can read
+
+- **Timing:** `useRunningOrder`, `usePositions`, `useDriver` (position, gaps, tyres, lap, status), `useFastestLap`, `useBestSectors`.
+- **Laps and strategy:** `useLaps` (sector times, mini-sectors, speed traps), `useStints`, `usePitStops` (pit lane and stationary time). `useAllLaps`, `useAllStints` and `useAllPitStops` cover the whole field.
+- **Telemetry:** `useCar` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory` (recent samples), `useFrame` (car positions every animation frame, for canvas drawing).
+- **The race:** `useTrackStatus`, `useNeutralPeriods` (SC, VSC and red flag periods), `useSectorFlags`, `useWeather`, `useFeed` (race control, overtakes, pit stops, team radio).
+- **Session:** `useDrivers` (names, teams, colours), `useTrack` (outline, pit lane, corners, sectors), `useSessionInfo`.
+- **Playback and the block:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useBlockSize`.
 
 ## Request a block
 
@@ -80,7 +120,7 @@ Pitwall is an unofficial fan project. It is not associated with the Formula 1 co
 
 ## Analytics
 
-The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home, a session, live), plus country, browser and referrer. No cookies. Builds you run yourself have none.
+The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. No cookies. Builds you run yourself have none.
 
 ## License
 
