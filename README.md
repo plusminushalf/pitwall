@@ -7,17 +7,20 @@
 
 Replay any F1 race, sprint or qualifying session since 2023. Built on [OpenF1](https://openf1.org) data. Runs entirely in your browser.
 
+Or follow one live. Pitwall is a polished timing screen made of blocks you arrange. Each block reads the race its own way: timing, the track map, telemetry, gaps, stint pace, battles, pit stops and more. Anyone can [write a new one](#write-a-block).
+
 **Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**
 
-![A race replay: timing tower, track map, driver telemetry and the race feed](docs/screenshots/race.png)
+![A race replay: timing tower, track map, race feed, gaps to the leader, stint pace, battles and pit stops](docs/screenshots/race.png)
 
 ## What it does
 
 - **Plays in seconds.** Pick a race and it starts about 5 seconds later. It downloads into your browser while you watch, so next time it opens instantly, even offline.
 - **Tracking.** Every car on the track map, about 4 times a second. Timing, gaps, tyres, pit stops, race control, weather and team radio. All on one timeline. Pause, scrub, or play at up to 64×.
+- **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether the undercut worked. Click a lap, a battle or a stop to watch it.
 - **No spoilers.** Watching a race you missed? The timeline shows only what you've watched: safety cars, retirements, penalties and the finish stay hidden until you get there. Pitwall asks when you open a race, or remembers your answer (Settings, on the home page).
 - **Qualifying.** Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
-- **Modules.** The screen is a grid of blocks. Move, resize, add or remove them. Your layout is saved.
+- **Blocks.** The screen is a grid of blocks. Move, resize, add or remove them. Your layout is saved.
 - **Live.** Follow a race as it happens. Needs an OpenF1 account. Local only for now, not yet on the hosted site.
 - **Bring your own credentials.** Connect your own OpenF1 account. Downloads get faster.
 
@@ -40,10 +43,6 @@ Pitwall's code never sees your password. A small vault on a separate site (`pitw
 
 The sponsor tier is a personal subscription. Use your own account. Don't share it.
 
-## Request a module
-
-Want a new module? Missing some data? [Open an issue](https://github.com/plusminushalf/pitwall/issues/new?labels=enhancement). Say what you want to see and why.
-
 ## Run it locally
 
 ```sh
@@ -53,6 +52,23 @@ bun run build    # static site in dist/
 ```
 
 CLI ingest, live mode, the simulator and how it all works: [docs/development.md](docs/development.md).
+
+## Write a block
+
+Have an idea for another way to read a race? Write it as a block and open a PR.
+
+A block is a React component plus a `defineBlock()` call with its name, size and settings. It reads the race through block-kit's hooks: timing, positions, telemetry, laps, stints, pit stops, the race feed and more. The hooks return only what has happened so far in the replay, so a block can't spoil a race by accident.
+
+1. Make a folder in [`src/blocks/`](src/blocks) with an `index.tsx` that exports `defineBlock({ ... })`. [`weather`](src/blocks/weather/index.tsx) is a whole block in about 40 lines.
+2. Pick your hooks. They're all listed in [`src/blockkit/index.ts`](src/blockkit/index.ts).
+3. Add the block to [`src/grid/builtins.ts`](src/grid/builtins.ts). It shows up in the block picker: **Edit layout**, then **+ Add block**.
+4. Run `bun run lint` and `bun test src/blocks`. A block may import only React, `block-kit` and its own files.
+
+For bigger examples, see the analysis blocks: `gap-chart`, `stint-pace`, `battles` and `pit-strategy`. Each keeps its logic in a separate file, with tests next to it.
+
+## Request a block
+
+Not up for writing one? Missing some data? [Open an issue](https://github.com/plusminushalf/pitwall/issues/new?labels=enhancement). Say what you want to see and why.
 
 ## Not a distribution of OpenF1 data
 
