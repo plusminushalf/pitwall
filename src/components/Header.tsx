@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Icon } from "../blockkit/ui/Icon";
+import { Label, Stat } from "../blockkit/ui/Label";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
 import { useLayout } from "../grid/store";
@@ -22,10 +23,6 @@ const SHORTCUTS: [string, string][] = [
 const sessionLabel = (s: { year: number; meetingName: string; sessionName: string }) =>
   `${s.year} ${s.meetingName} · ${s.sessionName}`;
 
-function Label({ children }: { children: ReactNode }) {
-  return <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{children}</span>;
-}
-
 export function SessionPicker({ meta }: { meta: SessionMeta }) {
   const index = useReplay((s) => s.index);
   const loadingKey = useReplay((s) => s.loading?.key);
@@ -42,7 +39,7 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
           e.currentTarget.blur();
           loadSession(Number(e.target.value));
         }}
-        className="max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent py-0.5 pr-1 text-sm font-semibold text-zinc-100 outline-none hover:bg-zinc-900 focus-visible:ring-1 focus-visible:ring-zinc-600"
+        className="max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent py-0.5 pr-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
         title="Choose a session"
       >
         {!inIndex && (
@@ -56,7 +53,7 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
           </option>
         ))}
       </select>
-      <span className="truncate text-[11px] text-zinc-500">
+      <span className="truncate text-[11px] text-zinc-400">
         {meta.circuit}
         {meta.country ? ` · ${meta.country}` : ""}
       </span>
@@ -73,7 +70,7 @@ function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
   return (
     <span className="text-xl font-black tracking-tight tabular-nums">
       LAP {Math.max(1, race.leaderLap)}
-      <span className="text-zinc-500" title={distance.estimated ? "Estimated race distance" : undefined}>
+      <span className="text-zinc-400" title={distance.estimated ? "Estimated race distance" : undefined}>
         {" "}
         / {distance.estimated ? "~" : ""}
         {distance.totalLaps}
@@ -83,7 +80,7 @@ function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
 }
 
 function Weather({ w }: { w: WeatherSample | null }) {
-  if (!w) return <span className="text-xs text-zinc-600">No weather data</span>;
+  if (!w) return <span className="text-xs text-zinc-400">No weather data</span>;
   const items: [string, string, string?][] = [
     ["Air", `${w.airTemp.toFixed(1)}°`],
     ["Track", `${w.trackTemp.toFixed(1)}°`],
@@ -93,15 +90,15 @@ function Weather({ w }: { w: WeatherSample | null }) {
   return (
     <div className="flex items-center gap-3">
       {w.rainfall > 0 && (
-        <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-sky-300" title="Rainfall reported">
-          🌧 Rain
+        <span className="flex items-center gap-1 rounded bg-sky-500/20 px-1.5 py-0.5 text-[11px] font-semibold text-sky-300" title="Rainfall reported">
+          <Icon name="rain" size={12} />
+          Rain
         </span>
       )}
       {items.map(([label, value, title]) => (
-        <span key={label} className="flex flex-col items-end leading-tight" title={title}>
-          <Label>{label}</Label>
+        <Stat key={label} label={label} title={title} className="items-end leading-tight">
           <span className="text-xs tabular-nums text-zinc-200">{value}</span>
-        </span>
+        </Stat>
       ))}
     </div>
   );
@@ -116,8 +113,8 @@ function ShortcutsHelp() {
       >
         ?
       </button>
-      <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl group-focus-within:block group-hover:block">
-        <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Keyboard shortcuts</p>
+      <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-64 rounded-lg border border-zinc-800 bg-zinc-900 p-3 shadow-xl group-focus-within:block group-hover:block">
+        <Label as="div" className="mb-2">Keyboard shortcuts</Label>
         <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-xs">
           {SHORTCUTS.map(([key, action]) => (
             <div key={key} className="contents">
@@ -221,14 +218,12 @@ export function Header() {
       <div className="flex items-center gap-5">
         {race && <LapCounter race={race} meta={meta} />}
         <div className="flex items-center gap-4">
-          <span className="flex flex-col leading-tight">
-            <Label>Race</Label>
+          <Stat label="Race" className="leading-tight">
             <span className="text-sm tabular-nums text-zinc-100">{race ? raceClock(race.raceTime) : "—"}</span>
-          </span>
-          <span className="flex flex-col leading-tight" title={`Local time at the circuit (UTC${meta.gmtOffset.startsWith("-") ? "" : "+"}${meta.gmtOffset.slice(0, -3)})`}>
-            <Label>Local</Label>
+          </Stat>
+          <Stat label="Local" className="leading-tight" title={`Local time at the circuit (UTC${meta.gmtOffset.startsWith("-") ? "" : "+"}${meta.gmtOffset.slice(0, -3)})`}>
             <span className="text-sm tabular-nums text-zinc-300">{localTime(meta.t0, t, meta.gmtOffset)}</span>
-          </span>
+          </Stat>
         </div>
         {status && <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${status.className}`}>{status.label}</span>}
       </div>

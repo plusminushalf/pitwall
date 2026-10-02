@@ -7,7 +7,7 @@ function DrsPill({ code }: { code: number | null }) {
     ? "border-emerald-500 bg-emerald-500 text-zinc-950"
     : eligible
       ? "border-emerald-500 text-emerald-400"
-      : "border-zinc-700 text-zinc-600";
+      : "border-zinc-700 text-zinc-400";
   return (
     <span
       className={`flex h-5 items-center rounded border px-1.5 text-[10px] font-bold tracking-wider ${cls}`}
@@ -29,11 +29,12 @@ function SpeedGear() {
       <div className="flex h-[60px] flex-col justify-center">
         <div className="flex items-baseline gap-1">
           <span className="w-[3ch] text-right text-3xl font-bold leading-none tabular-nums">{tel ? tel.speed : "—"}</span>
-          <span className="text-[10px] font-semibold uppercase text-zinc-500">km/h</span>
+          {/* A unit, not a label: no tracking, so the column stays 3 wide at 1440 px. */}
+          <span className="text-[10px] font-semibold uppercase text-zinc-400">km/h</span>
         </div>
         <div className="mt-2 flex items-center gap-1.5">
           <span className="flex h-5 items-center gap-1 rounded bg-zinc-800 px-1.5">
-            <span className="text-[9px] font-semibold uppercase text-zinc-500">Gear</span>
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">Gear</span>
             <span className="w-[1ch] text-center text-xs font-bold tabular-nums">{tel ? (tel.gear === 0 ? "N" : tel.gear) : "–"}</span>
           </span>
           {/* No DRS channel from 2026 on. */}

@@ -2,7 +2,10 @@ import { memo, useMemo } from "react";
 import {
   defineBlock,
   gap,
+  Icon,
+  LABEL_CLASS,
   lapTime,
+  sectorTime,
   shortTeam,
   teamColor,
   TyreBadge,
@@ -25,14 +28,34 @@ type GapMode = "leader" | "interval";
 type Settings = { gapMode: GapMode };
 
 const ROW_H = 30;
-/** The selection line and the column titles (about 56 px). */
-const HEAD_H = 56;
-const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_58px_40px_20px]";
+/** The selection line (h-7 and its hairline) and the column titles (py-1.5, a line of 11 px label, the hairline). */
+const HEAD_H = 28 + 1 + 12 + (11 * 20) / 14 + 1;
+const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_58px_40px_20px]";
 /** With the last lap's sectors and the best lap, once the block is WIDE px or more. */
-const WIDE_COLS = "grid-cols-[22px_22px_minmax(0,1fr)_72px_46px_46px_46px_58px_58px_40px_20px]";
+const WIDE_COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_46px_46px_46px_58px_58px_40px_20px]";
 const WIDE = 590;
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
+/** What the columns other than the driver's take (fixed widths, gap-1 between, PAD), so the driver's gets the rest. */
+const FIXED_W = 22 + 22 + 60 + 58 + 40 + 20 + 6 * 4 + 20 + 8;
+const WIDE_FIXED_W = FIXED_W + 3 * 46 + 58 + 4 * 4;
+
+/**
+ * How wide the driver column must be to show every team's name whole after the stripe and acronym (gap-2
+ * apart), in the page's font: names are shown in full or not at all ("Merc…" says less than the stripe).
+ */
+function teamNamesWidth(drivers: readonly DriverInfo[]): number {
+  const ctx = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  if (!ctx) return Infinity;
+  const family = getComputedStyle(document.body).fontFamily;
+  const widest = (font: string, texts: string[]) => {
+    ctx.font = font;
+    return Math.max(0, ...texts.map((t) => ctx.measureText(t).width));
+  };
+  // The acronym is text-sm bold with tracking-wide (0.025em), the team text-xs.
+  const acronym = widest(`700 14px ${family}`, drivers.map((d) => d.acronym)) + 3 * 0.35;
+  return 4 + 8 + acronym + 8 + widest(`12px ${family}`, drivers.map((d) => shortTeam(d.team))) + 1;
+}
 
 /** What a row shows of its driver: it re-renders only when one of these changes. */
 interface RowData {
@@ -66,7 +89,7 @@ function GapCell({ s, mode }: { s: RowData; mode: GapMode }) {
   const started = useLeaderLap((l) => l > 0);
   if (s.status === "OUT") return <span className="font-semibold text-red-400">OUT</span>;
   if (s.status === "PIT") return <span className="rounded bg-zinc-200 px-1.5 text-[11px] font-bold text-zinc-900">PIT</span>;
-  const flag = s.status === "FINISHED" ? <span className="mr-1" title="Finished">🏁</span> : null;
+  const flag = s.status === "FINISHED" ? <Icon name="chequered" size={12} label="Finished" className="mr-1 inline-block align-[-2px]" /> : null;
   if (s.position === 1) return <span className="text-zinc-400">{flag}{started ? (mode === "leader" ? "Leader" : "Interval") : ""}</span>;
   return (
     <span className="tabular-nums">
@@ -101,7 +124,7 @@ function SectorCells({ n, s }: { n: number; s: RowData }) {
         const color = v === overall[k] ? "text-fuchsia-400" : v === own[k] ? "text-emerald-400" : "text-zinc-300";
         return (
           <span key={k} className={`text-xs tabular-nums ${color}`}>
-            {lapTime(v)}
+            {sectorTime(v)}
           </span>
         );
       })}
@@ -128,6 +151,7 @@ const Row = memo(function Row({
   index,
   mode,
   wide,
+  team,
   isSelected,
   isFocused,
   onToggle,
@@ -136,6 +160,8 @@ const Row = memo(function Row({
   index: number;
   mode: GapMode;
   wide: boolean;
+  /** Show the team's name after the acronym. */
+  team: boolean;
   isSelected: boolean;
   isFocused: boolean;
   onToggle: (n: number) => void;
@@ -148,18 +174,18 @@ const Row = memo(function Row({
       onClick={() => onToggle(d.number)}
       aria-pressed={isSelected}
       title={isSelected ? `Remove ${d.acronym} from the selection` : `Add ${d.acronym} to the selection (filters the track map)`}
-      className={`group absolute inset-x-0 grid ${wide ? WIDE_COLS : COLS} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out ${
+      className={`group absolute inset-x-0 grid ${wide ? WIDE_COLS : COLS} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
         isFocused ? "bg-zinc-800" : isSelected ? "bg-zinc-800/50 hover:bg-zinc-800/70" : "hover:bg-zinc-900"
       } ${s.status === "OUT" ? "opacity-50" : ""}`}
       style={{ height: ROW_H, transform: `translateY(${index * ROW_H}px)` }}
     >
       <span
         aria-hidden
-        className={`absolute left-1.5 top-1/2 flex h-3 w-3 -translate-y-1/2 items-center justify-center rounded-full text-[8px] font-black leading-none ${
+        className={`absolute left-1.5 top-1/2 flex h-3 w-3 -translate-y-1/2 items-center justify-center rounded-full ${
           isSelected ? "bg-zinc-100 text-zinc-900" : "border border-zinc-600 opacity-0 group-hover:opacity-100"
         } ${isSelected && isFocused ? "ring-2 ring-zinc-100/40" : ""}`}
       >
-        {isSelected ? "✓" : null}
+        {isSelected && <Icon name="check" size={9} className="[&_path]:[stroke-width:2.5]" />}
       </span>
       <span className="font-bold tabular-nums">{s.status === "OUT" ? "–" : s.position}</span>
       <span className="text-[10px]">
@@ -168,9 +194,11 @@ const Row = memo(function Row({
       <span className="flex min-w-0 items-center gap-2">
         <span className="h-4 w-1 shrink-0 rounded-sm" style={{ background: teamColor(d.teamColour) }} />
         <span className="font-bold tracking-wide">{d.acronym}</span>
-        <span className="truncate text-xs text-zinc-500" title={d.team}>
-          {shortTeam(d.team)}
-        </span>
+        {team && (
+          <span className="whitespace-nowrap text-xs text-zinc-400" title={d.team}>
+            {shortTeam(d.team)}
+          </span>
+        )}
       </span>
       <span className="text-xs">
         <GapCell s={s} mode={mode} />
@@ -192,7 +220,10 @@ function TimingTower() {
   const { selected, focused, toggle, clear } = useSelection();
   const [{ gapMode }, update] = useSettings<Settings>();
   const rowIndex = useMemo(() => new Map(order.map((n, i) => [n, i])), [order]);
-  const wide = useBlockSize().width >= WIDE;
+  const { width } = useBlockSize();
+  const wide = width >= WIDE;
+  const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers]);
+  const teams = width - (wide ? WIDE_FIXED_W : FIXED_W) >= teamRoom;
 
   return (
     <div className="flex h-full flex-col text-sm">
@@ -205,19 +236,20 @@ function TimingTower() {
             </button>
           </span>
         ) : (
-          <span className="text-zinc-600">Click drivers to show only them on the track map</span>
+          <span className="text-zinc-400">Click drivers to show only them on the track map</span>
         )}
       </div>
-      <div className={`grid shrink-0 ${wide ? WIDE_COLS : COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-500`}>
+      <div className={`grid shrink-0 ${wide ? WIDE_COLS : COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
         <span>Pos</span>
         <span />
         <span>Driver</span>
         <button
           onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
-          className="text-left uppercase hover:text-zinc-200"
-          title="Toggle gap to leader / interval"
+          className="flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100"
+          title={gapMode === "leader" ? "Gap to the leader: switch to the interval to the car ahead" : "Interval to the car ahead: switch to the gap to the leader"}
         >
-          {gapMode === "leader" ? "Gap ⇄" : "Int ⇄"}
+          {gapMode === "leader" ? "Gap" : "Int"}
+          <Icon name="swap" size={11} />
         </button>
         {wide && (
           <>
@@ -240,6 +272,7 @@ function TimingTower() {
               index={rowIndex.get(d.number) ?? 0}
               mode={gapMode}
               wide={wide}
+              team={teams}
               isSelected={selected.includes(d.number)}
               isFocused={focused === d.number}
               onToggle={toggle}

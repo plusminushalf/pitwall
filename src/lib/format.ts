@@ -10,6 +10,14 @@ export function lapTime(seconds: number | null | undefined): string {
   return m > 0 ? `${m}:${s.toFixed(3).padStart(6, "0")}` : s.toFixed(3);
 }
 
+/**
+ * A sector time, in seconds even past a minute: 60.43 -> "60.430". As long as a usual sector ("38.228"), so a
+ * slow one (under a safety car) fits the same column instead of running into the next.
+ */
+export function sectorTime(seconds: number | null | undefined): string {
+  return seconds == null ? "—" : seconds.toFixed(3);
+}
+
 /** Race clock: 3723000 -> "1:02:03", negative values -> "-4:12". */
 export function raceClock(ms: number): string {
   const sign = ms < 0 ? "-" : "";

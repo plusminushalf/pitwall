@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { defineBlock, useBlockSize, useCarHistory, useDriver, useFrame, useSelectedDriver, useTime, type CarHistory, type DriverSetting } from "block-kit";
+import { defineBlock, Label, useBlockSize, useCarHistory, useDriver, useFrame, useSelectedDriver, useTime, type CarHistory, type DriverSetting } from "block-kit";
 
 const WINDOW_MS = 60_000;
 const MAX_SPEED = 360; // km/h at the top of the chart
@@ -7,12 +7,13 @@ const GAP_MS = 2_000; // break the trace across telemetry dropouts
 const MAX_BRAKE_SPAN_MS = 1_000; // a single brake sample never paints more than this
 const BRAKE_H = 3;
 const FONT = "9px ui-sans-serif, system-ui, sans-serif";
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+/** Throttle as drawn (the legend's swatch too). */
+const THROTTLE_FILL = "rgba(34, 197, 94, 0.22)";
 /** The chart's height, and the padding beside it (px-3). */
 const CHART_H = 68;
 const PAD_X = 24;
-/** A line of 10 px text in a text-sm block (line height 20/14). */
-const LINE_10 = (10 * 20) / 14;
+/** A line of 11 px text (the label) in a text-sm block (line height 20/14). */
+const LINE_11 = (11 * 20) / 14;
 
 function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, h: number, dpr: number) {
   const pw = Math.round(w * dpr);
@@ -37,7 +38,8 @@ function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, 
   // Speed grid + labels, and a half-window divider.
   ctx.lineWidth = 1;
   ctx.strokeStyle = "#27272a";
-  ctx.fillStyle = "#52525b";
+  // zinc-400: text to read, not a hairline.
+  ctx.fillStyle = "#9f9fa9";
   ctx.font = FONT;
   ctx.textBaseline = "bottom";
   for (const v of [100, 200, 300]) {
@@ -83,7 +85,7 @@ function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, 
   ctx.clip();
 
   // Throttle: translucent area.
-  ctx.fillStyle = "rgba(34, 197, 94, 0.22)";
+  ctx.fillStyle = THROTTLE_FILL;
   for (const [a, b] of runs) {
     if (b <= a) continue;
     ctx.beginPath();
@@ -125,10 +127,10 @@ function draw(canvas: HTMLCanvasElement, car: CarHistory, t: number, w: number, 
   ctx.restore();
 }
 
-function Legend({ swatch, label }: { swatch: string; label: string }) {
+function Legend({ swatch, color, label }: { swatch: string; color?: string; label: string }) {
   return (
     <span className="flex items-center gap-1">
-      <span className={`inline-block rounded-[1px] ${swatch}`} />
+      <span className={`inline-block rounded-[1px] ${swatch}`} style={color ? { background: color } : undefined} />
       {label}
     </span>
   );
@@ -158,10 +160,11 @@ function SpeedTrace() {
   return (
     <div className={`h-full px-3 pb-2 pt-2.5 text-sm ${out ? "opacity-40" : ""}`}>
       <div className="mb-1 flex items-center justify-between">
-        <span className={LABEL}>Last 60 s</span>
-        <span className="flex items-center gap-2.5 text-[10px] text-zinc-500">
+        <Label>Last 60 s</Label>
+        <span className="flex items-center gap-2.5 text-[11px] text-zinc-400">
           <Legend swatch="h-0.5 w-3 bg-zinc-100" label="Speed" />
-          <Legend swatch="h-2 w-2 bg-green-500/40" label="Throttle" />
+          {/* The area's own colour, as drawn under the line. */}
+          <Legend swatch="h-2.5 w-2.5" color={THROTTLE_FILL} label="Throttle" />
           <Legend swatch="h-1 w-2.5 bg-red-500" label="Brake" />
         </span>
       </div>
@@ -184,7 +187,7 @@ export default defineBlock({
   description: "The last 60 seconds of the driver's speed, throttle and braking.",
   version: "1.0.0",
   // The title line and the chart, padded: pt-2.5, mb-1 and pb-2.
-  height: 10 + LINE_10 + 4 + CHART_H + 8,
+  height: 10 + LINE_11 + 4 + CHART_H + 8,
   width: { min: 12, default: 21, max: 60 },
   sessions: ["race"],
   settings: { driver: "follow-selection" as DriverSetting },

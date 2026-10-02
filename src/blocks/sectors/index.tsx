@@ -1,9 +1,8 @@
-import { defineBlock, lapTime, useBestSectors, useDriver, useLaps, useSelectedDriver, type DriverSetting, type Lap } from "block-kit";
+import { defineBlock, Label, sectorTime, useBestSectors, useDriver, useLaps, useSelectedDriver, type DriverSetting, type Lap } from "block-kit";
 
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 const EPS = 1e-6;
-/** A sector's time (a 10 px label and a 12 px time on one baseline: 16.28 px, measured) and its mini-sector bar. */
-const CELL_H = 16.28 + 4 + 4;
+/** A sector's line (the label and the time, both 16 px lines) and its mini-sector bar 4 px under it. */
+const CELL_H = 16 + 4 + 4;
 
 // Mini-sector status codes: 2048 yellow, 2049 green, 2051 purple, 2064 pit lane.
 const SEGMENT_COLOR: Record<number, string> = {
@@ -34,9 +33,9 @@ function SectorCell({ index, lap, personal, overall }: { index: number; lap: Lap
   const segments = lap?.segments[index] ?? [];
   return (
     <div className="min-w-0">
-      <div className="flex items-baseline justify-between gap-1">
-        <span className={LABEL}>S{index + 1}</span>
-        <span className={`text-xs font-semibold tabular-nums ${color}`}>{lapTime(v)}</span>
+      <div className="flex items-center justify-between gap-1 leading-4">
+        <Label>S{index + 1}</Label>
+        <span className={`text-xs font-semibold tabular-nums ${color}`}>{sectorTime(v)}</span>
       </div>
       <div className="mt-1 flex h-1 gap-px">
         {segments.length > 0 ? (

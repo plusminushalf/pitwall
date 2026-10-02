@@ -1,6 +1,7 @@
 import { useState } from "react";
 import {
   defineBlock,
+  Icon,
   teamColor,
   textOn,
   useDriver,
@@ -20,8 +21,8 @@ const line = (fontSize: number) => (fontSize * 20) / 14;
 const CHIPS_H = 12 + 20 + 1;
 /** py-2 around the headshot's 48 px, or the name (text-lg, tight), full name (text-xs) and team if taller. */
 const HEAD_H = 16 + Math.max(48, 18 * 1.25 + 16 + line(11));
-/** The hint under the header with one driver selected: mt-1 and two lines of 10 px text. */
-const HINT_H = 4 + 2 * line(10);
+/** The hint under the header with one driver selected: mt-1 and two lines of 11 px text. */
+const HINT_H = 4 + 2 * line(11);
 /** Pinned to a driver in this race: the block ignores the selection, so it has no chips, hint or clear. */
 const pinnedIn = (setting: DriverSetting, drivers: readonly DriverInfo[]) => typeof setting === "number" && drivers.some((d) => d.number === setting);
 
@@ -58,9 +59,9 @@ function Position({ s }: { s: Pick<DriverState, "status" | "position" | "gridPos
           ) : delta < 0 ? (
             <span className="text-red-400">▼{-delta}</span>
           ) : (
-            <span className="text-zinc-500">–</span>
+            <span className="text-zinc-600">–</span>
           )}
-          <span className="text-zinc-500"> grid P{s.gridPosition}</span>
+          <span className="text-zinc-400"> grid P{s.gridPosition}</span>
         </div>
       )}
     </div>
@@ -113,32 +114,33 @@ function DriverHeader() {
   return (
     <section className="flex h-full flex-col text-sm">
       {chips && <FocusChips drivers={drivers} selected={selected} focused={focused} onFocus={focus} />}
-      {/* Flat: the screen before blocks faded this from the team colour (no gradients now). */}
-      <div className="min-h-0 flex-1 border-l-[3px] px-3 py-2" style={{ borderLeftColor: color, background: `linear-gradient(90deg, ${color}2e, transparent 70%)` }}>
+      {/* Flat, like every panel: the team colour is data, the stripe the tower gives each driver. */}
+      <div className="min-h-0 flex-1 px-3 py-2">
         <div className="flex items-center gap-3">
           <Headshot key={info.number} url={info.headshotUrl} color={color} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
+              <span className="h-4 w-1 shrink-0 rounded-sm" style={{ background: color }} />
               <span className="text-lg font-bold leading-tight tracking-wide">{info.acronym}</span>
-              <span className="text-xs tabular-nums text-zinc-500">#{info.number}</span>
-              {s.status !== "RUNNING" && <span className={`rounded px-1.5 text-[10px] font-bold leading-4 ${STATUS_PILL[s.status]}`}>{s.status}</span>}
+              <span className="text-xs tabular-nums text-zinc-400">#{info.number}</span>
+              {s.status !== "RUNNING" && <span className={`rounded px-1.5 text-[11px] font-bold leading-4 ${STATUS_PILL[s.status]}`}>{s.status}</span>}
             </div>
             <div className="truncate text-xs text-zinc-300">{info.fullName}</div>
-            <div className="truncate text-[11px] text-zinc-500">{info.team}</div>
+            <div className="truncate text-[11px] text-zinc-400">{info.team}</div>
           </div>
           <Position s={s} />
           {canClear && (
             <button
               onClick={clear}
-              className="-mr-1 self-start rounded px-1 text-base leading-none text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+              className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
               title="Clear selection (show everyone on the map and the leader here)"
               aria-label="Clear driver selection"
             >
-              ×
+              <Icon name="close" size={12} />
             </button>
           )}
         </div>
-        {hint && <p className="mt-1 line-clamp-2 text-[10px] text-zinc-500">Showing the selected driver · pick the chip to highlight on the map</p>}
+        {hint && <p className="mt-1 line-clamp-2 text-[11px] text-zinc-400">Showing the selected driver · pick the chip to highlight on the map</p>}
       </div>
     </section>
   );

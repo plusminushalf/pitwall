@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   COMPOUND,
   defineBlock,
+  LABEL_CLASS,
   lapTime,
   teamColor,
   TyreBadge,
@@ -30,7 +31,6 @@ type Settings = { driver: DriverSetting; x: XAxis; colour: Colour };
 
 /** Drivers drawn at once: past this the points stop reading as separate stints. */
 const MAX_DRIVERS = 4;
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-400";
 const FONT = "10px ui-sans-serif, system-ui, sans-serif";
 const SURFACE = "#09090b";
 const GRID = "#27272a";
@@ -400,7 +400,7 @@ function StintPace() {
   return (
     <div className="relative h-full px-3 pb-2 text-sm">
       <div className="flex items-center justify-between gap-3 overflow-hidden" style={{ height: HEAD_H }}>
-        <span className={`${LABEL} shrink-0`}>
+        <span className={`${LABEL_CLASS} shrink-0`}>
           Stint pace <span className="font-normal normal-case tracking-normal text-zinc-400">· {axis === "lap" ? "by lap" : "by tyre age"}</span>
         </span>
         <span className="flex min-w-0 items-center gap-3 text-[11px] text-zinc-400">

@@ -4,9 +4,11 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { Icon } from "../blockkit/ui/Icon";
 import { ROW, type Box } from "./layout";
 
-const SMALL_LABEL = "text-[10px] font-semibold uppercase tracking-wider";
+/** The label type (DESIGN.md) without its colour: these labels sit on fills of their own. */
+const SMALL_LABEL = "text-[11px] font-semibold uppercase tracking-wider";
 
 /** The column edges, over the blocks (most fill their box) but under the dragged one and the popovers. */
 export function ColumnGuides({ columns, width, strong }: { columns: number; width: number; strong: boolean }) {
@@ -52,23 +54,6 @@ function IconButton({ label, onClick, children, ...rest }: { label: string; onCl
     </button>
   );
 }
-
-const GearIcon = () => (
-  <svg viewBox="0 0 16 16" className="h-3 w-3" fill="none" stroke="currentColor" aria-hidden>
-    <circle cx="8" cy="8" r="2" strokeWidth="1.5" />
-    <circle cx="8" cy="8" r="4.6" strokeWidth="1.5" />
-    {Array.from({ length: 8 }, (_, i) => {
-      const a = (i * Math.PI) / 4;
-      return <line key={i} x1={8 + Math.cos(a) * 4.6} y1={8 + Math.sin(a) * 4.6} x2={8 + Math.cos(a) * 6.6} y2={8 + Math.sin(a) * 6.6} strokeWidth="2.2" />;
-    })}
-  </svg>
-);
-
-const CloseIcon = () => (
-  <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
-    <path d="M4 4l8 8M12 4l-8 8" />
-  </svg>
-);
 
 /** "refused": dragged somewhere it doesn't fit; "blocked": a resize step that's refused. */
 export type ChromeState = "idle" | "dragging" | "refused" | "resizing" | "blocked";
@@ -137,11 +122,11 @@ export function BlockChrome({
         <span className="ml-auto flex shrink-0 gap-1">
           {hasSettings && (
             <IconButton label={`${name} settings`} onClick={onSettings} data-settings-toggle="">
-              <GearIcon />
+              <Icon name="gear" size={12} />
             </IconButton>
           )}
           <IconButton label={`Remove ${name}`} onClick={onRemove}>
-            <CloseIcon />
+            <Icon name="close" size={10} className="[&_path]:[stroke-width:2]" />
           </IconButton>
         </span>
       </div>
@@ -194,7 +179,7 @@ export function EmptySlot({ box, onAdd }: { box: Box; onAdd: () => void }) {
         e.currentTarget.blur();
         onAdd();
       }}
-      className={`absolute flex items-center justify-center rounded-md border border-dashed border-zinc-800 text-zinc-600 hover:border-zinc-600 hover:bg-zinc-900/60 hover:text-zinc-300 ${SMALL_LABEL}`}
+      className={`absolute flex items-center justify-center rounded-md border border-dashed border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:bg-zinc-900/60 hover:text-zinc-100 ${SMALL_LABEL}`}
       style={{ left: box.left + 3, top: box.top + 3, width: box.width - 6, height: box.height - 6 }}
     >
       {box.height >= 30 && box.width >= 70 && "+ Add block"}
@@ -283,7 +268,7 @@ export function Popover({
         className="pointer-events-auto flex max-h-full flex-none flex-col rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl"
         style={{ width, marginLeft: `clamp(0px, ${x - 8}px, calc(100% - ${width}px))` }}
       >
-        <p className={`mb-2 shrink-0 text-zinc-500 ${SMALL_LABEL}`}>{title}</p>
+        <p className={`mb-2 shrink-0 text-zinc-400 ${SMALL_LABEL}`}>{title}</p>
         <div className="-mx-1 min-h-0 overflow-y-auto px-1">{children}</div>
       </div>
     </div>,

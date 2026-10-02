@@ -139,7 +139,7 @@ export function LiveControl() {
           e.currentTarget.blur();
           exitLive();
         }}
-        className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+        className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
         title="Leave live mode and go back to replays"
       >
         Replays
@@ -162,7 +162,7 @@ export function LiveScreen() {
         </span>
         {status && <StatusLine status={status} className="text-sm" />}
         {live.offline && !live.connected && (
-          <p className="text-xs text-zinc-500">
+          <p className="text-xs text-zinc-400">
             Or try a simulated race: <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">bun run live:sim</code>. Retrying automatically.
           </p>
         )}

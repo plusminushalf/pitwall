@@ -189,7 +189,7 @@ components:
 
 Pitwall looks like the timing screens on a real pit wall: a near-black page, panels split by thin hairlines, and dense rows of tabular figures. Nothing is decorative. The replay screen set this look first, a grid of blocks between a 52px top bar and a timeline. The home screen deliberately uses the same look: its sessions are laid out as timing rows, its column headers match the timing tower's, and its one white button plays the same role as the replay screen's white play button. There is one system across both screens. Home is the front page of the same instrument.
 
-The page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and as driver tags in the feed. The interface never borrows them for chrome.
+The page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and the driver panel, and as driver tags in the feed. The interface never borrows them for chrome.
 
 Motion only shows state. Rows highlight, download fills grow, and tower rows slide when positions change. Nothing animates for its own sake.
 
@@ -250,6 +250,7 @@ The palette is greyscale (Tailwind v4's zinc, which leans slightly violet and is
 - **Body** (400, 14px, tabular): row cells, header values (countdown, stored count), empty-state copy. Prose is capped at 75ch.
 - **Body Small** (400–600, 12px, tabular): season/round, dates, status, size, buttons, helper and banner text.
 - **Label** (600, 11px, 0.05em tracking, uppercase, secondary-text): column headers, header stat labels ("NEXT · R16 BAHRAIN GP", "STORED"), badges, settings group names.
+- **Mark** (10px and under): what sits inside a cell and isn't read on its own: position-change arrows, units (km/h), the DRS and gear chips, tyre letters, the timeline's lap ticks and event markers. Never for a label, a badge or a sentence.
 
 ### Named Rules
 **The Tabular Rule.** Every number that can change or sits in a column (times, sizes, rounds, percentages, countdowns) uses tabular figures.
@@ -278,7 +279,7 @@ The system is flat. Depth comes from tone (pit-black, then raised-panel, then ha
 
 ## Shapes
 
-Radius belongs to controls, never to content regions. Buttons, cells, the jump field, segmented tracks and icon buttons use gently rounded 6px corners (md). Badges, kbd keys and segment options use 4px (base). Inline text links get a 2px corner (sm) so their focus outline isn't square. Floating popovers use 8px (lg). Progress tracks, the live dot, toggles and the play button are fully round. Lists, panels, the header and the grid are square-edged and bounded only by hairlines. Icons are 16-unit SVG paths with a 1.5 stroke; the play triangle is solid.
+Radius belongs to controls, never to content regions. Buttons, cells, the jump field, segmented tracks and icon buttons use gently rounded 6px corners (md). Badges, kbd keys and segment options use 4px (base). Inline text links get a 2px corner (sm) so their focus outline isn't square. Floating popovers use 8px (lg). Progress tracks, the live dot, toggles and the play button are fully round. Lists, panels, the header and the grid are square-edged and bounded only by hairlines. Icons are 16-unit SVG paths with a 1.5 stroke; the play triangle is solid. The replay screen and blocks draw them with block-kit's `Icon` (`src/blockkit/ui/Icon.tsx`), whose play and check match home's.
 
 ## Components
 
@@ -289,11 +290,14 @@ Small grey buttons that read as tools, with one white exception per screen.
 - **Secondary:** hairline fill with primary-ink text; hover control-hover with white text. Used for Cancel, Keep, Try again, Settings, Edit layout.
 - **Danger:** live-red fill with white text; hover danger-hover-red. Only appears inside an inline delete confirmation ("Delete 17 MB? Delete / Keep").
 - **Icon:** a 28px square, secondary-text glyph, raised on hover to hairline fill and primary-ink. The trash button stays hidden until the row is hovered or focused.
-- **Focus:** a 2px zinc-300 outline offset by 2px on every interactive element. Colour transitions are 150ms. Disabled buttons drop to 50% opacity.
+- **Focus:** a 2px zinc-300 outline offset by 2px on every interactive element (`src/index.css` gives it to every control; rows that fill a scrolling list inset it 2px so it isn't clipped). Colour transitions are 150ms. Disabled buttons drop to 50% opacity.
 
 ### Chips
 - **Badges:** 11px uppercase label type on a 4px-radius fill. LIVE is live-red with white text. NEXT is a neutral hairline badge. The replay header's flag status (GREEN FLAG and others) is the same filled badge in the flag's colour.
-- **Segmented control:** a raised-panel track (2px padding, 6px radius) holding 12px semibold options. The selected option is control-hover with headline-white text; the others are tertiary-ink. Used for home's year toggle and race filter.
+- **Segmented control:** a raised-panel track (2px padding, 6px radius) holding 12px semibold options. The selected option is control-hover with headline-white text; the others are tertiary-ink. Used for home's year toggle and race filter, and the replay's playback speed (the play button stays the one white button).
+
+### Block kit
+Blocks get the system from block-kit (`src/blockkit/ui/`), not their own copies: `Label` and `LABEL_CLASS` (the label type), `Stat` (a label over its value), `Icon`, `DriverTag` (a driver's acronym badge on the team colour) and `TyreBadge`. Third-party blocks use the same pieces, so they look like they belong.
 
 ### Cards / Containers
 None. The system has no cards. Lists sit inside a hairline frame: a column-header row with a hairline under it, then rows divided by hairline at 70% opacity. Empty and error states are a single bordered strip (hairline above and below, 12px × 16px padding).

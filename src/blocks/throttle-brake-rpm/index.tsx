@@ -1,13 +1,13 @@
-import { defineBlock, useCar, useDriver, useSelectedDriver, type DriverSetting } from "block-kit";
+import { defineBlock, Label, useCar, useDriver, useSelectedDriver, type DriverSetting } from "block-kit";
 
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 const RPM_MAX = 13_000;
 const RPM_HIGH = 11_800;
 
+/** One row of the bars' grid: its label, the bar and the value. */
 function Bar({ label, pct, color, value, valueClass = "text-zinc-300" }: { label: string; pct: number; color: string; value: string; valueClass?: string }) {
   return (
-    <div className="grid grid-cols-[58px_minmax(0,1fr)_40px] items-center gap-2">
-      <span className={LABEL}>{label}</span>
+    <>
+      <Label>{label}</Label>
       <div className="h-1.5 overflow-hidden rounded-full bg-zinc-800">
         <div
           className="h-full rounded-full transition-[width] duration-100 ease-linear"
@@ -15,7 +15,7 @@ function Bar({ label, pct, color, value, valueClass = "text-zinc-300" }: { label
         />
       </div>
       <span className={`text-right text-xs tabular-nums ${valueClass}`}>{value}</span>
-    </div>
+    </>
   );
 }
 
@@ -30,7 +30,8 @@ function ThrottleBrakeRpm() {
   return (
     // No left padding: made to sit right of speed & gear, whose right side has the gap.
     <div className={`h-full pr-3 pt-2.5 text-sm ${out ? "opacity-40" : ""}`}>
-      <div className="flex h-[60px] flex-col justify-center gap-1.5">
+      {/* One grid for the three bars: the label column is as wide as the widest label in this font, and the bars line up. */}
+      <div className="grid h-[60px] grid-cols-[max-content_minmax(0,1fr)_40px] content-center items-center gap-x-2 gap-y-1.5">
         <Bar
           label="RPM"
           pct={(rpm / RPM_MAX) * 100}
@@ -43,7 +44,7 @@ function ThrottleBrakeRpm() {
           pct={braking ? 100 : 0}
           color="#ef4444"
           value={tel ? (braking ? "ON" : "OFF") : "—"}
-          valueClass={braking ? "font-semibold text-red-400" : "text-zinc-600"}
+          valueClass={braking ? "font-semibold text-red-400" : "text-zinc-400"}
         />
       </div>
     </div>

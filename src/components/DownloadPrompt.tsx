@@ -41,11 +41,10 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
               : null;
     body = (
       <>
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Shared race</p>
-        <h1 className="mt-1 text-lg font-black tracking-tight text-zinc-100">
+        <h1 className="text-lg font-black tracking-tight text-zinc-100">
           {row.year} {row.meetingName} · {row.sessionName}
         </h1>
-        <p className="text-xs text-zinc-500">
+        <p className="text-xs text-zinc-400">
           {row.circuit}
           {row.country ? ` · ${row.country}` : ""} · {when(row.dateStart)}
           {t != null ? ` · link at ${raceClock(t)} into the session` : ""}

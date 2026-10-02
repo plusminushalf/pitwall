@@ -1,3 +1,4 @@
+import { Icon } from "../../blockkit/ui/Icon";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";
 import { MAX_COMPARE, useQuali } from "../../qualiStore";
@@ -78,11 +79,11 @@ export function CompareBar({ meta, entries }: { meta: SessionMeta; entries: Comp
           {!e.loading && e.lapNo != null && !e.trace && <span className="text-[10px] text-amber-400">no telemetry</span>}
           <button
             onClick={() => useReplay.getState().toggleSelected(e.driver)}
-            className="rounded px-1 text-base leading-none text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"
+            className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
             aria-label={`Remove ${e.info.acronym}`}
             title="Remove from the comparison"
           >
-            ×
+            <Icon name="close" size={12} />
           </button>
         </div>
       ))}

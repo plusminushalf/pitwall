@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Icon } from "../blockkit/ui/Icon";
 import { stepAt } from "../engine/lookup";
 import { spoilerFreeEnd } from "../engine/noSpoilers";
 import { scheduledDistance } from "../engine/raceDistance";
@@ -57,7 +58,11 @@ function MarkerGlyph({ kind, color }: { kind: TimelineEventKind; color?: string 
   const pill = "rounded-sm px-1 text-[9px] font-bold leading-[13px]";
   switch (kind) {
     case "red":
-      return <span className={`${pill} bg-red-600 text-white`}>⚑</span>;
+      return (
+        <span className={`${pill} flex h-[13px] items-center bg-red-600 text-white`}>
+          <Icon name="flag" size={9} />
+        </span>
+      );
     case "sc":
       return <span className={`${pill} bg-amber-400 text-black`}>SC</span>;
     case "vsc":
@@ -66,8 +71,8 @@ function MarkerGlyph({ kind, color }: { kind: TimelineEventKind; color?: string 
       return <span className="rounded-sm bg-blue-600 px-0.5 text-[8px] font-bold leading-[11px] text-white">PEN</span>;
     case "retired":
       return (
-        <span className="text-[11px] font-black leading-none" style={{ color }}>
-          ✕
+        <span style={{ color }}>
+          <Icon name="close" size={11} className="[&_path]:[stroke-width:2.75]" />
         </span>
       );
     case "double-yellow":
@@ -175,14 +180,14 @@ export function Timeline() {
                 <span className="flex justify-center">
                   <MarkerGlyph kind={e.kind} color={colorOf(e.driver)} />
                 </span>
-                <span className="text-zinc-500">{lapAt(e.t) > 0 ? `L${lapAt(e.t)}` : ""}</span>
+                <span className="text-zinc-400">{lapAt(e.t) > 0 ? `L${lapAt(e.t)}` : ""}</span>
                 <span className="text-zinc-400">{clockAt(e.t)}</span>
                 <span>{e.text}</span>
               </div>
             ))}
           </div>
-          {list.length > MAX_TIP_LINES && <div className="text-zinc-500">+{list.length - MAX_TIP_LINES} more</div>}
-          <div className="mt-0.5 text-[10px] text-zinc-500">Click to jump to 5 s before</div>
+          {list.length > MAX_TIP_LINES && <div className="text-zinc-400">+{list.length - MAX_TIP_LINES} more</div>}
+          <div className="mt-0.5 text-zinc-400">Click to jump to 5 s before</div>
         </>
       ),
     };
@@ -201,7 +206,15 @@ export function Timeline() {
       ),
     };
   } else if (target?.type === "chequered") {
-    tip = { t: target.t, content: `🏁 Chequered flag · ${clockAt(target.t)}` };
+    tip = {
+      t: target.t,
+      content: (
+        <span className="flex items-center gap-1.5">
+          <Icon name="chequered" size={12} />
+          Chequered flag · {clockAt(target.t)}
+        </span>
+      ),
+    };
   } else if (hover && hover.t > shownTo) {
     tip = { t: hover.t, content: `${clockAt(hover.t)} · not watched yet` };
   } else if (hover) {
@@ -231,8 +244,13 @@ export function Timeline() {
   return (
     <div className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
       <div className="flex items-center gap-1">
-        <button onClick={() => seekToLap(leaderLap - 1)} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white" title="Previous lap ([)">
-          ⏮
+        <button
+          onClick={() => seekToLap(leaderLap - 1)}
+          className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+          title="Previous lap ([)"
+          aria-label="Previous lap"
+        >
+          <Icon name="previous" size={14} />
         </button>
         {/* A click plays and pauses, like P; holding to play is the space bar's. */}
         <button
@@ -246,19 +264,28 @@ export function Timeline() {
           title="Play / pause (P) · hold space to play"
           aria-label={pauses ? "Pause" : "Play"}
         >
-          {pauses ? "⏸" : <span className={playing ? "animate-pulse" : ""}>▶</span>}
+          {pauses ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className={`translate-x-px ${playing ? "animate-pulse" : ""}`} />}
         </button>
-        <button onClick={() => seekToLap(leaderLap + 1)} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white" title="Next lap (])">
-          ⏭
+        <button
+          onClick={() => seekToLap(leaderLap + 1)}
+          className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+          title="Next lap (])"
+          aria-label="Next lap"
+        >
+          <Icon name="next" size={14} />
         </button>
       </div>
 
-      <div className="flex overflow-hidden rounded border border-zinc-800 text-xs">
+      {/* The segmented control (DESIGN.md): the play button stays the screen's one white button. */}
+      <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Playback speed">
         {SPEEDS.map((s) => (
           <button
             key={s}
             onClick={() => setSpeed(s)}
-            className={`px-2 py-1 tabular-nums ${s === speed ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}
+            aria-pressed={s === speed}
+            className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors ${
+              s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"
+            }`}
           >
             {s}×
           </button>
@@ -318,7 +345,7 @@ export function Timeline() {
             <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
               <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
               {(lap % labelEvery === 0 || lap === 1) && (
-                <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-500">{lap === 1 ? "L1" : lap}</span>
+                <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{lap === 1 ? "L1" : lap}</span>
               )}
             </div>
           ),
@@ -354,12 +381,12 @@ export function Timeline() {
         {/* chequered flag */}
         {meta.chequered != null && meta.chequered <= shownTo && (
           <div
-            className="absolute top-4 -translate-x-1/2 text-xs"
+            className="absolute top-3.5 -translate-x-[3px] text-zinc-100"
             style={{ left: pct(meta.chequered) }}
             onPointerEnter={() => setTarget({ type: "chequered", t: meta.chequered! })}
             onPointerLeave={() => setTarget(null)}
           >
-            🏁
+            <Icon name="chequered" size={14} label="Chequered flag" />
           </div>
         )}
 
@@ -399,12 +426,13 @@ export function Timeline() {
       ) : (
         <button
           onClick={() => setNoSpoilers(!noSpoilers)}
-          className={`shrink-0 whitespace-nowrap rounded border px-2 py-1 text-xs ${
-            noSpoilers ? "border-zinc-100 bg-zinc-100 font-bold text-zinc-900" : "border-zinc-800 text-zinc-400 hover:bg-zinc-800"
+          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+            noSpoilers ? "bg-zinc-700 text-zinc-50 hover:bg-zinc-600" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
           }`}
           title={noSpoilers ? "No spoilers: the timeline shows only what you've watched (this race)" : "Show only what you've watched on the timeline (this race)"}
           aria-pressed={noSpoilers}
         >
+          {noSpoilers && <Icon name="check" size={12} />}
           No spoilers
         </button>
       )}

@@ -2,6 +2,7 @@
 // while a replay is on screen.
 
 import { useEffect } from "react";
+import { Icon } from "../blockkit/ui/Icon";
 import { isRunning, useLibrary } from "../library";
 import { useReplay } from "../store";
 
@@ -22,9 +23,7 @@ export function RacesButton() {
       className="flex shrink-0 items-center gap-1.5 rounded-md bg-zinc-800 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
       title={job ? `All races · downloading ${job.info.label}${waiting > 1 ? ` (+${waiting - 1} queued)` : ""}` : "All races: your library and every season's calendar"}
     >
-      <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-        <path d="M10 3.5 5.5 8l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <Icon name="chevron-left" size={14} className="[&_path]:[stroke-width:2]" />
       Races
       {progress && <span className="tabular-nums font-normal text-zinc-400">{Math.round(progress.progress * 100)}%</span>}
       {!progress && waiting > 0 && <span className="h-1.5 w-1.5 rounded-full bg-amber-400" title="Downloads waiting" />}
@@ -62,8 +61,8 @@ export function ReadyToast() {
       >
         Watch
       </button>
-      <button onClick={dismiss} className="rounded px-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" aria-label="Dismiss">
-        ✕
+      <button onClick={dismiss} className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
+        <Icon name="close" size={12} />
       </button>
     </div>
   );

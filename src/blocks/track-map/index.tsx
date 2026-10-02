@@ -321,8 +321,8 @@ function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLaye
     ctx.fillText(`S${i + 2}`, mx + 6, my - 6);
   });
 
-  // Corner numbers, pushed off the racing line along the circuit's label angle.
-  ctx.fillStyle = "#71717a";
+  // Corner numbers, pushed off the racing line along the circuit's label angle: zinc-400, text to read.
+  ctx.fillStyle = "#9f9fa9";
   ctx.font = "500 10px ui-sans-serif, system-ui";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -664,7 +664,8 @@ function TrackMap() {
     carsOnScreen.current = cars.map((c) => ({ driver: c.n, x: c.cx, y: c.cy }));
   });
 
-  const onClick = (e: MouseEvent<HTMLCanvasElement>) => {
+  /** The car under the pointer, if any. */
+  const carAt = (e: MouseEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
@@ -673,8 +674,17 @@ function TrackMap() {
       const d = Math.hypot(c.x - mx, c.y - my);
       if (d <= HIT_RADIUS && (!best || d < best.d)) best = { driver: c.driver, d };
     }
-    // Toggle the car in the selection; clicks on empty track leave the selection alone.
-    if (best) toggle(best.driver);
+    return best?.driver ?? null;
+  };
+  // Toggle the car in the selection; clicks on empty track leave the selection alone.
+  const onClick = (e: MouseEvent<HTMLCanvasElement>) => {
+    const n = carAt(e);
+    if (n != null) toggle(n);
+  };
+  // Only a car can be clicked, so only a car gets the pointer.
+  const onMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
+    const cursor = carAt(e) != null ? "pointer" : "";
+    if (e.currentTarget.style.cursor !== cursor) e.currentTarget.style.cursor = cursor;
   };
 
   const banner = trackStatus !== "GREEN" ? TRACK_STATUS[trackStatus] : null;
@@ -683,7 +693,7 @@ function TrackMap() {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <canvas ref={trackRef} className="pointer-events-none absolute inset-0" style={{ width: w, height: h }} />
-      <canvas ref={carsRef} onClick={onClick} className="absolute inset-0 cursor-crosshair" style={{ width: w, height: h }} />
+      <canvas ref={carsRef} onClick={onClick} onMouseMove={onMouseMove} className="absolute inset-0" style={{ width: w, height: h }} />
       {banner && (
         <div className={`absolute left-1/2 top-3 -translate-x-1/2 rounded px-4 py-1 text-sm font-bold uppercase tracking-wider shadow-lg ${banner.className}`}>
           {banner.label}
@@ -696,6 +706,7 @@ function TrackMap() {
 export default defineBlock({
   id: "track-map",
   name: "Track map",
+  description: "Every car on the circuit, and the sectors under a flag. Click a car to add it to the selection.",
   version: "1.0.0",
   // Fills its column; the circuit is fitted inside, whatever the box's shape.
   height: { min: 200 },

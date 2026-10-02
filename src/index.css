@@ -21,3 +21,11 @@ body {
   background: color-mix(in oklab, var(--color-zinc-100) 28%, transparent);
   color: var(--color-white);
 }
+
+@layer base {
+  /* Every control's keyboard focus (DESIGN.md), unless it draws its own: utilities override this. */
+  :focus-visible {
+    outline: 2px solid var(--color-zinc-300);
+    outline-offset: 2px;
+  }
+}

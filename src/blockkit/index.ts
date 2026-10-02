@@ -78,8 +78,12 @@
 //     useNeutralPeriods()        SC / VSC / red periods, so blocks stop parsing race control messages
 //     useFeed() entries          `passed` on overtakes: the car passed, so blocks stop parsing the text
 //
-//   Provisional UI kit (until the shared UI kit, step 4): format helpers, colours, the track
-//   projection, and TyreBadge, lifted as they are from the core.
+//   UI kit (H3.7, build step 4, started): the pieces blocks share so they look like the app (DESIGN.md).
+//     Label, LABEL_CLASS, Stat    the 11 px uppercase label, alone or over a value
+//     Icon                        the app's icons (16-unit SVG, 1.5 stroke): never Unicode or emoji
+//     DriverTag                   a driver's acronym on their team colour
+//     TyreBadge                   compound circle and tyre age
+//   and, still as they were lifted from the core: format helpers, colours and the track projection.
 
 export { defineBlock } from "./defineBlock";
 export type { BlockDefinition, BlockSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineBlock";
@@ -127,10 +131,13 @@ export type { FeedItem, FeedKind } from "../data/session";
 export type { DriverState, DriverStatus, SectorFlag, Telemetry } from "../engine/raceState";
 export type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
 
-// ---------------------------------------------------------------- provisional UI kit (step 4 replaces it)
+// ---------------------------------------------------------------- UI kit
 
-export { COMPOUND, gap, lapTime, raceClock, shortTeam, teamColor, textOn, TRACK_STATUS } from "../lib/format";
+export { COMPOUND, gap, lapTime, raceClock, sectorTime, shortTeam, teamColor, textOn, TRACK_STATUS } from "../lib/format";
 export { drsEligible, drsOpen } from "../engine/raceState";
 /** Track coordinates to canvas px: rotated to the circuit's usual orientation and fitted with padding. */
 export { makeTrackTransform as trackTransform, type TrackTransform } from "../lib/trackTransform";
-export { TyreBadge } from "./provisional/TyreBadge";
+export { DriverTag } from "./ui/DriverTag";
+export { Icon, type IconName } from "./ui/Icon";
+export { Label, LABEL_CLASS, Stat } from "./ui/Label";
+export { TyreBadge } from "./ui/TyreBadge";

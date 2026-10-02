@@ -2,10 +2,10 @@
 // (settingField), over its defaults with the layout's settings on top.
 
 import { settingField, type BlockDefinition, type BlockSettings, type SettingField, type SettingValue } from "../blockkit/defineBlock";
+import { LABEL_CLASS } from "../blockkit/ui/Label";
 import type { DriverInfo } from "../types";
 
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
-const INPUT = "w-full rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-100 outline-none focus-visible:ring-1 focus-visible:ring-zinc-600";
+const INPUT = "w-full rounded bg-zinc-800 px-2 py-1 text-xs text-zinc-100";
 
 /** The settings a block's editor shows, in the order the block declares them. */
 export function shownFields(block: BlockDefinition<any>): [string, SettingField][] {
@@ -100,7 +100,7 @@ function Field({
             ))}
           </div>
           {pinned == null ? (
-            <p className="text-[11px] leading-snug text-zinc-500">Follows the drivers you click in the tower or on the map.</p>
+            <p className="text-[11px] leading-snug text-zinc-400">Follows the drivers you click in the tower or on the map.</p>
           ) : (
             <>
               <select
@@ -120,7 +120,7 @@ function Field({
                   </option>
                 ))}
               </select>
-              <p className="text-[11px] leading-snug text-zinc-500">Always this driver, whatever you select. In a race without them, it follows the selection.</p>
+              <p className="text-[11px] leading-snug text-zinc-400">Always this driver, whatever you select. In a race without them, it follows the selection.</p>
             </>
           )}
         </div>
@@ -148,7 +148,7 @@ export function SettingsEditor({
     <div className="flex flex-col gap-3">
       {shownFields(block).map(([key, field]) => (
         <div key={key} className={field.kind === "toggle" ? "flex items-center justify-between gap-3" : "flex flex-col gap-1.5"}>
-          <span className={LABEL}>{field.label ?? "Driver"}</span>
+          <span className={LABEL_CLASS}>{field.label ?? "Driver"}</span>
           <Field field={field} value={values[key]} drivers={drivers} showing={showing} onChange={(v) => onChange({ ...settings, [key]: v })} />
         </div>
       ))}

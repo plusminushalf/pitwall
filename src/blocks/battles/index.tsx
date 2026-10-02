@@ -1,8 +1,8 @@
 import { useCallback, useMemo } from "react";
 import {
   defineBlock,
-  teamColor,
-  textOn,
+  DriverTag,
+  Label,
   useAllLaps,
   useAllStints,
   useDrivers,
@@ -33,18 +33,6 @@ const relevant = (f: FeedEntry) => f.kind === "pit" || f.kind === "overtake" || 
 const pickFeed = (feed: readonly FeedEntry[]) => feed.filter(relevant);
 /** Each car's stint starts only: the open stint's end moves every lap, and the block re-renders only when a stint starts. */
 const stintStarts = (all: ReadonlyMap<number, readonly StintView[]>) => new Map([...all].map(([n, stints]) => [n, stints.map((s) => s.lapStart)]));
-
-/** A driver's team-coloured acronym. */
-function DriverChip({ n, d }: { n: number; d: DriverInfo | undefined }) {
-  return (
-    <span
-      className={`inline-block rounded px-1 text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
-      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
-    >
-      {d?.acronym ?? `#${n}`}
-    </span>
-  );
-}
 
 /** Gaps at the line, to the thousandth like the timing tower. */
 const seconds = (s: number) => `${s.toFixed(3)} s`;
@@ -85,9 +73,9 @@ function BattleRow({
           <span className="w-7 text-[11px] font-semibold tabular-nums text-zinc-400" title={`Fighting for P${b.position}`}>
             P{b.position}
           </span>
-          <DriverChip n={b.ahead} d={info.get(b.ahead)} />
-          <DriverChip n={b.behind} d={info.get(b.behind)} />
-          {b.ongoing && <span className="rounded bg-zinc-800 px-1.5 text-[10px] font-semibold uppercase leading-4 tracking-wider text-zinc-200">Now</span>}
+          <DriverTag number={b.ahead} driver={info.get(b.ahead)} />
+          <DriverTag number={b.behind} driver={info.get(b.behind)} />
+          {b.ongoing && <span className="rounded bg-zinc-800 px-1.5 text-[11px] font-semibold uppercase leading-4 tracking-wider text-zinc-200">Now</span>}
           <span className="ml-auto text-xs tabular-nums text-zinc-200" title="Closest at the line">
             {seconds(b.closest)}
           </span>
@@ -175,7 +163,7 @@ function Battles() {
   return (
     <section className="flex h-full flex-col text-sm">
       <div className="flex items-center gap-2 border-b border-zinc-800 px-3 py-1.5">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Battles</h2>
+        <Label as="h2">Battles</Label>
         <span className="truncate text-[11px] text-zinc-400">
           Within {gap.toFixed(1)} s at the line, {minLaps}+ laps
         </span>

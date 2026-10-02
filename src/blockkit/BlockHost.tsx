@@ -32,7 +32,7 @@ class Boundary extends Component<{ name: string; resetKey: string; children: Rea
   }
   render() {
     if (this.state.error == null) return this.props.children;
-    return <div className="flex h-full items-center justify-center p-3 text-center text-xs text-zinc-500">{this.props.name} stopped working</div>;
+    return <div className="flex h-full items-center justify-center p-3 text-center text-xs text-zinc-400">{this.props.name} stopped working</div>;
   }
 }
 

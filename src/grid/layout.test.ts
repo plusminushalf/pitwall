@@ -143,11 +143,14 @@ describe("default layout", () => {
     const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 1427));
     expect(p["timing-tower"].height).toBe(1427);
     expect(p["track-map"].height).toBe(1427);
-    // Measured on the old screen (07d720a): chips 33 + header 70.2, telemetry 175.28, laps 87.56, tyres 53.
+    // Measured on the old screen (07d720a): chips 33 + header 70.2, telemetry 175.28, laps 87.56, tyres 53. Then the
+    // labels went from 10 to 11 px (DESIGN.md), a line of them 10/7 px taller: one in the 60 s trace's title, one
+    // in the lap times; and the sectors' line became 16 px (16.28 measured before).
+    const label = (11 - 10) * (20 / 14);
     expect(p["driver-header"].height).toBeCloseTo(103.21, 1);
-    expect(bottom(p["speed-trace"]) - p["driver-header"].height).toBeCloseTo(175.28, 1);
+    expect(bottom(p["speed-trace"]) - p["driver-header"].height).toBeCloseTo(175.28 + label, 1);
     // The old tyre section began at 418.05 px on screen (52 px top bar), its hairline included.
-    expect(p["tyre-strip"].top).toBeCloseTo(418.05 + 1 - 52, 1);
+    expect(p["tyre-strip"].top).toBeCloseTo(418.05 + 1 - 52 + 2 * label - 0.28, 1);
     expect(bottom(p["race-feed"])).toBe(1427);
   });
 

@@ -301,7 +301,7 @@ Static checks catch mistakes, not a determined attacker (e.g. building the name 
 1. **Block kit:** the hooks and `defineBlock`, built on the current store. Nothing visible changes. *Done.*
 2. **Today's screen as blocks:** split the driver panel into its sections and place everything in a fixed default layout on the grid. Check performance with everything on screen. *Done.*
 3. **Grid and edit mode:** dragging, width resizing, the block picker, saving the layout. Tune the column count here. *Done 2026-09-30* (H3.8–H3.12): 38 columns; blocks needed nothing new from the kit beyond `description` and `fields` on `defineBlock`.
-4. **Shared UI kit:** pull the common pieces out of the rebuilt blocks.
+4. **Shared UI kit:** pull the common pieces out of the rebuilt blocks. *Started 2026-10-01* (H3.7): `Label`, `Stat`, `Icon`, `DriverTag` and `TyreBadge` in `src/blockkit/ui/`, on the theme in DESIGN.md; every block uses them. Still to come: `Bar`, `Sparkline`, fonts.
 5. **Marketplace:** the `blocks/` folder, CI build and import check, `registry.json`, install and update in the app, the template with a fixture race, developer mode.
 6. **Open submissions.**
 

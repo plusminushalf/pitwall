@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "
 import {
   defineBlock,
   gap,
+  LABEL_CLASS,
   teamColor,
   useAllLaps,
   useBlockSize,
@@ -36,7 +37,6 @@ type Settings = { gapMode: GapMode };
 const FALLBACK = 4;
 const FONT = "10px ui-sans-serif, system-ui, sans-serif";
 const LABEL_FONT = "600 10px ui-sans-serif, system-ui, sans-serif";
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-400";
 /** The padding around the chart (px-3, pt-2, pb-2) and the title line over it. */
 const PAD_X = 24;
 const PAD_Y = 16;
@@ -235,7 +235,7 @@ function Tooltip({ lap, lines, sc, left }: { lap: number; lines: Line[]; sc: Neu
     <div
       className={`pointer-events-none absolute top-0 z-10 min-w-32 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 py-2 text-xs shadow-lg ${left ? "-translate-x-full" : ""}`}
     >
-      <div className={LABEL}>
+      <div className={LABEL_CLASS}>
         Lap {lap}
         {sc && <span className="font-normal normal-case tracking-normal text-amber-200"> · {NEUTRALISED[sc].title}</span>}
       </div>
@@ -339,7 +339,7 @@ function GapChart() {
   return (
     <div className="h-full px-3 pb-2 pt-2 text-sm">
       <div className="flex items-center justify-between gap-3" style={{ height: HEAD_H }}>
-        <span className={`${LABEL} shrink-0`}>
+        <span className={`${LABEL_CLASS} shrink-0`}>
           <button
             onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
             className="rounded-sm uppercase hover:text-zinc-100"
@@ -349,7 +349,7 @@ function GapChart() {
           </button>
           {selected.length === 0 && lines.length > 0 && <span className="font-normal normal-case tracking-normal text-zinc-400"> · top {lines.length}</span>}
         </span>
-        <span className="flex min-w-0 items-center gap-2.5 overflow-hidden whitespace-nowrap text-[10px] text-zinc-400">
+        <span className="flex min-w-0 items-center gap-2.5 overflow-hidden whitespace-nowrap text-[11px] text-zinc-400">
           {lines.map((l) => (
             <span key={l.info.number} className="flex items-center gap-1">
               <LineKey line={l} />

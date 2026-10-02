@@ -1,9 +1,10 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import {
   defineBlock,
+  DriverTag,
+  Icon,
+  Label,
   raceClock,
-  teamColor,
-  textOn,
   useDrivers,
   useFeed,
   usePlayback,
@@ -74,36 +75,32 @@ function kindTag(item: FeedEntry): { label: string; className: string } {
 /** A clip's play button; only radio rows have one, and only they subscribe to what's playing. */
 function RadioButton({ url }: { url: string }) {
   const { playing, unavailable, play, stop } = useRadio((r) => ({ playing: r.playing === url, unavailable: r.unavailable.has(url), play: r.play, stop: r.stop }));
-  if (unavailable) return <span className="shrink-0 pt-0.5 text-[10px] uppercase tracking-wide text-zinc-600">unavailable</span>;
+  if (unavailable) return <span className="shrink-0 pt-0.5 text-[11px] uppercase tracking-wide text-zinc-400">unavailable</span>;
   return (
     <button
       onClick={() => (playing ? stop() : play(url))}
-      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[9px] ${
+      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
         playing ? "bg-zinc-100 text-zinc-900" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
       }`}
       title={playing ? "Stop team radio" : "Play team radio"}
       aria-label={playing ? "Stop team radio" : "Play team radio"}
     >
-      {playing ? "■" : "▶"}
+      <Icon name={playing ? "stop" : "play"} size={10} className={playing ? "" : "translate-x-px"} />
     </button>
-  );
-}
-
-/** A driver's team-coloured acronym. */
-function DriverChip({ n, d, title }: { n: number; d: DriverInfo | undefined; title?: string }) {
-  return (
-    <span
-      className={`mr-1.5 inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
-      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
-      title={title}
-    >
-      {d?.acronym ?? `#${n}`}
-    </span>
   );
 }
 
 /** The car a row is about: the one race control named, else the first inferred from telemetry. */
 const driverOf = (item: FeedEntry) => item.driver ?? item.inferred?.[0] ?? null;
+
+/** Items Pitwall words itself, each starting with its driver's acronym ("VER passes HAD for P3"). */
+const OWN_WORDS = new Set<FeedKind>(["overtake", "radio", "pit", "retired"]);
+
+/** The row's text after its driver tag, which already shows the acronym; race control's messages stay word for word. */
+function textAfterTag(item: FeedEntry, d: DriverInfo | undefined): string {
+  const prefix = d && OWN_WORDS.has(item.kind) ? `${d.acronym} ` : null;
+  return prefix && item.text.startsWith(prefix) ? item.text.slice(prefix.length) : item.text;
+}
 
 /** One feed item: memoised on the entry (stable across ticks and live rebuilds), so old rows never re-render. */
 const FeedRow = memo(function FeedRow({
@@ -118,23 +115,24 @@ const FeedRow = memo(function FeedRow({
   onItem: (item: FeedEntry) => void;
 }) {
   const tag = kindTag(item);
+  const driver = item.driver != null ? info.get(item.driver) : undefined;
   return (
     <li className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
-      <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 text-left" title="Jump to 5 s before this">
-        <span className="pt-0.5 text-[11px] tabular-nums text-zinc-500">{raceClock(item.t - lightsOut)}</span>
+      <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 rounded-sm text-left" title="Jump to 5 s before this">
+        <span className="pt-0.5 text-[11px] tabular-nums text-zinc-400">{raceClock(item.t - lightsOut)}</span>
         <span className="text-xs leading-5 text-zinc-300">
           {item.postRace && (
-            <span className="mr-1 inline-block rounded border border-zinc-700 px-1 align-middle text-[10px] font-semibold uppercase leading-4 text-zinc-400">
+            <span className="mr-1 inline-block rounded border border-zinc-700 px-1 align-middle text-[11px] font-semibold uppercase leading-4 text-zinc-400">
               post-race
             </span>
           )}
-          <span className={`mr-1 inline-block rounded px-1 align-middle text-[10px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
+          <span className={`mr-1 inline-block rounded px-1 align-middle text-[11px] font-bold uppercase leading-4 ${tag.className}`}>{tag.label}</span>
           {item.driver != null ? (
-            <DriverChip n={item.driver} d={info.get(item.driver)} />
+            <DriverTag driver={driver} number={item.driver} className="mr-1.5" />
           ) : (
-            item.inferred?.map((n) => <DriverChip key={n} n={n} d={info.get(n)} title="Inferred from telemetry" />)
+            item.inferred?.map((n) => <DriverTag key={n} driver={info.get(n)} number={n} title="Inferred from telemetry" className="mr-1.5" />)
           )}
-          <span className="align-middle">{item.text}</span>
+          <span className="align-middle">{textAfterTag(item, driver)}</span>
         </span>
       </button>
       {item.kind === "radio" && item.url && <RadioButton url={item.url} />}
@@ -165,7 +163,7 @@ function RaceFeed() {
   return (
     <section className="flex h-full flex-col text-sm">
       <div className="border-b border-zinc-800 px-3 py-1.5">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Race feed</h2>
+        <Label as="h2">Race feed</Label>
         <div className="mt-1 flex flex-wrap gap-1">
           {GROUPS.map((g) => {
             const on = groups[g.id];
@@ -174,8 +172,8 @@ function RaceFeed() {
                 key={g.id}
                 onClick={() => setGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
                 aria-pressed={on}
-                className={`rounded-full border px-2 py-0.5 text-[11px] ${
-                  on ? "border-zinc-600 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-500 hover:text-zinc-300"
+                className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                  on ? "border-zinc-600 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                 }`}
               >
                 {g.label}
@@ -186,7 +184,11 @@ function RaceFeed() {
       </div>
 
       <ol className="min-h-0 flex-1 overflow-y-auto">
-        {items.length === 0 && <li className="px-3 py-6 text-center text-xs text-zinc-600">No events yet</li>}
+        {items.length === 0 && (
+          <li className="px-3 py-6 text-center text-xs text-zinc-400">
+            {Object.values(groups).some(Boolean) ? "No events yet" : "Every kind of event is switched off: pick one above"}
+          </li>
+        )}
         {items.map((item) => (
           <FeedRow key={item.id} item={item} info={info} lightsOut={lightsOut} onItem={onItem} />
         ))}

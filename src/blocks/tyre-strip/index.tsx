@@ -1,6 +1,4 @@
-import { COMPOUND, defineBlock, TyreBadge, useDriver, useLaps, useSelectedDriver, useSessionInfo, useStints, useTime, useTotalLaps, type DriverSetting } from "block-kit";
-
-const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
+import { COMPOUND, defineBlock, Label, TyreBadge, useDriver, useLaps, useSelectedDriver, useSessionInfo, useStints, useTime, useTotalLaps, type DriverSetting } from "block-kit";
 
 /**
  * Laps completed by t, plus an estimate of the lap in progress: time since the last lap ended over that
@@ -36,9 +34,9 @@ function TyreStrip() {
   return (
     <div className="h-full px-3 py-2 text-sm">
       <div className="mb-1.5 flex items-center justify-between">
-        <span className={LABEL}>
-          Tyres <span className="font-normal normal-case tracking-normal text-zinc-600">· {totalLapsEstimated ? "~" : ""}{total} laps</span>
-        </span>
+        <Label>
+          Tyres <span className="font-normal normal-case tracking-normal">· {totalLapsEstimated ? "~" : ""}{total} laps</span>
+        </Label>
         <span className="flex items-center gap-2 text-[11px] text-zinc-400">
           <span className="tabular-nums">
             {s.pitStops} {s.pitStops === 1 ? "stop" : "stops"}
@@ -74,6 +72,7 @@ function TyreStrip() {
 export default defineBlock({
   id: "tyre-strip",
   name: "Tyres",
+  description: "The driver's tyre stints so far along the race distance, with their pit stops and current tyre.",
   version: "1.0.0",
   // py-2, the title line (16 px, the tyre badge) and the 14 px strip 6 px below it.
   height: 8 + 16 + 6 + 14 + 8,

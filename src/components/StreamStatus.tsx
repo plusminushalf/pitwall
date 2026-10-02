@@ -54,8 +54,8 @@ export function StreamLoading() {
   return (
     <div className="flex h-full items-center justify-center px-4">
       <div className="w-full max-w-md">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{later ? "Downloading" : "Starting the replay"}</p>
-        <h1 className="mt-1 text-lg font-black tracking-tight text-zinc-100">{row ? `${row.year} ${labelOf(row)}` : `Session ${key}`}</h1>
+        <h1 className="text-lg font-black tracking-tight text-zinc-100">{row ? `${row.year} ${labelOf(row)}` : `Session ${key}`}</h1>
+        <p className="text-xs text-zinc-400">{later ? "Downloading" : "Starting the replay"}</p>
         {failed ? (
           <p className="mt-3 text-sm text-red-400">{job?.error ?? "The download failed."}</p>
         ) : waiting ? (
@@ -69,7 +69,7 @@ export function StreamLoading() {
               <Spinner />
               <span className="truncate">{p?.notice ?? p?.step ?? "Starting"}</span>
             </p>
-            <p className="mt-3 text-xs leading-relaxed text-zinc-500">
+            <p className="mt-3 text-xs leading-relaxed text-zinc-400">
               {quali
                 ? "Qualifying opens once it's downloaded: the lap comparison needs every lap."
                 : later
@@ -176,7 +176,7 @@ export function StreamBadge() {
   const stopped = job == null || job.phase === "failed" || job.phase === "cancelled";
   return (
     <span
-      className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-zinc-500"
+      className="shrink-0 whitespace-nowrap text-[11px] tabular-nums text-zinc-400"
       title={stopped ? "The download stopped: Watch on the home page carries on from what's stored" : "Downloading into this browser as you watch: next time this race opens instantly"}
     >
       {stopped ? "↓ stopped" : processing ? "Saving…" : frac != null ? `↓ ${Math.floor(frac * 100)}%` : "↓"}

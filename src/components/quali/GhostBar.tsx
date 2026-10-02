@@ -1,4 +1,5 @@
 import { useRef } from "react";
+import { Icon } from "../../blockkit/ui/Icon";
 import { deltaAt, distanceAtTime } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { GHOST_SPEEDS, useQuali } from "../../qualiStore";
@@ -34,8 +35,13 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
   return (
     <div className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-2.5">
       <div className="flex items-center gap-1">
-        <button onClick={() => seekGhost(0)} className="rounded px-2 py-1 text-zinc-400 hover:bg-zinc-800 hover:text-white" title="Back to the line (Home)">
-          ⏮
+        <button
+          onClick={() => seekGhost(0)}
+          className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+          title="Back to the line (Home)"
+          aria-label="Back to the line"
+        >
+          <Icon name="previous" size={14} />
         </button>
         <button
           onClick={() => useReplay.getState().togglePlay()}
@@ -44,12 +50,18 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
           title="Play / pause the ghost laps (P, or hold space)"
           aria-label={playing ? "Pause" : "Play"}
         >
-          {playing ? "⏸" : "▶"}
+          {playing ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className="translate-x-px" />}
         </button>
       </div>
-      <div className="flex overflow-hidden rounded border border-zinc-800 text-xs">
+      {/* The race timeline's segmented control: the play button stays the one white button. */}
+      <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Ghost speed">
         {GHOST_SPEEDS.map((s) => (
-          <button key={s} onClick={() => setGhostSpeed(s)} className={`px-2 py-1 tabular-nums ${s === speed ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+          <button
+            key={s}
+            onClick={() => setGhostSpeed(s)}
+            aria-pressed={s === speed}
+            className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors ${s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}
+          >
             {s < 1 ? `${s}` : s}×
           </button>
         ))}

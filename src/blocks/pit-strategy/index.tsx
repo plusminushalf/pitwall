@@ -1,8 +1,8 @@
 import { memo, useCallback, useMemo } from "react";
 import {
   defineBlock,
-  teamColor,
-  textOn,
+  DriverTag,
+  Label,
   TyreBadge,
   useAllLaps,
   useAllPitStops,
@@ -49,20 +49,8 @@ const UNDER: Record<Exclude<Neutralised, null>, string> = { SC: "under the safet
 
 const secs = (s: number) => `${s.toFixed(1)} s`;
 
-/** A driver's team-coloured acronym. */
-function DriverChip({ n, d }: { n: number; d: DriverInfo | undefined }) {
-  return (
-    <span
-      className={`inline-block rounded px-1 align-middle text-[10px] font-bold leading-4 ${d ? "" : "bg-zinc-700 text-zinc-100"}`}
-      style={d ? { background: teamColor(d.teamColour), color: textOn(d.teamColour) } : undefined}
-    >
-      {d?.acronym ?? `#${n}`}
-    </span>
-  );
-}
-
 function Tag({ label }: { label: string }) {
-  return <span className="inline-block rounded bg-zinc-800 px-1 align-middle text-[10px] font-bold uppercase leading-4 text-zinc-200">{label}</span>;
+  return <span className="inline-block rounded bg-zinc-800 px-1 align-middle text-[11px] font-bold uppercase leading-4 text-zinc-200">{label}</span>;
 }
 
 /** Places before the stop and once it's settled; gained in emerald. */
@@ -90,7 +78,7 @@ function StopRow({ stop, info }: { stop: Stop; info: Map<number, DriverInfo> }) 
     <>
       <span className="flex items-center gap-1.5">
         <Tag label="Pit" />
-        <DriverChip n={stop.driver} d={info.get(stop.driver)} />
+        <DriverTag number={stop.driver} driver={info.get(stop.driver)} />
         <TyreBadge compound={stop.from} size={14} />
         <span className="text-zinc-400">→</span>
         {stop.to ? <TyreBadge compound={stop.to} size={14} /> : <span className="text-zinc-400">no tyre change</span>}
@@ -123,7 +111,7 @@ function DuelRow({ duel, info }: { duel: Duel; info: Map<number, DriverInfo> }) 
     <>
       <span className="flex items-center gap-1.5">
         <Tag label={duel.kind} />
-        <DriverChip n={duel.attacker} d={info.get(duel.attacker)} />
+        <DriverTag number={duel.attacker} driver={info.get(duel.attacker)} />
         <span className="min-w-0 truncate text-zinc-200">{title}</span>
         <span className={`ml-auto shrink-0 text-[11px] ${duel.worked ? "text-emerald-400" : "text-zinc-400"}`}>{duel.worked ? "Worked" : "Didn't work"}</span>
       </span>
@@ -188,14 +176,14 @@ function PitStrategy() {
   return (
     <section className="flex h-full flex-col text-sm">
       <div className="border-b border-zinc-800 px-3 py-1.5">
-        <h2 className="text-[10px] font-semibold uppercase tracking-wider text-zinc-400">
+        <Label as="h2">
           Pit stops
           <span className="font-normal normal-case tracking-normal text-zinc-400">
             {" "}
             · {count} {count === 1 ? "stop" : "stops"}
             {filtered && ", selected drivers"}
           </span>
-        </h2>
+        </Label>
       </div>
       <ol className="min-h-0 flex-1 overflow-y-auto">
         {rows.length === 0 && <li className="px-3 py-6 text-center text-xs text-zinc-400">No pit stops yet</li>}

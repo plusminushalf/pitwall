@@ -3,6 +3,7 @@
 // still to come.
 
 import type { BlockDefinition } from "../blockkit/defineBlock";
+import { LABEL_CLASS } from "../blockkit/ui/Label";
 import { blockIdOf, columnRange, type Layout } from "./layout";
 
 export interface PickerEntry {
@@ -35,22 +36,21 @@ export function BlockPicker({ entries, columns, onPick }: { entries: readonly Pi
           onClick={() => onPick(block.id)}
           className="flex items-start gap-3 rounded px-2 py-1.5 text-left enabled:hover:bg-zinc-800 disabled:cursor-default"
         >
-          <span className="min-w-0 flex-1">
-            <span className={`block text-xs font-semibold ${room ? "text-zinc-100" : "text-zinc-500"}`}>
+          {/* Without room: dimmed like a disabled button, but "No room" stays readable: it says why. */}
+          <span className={`min-w-0 flex-1 ${room ? "" : "opacity-50"}`}>
+            <span className="block text-xs font-semibold text-zinc-100">
               {block.name}
-              {placed > 0 && <span className="ml-1.5 font-normal text-zinc-500">{placed === 1 ? "on screen" : `${placed} on screen`}</span>}
+              {placed > 0 && <span className="ml-1.5 font-normal text-zinc-400">{placed === 1 ? "on screen" : `${placed} on screen`}</span>}
             </span>
-            {block.description && <span className={`block text-[11px] leading-snug ${room ? "text-zinc-400" : "text-zinc-600"}`}>{block.description}</span>}
+            {block.description && <span className="block text-[11px] leading-snug text-zinc-400">{block.description}</span>}
           </span>
-          <span className={`mt-px shrink-0 text-[10px] font-semibold uppercase tracking-wider tabular-nums ${room ? "text-zinc-500" : "text-zinc-600"}`}>
-            {room ? `${defaultColumns(block, columns)} col` : "No room"}
-          </span>
+          <span className={`mt-px shrink-0 tabular-nums ${LABEL_CLASS}`}>{room ? `${defaultColumns(block, columns)} col` : "No room"}</span>
         </button>
       ))}
       <div className="mt-1.5 border-t border-zinc-800 pt-1.5">
         <button type="button" disabled className="flex w-full cursor-default items-center justify-between gap-3 rounded px-2 py-1.5 text-left">
-          <span className="text-xs font-semibold text-zinc-500">Marketplace</span>
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-600">Coming soon</span>
+          <span className="text-xs font-semibold text-zinc-100 opacity-50">Marketplace</span>
+          <span className={LABEL_CLASS}>Coming soon</span>
         </button>
       </div>
     </div>
