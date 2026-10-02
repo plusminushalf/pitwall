@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { defineBlock, settingField, type BlockDefinition } from "../blockkit/defineBlock";
 import { BUILTIN_BLOCKS } from "./builtins";
-import { DEFAULT_LAYOUT } from "./defaultLayout";
+import { DRIVER_LAYOUT } from "./driverLayout";
 import { COLUMNS, MIN_HEIGHT, type Layout } from "./layout";
 import { clearSavedLayout, loadLayout, parseLayout, rescaleLayout, saveLayout, STORAGE_KEY } from "./storage";
 
@@ -36,18 +36,18 @@ const entry = (x: number, y: number, width: number, settings: Record<string, unk
 
 describe("load and save", () => {
   test("round trip: what's saved comes back as it was", () => {
-    saveLayout(DEFAULT_LAYOUT);
+    saveLayout(DRIVER_LAYOUT);
     expect(storage.items.has(STORAGE_KEY)).toBe(true);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(DEFAULT_LAYOUT);
-    const tweaked: Layout = { ...DEFAULT_LAYOUT, blocks: { ...DEFAULT_LAYOUT.blocks, "timing-tower": { ...DEFAULT_LAYOUT.blocks["timing-tower"], settings: { gapMode: "interval" } } } };
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toEqual(DRIVER_LAYOUT);
+    const tweaked: Layout = { ...DRIVER_LAYOUT, blocks: { ...DRIVER_LAYOUT.blocks, "timing-tower": { ...DRIVER_LAYOUT.blocks["timing-tower"], settings: { gapMode: "interval" } } } };
     saveLayout(tweaked);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(tweaked);
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toEqual(tweaked);
   });
 
   test("a height of its own comes back as it was; one that isn't a number is dropped, and it's at least MIN_HEIGHT", () => {
-    const sized: Layout = { ...DEFAULT_LAYOUT, blocks: { ...DEFAULT_LAYOUT.blocks, "timing-tower": { ...DEFAULT_LAYOUT.blocks["timing-tower"], height: 480 } } };
+    const sized: Layout = { ...DRIVER_LAYOUT, blocks: { ...DRIVER_LAYOUT.blocks, "timing-tower": { ...DRIVER_LAYOUT.blocks["timing-tower"], height: 480 } } };
     saveLayout(sized);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(sized);
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toEqual(sized);
     const read = (height: unknown) => parseLayout(stored({ "timing-tower": { ...entry(0, 0, 9), height } }), BUILTIN_BLOCKS)!.blocks["timing-tower"];
     expect(read("480")).not.toHaveProperty("height");
     expect(read(null)).not.toHaveProperty("height");
@@ -57,25 +57,25 @@ describe("load and save", () => {
   });
 
   test("more than one of a block comes back; copies of blocks the app doesn't have are dropped", () => {
-    const tower = DEFAULT_LAYOUT.blocks["timing-tower"];
-    const two: Layout = { ...DEFAULT_LAYOUT, blocks: { ...DEFAULT_LAYOUT.blocks, "lap-times:2": { ...DEFAULT_LAYOUT.blocks["lap-times"], block: "lap-times", y: 10, settings: { driver: 44 } } } };
+    const tower = DRIVER_LAYOUT.blocks["timing-tower"];
+    const two: Layout = { ...DRIVER_LAYOUT, blocks: { ...DRIVER_LAYOUT.blocks, "lap-times:2": { ...DRIVER_LAYOUT.blocks["lap-times"], block: "lap-times", y: 10, settings: { driver: 44 } } } };
     saveLayout(two);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toEqual(two);
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toEqual(two);
     const read = parseLayout(stored({ "timing-tower": entry(0, 0, 9), "x:2": { ...entry(0, 1, 9), block: "nope" }, "tower-copy": { ...entry(0, 2, 9), block: "timing-tower" } }), BUILTIN_BLOCKS)!;
     expect(Object.keys(read.blocks).sort()).toEqual(["timing-tower", "tower-copy"]);
     expect(read.blocks["tower-copy"]).toMatchObject({ block: "timing-tower", width: tower.width });
   });
 
   test("nothing saved, corrupt JSON, the wrong version or a broken shape: the fallback", () => {
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
     for (const raw of [
       "{not json",
       "null",
       "[]",
-      JSON.stringify({ ...DEFAULT_LAYOUT, version: 2 }),
-      JSON.stringify({ ...DEFAULT_LAYOUT, columns: 0 }),
-      JSON.stringify({ ...DEFAULT_LAYOUT, columns: "38" }),
-      JSON.stringify({ ...DEFAULT_LAYOUT, blocks: [] }),
+      JSON.stringify({ ...DRIVER_LAYOUT, version: 2 }),
+      JSON.stringify({ ...DRIVER_LAYOUT, columns: 0 }),
+      JSON.stringify({ ...DRIVER_LAYOUT, columns: "38" }),
+      JSON.stringify({ ...DRIVER_LAYOUT, blocks: [] }),
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), x: "0" } })),
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), settings: null } })),
       JSON.stringify(stored({ "timing-tower": { ...entry(0, 0, 9), group: 3 } })),
@@ -83,26 +83,26 @@ describe("load and save", () => {
       JSON.stringify(stored({ "timing-tower": entry(0, Number.NaN, 9) })),
     ]) {
       storage.items.set(STORAGE_KEY, raw);
-      expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
+      expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
     }
   });
 
   test("never throws: storage missing or throwing", () => {
     useStorage(fakeStorage(true));
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
-    expect(() => saveLayout(DEFAULT_LAYOUT)).not.toThrow();
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
+    expect(() => saveLayout(DRIVER_LAYOUT)).not.toThrow();
     expect(() => clearSavedLayout()).not.toThrow();
     useStorage(undefined);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
-    expect(() => saveLayout(DEFAULT_LAYOUT)).not.toThrow();
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
+    expect(() => saveLayout(DRIVER_LAYOUT)).not.toThrow();
     expect(() => clearSavedLayout()).not.toThrow();
   });
 
   test("clearSavedLayout forgets it", () => {
-    saveLayout(DEFAULT_LAYOUT);
+    saveLayout(DRIVER_LAYOUT);
     clearSavedLayout();
     expect(storage.items.has(STORAGE_KEY)).toBe(false);
-    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT)).toBe(DEFAULT_LAYOUT);
+    expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
   });
 });
 
@@ -172,7 +172,7 @@ describe("rescale", () => {
   };
 
   test("38 -> 19 -> 38 scales by edges, so neighbours stay adjacent", () => {
-    const half = rescaleLayout(DEFAULT_LAYOUT, BUILTIN_BLOCKS, 19);
+    const half = rescaleLayout(DRIVER_LAYOUT, BUILTIN_BLOCKS, 19);
     expect(half.columns).toBe(19);
     adjacent(half);
     expect(edges(half)["timing-tower"]).toEqual([0, 5]);
@@ -180,13 +180,13 @@ describe("rescale", () => {
     adjacent(back);
     expect(edges(back)["timing-tower"]).toEqual([0, 10]);
     // Groups, order and settings come along.
-    expect(back.blocks["lap-times"]).toMatchObject({ group: "laps", y: DEFAULT_LAYOUT.blocks["lap-times"].y, settings: {} });
+    expect(back.blocks["lap-times"]).toMatchObject({ group: "laps", y: DRIVER_LAYOUT.blocks["lap-times"].y, settings: {} });
   });
 
   test("a layout saved at another column count is rescaled on load", () => {
-    const half = rescaleLayout(DEFAULT_LAYOUT, BUILTIN_BLOCKS, 19);
+    const half = rescaleLayout(DRIVER_LAYOUT, BUILTIN_BLOCKS, 19);
     saveLayout(half);
-    const l = loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT);
+    const l = loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT);
     expect(l.columns).toBe(COLUMNS);
     adjacent(l);
   });

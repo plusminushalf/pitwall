@@ -1,41 +1,36 @@
-// The default race screen as blocks (H3.12), laid out like the screen before blocks: the tower on the
-// left, the map filling the middle, and the driver panel on the right (header, speed and gear beside the
-// bars, the 60 s trace, lap times and sectors, tyres) with the race feed filling the rest. Weather is in
-// the top bar, so its block isn't placed.
+// The default race screen as blocks (H3.12): the race at a glance on top, the analysis of it underneath, as
+// arranged on the user's own screen (2026-10-02). Across the top the timing tower (gaps as intervals) and
+// the track map, both 21 rows tall; under them the gap chart over the stint pace, then battles and pit
+// stops; the race feed down the right, full height. The driver panel's blocks and weather (it's in the top
+// bar) are in the block picker.
 //
-// That screen had fixed-width sides (tower 410 px, panel 360 px, the bars 112 px into it); here the sides
-// are the nearest whole number of columns at REFERENCE_WIDTH, so on wider or narrower screens they grow
-// and shrink with it. The speed column is the fewest columns its contents (109 px) fit in at MIN_WIDTH.
+// Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
+// The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
+// hairlines over them; 1440x900's grid is 767); on a shorter window it's cut off, as for any layout.
 
-import { COLUMNS, type Layout, type LayoutEntry } from "./layout";
+import { COLUMNS, ROW, type Layout, type LayoutEntry } from "./layout";
 
-/** The screen width (CSS px) the default layout matches the old widths at: the user's window. */
-export const REFERENCE_WIDTH = 1720;
-/** The narrowest screen the default layout keeps every block's contents whole at. */
-export const MIN_WIDTH = 1440;
+/** The tower's and the map's height: 21 rows, set like a height chosen in edit mode. */
+const TOP = 21 * ROW;
+const TOWER = 15;
+const MAP = 15;
+const FEED = COLUMNS - TOWER - MAP;
+/** The gap chart and the stint pace, under the tower and one column of the map; battles and pit stops share the rest. */
+const CHARTS = 16;
+const SIDE = (TOWER + MAP - CHARTS) / 2;
 
-const cols = (px: number) => Math.max(1, Math.round((px * COLUMNS) / REFERENCE_WIDTH));
-const TOWER = cols(410);
-const PANEL = cols(360);
-const SPEED = Math.ceil((109 * COLUMNS) / MIN_WIDTH);
-const MAP = COLUMNS - TOWER - PANEL;
-const RIGHT = COLUMNS - PANEL;
-
-const at = (x: number, y: number, width: number, group?: string): LayoutEntry => ({ blockVersion: "1.0.0", x, y, width, ...(group && { group }), settings: {} });
+const at = (x: number, y: number, width: number, extra: Partial<LayoutEntry> = {}): LayoutEntry => ({ blockVersion: "1.0.0", x, y, width, settings: {}, ...extra });
 
 export const DEFAULT_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
   blocks: {
-    "timing-tower": at(0, 0, TOWER),
-    "track-map": at(TOWER, 0, MAP),
-    "driver-header": at(RIGHT, 0, PANEL),
-    "speed-gear": at(RIGHT, 1, SPEED, "telemetry"),
-    "throttle-brake-rpm": at(RIGHT + SPEED, 1, PANEL - SPEED, "telemetry"),
-    "speed-trace": at(RIGHT, 2, PANEL, "telemetry"),
-    "lap-times": at(RIGHT, 3, PANEL, "laps"),
-    sectors: at(RIGHT, 4, PANEL, "laps"),
-    "tyre-strip": at(RIGHT, 5, PANEL),
-    "race-feed": at(RIGHT, 6, PANEL),
+    "timing-tower": at(0, 0, TOWER, { height: TOP, settings: { gapMode: "interval" } }),
+    "track-map": at(TOWER, 0, MAP, { height: TOP }),
+    "race-feed": at(TOWER + MAP, 0, FEED),
+    "gap-chart": at(0, 1, CHARTS),
+    battles: at(CHARTS, 1, SIDE),
+    "pit-strategy": at(CHARTS + SIDE, 1, SIDE),
+    "stint-pace": at(0, 2, CHARTS),
   },
 };

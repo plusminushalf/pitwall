@@ -4,6 +4,7 @@ import type { Track } from "../blockkit/select";
 import type { DriverInfo } from "../types";
 import { BUILTIN_BLOCKS } from "./builtins";
 import { DEFAULT_LAYOUT } from "./defaultLayout";
+import { DRIVER_LAYOUT } from "./driverLayout";
 import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
 
 const block = (id: string, height: BlockDefinition["height"], width = { min: 10, default: 20, max: 50 }) =>
@@ -103,15 +104,12 @@ describe("pack", () => {
 });
 
 describe("default layout", () => {
-  // The old screen: the tower and map full height; on the right the header, telemetry, laps, tyres, feed.
-  // From about 610 px (the driver panel and the feed's minimum) up; 767 is 1440x900's grid.
-  const heights = [610, 767, 947, 1427];
+  // Arranged on a 1512 px wide window, whose grid is 776 px tall; from 767 (1440x900's grid) up.
+  const heights = [767, 776, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
-  // Weather is in the top bar; the analysis blocks are added from the block picker.
-  const NOT_IN_DEFAULT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles"];
 
-  test("places every built-in block but those off the default screen once, within its width range", () => {
-    expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_DEFAULT.includes(id)).sort());
+  test("the tower, map and feed, and the analysis blocks, once each and within their width ranges", () => {
+    expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual(["battles", "gap-chart", "pit-strategy", "race-feed", "stint-pace", "timing-tower", "track-map"]);
     expect(DEFAULT_LAYOUT.columns).toBe(COLUMNS);
     for (const [id, e] of Object.entries(DEFAULT_LAYOUT.blocks)) {
       const { min, max } = columnRange(BUILTIN_BLOCKS.get(id)!, COLUMNS);
@@ -139,8 +137,63 @@ describe("default layout", () => {
     }
   });
 
+  test("as arranged: tower and map 21 rows, the gap chart at its least over the stint pace, the feed full height", () => {
+    const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 776));
+    expect([p["timing-tower"].height, p["track-map"].height]).toEqual([420, 420]);
+    // Under them, each below its hairline.
+    for (const id of ["gap-chart", "battles", "pit-strategy"]) expect(p[id].top).toBe(421);
+    expect(p["gap-chart"].height).toBe(p["gap-chart"].contentHeight);
+    expect(p["stint-pace"].top).toBe(bottom(p["gap-chart"]) + 1);
+    expect(p["race-feed"].top).toBe(0);
+    for (const id of ["stint-pace", "battles", "pit-strategy", "race-feed"]) expect(bottom(p[id])).toBe(776);
+  });
+
+  test("the bottom row fits from a 738 px grid; below that it's cut off", () => {
+    const fitsIn = (h: number) => pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), h).every((p) => bottom(p) <= h + 1e-6);
+    expect(fitsIn(738)).toBe(true);
+    expect(fitsIn(737)).toBe(false);
+  });
+});
+
+describe("driver layout", () => {
+  // The old screen: the tower and map full height; on the right the header, telemetry, laps, tyres, feed.
+  // From about 610 px (the driver panel and the feed's minimum) up.
+  const heights = [610, 767, 947, 1427];
+  const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
+  // Weather is in the top bar; the analysis blocks came after it.
+  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles"];
+
+  test("places every built-in block but those off its screen once, within its width range", () => {
+    expect(Object.keys(DRIVER_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
+    expect(DRIVER_LAYOUT.columns).toBe(COLUMNS);
+    for (const [id, e] of Object.entries(DRIVER_LAYOUT.blocks)) {
+      const { min, max } = columnRange(BUILTIN_BLOCKS.get(id)!, COLUMNS);
+      expect(e.width).toBeGreaterThanOrEqual(min);
+      expect(e.width).toBeLessThanOrEqual(max);
+    }
+  });
+
+  test("every column ends flush with the bottom, and no blocks overlap", () => {
+    for (const h of heights) {
+      for (const s of states) {
+        const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, s, h);
+        for (let c = 0; c < COLUMNS; c++) {
+          const inColumn = placed.filter((p) => p.x <= c && c < p.x + p.width);
+          expect(Math.max(...inColumn.map(bottom))).toBeCloseTo(h, 6);
+        }
+        for (const a of placed) {
+          for (const b of placed) {
+            if (a === b) continue;
+            const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.top < bottom(b) - 1e-9 && b.top < bottom(a) - 1e-9;
+            if (overlap) throw new Error(`${a.id} overlaps ${b.id} at ${h} px`);
+          }
+        }
+      }
+    }
+  });
+
   test("tower, map and feed stretch; the driver panel keeps the old screen's heights", () => {
-    const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 1427));
+    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 1427));
     expect(p["timing-tower"].height).toBe(1427);
     expect(p["track-map"].height).toBe(1427);
     // Measured on the old screen (07d720a): chips 33 + header 70.2, telemetry 175.28, laps 87.56, tyres 53. Then the
@@ -155,7 +208,7 @@ describe("default layout", () => {
   });
 
   test("hairlines only where the old screen had them", () => {
-    const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 900));
+    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 900));
     const top = Object.fromEntries(Object.entries(p).map(([id, x]) => [id, x.dividerTop]));
     expect(top).toEqual({
       "timing-tower": false,
@@ -177,9 +230,9 @@ describe("default layout", () => {
 describe("boxes", () => {
   test("neighbours never overlap at any width from 1000 to 2560 px", () => {
     for (const s of [input(), input(22, [63, 12])]) {
-      const placed = pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, s, 800);
+      const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, s, 800);
       for (let width = 1000; width <= 2560; width++) {
-        const boxes = boxesOf(placed, width, DEFAULT_LAYOUT.columns);
+        const boxes = boxesOf(placed, width, DRIVER_LAYOUT.columns);
         for (let i = 0; i < boxes.length; i++) {
           const a = boxes[i];
           expect(a.width).toBeGreaterThan(0);
@@ -195,7 +248,7 @@ describe("boxes", () => {
   });
 
   test("side by side blocks meet exactly; a box includes the hairline above its block", () => {
-    const placed = pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 800);
+    const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(), 800);
     const boxes = boxesOf(placed, 1720, COLUMNS);
     const box = (id: string) => boxes[placed.findIndex((p) => p.id === id)];
     expect(box("speed-gear").left + box("speed-gear").width).toBe(box("throttle-brake-rpm").left);
@@ -203,8 +256,8 @@ describe("boxes", () => {
     expect(box("speed-gear").top).toBeCloseTo(box("driver-header").top + box("driver-header").height, 6);
   });
 
-  test("the default widths at 1720 px are the old screen's, to the nearest column", () => {
-    const placed = pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 800);
+  test("its widths at 1720 px are the old screen's, to the nearest column", () => {
+    const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(), 800);
     const boxes = boxesOf(placed, 1720, COLUMNS);
     const box = (id: string) => boxes[placed.findIndex((p) => p.id === id)];
     const column = 1720 / COLUMNS;
