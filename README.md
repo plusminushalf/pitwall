@@ -5,9 +5,9 @@
   </picture>
 </h1>
 
-Replay any F1 race, sprint or qualifying session since 2023. Built on [OpenF1](https://openf1.org) data. Runs entirely in your browser.
+Replay or follow a live F1 race on a polished timing screen made of blocks you arrange. Replays cover every race, sprint and qualifying session since 2023. Built on [OpenF1](https://openf1.org) data. Runs entirely in your browser.
 
-Or follow one live. Pitwall is a polished timing screen made of blocks you arrange. Each block reads the race its own way: timing, the track map, telemetry, gaps, stint pace, battles, pit stops and more. Anyone can [write a new one](#write-a-block).
+Each block reads the race its own way: timing, the track map, telemetry, gaps, stint pace, battles, pit stops and more. Anyone can [write a new one](#write-a-block).
 
 **Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**
 
