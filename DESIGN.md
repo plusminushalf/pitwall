@@ -191,7 +191,7 @@ Pitwall looks like the timing screens on a real pit wall: a near-black page, pan
 
 The page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and the driver panel, and as driver tags in the feed. The interface never borrows them for chrome.
 
-Motion only shows state. Rows highlight, download fills grow, and tower rows slide when positions change. Nothing animates for its own sake.
+Motion only shows state. Rows highlight, download fills grow, tower rows slide when positions change, and the light on a battle going on now beats while the replay plays. Nothing animates for its own sake.
 
 **Key Characteristics:**
 - Near-black ground (pit-black) with hairline dividers (hairline) instead of cards.
@@ -212,7 +212,7 @@ The palette is greyscale (Tailwind v4's zinc, which leans slightly violet and is
 
 ### Tertiary
 - **Fastest Fuchsia** (fastest-fuchsia): the overall fastest lap or sector, and nothing else. Its absence from home is correct; home shows no results.
-- **Personal-Best Emerald** (personal-best-emerald): a driver's own best lap or sector, positions gained, the playing state of the play button, and the "Kept" check on home.
+- **Personal-Best Emerald** (personal-best-emerald): a driver's own best lap or sector, positions gained, the playing state of the play button, the light on a battle going on at the playhead (Battles, with a faint 5% wash on its row), and the "Kept" check on home.
 - **Caution Amber** (caution-amber): waiting, paused, queued and needs-an-update states. Banners use an amber-500 wash at 10% under caution-wash-text.
 
 ### Neutral
@@ -228,7 +228,7 @@ The palette is greyscale (Tailwind v4's zinc, which leans slightly violet and is
 ### Named Rules
 **The One White Button Rule.** Each screen has at most one filled pale button: whatever can be done right now. On home that is the first Continue row's Resume or Watch, or Watch live while the live row shows. On replay it is the play button. Every other button is grey (button-secondary).
 
-**The One Meaning Rule.** Red means live or destroy. Fuchsia means fastest overall. Emerald means personal best or done. Amber means waiting or attention. Never use these colours for decoration, and never colour by session type.
+**The One Meaning Rule.** Red means live or destroy. Fuchsia means fastest overall. Emerald means personal best or done, and on the replay screen, playing: the play button and what is going on at the playhead. Amber means waiting or attention. Never use these colours for decoration, and never colour by session type.
 
 **The Readable Grey Rule.** Text someone has to read is never darker than secondary-text (zinc-400) on pit-black. zinc-500 and darker are only for borders and separators.
 
@@ -324,7 +324,7 @@ Each session in the season sheet is its own action, 32px tall with a 6px radius.
 - **Do** use tabular figures for every time, size, round and percentage.
 - **Do** let row columns respond to their container (container queries), so the action column always fits.
 - **Do** give every interactive element the 2px zinc-300 focus outline with a 2px offset.
-- **Do** keep motion tied to state: row highlight, progress fills (700ms ease-out), tower reordering (500ms ease-out).
+- **Do** keep motion tied to state: row highlight, progress fills (700ms ease-out), tower reordering (500ms ease-out), a live battle's light (a 2s ring, only while playing, every light on the same beat, none under reduced motion).
 
 ### Don't:
 - **Don't** wrap content in rounded cards or shadowed tiles. Radius is for controls; shadows are for floating popovers only.

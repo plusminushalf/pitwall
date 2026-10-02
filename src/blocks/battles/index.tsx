@@ -37,14 +37,30 @@ const stintStarts = (all: ReadonlyMap<number, readonly StintView[]>) => new Map(
 /** Gaps at the line, to the thousandth like the timing tower. */
 const seconds = (s: number) => `${s.toFixed(3)} s`;
 
+/** Starts a ring's beat on the page clock, so every light in the list beats together however late its battle began. */
+const onBeat = (el: HTMLElement | null) => el?.getAnimations().forEach((a) => (a.startTime = 0));
+
+/** A battle going on at the playhead: a light that beats while the replay plays and holds still while paused. */
+function NowLight({ playing }: { playing: boolean }) {
+  return (
+    <span className="relative flex h-1.5 w-1.5 shrink-0" title="Going on now">
+      {playing && <span ref={onBeat} className="absolute inset-0 rounded-full bg-emerald-400 opacity-75 motion-safe:animate-[ping_2s_cubic-bezier(0,0,0.2,1)_infinite]" />}
+      <span className="relative h-1.5 w-1.5 rounded-full bg-emerald-400" />
+      <span className="sr-only">Now</span>
+    </span>
+  );
+}
+
 function BattleRow({
   b,
   info,
+  playing,
   onBattle,
   onPass,
 }: {
   b: Battle;
   info: Map<number, DriverInfo>;
+  playing: boolean;
   onBattle: (b: Battle) => void;
   onPass: (p: Pass) => void;
 }) {
@@ -67,26 +83,29 @@ function BattleRow({
     outcome = `${name(b.ahead)} ahead, ${why}`;
   }
   return (
-    <li className="border-b border-zinc-900 hover:bg-zinc-900">
+    // Battles going on now sit on a faint wash of their light's colour, so the live ones read as one band above the rest.
+    <li className={`border-b border-zinc-900 ${b.ongoing ? "bg-emerald-400/[0.05] hover:bg-emerald-400/10" : "hover:bg-zinc-900"}`}>
       <button onClick={() => onBattle(b)} className="block w-full px-3 pt-1.5 pb-1 text-left" title={`Jump to 5 s before lap ${b.from}'s line`}>
         <span className="flex items-center gap-1.5">
-          <span className="w-7 text-[11px] font-semibold tabular-nums text-zinc-400" title={`Fighting for P${b.position}`}>
-            P{b.position}
+          <span className="flex w-9 shrink-0 items-center justify-between pr-0.5">
+            <span className="text-[11px] font-semibold tabular-nums text-zinc-400" title={`Fighting for P${b.position}`}>
+              P{b.position}
+            </span>
+            {b.ongoing && <NowLight playing={playing} />}
           </span>
           <DriverTag number={b.ahead} driver={info.get(b.ahead)} />
           <DriverTag number={b.behind} driver={info.get(b.behind)} />
-          {b.ongoing && <span className="rounded bg-zinc-800 px-1.5 text-[11px] font-semibold uppercase leading-4 tracking-wider text-zinc-200">Now</span>}
           <span className="ml-auto text-xs tabular-nums text-zinc-200" title="Closest at the line">
             {seconds(b.closest)}
           </span>
         </span>
-        <span className="mt-0.5 flex gap-1.5 pl-[34px] text-[11px] text-zinc-400">
+        <span className="mt-0.5 flex gap-1.5 pl-[42px] text-[11px] text-zinc-400">
           <span className="shrink-0 tabular-nums">{laps}</span>
           <span className="truncate">{outcome}</span>
         </span>
       </button>
       {b.passes.length > 0 && (
-        <div className="flex flex-wrap gap-1 pb-1.5 pl-[46px] pr-3">
+        <div className="flex flex-wrap gap-1 pb-1.5 pl-[54px] pr-3">
           {b.passes.map((p) => (
             <button
               key={`${p.lap}-${p.by}`}
@@ -117,6 +136,7 @@ function Battles() {
   const selected = useSelection((s) => s.selected);
   const focus = useSelection((s) => s.focus);
   const seek = usePlayback((p) => p.seek);
+  const playing = usePlayback((p) => p.playing);
   const [{ gap, minLaps, show }, update] = useSettings<Settings>();
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
 
@@ -189,7 +209,7 @@ function Battles() {
           </li>
         )}
         {shown.map((b) => (
-          <BattleRow key={b.key} b={b} info={info} onBattle={onBattle} onPass={onPass} />
+          <BattleRow key={b.key} b={b} info={info} playing={playing} onBattle={onBattle} onPass={onPass} />
         ))}
       </ol>
     </section>
