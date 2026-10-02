@@ -5,6 +5,7 @@
 
 import type { BlockDefinition } from "../blockkit/defineBlock";
 import { blockIdOf, columnRange, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type LayoutEntry, type Placement } from "./layout";
+import { gridKind } from "./storage";
 
 export interface EditContext {
   blocks: ReadonlyMap<string, BlockDefinition>;
@@ -302,11 +303,12 @@ export function newKey(layout: Layout, blockId: string): string {
  * Its entry: blockVersion = block.version, settings {}, no group (and `block` if the key isn't the block's id).
  *
  * "Free room" is first the empty space on screen (e.g. under the blocks of a column without a stretching block);
- * if the block fits in none, the room stretching blocks can give up (pack at height 0). Race blocks only.
+ * if the block fits in none, the room stretching blocks can give up (pack at height 0). Blocks for the session's
+ * kind (ctx.input.info.kind) only.
  */
 export function addBlock(layout: Layout, ctx: EditContext, blockId: string, slot?: Slot): Layout | null {
   const block = ctx.blocks.get(blockId);
-  if (!block || !block.sessions.includes("race")) return null;
+  if (!block || !block.sessions.includes(gridKind(ctx.input.info.kind))) return null;
   const id = newKey(layout, blockId);
   const { columns } = layout;
   const range = columnRange(block, columns);

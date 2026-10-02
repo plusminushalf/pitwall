@@ -34,7 +34,7 @@ export default defineBlock({
   version: "1.0.0",
   height: 72,
   width: { min: 8, default: 10, max: 25 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: {},
   Component: Weather,
 });

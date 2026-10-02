@@ -1,10 +1,16 @@
-import { useMemo } from "react";
+// The timing board beside the lap comparison: qualifying's (the result, and each segment's standings, with the
+// knock-out lines), or practice's classification by best lap. Clicking a driver adds them to the comparison,
+// clicking a time compares that lap.
+
+import { useMemo, type ReactNode } from "react";
+import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { compareModel } from "../../data/compare";
+import type { Tyre } from "../../data/practice";
 import type { Session } from "../../data/session";
 import { compareStyles } from "../../lib/compareColors";
 import { lapTime, shortTeam, teamColor } from "../../lib/format";
 import { MAX_COMPARE, useQuali, type BoardTab } from "../../qualiStore";
 import { useReplay } from "../../store";
-import type { QualiResult } from "../../types";
 import { Swatch } from "./CompareCharts";
 
 const ROW = "grid items-center gap-1 pl-5 pr-2";
@@ -30,6 +36,24 @@ function Tabs({ session }: { session: Session }) {
   );
 }
 
+/**
+ * A row of standings by best lap. `count`: laps (push laps in a qualifying segment, laps run in practice), `deleted`:
+ * lap times race control deleted, `tyre`: practice's best lap's tyre.
+ */
+interface Standing {
+  driver: number;
+  time: number | null;
+  lap: number | null;
+  count: number;
+  deleted: { lap: number; reason: string }[];
+  tyre?: Tyre | null;
+}
+
+/** Practice has one table: its title where qualifying's tabs are. */
+function Title({ children }: { children: ReactNode }) {
+  return <div className="flex h-8 shrink-0 items-center border-b border-zinc-800 px-4 text-xs font-semibold text-zinc-100">{children}</div>;
+}
+
 /** Divider above the first driver knocked out in a segment. */
 function Cutoff({ label }: { label: string }) {
   return (
@@ -46,7 +70,7 @@ export function QualiBoard() {
   const selected = useReplay((s) => s.selected);
   const board = useQuali((s) => s.board);
   const meta = session.meta;
-  const q = meta.quali!;
+  const q = meta.quali;
   const styles = useMemo(() => {
     const st = compareStyles(selected.map((n) => session.drivers.get(n)?.info));
     return new Map(selected.map((n, i) => [n, st[i]]));
@@ -68,11 +92,11 @@ export function QualiBoard() {
     useQuali.getState().setLap(n, lap);
   };
 
-  const segBest = q.segments.map((_, k) => Math.min(...q.results.map((r) => r.times[k] ?? Infinity)));
+  const segBest = q ? q.segments.map((_, k) => Math.min(...q.results.map((r) => r.times[k] ?? Infinity))) : [];
   const full = selected.length >= MAX_COMPARE;
 
-  const driverCell = (r: QualiResult) => {
-    const d = session.drivers.get(r.driver)!.info;
+  const driverCell = (n: number) => {
+    const d = session.drivers.get(n)!.info;
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="h-4 w-1 shrink-0 rounded-sm" style={{ background: teamColor(d.teamColour) }} />
@@ -96,8 +120,68 @@ export function QualiBoard() {
     );
   };
 
-  let body: React.ReactNode;
-  if (board === "result") {
+  /** Standings by best lap: a qualifying segment's, or practice's for the session. */
+  const standings = (rows: Standing[], o: { what: string; countTitle: string; cutoff?: { at: number; label: string }; tyres?: boolean }) => {
+    const cols = o.tyres ? "grid-cols-[26px_minmax(0,1fr)_60px_50px_34px_40px]" : "grid-cols-[26px_minmax(0,1fr)_62px_54px_36px]";
+    const leader = rows[0]?.time ?? null;
+    return (
+      <>
+        <div className={`${ROW} ${cols} border-b border-zinc-800 py-1.5 ${HEAD}`}>
+          <span>Pos</span>
+          <span>Driver</span>
+          <span className="text-right">Best</span>
+          <span className="text-right">Gap</span>
+          {o.tyres && <span title="The tyre the best lap was set on, and its age">Tyre</span>}
+          <span className="text-right" title={o.countTitle}>
+            Laps
+          </span>
+        </div>
+        {rows.map((r, i) => {
+          const t = r.time;
+          return (
+            <div key={r.driver}>
+              {o.cutoff && i === o.cutoff.at && <Cutoff label={o.cutoff.label} />}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => (t != null && !selected.includes(r.driver) ? pick(r.driver, r.lap) : toggle(r.driver))}
+                onKeyDown={(e) => e.key === "Enter" && toggle(r.driver)}
+                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm`}
+                title={
+                  selected.includes(r.driver)
+                    ? "Remove from the comparison"
+                    : t != null
+                      ? `Compare ${session.drivers.get(r.driver)!.info.acronym}'s best ${o.what}lap (lap ${r.lap})`
+                      : undefined
+                }
+              >
+                {check(r.driver)}
+                <span className="font-bold tabular-nums">{t != null ? i + 1 : "–"}</span>
+                {driverCell(r.driver)}
+                <span className={`text-right text-xs tabular-nums ${t == null ? "text-zinc-600" : i === 0 ? "text-fuchsia-400" : "text-zinc-200"}`}>{t != null ? lapTime(t) : "no time"}</span>
+                <span className="text-right text-xs tabular-nums text-zinc-400">{t != null && leader != null && i > 0 ? `+${(t - leader).toFixed(3)}` : ""}</span>
+                {o.tyres && <span className="flex items-center">{r.tyre && <TyreBadge compound={r.tyre.compound} age={r.tyre.age} size={14} />}</span>}
+                <span className="text-right text-xs tabular-nums text-zinc-400" title={r.deleted.map((l) => `Lap ${l.lap}: ${l.reason.toLowerCase()}`).join("\n") || undefined}>
+                  {r.count}
+                  {r.deleted.length > 0 && <span className="ml-0.5 text-red-400">✕{r.deleted.length}</span>}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </>
+    );
+  };
+
+  let body: ReactNode;
+  if (!q) {
+    // Practice: the classification at the flag.
+    const model = compareModel(meta)!;
+    body = standings(
+      model.classification.map((r) => ({ driver: r.driver, time: r.best, lap: r.lap, count: r.laps, deleted: r.deleted, tyre: r.lap != null ? model.tyre(r.driver, r.lap) : null })),
+      { what: "", countTitle: "Laps run (lap times deleted)", tyres: true },
+    );
+  } else if (board === "result") {
     const cols = "grid-cols-[26px_minmax(0,1fr)_62px_62px_62px]";
     body = (
       <>
@@ -126,7 +210,7 @@ export function QualiBoard() {
               >
                 {check(r.driver)}
                 <span className="font-bold tabular-nums">{r.position ?? "–"}</span>
-                {driverCell(r)}
+                {driverCell(r.driver)}
                 {q.segments.map((s, k) => {
                   const t = r.times[k];
                   const fastest = t != null && Math.abs(t - segBest[k]) < 1e-6;
@@ -154,62 +238,25 @@ export function QualiBoard() {
   } else {
     const k = board - 1;
     const seg = q.segments[k];
-    const cols = "grid-cols-[26px_minmax(0,1fr)_62px_54px_36px]";
     const rows = q.results
       .filter((r) => r.eliminated == null || r.eliminated >= seg.number)
-      .sort((a, b) => (a.times[k] ?? Infinity) - (b.times[k] ?? Infinity) || (a.position ?? 99) - (b.position ?? 99));
-    const leader = rows[0]?.times[k] ?? null;
-    body = (
-      <>
-        <div className={`${ROW} ${cols} border-b border-zinc-800 py-1.5 ${HEAD}`}>
-          <span>Pos</span>
-          <span>Driver</span>
-          <span className="text-right">Best</span>
-          <span className="text-right">Gap</span>
-          <span className="text-right" title="Timed push laps (deleted)">Laps</span>
-        </div>
-        {rows.map((r, i) => {
-          const t = r.times[k];
-          const own = q.laps.filter((l) => l.driver === r.driver && l.segment === seg.number && !l.afterFlag);
-          const push = own.filter((l) => l.kind === "push").length;
-          const deleted = own.filter((l) => l.deleted);
-          return (
-            <div key={r.driver}>
-              {seg.advance != null && i === seg.advance && <Cutoff label={`Out in ${seg.name}`} />}
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => (t != null && !selected.includes(r.driver) ? pick(r.driver, r.laps[k]) : toggle(r.driver))}
-                onKeyDown={(e) => e.key === "Enter" && toggle(r.driver)}
-                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm`}
-                title={
-                  selected.includes(r.driver)
-                    ? "Remove from the comparison"
-                    : t != null
-                      ? `Compare ${session.drivers.get(r.driver)!.info.acronym}'s best ${seg.name} lap (lap ${r.laps[k]})`
-                      : undefined
-                }
-              >
-                {check(r.driver)}
-                <span className="font-bold tabular-nums">{t != null ? i + 1 : "–"}</span>
-                {driverCell(r)}
-                <span className={`text-right text-xs tabular-nums ${t == null ? "text-zinc-600" : i === 0 ? "text-fuchsia-400" : "text-zinc-200"}`}>{t != null ? lapTime(t) : "no time"}</span>
-                <span className="text-right text-xs tabular-nums text-zinc-400">{t != null && leader != null && i > 0 ? `+${(t - leader).toFixed(3)}` : ""}</span>
-                <span className="text-right text-xs tabular-nums text-zinc-400" title={deleted.map((l) => `Lap ${l.lap}: ${l.deleted?.toLowerCase()}`).join("\n") || undefined}>
-                  {push}
-                  {deleted.length > 0 && <span className="ml-0.5 text-red-400">✕{deleted.length}</span>}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </>
-    );
+      .sort((a, b) => (a.times[k] ?? Infinity) - (b.times[k] ?? Infinity) || (a.position ?? 99) - (b.position ?? 99))
+      .map((r) => {
+        const own = q.laps.filter((l) => l.driver === r.driver && l.segment === seg.number && !l.afterFlag);
+        return {
+          driver: r.driver,
+          time: r.times[k],
+          lap: r.laps[k],
+          count: own.filter((l) => l.kind === "push").length,
+          deleted: own.flatMap((l) => (l.deleted ? [{ lap: l.lap, reason: l.deleted }] : [])),
+        };
+      });
+    body = standings(rows, { what: `${seg.name} `, countTitle: "Timed push laps (deleted)", cutoff: seg.advance != null ? { at: seg.advance, label: `Out in ${seg.name}` } : undefined });
   }
 
   return (
     <div className="flex h-full flex-col text-sm">
-      <Tabs session={session} />
+      {q ? <Tabs session={session} /> : <Title>Classification</Title>}
       <div className="flex h-7 shrink-0 items-center border-b border-zinc-800 px-2 text-[11px] text-zinc-500">
         {selected.length > 0 ? (
           <span>

@@ -1,3 +1,4 @@
+import { TyreBadge } from "../../blockkit/ui/TyreBadge";
 import { topSpeed } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";
@@ -51,6 +52,19 @@ export function SectorTable({ entries }: { entries: CompareEntry[] }) {
             {i === 0 && <span className="text-[9px] font-semibold text-zinc-500">REF</span>}
           </span>
         ))}
+        {entries.some((e) => e.tyre) && (
+          // Practice: what each lap was on (a new soft against old hards isn't a fair fight).
+          <div className="contents">
+            <span className={LABEL} title="Compound, and laps on the set at the start of the lap">
+              Tyre
+            </span>
+            {entries.map((e) => (
+              <span key={e.driver} className="flex justify-end">
+                {e.tyre && <TyreBadge compound={e.tyre.compound} age={e.tyre.age} size={14} />}
+              </span>
+            ))}
+          </div>
+        )}
         {rows.map((r) => {
           const present = r.values.filter((v): v is number => v != null);
           const best = present.length ? (r.better === "low" ? Math.min(...present) : Math.max(...present)) : null;

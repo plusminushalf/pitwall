@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { rowForKey, rowState, useLibrary } from "../library";
-import { saveWatched, useReplay } from "../store";
+import { comparing, saveWatched, useReplay } from "../store";
 import { readUrl, upgradeUrl, urlFor } from "../url";
 
 /** Browsers rate-limit history.replaceState (Safari throws past ~100 calls per 30 s). */
@@ -22,7 +22,7 @@ export function applyUrl() {
   }
   // Off Home already, so opening doesn't push an entry.
   useReplay.setState({ view: "replay" });
-  const opts = { t: url.t, drivers: url.drivers, focus: url.focus };
+  const opts = { t: url.t, drivers: url.drivers, focus: url.focus, view: url.view };
   if (url.live) {
     library.setLink(null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
@@ -55,6 +55,8 @@ export function useUrlSync() {
   const second = useReplay((s) => (s.mode === "live" && s.followLive ? -1 : Math.floor(s.t / 1000)));
   const selected = useReplay((s) => s.selected);
   const focused = useReplay((s) => s.focused);
+  // Practice's Fastest laps (qualifying is always the comparison: nothing to say).
+  const laps = useReplay((s) => comparing(s) && s.session?.meta.practice != null);
   const lastWrite = useRef(0);
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export function useUrlSync() {
           watchedTo: s.watchedTo,
         });
       }
-      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused });
+      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined });
       if (url === location.pathname + location.search) return;
       lastWrite.current = performance.now();
       // Keeps the entry's state (whether it was opened from Home).
@@ -86,5 +88,5 @@ export function useUrlSync() {
     }
     const id = setTimeout(write, wait);
     return () => clearTimeout(id);
-  }, [view, session, live, second, selected, focused]);
+  }, [view, session, live, second, selected, focused, laps]);
 }

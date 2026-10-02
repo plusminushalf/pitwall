@@ -1,5 +1,5 @@
-// Live data from OpenF1 (sponsor tier): polls for the current session, and while a race or sprint
-// is on, backfills it over REST and follows it over MQTT (secure WebSocket).
+// Live data from OpenF1 (sponsor tier): polls for the current session, and while a race, sprint or
+// free practice session is on, backfills it over REST and follows it over MQTT (secure WebSocket).
 
 import mqtt, { type MqttClient } from "mqtt";
 import {
@@ -51,6 +51,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const iso = (t: number) => new Date(t).toISOString();
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A session the relay follows: a race, sprint or free practice that goes ahead. */
 export const isRaceSession = (s: RawSession) => isFollowedLive(s) && !s.is_cancelled;
 
 /** Within [scheduled start - 15 min, scheduled end + 30 min]. */
@@ -108,7 +109,7 @@ export class OpenF1Source {
     }
   }
 
-  /** The next race or sprint that hasn't started (this year, else next year). */
+  /** The next race, sprint or free practice that hasn't started (this year, else next year). */
   private async nextRace(now: number): Promise<LiveStatus["next"]> {
     if (this.next && now - this.next.at < NEXT_REFRESH_MS && (!this.next.value || Date.parse(this.next.value.dateStart) > now)) {
       return this.next.value;
@@ -116,7 +117,7 @@ export class OpenF1Source {
     const year = new Date(now).getUTCFullYear();
     let value: LiveStatus["next"] = null;
     for (const y of [year, year + 1]) {
-      const sessions = await fetchEndpoint<RawSession>("sessions", { year: y, session_type: "Race" });
+      const sessions = await fetchEndpoint<RawSession>("sessions", { year: y });
       const s = sessions
         .filter((x) => isRaceSession(x) && Date.parse(x.date_start) > now)
         .sort((a, b) => a.date_start.localeCompare(b.date_start))[0];

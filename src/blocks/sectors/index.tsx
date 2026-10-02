@@ -71,7 +71,7 @@ export default defineBlock({
   version: "1.0.0",
   height: 8 + CELL_H + 8,
   width: { min: 12, default: 21, max: 40 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: Sectors,
 });

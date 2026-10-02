@@ -4,11 +4,17 @@
 // stops; the race feed down the right, full height. The driver panel's blocks and weather (it's in the top
 // bar) are in the block picker.
 //
+// Free practice (saved as a layout of its own) is laid out the same way: the session at a glance on top (the tower,
+// its gaps to the fastest lap, and the map), and under them what practice is watched for: long runs (the race
+// simulations) under the tower and the stint pace (a driver's laps on each set) under the map; the feed down the
+// right.
+//
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
 // hairlines over them; 1440x900's grid is 767); on a shorter window it's cut off, as for any layout.
 
 import { COLUMNS, ROW, type Layout, type LayoutEntry } from "./layout";
+import type { GridKind } from "./storage";
 
 /** The tower's and the map's height: 21 rows, set like a height chosen in edit mode. */
 const TOP = 21 * ROW;
@@ -34,3 +40,17 @@ export const DEFAULT_LAYOUT: Layout = {
     "stint-pace": at(0, 2, CHARTS),
   },
 };
+
+export const PRACTICE_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  blocks: {
+    "timing-tower": at(0, 0, TOWER, { height: TOP }),
+    "track-map": at(TOWER, 0, MAP, { height: TOP }),
+    "race-feed": at(TOWER + MAP, 0, FEED),
+    "long-runs": at(0, 1, TOWER),
+    "stint-pace": at(TOWER, 1, MAP),
+  },
+};
+
+export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = { race: DEFAULT_LAYOUT, practice: PRACTICE_LAYOUT };

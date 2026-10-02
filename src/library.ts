@@ -7,17 +7,17 @@
 // streamUpdate), telling the download where it's watched (onStreamWatch) so the telemetry comes from there on.
 
 import { create } from "zustand";
-import { FORMAT_VERSION } from "../scripts/lib/formatVersion";
+import { isCurrentFormat } from "../scripts/lib/formatVersion";
 import { LiveWindowError, seedRequestStarts, setRequestObserver } from "../scripts/lib/openf1Http";
 import { FIRST_YEAR, isIngestible, LIVE_WINDOW_MARGIN_MS } from "../scripts/lib/season";
 import type { RawMeeting, RawSession } from "../scripts/lib/openf1Types";
-import { buildCatalog, catalogFresh, fetchCatalog, fetchSessionInfo, liveWindowNow, windowLabel, type Catalog, type CatalogRow } from "./ingest/catalog";
+import { buildCatalog, catalogFresh, fetchCatalog, fetchSessionInfo, liveWindowNow, windowLabel, withCurrentRows, type Catalog, type CatalogRow } from "./ingest/catalog";
 import { assumedDrivers, cacheProgress, estimate, expectedRawFiles, layoutOf, placeholderFiles, sizeScale, type CacheProgress } from "./ingest/eta";
 import type { FailureKind, FromWorker } from "./ingest/protocol";
 import { loadLearned, noteRequest, recentRequests, runJob, type JobInfo, type Progress, type RunHandle } from "./ingest/runner";
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
-import { clock, onStreamWatch, useReplay } from "./store";
+import { clock, onStreamWatch, useReplay, type OpenOpts } from "./store";
 import { getVault } from "./vault/client";
 
 export { FIRST_YEAR };
@@ -25,12 +25,8 @@ export { FIRST_YEAR };
 export const currentYear = () => new Date().getUTCFullYear();
 export const YEARS = Array.from({ length: currentYear() - FIRST_YEAR + 1 }, (_, i) => FIRST_YEAR + i);
 
-/** Where to open a session once it's ready (from a shared link: time in ms, drivers). */
-export interface WatchOpts {
-  t?: number;
-  drivers?: number[];
-  focus?: number | null;
-}
+/** Where to open a session once it's ready (from a shared link: time in ms, drivers, practice's screen). */
+export type WatchOpts = OpenOpts;
 
 export type JobPhase = "queued" | "paused" | "downloading" | "processing" | "done" | "failed" | "cancelled";
 
@@ -69,8 +65,8 @@ export interface Lookup {
   error: string | null;
 }
 
-/** Session types shown in the calendar: everything, races + sprints, or (sprint) qualifying. */
-export type RaceFilter = "all" | "Race" | "Qualifying";
+/** Session types shown in the calendar: everything, races + sprints, (sprint) qualifying, or free practice. */
+export type RaceFilter = "all" | "Race" | "Qualifying" | "Practice";
 
 export const isActive = (phase: JobPhase) => phase === "queued" || phase === "paused" || phase === "downloading" || phase === "processing";
 export const isRunning = (phase: JobPhase) => phase === "downloading" || phase === "processing";
@@ -157,8 +153,11 @@ export function jobInfo(row: CatalogRow, mode: JobInfo["mode"]): JobInfo {
   return { key: row.sessionKey, label: labelOf(row), sessionType: row.sessionType, year: row.year, dateStart: row.dateStart, dateEnd: row.dateEnd, mode };
 }
 
+/** A session's slot when only its start is known: practice is an hour, the rest are given two. */
+const slotMs = (sessionType: string) => (sessionType === "Practice" ? 1 : 2) * 3600_000;
+
 function entryInfo(e: LibraryEntry): JobInfo {
-  const end = new Date(Date.parse(e.dateStart) + 2 * 3600_000).toISOString();
+  const end = new Date(Date.parse(e.dateStart) + slotMs(e.sessionType)).toISOString();
   return { key: e.sessionKey, label: labelOf(e), sessionType: e.sessionType, year: e.year, dateStart: e.dateStart, dateEnd: end, mode: "reprocess" };
 }
 
@@ -219,7 +218,7 @@ export function rowState(
   const remote = s.remote[key];
   if (remote && now - remote.at < REMOTE_STALE_MS) return { kind: "remote", job: remote };
   const entry = s.entries[key];
-  if (entry) return entry.format === FORMAT_VERSION ? { kind: "ready", entry } : { kind: "stale", entry };
+  if (entry) return isCurrentFormat(entry) ? { kind: "ready", entry } : { kind: "stale", entry };
   if (job?.phase === "failed") return { kind: "job", job, cache: partial };
   if (row.cancelled) return { kind: "cancelled" };
   if (Date.parse(row.dateEnd) > now) return { kind: "upcoming" };
@@ -251,7 +250,7 @@ export function rowForKey(key: number, s: Pick<LibraryState, "years" | "entries"
       round: null,
       year: e.year,
       dateStart: e.dateStart,
-      dateEnd: new Date(Date.parse(e.dateStart) + 2 * 3600_000).toISOString(),
+      dateEnd: new Date(Date.parse(e.dateStart) + slotMs(e.sessionType)).toISOString(),
       circuit: e.circuit,
       country: e.country,
       cancelled: false,
@@ -301,7 +300,10 @@ export const useLibrary = create<LibraryState>((set, get) => {
     const prev = get().years[year];
     const setYear = (y: YearState) => set({ years: { ...get().years, [year]: y } });
     let catalog = prev?.catalog ?? null;
-    if (!catalog && get().supported) catalog = (await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined)) ?? null;
+    if (!catalog && get().supported) {
+      const cached = await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined);
+      catalog = cached ? withCurrentRows(cached) : null;
+    }
     if (catalog && catalogFresh(catalog) && !force) {
       setYear({ catalog, loading: false, error: null });
       return;
@@ -447,7 +449,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     }
     // Done meanwhile (e.g. by another tab)?
     const existing = await store().entry(key);
-    if (existing?.format === FORMAT_VERSION) return finished(key, existing);
+    if (existing && isCurrentFormat(existing)) return finished(key, existing);
 
     const learned = loadLearned();
     setJob(key, { phase: info.mode === "reprocess" ? "processing" : "downloading", notice: null, error: null, errorKind: null, resumeAt: null });
@@ -604,7 +606,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           // Downloaded by another tab meanwhile: done here (a race watched here opens), not left queued behind its lock.
           for (const key of get().queue) {
             const entry = get().entries[key];
-            if (entry?.format === FORMAT_VERSION && running?.key !== key && get().jobs[key]?.info.mode === "download") void finished(key, entry);
+            if (entry && isCurrentFormat(entry) && running?.key !== key && get().jobs[key]?.info.mode === "download") void finished(key, entry);
           }
         });
       void get().refreshUsage();
@@ -731,14 +733,14 @@ export const useLibrary = create<LibraryState>((set, get) => {
           if (get().years[year]?.catalog) continue;
           const cached = await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined);
           if (cached) {
-            set({ years: { ...get().years, [year]: { catalog: cached, loading: false, error: null } } });
+            set({ years: { ...get().years, [year]: { catalog: withCurrentRows(cached), loading: false, error: null } } });
             row = find();
           }
         }
         if (!row) {
           const info = await fetchSessionInfo(key);
           if (!info) throw new Error(`OpenF1 has no session ${key}.`);
-          if (!isIngestible(info)) throw new Error(`Session ${key} is ${info.session_name} (${info.country_name} ${info.year}); only races, sprints and qualifying can be replayed.`);
+          if (!isIngestible(info)) throw new Error(`Session ${key} is ${info.session_name} (${info.country_name} ${info.year}); only races, sprints, qualifying and free practice can be replayed.`);
           await get().loadYear(info.year);
           row = find();
           if (!row) throw new Error(get().years[info.year]?.error ?? `Couldn't find session ${key} in the ${info.year} calendar.`);

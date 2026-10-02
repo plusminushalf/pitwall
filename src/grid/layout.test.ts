@@ -3,7 +3,7 @@ import type { BlockDefinition, HeightInput } from "../blockkit/defineBlock";
 import type { Track } from "../blockkit/select";
 import type { DriverInfo } from "../types";
 import { BUILTIN_BLOCKS } from "./builtins";
-import { DEFAULT_LAYOUT } from "./defaultLayout";
+import { DEFAULT_LAYOUT, PRACTICE_LAYOUT } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
 
@@ -160,8 +160,8 @@ describe("driver layout", () => {
   // From about 610 px (the driver panel and the feed's minimum) up.
   const heights = [610, 767, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
-  // Weather is in the top bar; the analysis blocks came after it.
-  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles"];
+  // Weather is in the top bar; the analysis blocks (and practice's long runs) came after it.
+  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs"];
 
   test("places every built-in block but those off its screen once, within its width range", () => {
     expect(Object.keys(DRIVER_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
@@ -224,6 +224,96 @@ describe("driver layout", () => {
     });
     const left = Object.entries(p).filter(([, x]) => x.dividerLeft).map(([id]) => id).sort();
     expect(left).toEqual(["driver-header", "lap-times", "race-feed", "sectors", "speed-gear", "speed-trace", "track-map", "tyre-strip"]);
+  });
+});
+
+describe("practice's default layout", () => {
+  // From 610 px up; 767 is 1440x900's grid and 867 1720x1000's (the user's window).
+  const heights = [610, 767, 867, 947, 1427];
+  const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
+
+  test("the tower, map and feed, long runs and stint pace, once each and within their width ranges", () => {
+    expect(Object.keys(PRACTICE_LAYOUT.blocks).sort()).toEqual(["long-runs", "race-feed", "stint-pace", "timing-tower", "track-map"]);
+    expect(PRACTICE_LAYOUT.columns).toBe(COLUMNS);
+    for (const [id, e] of Object.entries(PRACTICE_LAYOUT.blocks)) {
+      const block = BUILTIN_BLOCKS.get(id)!;
+      expect(block.sessions).toContain("practice");
+      const { min, max } = columnRange(block, COLUMNS);
+      expect(e.width).toBeGreaterThanOrEqual(min);
+      expect(e.width).toBeLessThanOrEqual(max);
+    }
+  });
+
+  test("every column ends flush with the bottom, and no blocks overlap", () => {
+    for (const h of heights) {
+      for (const s of states) {
+        const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, s, h);
+        expect(placed).toHaveLength(Object.keys(PRACTICE_LAYOUT.blocks).length);
+        for (let c = 0; c < COLUMNS; c++) {
+          const inColumn = placed.filter((p) => p.x <= c && c < p.x + p.width);
+          expect(Math.max(...inColumn.map(bottom))).toBeCloseTo(h, 6);
+        }
+        for (const a of placed) {
+          for (const b of placed) {
+            if (a === b) continue;
+            const overlap = a.x < b.x + b.width && b.x < a.x + a.width && a.top < bottom(b) - 1e-9 && b.top < bottom(a) - 1e-9;
+            if (overlap) throw new Error(`${a.id} overlaps ${b.id} at ${h} px`);
+          }
+        }
+      }
+    }
+  });
+
+  test("the race screen's top (tower, map, feed), with long runs under the tower and the stint pace under the map", () => {
+    const race = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 767));
+    const p = byId(pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(), 767));
+    for (const id of ["timing-tower", "track-map", "race-feed"]) {
+      expect([p[id].x, p[id].width, p[id].top, p[id].height]).toEqual([race[id].x, race[id].width, race[id].top, race[id].height]);
+    }
+    // Practice's tower shows the gap to the fastest lap (the block's default), not the race's interval.
+    expect(PRACTICE_LAYOUT.blocks["timing-tower"].settings).toEqual({});
+    expect([p["long-runs"].x, p["long-runs"].width]).toEqual([p["timing-tower"].x, p["timing-tower"].width]);
+    expect([p["stint-pace"].x, p["stint-pace"].width]).toEqual([p["track-map"].x, p["track-map"].width]);
+    for (const id of ["long-runs", "stint-pace"]) {
+      expect(p[id].top).toBe(421);
+      expect(bottom(p[id])).toBe(767);
+    }
+  });
+
+  test("readable at 1440x900 and 1720x1000: long runs over 560 px wide and 340 px tall", () => {
+    for (const [width, h] of [
+      [1440, 767],
+      [1720, 867],
+    ]) {
+      const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), h);
+      const boxes = boxesOf(placed, width, COLUMNS);
+      const box = (id: string) => boxes[placed.findIndex((q) => q.id === id)];
+      expect(box("long-runs").width).toBeGreaterThanOrEqual(560);
+      expect(box("long-runs").height).toBeGreaterThanOrEqual(340);
+      expect(box("stint-pace").width).toBeGreaterThanOrEqual(560);
+    }
+  });
+
+  test("the bottom row fits from a 581 px grid; below that it's cut off", () => {
+    const fitsIn = (h: number) => pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(), h).every((q) => bottom(q) <= h + 1e-6);
+    expect(fitsIn(581)).toBe(true);
+    expect(fitsIn(580)).toBe(false);
+  });
+
+  test("neighbours never overlap at any width from 1000 to 2560 px", () => {
+    const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12]), 800);
+    for (let width = 1000; width <= 2560; width++) {
+      const boxes = boxesOf(placed, width, COLUMNS);
+      for (let i = 0; i < boxes.length; i++) {
+        const a = boxes[i];
+        expect(a.width).toBeGreaterThan(0);
+        for (let j = i + 1; j < boxes.length; j++) {
+          const b = boxes[j];
+          const overlap = a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height - 1e-9 && b.top < a.top + a.height - 1e-9;
+          if (overlap) throw new Error(`${placed[i].id} overlaps ${placed[j].id} at ${width} px`);
+        }
+      }
+    }
   });
 });
 

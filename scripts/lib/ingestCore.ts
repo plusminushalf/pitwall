@@ -10,7 +10,7 @@
 // Requests run concurrently (IngestIO.concurrency at once; the rate limiter behind fetchEndpoint is the real
 // limit), started in a fixed order: sessions, then meeting (and the circuit map as soon as the meeting says where
 // it is), drivers and the other session files, then the telemetry, in time slices of every car (slices.ts) planned
-// from the laps and race control (and, qualifying, the pit stops): a short first slice at the playhead right after
+// from the laps and race control (and, qualifying and practice, the pit stops): a short first slice at the playhead right after
 // them, then the other session files (positions, intervals and stints first: a replay needs them to start), then
 // slice after slice from wherever the session is being watched (IngestIO.playhead), so a race can be watched while
 // it downloads (the worker streams it, src/ingest/stream.ts). Downloads begun before slices carry on with one
@@ -38,7 +38,9 @@ import type {
 } from "./openf1Types";
 import type { SessionIndexEntry } from "../../src/types";
 import { encodeTelemetry, normalize, replayWindow, type RawSessionData } from "./normalize";
+import { buildPracticeTraces, preparePracticeLaps } from "./practice";
 import { buildQuali, prepareQualiLaps } from "./quali";
+import { isIngestible } from "./season";
 import { readCache, writeCache, type RawCacheIO } from "./rawCache";
 import {
   isPerDriverFile,
@@ -53,7 +55,7 @@ import {
   type Span,
 } from "./slices";
 
-export { FORMAT_VERSION } from "./formatVersion";
+export { formatVersion } from "./formatVersion";
 
 export interface IngestIO extends RawCacheIO {
   fetchEndpoint<T>(endpoint: string, params: Record<string, string | number>): Promise<T[]>;
@@ -96,7 +98,7 @@ export interface IngestTimings {
   rawWrite: number;
   /** Read + gunzip + JSON.parse of cached raw responses. */
   cacheRead: number;
-  /** normalize() plus the qualifying pass. */
+  /** normalize() plus the qualifying pass (practice: the lap traces). */
   normalize: number;
   /** encodeTelemetry + JSON.stringify of the output files. */
   encode: number;
@@ -270,8 +272,8 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   onEvent?.({ kind: "phase", phase: "download" });
   const [session] = await get<RawSession>("sessions");
   if (!session) throw new Error(`Session ${sessionKey} not found`);
-  if (session.session_type !== "Race" && session.session_type !== "Qualifying") {
-    throw new Error(`Session ${sessionKey} is "${session.session_name}" (${session.session_type}); only races, sprints and qualifying are supported`);
+  if (!isIngestible(session)) {
+    throw new Error(`Session ${sessionKey} is "${session.session_name}" (${session.session_type}); only races, sprints, qualifying and free practice are supported`);
   }
 
   async function circuitInfo(meeting: RawMeeting | undefined): Promise<RawCircuit | null> {
@@ -297,6 +299,9 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     }
   }
   const isQuali = session.session_type === "Qualifying";
+  const isPractice = session.session_type === "Practice";
+  /** Laps as the replay window is worked out from them (normalize prepares practice laps itself). */
+  const windowLaps = (laps: RawLap[], pits: RawPit[]) => (isQuali ? prepareQualiLaps(laps, pits) : isPractice ? preparePracticeLaps(laps, pits) : laps);
   const stored = (await io.rawFiles?.(rawDir)) ?? [];
   // In slices, unless a download from before slices left per-driver files to resume from.
   const sliced = !stored.some(isPerDriverFile);
@@ -323,8 +328,8 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     positionsP = doc<RawPosition>("position");
     intervalsP = doc<RawInterval>("intervals");
     stintsP = doc<RawStint>("stints");
-    // Qualifying's window comes from its laps as prepared with the pit stops (quali.ts): before the first slice.
-    pitsP = isQuali ? task(() => get<RawPit>("pit")) : doc<RawPit>("pit");
+    // Qualifying's and practice's windows come from their laps as prepared with the pit stops: before the first slice.
+    pitsP = isQuali || isPractice ? task(() => get<RawPit>("pit")) : doc<RawPit>("pit");
   } else {
     stintsP = task(() => get<RawStint>("stints"));
     pitsP = task(() => get<RawPit>("pit"));
@@ -360,7 +365,7 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     ? (async () => {
         try {
           const [laps, raceControl] = await Promise.all([lapsP, raceControlP]);
-          const window = replayWindow({ session, laps: isQuali ? prepareQualiLaps(laps, await pitsP) : laps, raceControl });
+          const window = replayWindow({ session, laps: isQuali || isPractice ? windowLaps(laps, await pitsP) : laps, raceControl });
           if (!Number.isFinite(window.t0) || !Number.isFinite(window.end)) throw new Error(`Session ${sessionKey} has no timed laps`);
           const span = telemetrySpan(window);
           const storedParts = stored.flatMap((name) => parseSliceFile(name) ?? []);
@@ -507,6 +512,8 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   const quali = isQuali
     ? buildQuali({ session, laps: rawLaps, pits: rawPits, raceControl: rawRaceControl, results: rawResults }, { meta, telemetry, report })
     : null;
+  // Free practice: distance-aligned traces of the laps at pace (adds to meta.practice), to compare laps as in qualifying.
+  const practice = isPractice ? buildPracticeTraces({ meta, telemetry }) : null;
   timings.normalize += now() - tNorm;
 
   // ---------------------------------------------------------------- write
@@ -524,7 +531,8 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
 
   await writeJson(`${outDir}/meta.json`, () => meta);
   for (const n of driverNumbers) await writeJson(`${outDir}/drivers/${n}.json`, () => encodeTelemetry(telemetry.get(n)!));
-  if (quali) for (const tr of quali.traces.values()) await writeJson(`${outDir}/laps/${tr.driver}.json`, () => tr);
+  const traces = quali?.traces ?? practice?.traces;
+  if (traces) for (const tr of traces.values()) await writeJson(`${outDir}/laps/${tr.driver}.json`, () => tr);
 
   const tIndex = now();
   const entry: SessionIndexEntry = {
@@ -535,7 +543,7 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     circuit: meta.circuit,
     country: meta.country,
     dateStart: session.date_start,
-    sessionType: isQuali ? "Qualifying" : "Race",
+    sessionType: isQuali ? "Qualifying" : isPractice ? "Practice" : "Race",
   };
   if (io.readIndex && io.writeIndex) {
     const indexFile = `${sessionsDir}/index.json`;
@@ -548,7 +556,7 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   timings.write += now() - tIndex;
   onEvent?.({ kind: "phase", phase: "done" });
 
-  return { session, meta, telemetry, report, quali, driverNumbers, sizes, outDir, timings, entry };
+  return { session, meta, telemetry, report, quali, practice, driverNumbers, sizes, outDir, timings, entry };
 }
 
 export type IngestResult = Awaited<ReturnType<typeof runIngest>>;

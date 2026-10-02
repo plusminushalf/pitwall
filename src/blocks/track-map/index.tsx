@@ -711,7 +711,7 @@ export default defineBlock({
   // Fills its column; the circuit is fitted inside, whatever the box's shape.
   height: { min: 200 },
   width: { min: 20, default: 55, max: 80 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: {},
   Component: TrackMap,
 });

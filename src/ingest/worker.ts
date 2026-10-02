@@ -7,7 +7,7 @@
 // in (stream.ts), its slices fetched from wherever the page says the replay is.
 
 import { runIngest, type IngestIO } from "../../scripts/lib/ingestCore";
-import { FORMAT_VERSION } from "../../scripts/lib/formatVersion";
+import { formatVersion } from "../../scripts/lib/formatVersion";
 import { fetchCircuit, fetchEndpoint, LiveWindowError, seedRequestStarts, setRequestObserver, setRetryObserver, untilRequestSlot } from "../../scripts/lib/openf1Http";
 import { openStore } from "../storage";
 import { gunzipBytes, gzipBytes } from "../storage/handleStore";
@@ -208,10 +208,11 @@ async function ingest({ key, mode, backend, vault: port, watch, recentRequests }
 
   let rawBytes = 0;
   for (const size of (await store.rawFiles(key)).values()) rawBytes += size;
+  const sessionType = out.entry.sessionType ?? "Race";
   const entry: LibraryEntry = {
     ...out.entry,
-    sessionType: out.entry.sessionType ?? "Race",
-    format: FORMAT_VERSION,
+    sessionType,
+    format: formatVersion(sessionType),
     processedAt: new Date().toISOString(),
     processedBytes: out.sizes.reduce((s, [, , gz]) => s + gz, 0),
     rawBytes,

@@ -1,6 +1,6 @@
-// State of the qualifying compare view. The compared drivers are the replay store's selection
-// (`useReplay.selected`, so links and Esc work as in the race view) and ghost playback follows its
-// play state (space / P); everything specific to comparing laps lives here.
+// State of the lap comparison view (qualifying, and finished practice's Fastest laps). The compared drivers are
+// the replay store's selection (`useReplay.selected`, so links and Esc work as in the race view) and ghost
+// playback follows its play state (space / P); everything specific to comparing laps lives here.
 
 import { create } from "zustand";
 import type { LapPreset } from "./data/quali";
@@ -29,6 +29,11 @@ interface QualiState {
   zoom: [number, number] | null;
   ghostT: number;
   ghostSpeed: number;
+  /**
+   * The drivers the view picked itself because nobody was selected (the two fastest): practice's replay goes back
+   * to no selection if they're still the ones compared.
+   */
+  autoPicked: number[] | null;
 
   reset: (sessionKey: number) => void;
   ensureTraces: (driver: number) => void;
@@ -52,11 +57,12 @@ export const useQuali = create<QualiState>((set, get) => ({
   zoom: null,
   ghostT: 0,
   ghostSpeed: 1,
+  autoPicked: null,
 
   reset: (sessionKey) => {
     if (get().sessionKey === sessionKey) return;
     ghost.t = 0;
-    set({ sessionKey, traces: new Map(), traceErrors: new Map(), laps: {}, preset: "best", board: "result", hover: null, zoom: null, ghostT: 0 });
+    set({ sessionKey, traces: new Map(), traceErrors: new Map(), laps: {}, preset: "best", board: "result", hover: null, zoom: null, ghostT: 0, autoPicked: null });
   },
 
   ensureTraces: (driver) => {

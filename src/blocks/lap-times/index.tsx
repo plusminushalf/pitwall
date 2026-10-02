@@ -17,6 +17,8 @@ function LapTimes() {
   const fl = useFastestLap();
   const totalLaps = useTotalLaps();
   const totalLapsEstimated = useSessionInfo((i) => i.totalLapsEstimated);
+  // Practice has no race distance.
+  const practice = useSessionInfo((i) => i.kind === "practice");
   if (!s) return null;
   const last = s.lastLap;
   const best = s.bestLap;
@@ -32,10 +34,12 @@ function LapTimes() {
           value={
             <>
               {s.lap > 0 ? s.lap : "–"}
-              <span className="text-xs font-normal text-zinc-400" title={totalLapsEstimated ? "Estimated race distance" : undefined}>
-                /{totalLapsEstimated ? "~" : ""}
-                {totalLaps}
-              </span>
+              {!practice && (
+                <span className="text-xs font-normal text-zinc-400" title={totalLapsEstimated ? "Estimated race distance" : undefined}>
+                  /{totalLapsEstimated ? "~" : ""}
+                  {totalLaps}
+                </span>
+              )}
             </>
           }
         />
@@ -54,7 +58,7 @@ export default defineBlock({
   // pt-2, a label line and a 24 px time (the sectors block under it has the bottom padding).
   height: 8 + LINE_11 + 24,
   width: { min: 12, default: 21, max: 40 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: LapTimes,
 });

@@ -1,10 +1,12 @@
 import { Icon } from "../blockkit/ui/Icon";
 import { Label, Stat } from "../blockkit/ui/Label";
+import { canCompare } from "../data/compare";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
 import { useLayout } from "../grid/store";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
-import { useReplay } from "../store";
+import { useQuali } from "../qualiStore";
+import { comparing, useReplay, type PracticeView } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
 import { LiveControl } from "./LiveControl";
 import { RacesButton } from "./Navigation";
@@ -37,7 +39,9 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
         onChange={(e) => {
           // Blur so the keyboard shortcuts (ignored while a <select> has focus) keep working.
           e.currentTarget.blur();
-          loadSession(Number(e.target.value));
+          // From practice's Fastest laps, another practice session opens in its Fastest laps too.
+          const s = useReplay.getState();
+          loadSession(Number(e.target.value), { view: comparing(s) && s.session?.meta.practice ? "laps" : undefined });
         }}
         className="max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent py-0.5 pr-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
         title="Choose a session"
@@ -61,6 +65,44 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
   );
 }
 
+const VIEWS: { id: PracticeView; label: string; title: string }[] = [
+  { id: "replay", label: "Replay", title: "The session as it happened" },
+  { id: "laps", label: "Fastest laps", title: "The whole session's laps compared: speed, throttle, brake and gear along the lap, and who's fastest where" },
+];
+
+/**
+ * Finished practice: the replay, or its laps compared as in qualifying. Only once it's downloaded (the comparison needs
+ * every lap's trace): live, and while it streams, there's only the replay.
+ */
+export function PracticeViewSwitch() {
+  const shown = useReplay((s) => (s.session?.meta.practice && s.mode === "replay" && canCompare(s.session.meta) ? (comparing(s) ? "laps" : "replay") : null));
+  if (!shown) return null;
+  const choose = (view: PracticeView, e: { currentTarget: HTMLButtonElement }) => {
+    e.currentTarget.blur();
+    const s = useReplay.getState();
+    // Back to the replay: if the comparison picked its drivers itself, the replay's selection goes back to none.
+    const picked = useQuali.getState().autoPicked;
+    if (view === "replay" && picked && picked.length === s.selected.length && picked.every((n, i) => s.selected[i] === n)) s.clearSelection();
+    s.setPracticeView(view);
+  };
+  return (
+    <div className="flex shrink-0 rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Screen">
+      {VIEWS.map((v) => (
+        <button
+          key={v.id}
+          type="button"
+          onClick={(e) => choose(v.id, e)}
+          aria-pressed={shown === v.id}
+          title={v.title}
+          className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-semibold ${shown === v.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:text-zinc-100"}`}
+        >
+          {v.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
   const finished = race.trackStatus === "CHEQUERED" || (meta.chequered != null && race.t >= meta.chequered);
   // Live, before lap 1 starts, lights out is only a guess.
@@ -75,6 +117,27 @@ function LapCounter({ race, meta }: { race: RaceState; meta: SessionMeta }) {
         / {distance.estimated ? "~" : ""}
         {distance.totalLaps}
       </span>
+    </span>
+  );
+}
+
+/** Practice runs to the clock: the time left (it keeps running under a red flag), as on the timing screens. */
+function SessionClock({ race, meta }: { race: RaceState; meta: SessionMeta }) {
+  const finished = race.trackStatus === "CHEQUERED" || (meta.chequered != null && race.t >= meta.chequered);
+  // Live, before the green light, the start is only the scheduled one.
+  if (race.raceTime < 0) {
+    return (
+      <span className="text-xl font-black tracking-tight tabular-nums">
+        {meta.lightsOutEstimated ? "PRE-SESSION" : `STARTS IN ${raceClock(-race.raceTime)}`}
+      </span>
+    );
+  }
+  if (finished) return <span className="text-xl font-black tracking-tight">FINISHED</span>;
+  const left = Math.max(0, (meta.practice?.scheduledEnd ?? race.t) - race.t);
+  return (
+    <span className="text-xl font-black tracking-tight tabular-nums" title="Session time left">
+      {raceClock(left + 999)}
+      <span className="text-zinc-400"> LEFT</span>
     </span>
   );
 }
@@ -212,13 +275,14 @@ export function Header() {
       <div className="flex min-w-0 items-center gap-3">
         <RacesButton />
         <SessionPicker meta={meta} />
+        <PracticeViewSwitch />
         <LiveControl />
       </div>
 
       <div className="flex items-center gap-5">
-        {race && <LapCounter race={race} meta={meta} />}
+        {race && (meta.practice ? <SessionClock race={race} meta={meta} /> : <LapCounter race={race} meta={meta} />)}
         <div className="flex items-center gap-4">
-          <Stat label="Race" className="leading-tight">
+          <Stat label={meta.practice ? "Session" : "Race"} className="leading-tight" title={meta.practice ? "Time since the green light" : undefined}>
             <span className="text-sm tabular-nums text-zinc-100">{race ? raceClock(race.raceTime) : "—"}</span>
           </Stat>
           <Stat label="Local" className="leading-tight" title={`Local time at the circuit (UTC${meta.gmtOffset.startsWith("-") ? "" : "+"}${meta.gmtOffset.slice(0, -3)})`}>

@@ -57,12 +57,12 @@ export interface RaceDistance {
   estimated: boolean;
 }
 
-type DistanceMeta = Pick<SessionMeta, "circuit" | "sessionName" | "totalLaps" | "totalLapsEstimated" | "quali">;
+type DistanceMeta = Pick<SessionMeta, "circuit" | "sessionName" | "totalLaps" | "totalLapsEstimated" | "quali" | "practice">;
 
-/** The distance the race was scheduled over, known before it starts. */
+/** The distance the race was scheduled over, known before it starts. (Qualifying and practice: meta.totalLaps.) */
 export function scheduledDistance(meta: DistanceMeta): RaceDistance {
   const estimated = meta.totalLapsEstimated ?? false;
-  const table = meta.quali ? undefined : (/sprint/i.test(meta.sessionName) ? SPRINT_LAPS : RACE_LAPS)[meta.circuit];
+  const table = meta.quali || meta.practice ? undefined : (/sprint/i.test(meta.sessionName) ? SPRINT_LAPS : RACE_LAPS)[meta.circuit];
   if (table == null) return { totalLaps: meta.totalLaps, estimated };
   // Live, meta.totalLaps is only an estimate; in a replay no race runs over its schedule, so a
   // results count above the table means the table is stale for this layout.
@@ -85,7 +85,7 @@ function extraFormationLapTimes(meta: TimedMeta): number[] {
 
 /** Race distance as known at t: the scheduled laps, less announced extra formation laps, until the chequered flag. */
 export function raceDistanceAt(meta: TimedMeta, t: number): RaceDistance {
-  if (meta.quali || (meta.chequered != null && t >= meta.chequered)) {
+  if (meta.quali || meta.practice || (meta.chequered != null && t >= meta.chequered)) {
     return { totalLaps: meta.totalLaps, estimated: meta.totalLapsEstimated ?? false };
   }
   const scheduled = scheduledDistance(meta);

@@ -90,6 +90,12 @@ export interface Session {
 
 const timesOf = (items: { t: Ms }[]) => Float64Array.from(items, (e) => e.t);
 
+/** 857000 -> "14:17". */
+const clock = (ms: Ms) => {
+  const s = Math.round(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
 function decodeTimes(deltas: number[]): Float64Array {
   const out = new Float64Array(deltas.length);
   let t = 0;
@@ -154,6 +160,14 @@ function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string, cul
     feed.push({ t: r.t, kind: "radio", driver: r.driver, text: `${acronym(r.driver)} team radio`, url: r.url });
   }
   for (const p of meta.pits) {
+    if (meta.practice) {
+      // A run ends in the garage, the next one starts from it: both ends are news.
+      const inLap = meta.laps.filter((l) => l.driver === p.driver && l.start <= p.entry).at(-1)?.lap;
+      const stay = p.exit - p.entry;
+      if (stay > 0) feed.push({ t: p.entry, kind: "pit", driver: p.driver, text: `${acronym(p.driver)} into the pits${inLap ? ` after lap ${inLap}` : ""}` });
+      feed.push({ t: p.exit, kind: "pit", driver: p.driver, text: `${acronym(p.driver)} leaves the pits${stay >= 60_000 ? ` after ${clock(stay)}` : ""}` });
+      continue;
+    }
     const lane = p.laneDuration != null ? ` (${p.laneDuration.toFixed(1)}s in pit lane)` : "";
     feed.push({ t: p.entry, kind: "pit", driver: p.driver, text: `${acronym(p.driver)} pits at the end of lap ${p.lap}${lane}` });
   }

@@ -13,13 +13,14 @@ Replay or follow a live F1 race on a polished timing screen made of blocks you a
 
 ## What it does
 
-- **Replays.** Every race, sprint and qualifying session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
+- **Replays.** Every race, sprint, qualifying and free practice session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
 - **One timeline** for timing, gaps, tyres, pit stops, race control, weather and team radio. Pause, scrub, or play at up to 64×.
 - **Blocks.** Move, resize, add or remove them. Your layout is saved.
 - **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Click a lap, a battle or a stop to watch it.
 - **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
-- **Live.** Follow a race or sprint as it happens. It needs an OpenF1 account. It works only when you run Pitwall locally, not on the hosted site.
+- **Free practice** has the timing screen by best lap, with the clock counting down. Deleted lap times are struck through. Long runs ranks every race simulation (5+ laps on a set) by compound, with its average and how much slower it gets per lap. Fastest laps compares up to 4 laps as qualifying does, each with its tyre and its age.
+- **Live.** Follow a race, sprint or practice session as it happens. It needs an OpenF1 account. It works only when you run Pitwall locally, not on the hosted site.
 - **Desktop only**, for now.
 
 | Qualifying | Edit the layout |

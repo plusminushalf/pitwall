@@ -75,6 +75,16 @@ export function buildCatalog(year: number, sessions: RawSession[], meetings: Raw
   return { year, fetchedAt, rows, sessions: sorted.map(slim) };
 }
 
+/**
+ * A season read back from this browser, its rows worked out again from its sessions by today's rules (a calendar
+ * cached before free practice could be replayed has none in its rows). Meeting names come from its rows: no network.
+ */
+export function withCurrentRows(c: Catalog): Catalog {
+  if (!Array.isArray(c.sessions)) return c;
+  const names = new Map(c.rows.map((r) => [r.meetingKey, r.meetingName]));
+  return buildCatalog(c.year, c.sessions, [...names].map(([meeting_key, meeting_name]) => ({ meeting_key, meeting_name })), c.fetchedAt);
+}
+
 /** How long before a weekend's next session it takes over Home's lead spot from the latest race. */
 export const HERO_WINDOW_MS = 72 * 60 * 60_000;
 

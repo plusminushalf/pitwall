@@ -14,8 +14,11 @@ export interface SessionIndexEntry {
   sessionType?: SessionType; // absent in entries written before qualifying support: "Race"
 }
 
-/** OpenF1 session type: races and sprints are "Race", (sprint) qualifying and shootouts "Qualifying". */
-export type SessionType = "Race" | "Qualifying";
+/**
+ * OpenF1 session type: races and sprints are "Race", (sprint) qualifying and shootouts "Qualifying", free practice
+ * "Practice".
+ */
+export type SessionType = "Race" | "Qualifying" | "Practice";
 
 export interface DriverInfo {
   number: number;
@@ -38,6 +41,8 @@ export interface Lap {
   segments: [(number | null)[], (number | null)[], (number | null)[]];
   speedTrap: { i1: number | null; i2: number | null; st: number | null };
   pitOut: boolean;
+  /** Practice only: race control deleted the lap time (track limits...), at `t`; it counts until then. */
+  deleted?: { t: Ms; reason: string };
 }
 
 export interface Stint {
@@ -189,6 +194,28 @@ export interface SessionMeta {
   lightsOutEstimated?: boolean; // lap 1 hasn't started: `lightsOut` is a guess (>= the live edge)
   // Qualifying sessions only (lightsOut = Q1 green light, chequered = the final segment's flag):
   quali?: QualiData;
+  // Free practice only (lightsOut = the green light, chequered = the flag):
+  practice?: PracticeData;
+}
+
+/**
+ * Free practice, written by normalize() (scripts/lib/practice.ts). There's no race order: `positions` and
+ * `intervals` are the timing screen's, by best lap so far (deleted laps count until race control deletes them), the
+ * gaps in seconds to the fastest and to the car ahead. In-laps and out-laps get no lap time (OpenF1's include the time
+ * in the garage), and an in-lap ends at the pit entry: the car is in the garage until the out-lap starts.
+ */
+export interface PracticeData {
+  /** The scheduled end (ms since t0): the session clock counts down to it (it keeps running under a red flag). */
+  scheduledEnd: Ms;
+  // A finished session, as ingest stores it (the live relay and a download being watched have none of these):
+  // distance-aligned traces of the laps at pace (within 107% of the driver's best) in laps/<driver>.json, to
+  // compare laps as in qualifying.
+  /** Metres, timing line to timing line (median speed-integrated lap). */
+  lapLength?: number;
+  /** Metres from the timing line to the sector 2 and 3 boundaries. */
+  sectorDistances?: [number, number];
+  /** The laps with a trace, by driver (in driver number order). */
+  traced?: { driver: number; laps: number[] }[];
 }
 
 // Per-driver high-frequency streams (~4 Hz), columnar.
@@ -245,8 +272,9 @@ export interface QualiData {
   sectorDistances: [number, number]; // metres from the timing line to the sector 2 and 3 boundaries
 }
 
-// Per-driver lap traces (laps/<number>.json, qualifying only): every full timed lap from the timing
-// line to the timing line, with distance aligned across laps and drivers so laps can be overlaid.
+// Per-driver lap traces (laps/<number>.json, qualifying and finished free practice; scripts/lib/lapTraces.ts):
+// full timed laps from the timing line to the timing line, with distance aligned across laps and drivers so
+// laps can be overlaid.
 // Columnar: one sample per car-data sample, plus exact samples on the line at both ends.
 export interface LapTrace {
   lap: number;

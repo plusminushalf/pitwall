@@ -6,7 +6,7 @@ let key = 0;
 const row = (year: number, round: number, meetingName: string, circuit: string, country: string, sessionName: string, dateStart: string): CatalogRow => ({
   sessionKey: ++key,
   sessionName,
-  sessionType: sessionName.includes("Qualifying") || sessionName === "Sprint Shootout" ? "Qualifying" : "Race",
+  sessionType: sessionName.includes("Qualifying") || sessionName === "Sprint Shootout" ? "Qualifying" : sessionName.startsWith("Practice") ? "Practice" : "Race",
   meetingKey: year * 100 + round,
   meetingName,
   round,
@@ -19,6 +19,9 @@ const row = (year: number, round: number, meetingName: string, circuit: string, 
 });
 
 const rows = [
+  row(2024, 16, "Italian Grand Prix", "Monza", "Italy", "Practice 1", "2024-08-30T11:30:00Z"),
+  row(2024, 16, "Italian Grand Prix", "Monza", "Italy", "Practice 2", "2024-08-30T15:00:00Z"),
+  row(2024, 16, "Italian Grand Prix", "Monza", "Italy", "Practice 3", "2024-08-31T10:30:00Z"),
   row(2024, 16, "Italian Grand Prix", "Monza", "Italy", "Qualifying", "2024-08-31T14:00:00Z"),
   row(2024, 16, "Italian Grand Prix", "Monza", "Italy", "Race", "2024-09-01T13:00:00Z"),
   row(2025, 16, "Italian Grand Prix", "Monza", "Italy", "Race", "2025-09-07T13:00:00Z"),
@@ -59,6 +62,14 @@ describe("searchSessions", () => {
   });
   test("sessions more than a week away are left out", () => {
     expect(names("qatar")).toEqual([]);
+  });
+  test("free practice: fp1..fp3, p1..p3, \"practice 2\" and \"free practice 2\", or every practice session", () => {
+    expect(names("monza fp2")).toEqual(["2024 Monza Practice 2"]);
+    expect(names("monza p3")).toEqual(["2024 Monza Practice 3"]);
+    expect(names("monza free practice 1")).toEqual(["2024 Monza Practice 1"]);
+    expect(names("practice 2 monza")).toEqual(["2024 Monza Practice 2"]);
+    expect(names("monza practice")).toEqual(["2024 Monza Practice 3", "2024 Monza Practice 2", "2024 Monza Practice 1"]);
+    expect(queryWords("Free Practice 3 Monza")).toEqual(["fp3", "monza"]);
   });
   test("an empty query finds nothing", () => {
     expect(searchSessions("  gp ", rows, now)).toEqual([]);

@@ -2,8 +2,8 @@
 
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
-import { buildSession, type Session } from "../data/session";
-import type { DriverTelemetry, SessionMeta } from "../types";
+import { buildSession, type DriverData, type Session } from "../data/session";
+import type { DriverTelemetry, Lap, SessionMeta } from "../types";
 import { carPositionAt, driverStateAt, feedAt, leaderLapAt, mapOpacity, raceStateAt, telemetryAt } from "./raceState";
 
 const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
@@ -113,5 +113,40 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
     expect(end.some((f) => f.kind === "stewards" && f.text.includes("PENALTY FOR CAR 43"))).toBe(true);
     const mid = feedAt(s, s.lapStartTimes[20], 1_000);
     expect(mid.every((f) => f.t <= s.lapStartTimes[20])).toBe(true);
+  });
+});
+
+describe("practice", () => {
+  const lap = (n: number, start: number, duration: number, extra: Partial<Lap> = {}): Lap => ({
+    driver: 81,
+    lap: n,
+    start,
+    end: start + duration * 1000,
+    duration,
+    sectors: [null, null, null],
+    segments: [[], [], []],
+    speedTrap: { i1: null, i2: null, st: null },
+    pitOut: false,
+    ...extra,
+  });
+  const laps = [lap(2, 0, 100.5), lap(3, 100_500, 99, { deleted: { t: 250_000, reason: "TRACK LIMITS AT TURN 9" } })];
+  const d = {
+    info: { number: 81 },
+    laps,
+    lapStarts: Float64Array.from(laps, (l) => l.start),
+    stints: [],
+    pits: [],
+    positions: [],
+    positionTimes: new Float64Array(),
+    intervals: [],
+    intervalTimes: new Float64Array(),
+    result: null,
+    gridPosition: null,
+  } as unknown as DriverData;
+
+  test("a deleted lap time is the last lap, but no longer the best once race control deletes it", () => {
+    expect(driverStateAt(d, 249_999).bestLap?.lap).toBe(3);
+    expect(driverStateAt(d, 250_000).bestLap?.lap).toBe(2);
+    expect(driverStateAt(d, 250_000).lastLap?.lap).toBe(3);
   });
 });

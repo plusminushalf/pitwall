@@ -20,7 +20,7 @@ export interface DriverState {
   gapToLeader: number | string | null;
   interval: number | string | null;
   lastLap: Lap | null; // most recent completed, timed lap
-  bestLap: Lap | null; // fastest completed lap so far
+  bestLap: Lap | null; // fastest completed lap so far (practice: not counting laps race control has deleted by t)
   compound: string | null;
   tyreAge: number | null; // laps on the current set
   stint: number | null;
@@ -94,6 +94,7 @@ export function driverStateAt(d: DriverData, t: Ms): DriverState {
     const l = d.laps[k];
     if (l.end == null || l.end > t || l.duration == null) continue;
     lastLap ??= l;
+    if (l.deleted && l.deleted.t <= t) continue;
     if (!bestLap || l.duration < bestLap.duration!) bestLap = l;
   }
 

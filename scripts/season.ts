@@ -1,8 +1,9 @@
-// Race and sprint sessions of a season (optionally qualifying too), with whether each can be / has been ingested.
+// Race and sprint sessions of a season (optionally qualifying and free practice too), with whether each can be / has
+// been ingested.
 // The selection rules live in lib/season.ts, shared with the in-browser catalogue.
 
 import { fetchEndpoint, type RawSession } from "./openf1";
-import { seasonStatus, type SeasonStatus } from "./lib/season";
+import { isFreePractice, seasonStatus, type SeasonStatus } from "./lib/season";
 import type { SessionIndexEntry } from "../src/types";
 
 export const INDEX_FILE = "data/sessions/index.json";
@@ -22,11 +23,13 @@ export async function ingestedKeys(): Promise<Set<number>> {
 
 /**
  * All Race/Sprint sessions (OpenF1 session_type "Race") of `year`, plus with `quali` its qualifying,
- * sprint qualifying and sprint shootout sessions (session_type "Qualifying"), sorted by start date.
+ * sprint qualifying and sprint shootout sessions (session_type "Qualifying"), and with `practice` its free
+ * practice (session_type "Practice", not pre-season testing), sorted by start date.
  */
-export async function seasonSessions(year: number, opts: { quali?: boolean } = {}): Promise<SeasonSession[]> {
+export async function seasonSessions(year: number, opts: { quali?: boolean; practice?: boolean } = {}): Promise<SeasonSession[]> {
   const sessions = await fetchEndpoint<RawSession>("sessions", { year, session_type: "Race" });
   if (opts.quali) sessions.push(...(await fetchEndpoint<RawSession>("sessions", { year, session_type: "Qualifying" })));
+  if (opts.practice) sessions.push(...(await fetchEndpoint<RawSession>("sessions", { year, session_type: "Practice" })).filter(isFreePractice));
   const ingested = await ingestedKeys();
   const now = Date.now();
   return sessions

@@ -1,8 +1,8 @@
 // Ingest every completed race and sprint of a season, one session at a time.
 //
-//   bun run ingest:season [year] [--force] [--quali]
+//   bun run ingest:season [year] [--force] [--quali] [--practice]
 //
-// --quali also ingests qualifying, sprint qualifying and sprint shootout sessions.
+// --quali also ingests qualifying, sprint qualifying and sprint shootout sessions, --practice free practice.
 //
 // Skips cancelled and not-yet-run sessions, and already-ingested ones unless --force.
 // Sessions run sequentially (the OpenF1 free-tier rate limit is per client), a failure
@@ -18,15 +18,17 @@ const MIN_FREE_BYTES = 1.5e9;
 const args = process.argv.slice(2);
 const force = args.includes("--force");
 const quali = args.includes("--quali");
+const practice = args.includes("--practice");
 const year = Number(args.find((a) => !a.startsWith("--")) ?? new Date().getUTCFullYear());
 if (!Number.isInteger(year)) {
-  console.error("usage: bun run ingest:season [year] [--force] [--quali]");
+  console.error("usage: bun run ingest:season [year] [--force] [--quali] [--practice]");
   process.exit(1);
 }
 
-const all = await seasonSessions(year, { quali });
+const all = await seasonSessions(year, { quali, practice });
 const todo = all.filter((s) => s.status === "pending" || (force && s.status === "ingested"));
-console.log(`${year}: ${all.length} ${quali ? "race/sprint/qualifying" : "race/sprint"} sessions, ${todo.length} to ingest${force ? " (--force)" : ""}`);
+const kinds = ["race/sprint", quali && "qualifying", practice && "practice"].filter(Boolean).join("/");
+console.log(`${year}: ${all.length} ${kinds} sessions, ${todo.length} to ingest${force ? " (--force)" : ""}`);
 
 interface Outcome {
   result: string;
@@ -67,8 +69,10 @@ function sanityNotes(stdout: string): string[] {
   if (mismatches) notes.push(`${mismatches} lap-count mismatch${mismatches > 1 ? "es" : ""}`);
   if (/\| chequered none \|/.test(stdout)) notes.push("no chequered flag");
   if (/circuit info unavailable/.test(stdout)) notes.push("no circuit info");
-  const qualiProblems = stdout.match(/^ {2}<-- /gm)?.length ?? 0;
-  if (qualiProblems) notes.push(`${qualiProblems} qualifying problem${qualiProblems > 1 ? "s" : ""}`);
+  // Qualifying's sanity check, or practice's timing screen against the classification.
+  const problems = stdout.match(/^ {2}<-- /gm)?.length ?? 0;
+  const what = /^practice: /m.test(stdout) ? "practice" : "qualifying";
+  if (problems) notes.push(`${problems} ${what} problem${problems > 1 ? "s" : ""}`);
   return notes;
 }
 
