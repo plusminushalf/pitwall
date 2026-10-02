@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { runFrames } from "../blockkit/frame";
 import { followStep } from "../data/liveEdge";
-import { clock, liveEdge, streamLimit, useReplay } from "../store";
+import { clock, comparing, liveEdge, streamLimit, useReplay } from "../store";
 
 const PUBLISH_EVERY_MS = 100;
 
@@ -18,7 +18,7 @@ export function useReplayLoop() {
     const frame = (now: number) => {
       const dt = now - last;
       last = now;
-      const { playing, speed, session, publish, setPlaying, mode, followLive, live, goLive, stream } = useReplay.getState();
+      const { playing, speed, session, publish, setPlaying, mode, followLive, live, goLive, stream, practiceView } = useReplay.getState();
       let moved = false;
       if (session && mode === "live") {
         const ended = live.state === "ended";
@@ -34,7 +34,8 @@ export function useReplayLoop() {
           if (clock.t >= target) goLive();
           else moved = true;
         }
-      } else if (playing && session) {
+      } else if (playing && session && !comparing({ session, practiceView })) {
+        // (The lap comparison plays its ghost laps instead: the replay stays where it was left.)
         // A race streamed while it downloads only plays as far as what's in (and waits there for more).
         const { duration } = session.meta;
         const end = stream?.key === session.meta.sessionKey ? streamLimit(stream.spans, clock.t, duration) : duration;

@@ -18,16 +18,19 @@ function useLapProgress(n: number | null, running: boolean): number {
   return last ? last.lap + frac : 0;
 }
 
-/** The driver's stints so far along the race distance, with a marker at where they are now. */
+/** The driver's stints so far along the race distance (practice: their laps so far), with a marker at where they are now. */
 function TyreStrip() {
   const n = useSelectedDriver();
   const s = useDriver(n, (d) => ({ status: d.status, compound: d.compound, tyreAge: d.tyreAge, pitStops: d.pitStops }));
   const stints = useStints(n);
   const totalLaps = useTotalLaps();
   const totalLapsEstimated = useSessionInfo((i) => i.totalLapsEstimated);
+  const practice = useSessionInfo((i) => i.kind === "practice");
   const running = s?.status === "RUNNING" || s?.status === "PIT";
-  const total = Math.max(totalLaps, 1);
-  const progress = Math.min(useLapProgress(n, running), total);
+  const lapProgress = useLapProgress(n, running);
+  // Practice has no race distance: the strip is the driver's own laps so far.
+  const total = practice ? Math.max(Math.ceil(lapProgress), 1) : Math.max(totalLaps, 1);
+  const progress = Math.min(lapProgress, total);
   if (!s) return null;
   const pct = (laps: number) => `${(Math.max(laps, 0) / total) * 100}%`;
 
@@ -35,12 +38,17 @@ function TyreStrip() {
     <div className="h-full px-3 py-2 text-sm">
       <div className="mb-1.5 flex items-center justify-between">
         <Label>
-          Tyres <span className="font-normal normal-case tracking-normal">· {totalLapsEstimated ? "~" : ""}{total} laps</span>
+          Tyres{" "}
+          <span className="font-normal normal-case tracking-normal">
+            · {practice ? `${stints.length} ${stints.length === 1 ? "set" : "sets"}` : `${totalLapsEstimated ? "~" : ""}${total} laps`}
+          </span>
         </Label>
         <span className="flex items-center gap-2 text-[11px] text-zinc-400">
-          <span className="tabular-nums">
-            {s.pitStops} {s.pitStops === 1 ? "stop" : "stops"}
-          </span>
+          {!practice && (
+            <span className="tabular-nums">
+              {s.pitStops} {s.pitStops === 1 ? "stop" : "stops"}
+            </span>
+          )}
           <TyreBadge compound={s.compound} age={s.tyreAge} size={16} />
         </span>
       </div>
@@ -77,7 +85,7 @@ export default defineBlock({
   // py-2, the title line (16 px, the tyre badge) and the 14 px strip 6 px below it.
   height: 8 + 16 + 6 + 14 + 8,
   width: { min: 12, default: 21, max: 60 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: TyreStrip,
 });

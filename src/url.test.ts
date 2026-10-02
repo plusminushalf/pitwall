@@ -17,6 +17,12 @@ describe("readUrl", () => {
     expect(readUrl("/session/11377/", "").session).toBe(11377);
   });
 
+  test("practice's Fastest laps", () => {
+    expect(readUrl("/session/11228", "?view=laps&t=600&drivers=1,63")).toEqual({ live: false, session: 11228, t: 600_000, drivers: [1, 63], focus: null, view: "laps" });
+    expect(readUrl("/session/11228", "?view=replay").view).toBeUndefined();
+    expect(readUrl("/live", "?view=laps").view).toBeUndefined();
+  });
+
   test("live, following or watching back", () => {
     expect(readUrl("/live", "?drivers=1&focus=1")).toMatchObject({ live: true, session: null, t: undefined, drivers: [1], focus: 1 });
     expect(readUrl("/live", "?session=11377&t=90")).toMatchObject({ live: true, session: 11377, t: 90_000 });
@@ -40,10 +46,11 @@ describe("urlFor", () => {
     expect(urlFor({ live: false, session: 11377, drivers: [], focus: null })).toBe("/session/11377");
     expect(urlFor({ live: true, session: 11377, drivers: [4], focus: null })).toBe("/live?drivers=4");
     expect(urlFor({ live: true, session: 11377, t: 90_000, drivers: [], focus: null })).toBe("/live?session=11377&t=90");
+    expect(urlFor({ live: false, session: 11228, t: 600_000, drivers: [1, 63], focus: null, view: "laps" })).toBe("/session/11228?view=laps&t=600&drivers=1,63");
   });
 
   test("round-trips through readUrl", () => {
-    for (const url of ["/session/11377?t=3725&drivers=1,63,55&focus=63", "/live?session=11377&t=90&drivers=4", "/live"]) {
+    for (const url of ["/session/11377?t=3725&drivers=1,63,55&focus=63", "/session/11228?view=laps&t=600&drivers=1,63", "/live?session=11377&t=90&drivers=4", "/live"]) {
       const [path, search = ""] = url.split("?");
       expect(urlFor(readUrl(path!, search ? `?${search}` : ""))).toBe(url);
     }

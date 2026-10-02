@@ -3,7 +3,20 @@
 import { describe, expect, test } from "bun:test";
 import type { RawMeeting, RawSession } from "../../scripts/lib/openf1Types";
 import { LIVE_WINDOW_MARGIN_MS, liveWindowAt, seasonStatus } from "../../scripts/lib/season";
-import { buildCatalog, catalogFresh, CATALOG_TTL_MS, HERO_WINDOW_MS, heroWeekend, isLive, liveWindowNow, nextSession, nextWeekend, windowLabel, type CatalogRow } from "./catalog";
+import {
+  buildCatalog,
+  catalogFresh,
+  CATALOG_TTL_MS,
+  HERO_WINDOW_MS,
+  heroWeekend,
+  isLive,
+  liveWindowNow,
+  nextSession,
+  nextWeekend,
+  windowLabel,
+  withCurrentRows,
+  type CatalogRow,
+} from "./catalog";
 
 let nextKey = 1;
 function session(meeting: number, name: string, type: string, start: string, hours = 2, extra: Partial<RawSession> = {}): RawSession {
@@ -37,21 +50,31 @@ const sessions = [
   session(1, "Race", "Race", "2026-03-08T04:00:00Z"),
   session(2, "Race", "Race", "2026-03-12T15:00:00Z", 2, { is_cancelled: true }),
   session(3, "Sprint", "Race", "2026-03-14T03:00:00Z", 1),
+  session(4, "Day 1", "Practice", "2026-02-11T07:00:00Z", 9),
 ];
 
 describe("calendar", () => {
   const c = buildCatalog(2026, sessions, meetings, 1000);
 
-  test("races, sprints and qualifying, by date, with meeting names", () => {
+  test("races, sprints, qualifying and free practice, by date, with meeting names", () => {
     expect(c.rows.map((r) => `${r.meetingName} · ${r.sessionName}`)).toEqual([
+      "Australian Grand Prix · Practice 1",
       "Australian Grand Prix · Qualifying",
       "Australian Grand Prix · Race",
       "Bahrain Grand Prix · Race",
       "Chinese Grand Prix · Sprint",
       "Chinese Grand Prix · Race",
     ]);
-    // Practice is left out of the rows but kept for live windows.
-    expect(c.sessions).toHaveLength(6);
+    // Pre-season testing (session_type Practice too) is left out of the rows but kept for live windows.
+    expect(c.sessions).toHaveLength(7);
+  });
+
+  test("a season cached before practice could be replayed gets its practice rows back, without the network", () => {
+    const old = { ...c, rows: c.rows.filter((r) => r.sessionType !== "Practice") };
+    const back = withCurrentRows(old);
+    expect(back.rows).toEqual(c.rows);
+    expect(back.rows[0]).toMatchObject({ sessionName: "Practice 1", meetingName: "Australian Grand Prix", round: 1 });
+    expect(back.fetchedAt).toBe(old.fetchedAt);
   });
 
   test("rounds skip cancelled meetings", () => {
@@ -139,16 +162,18 @@ describe("Home's lead weekend", () => {
 
   test("outside the window: none (the latest race leads)", () => {
     expect(heroWeekend(catalog, practice - HERO_WINDOW_MS - 1)).toBeNull();
-    expect(names(nextWeekend(rows, practice - HERO_WINDOW_MS - 1))).toEqual(["21 Qualifying", "21 Race"]);
+    expect(names(nextWeekend(rows, practice - HERO_WINDOW_MS - 1))).toEqual(["21 Practice 1", "21 Qualifying", "21 Race"]);
   });
 
-  test("from the window's start before the weekend's first session (practice too), through its sessions and between them", () => {
+  test("from the window's start before the weekend's first session, through its sessions and between them", () => {
     for (const now of [practice - HERO_WINDOW_MS, quali - 2 * h, quali + 30 * 60_000, quali + 2 * h, race + h]) {
-      expect(names(heroWeekend(catalog, now))).toEqual(["21 Qualifying", "21 Race"]);
+      expect(names(heroWeekend(catalog, now))).toEqual(["21 Practice 1", "21 Qualifying", "21 Race"]);
     }
+    expect(nextSession(heroWeekend(catalog, practice - h)!, practice - h)?.sessionName).toBe("Practice 1");
     expect(nextSession(heroWeekend(catalog, quali + 2 * h)!, quali + 2 * h)?.sessionName).toBe("Race");
-    expect(isLive(rows[1], quali + 30 * 60_000)).toBe(true);
-    expect(isLive(rows[1], quali + 2 * h)).toBe(false);
+    const q = rows.find((r) => r.sessionName === "Qualifying")!;
+    expect(isLive(q, quali + 30 * 60_000)).toBe(true);
+    expect(isLive(q, quali + 2 * h)).toBe(false);
   });
 
   test("ends with the last session; cancelled weekends are skipped", () => {

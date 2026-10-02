@@ -44,7 +44,7 @@ const io: IngestIO = {
   warn: (line) => console.warn(line),
 };
 
-const { meta, telemetry, report, quali, sizes, outDir: OUT_DIR } = await runIngest(sessionKey, io, {
+const { meta, telemetry, report, quali, practice, sizes, outDir: OUT_DIR } = await runIngest(sessionKey, io, {
   rawDir: `data/raw/${sessionKey}`,
   sessionsDir: "data/sessions",
 });
@@ -95,13 +95,33 @@ for (const r of results) {
   const lapCount = meta.laps.filter((l) => l.driver === r.driver).length;
   const lt = report.locFixes.get(r.driver)!;
   const hz = lt.length > 1 ? (lt.length - 1) / ((lt.at(-1)! - lt[0]) / 1000) : 0;
-  const status = r.dsq ? "DSQ" : r.dns ? "DNS" : r.dnf ? "DNF" : "finished";
-  // A retiring (or non-starting) car starts one lap it never completes.
-  const lapsOk = lapCount === r.laps || ((r.dnf || r.dns) && lapCount === r.laps + 1);
+  const status = r.dsq ? "DSQ" : r.dns ? "DNS" : r.dnf ? "DNF" : meta.practice ? "classified" : "finished";
+  // A retiring (or non-starting) car starts one lap it never completes. In practice OpenF1 also counts the pit-lane
+  // crossing after the cool-down lap (dropped).
+  const lapsOk = lapCount === r.laps || ((r.dnf || r.dns) && lapCount === r.laps + 1) || (meta.practice != null && lapCount === r.laps - 1);
   const flag = lapsOk ? "" : "  <-- lap count mismatch";
   console.log(
     ` ${String(r.position ?? "-").padStart(3)}  ${d.acronym}  ${String(lapCount).padStart(4)}  ${String(r.laps).padStart(6)}  ${String(lt.length).padStart(6)}  ${String(t.car.t.length).padStart(6)}  ${hz.toFixed(2).padStart(6)}  ${status}${flag}`,
   );
+}
+
+if (meta.practice) {
+  // The timing screen at the end (practice.ts) against the official classification.
+  const position = new Map<number, number>();
+  const gap = new Map<number, number | string | null>();
+  for (const p of meta.positions) position.set(p.driver, p.position);
+  for (const i of meta.intervals) gap.set(i.driver, i.gapToLeader);
+  const deleted = meta.laps.filter((l) => l.deleted && l.duration != null).length;
+  const off = results.filter((r) => r.position != null && (position.get(r.driver) !== r.position || (r.position > 1 && r.gapToLeader != null && gap.get(r.driver) !== r.gapToLeader)));
+  console.log(`\npractice: ${deleted} lap times deleted by race control; final order and gaps ${off.length ? "differ from" : "match"} the classification`);
+  const acronym = (n: number) => drivers.find((d) => d.number === n)?.acronym ?? `#${n}`;
+  for (const r of off) console.log(`  <-- ${acronym(r.driver)}: P${r.position} ${r.gapToLeader} officially, P${position.get(r.driver)} ${gap.get(r.driver)} here`);
+  for (const line of practice?.lines ?? []) console.log(`  ${line}`);
+  for (const p of practice?.problems ?? []) console.log(`  <-- ${p}`);
+  const traceFiles = sizes.filter(([path]) => path.includes("/laps/"));
+  if (traceFiles.length) {
+    console.log(`  lap traces: ${traceFiles.length} files, ${mb(traceFiles.reduce((s, [, raw]) => s + raw, 0))} raw, ${mb(traceFiles.reduce((s, [, , gz]) => s + gz, 0))} gzipped`);
+  }
 }
 
 if (quali) {

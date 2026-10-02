@@ -1,10 +1,11 @@
 import { useEffect, useMemo } from "react";
-import { defaultLap } from "../data/quali";
+import { compareModel } from "../data/compare";
+import type { Tyre } from "../data/practice";
 import type { DecodedLap } from "../engine/compare";
 import { compareStyles, type CompareStyle } from "../lib/compareColors";
 import { MAX_COMPARE, useQuali } from "../qualiStore";
 import { useReplay } from "../store";
-import type { DriverInfo, Lap, QualiLap } from "../types";
+import type { DriverInfo, Lap } from "../types";
 
 export interface CompareEntry {
   driver: number;
@@ -12,7 +13,10 @@ export interface CompareEntry {
   lapNo: number | null;
   picked: boolean; // lap chosen by hand (else the preset's)
   lap: Lap | null;
-  qlap: QualiLap | null;
+  /** Race control's reason, if it deleted the lap time. */
+  deleted: string | null;
+  /** Practice: the tyre the lap was on (null in qualifying). */
+  tyre: Tyre | null;
   trace: DecodedLap | null; // null while loading, or when the lap has no trace
   loading: boolean;
   style: CompareStyle;
@@ -42,15 +46,15 @@ export function useCompare(): CompareEntry[] {
 
   return useMemo(() => {
     const meta = session?.meta;
-    if (!meta?.quali) return [];
-    const q = meta.quali;
+    const model = meta ? compareModel(meta) : null;
+    if (!meta || !model) return [];
     const infos = drivers.map((n) => session!.drivers.get(n)?.info);
     const styles = compareStyles(infos);
     return drivers.flatMap((n, i) => {
       const info = infos[i];
       if (!info) return [];
       const picked = laps[n] != null;
-      const lapNo = laps[n] ?? defaultLap(meta, n, preset);
+      const lapNo = laps[n] ?? model.defaultLap(n, preset);
       const byLap = traces.get(n);
       return [
         {
@@ -59,7 +63,8 @@ export function useCompare(): CompareEntry[] {
           lapNo,
           picked,
           lap: lapNo != null ? (meta.laps.find((l) => l.driver === n && l.lap === lapNo) ?? null) : null,
-          qlap: lapNo != null ? (q.laps.find((l) => l.driver === n && l.lap === lapNo) ?? null) : null,
+          deleted: lapNo != null ? model.deleted(n, lapNo) : null,
+          tyre: lapNo != null ? model.tyre(n, lapNo) : null,
           trace: lapNo != null ? (byLap?.get(lapNo) ?? null) : null,
           loading: !byLap,
           style: styles[i],

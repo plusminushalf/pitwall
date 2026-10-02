@@ -48,6 +48,9 @@ const MARKER_PX: Record<TimelineEventKind, number> = {
 
 const MAX_TIP_LINES = 8;
 
+/** Practice's ticks: every 5 minutes from the green light. */
+const TICK_MS = 5 * 60_000;
+
 /** What the pointer is over, for the tooltip (the bar itself otherwise). */
 type Target =
   | { type: "events"; cluster: EventCluster }
@@ -94,7 +97,6 @@ export function Timeline() {
   const speed = useReplay((s) => s.speed);
   const selected = useReplay((s) => s.selected);
   const focused = useReplay((s) => s.focused);
-  const leaderLap = useReplay((s) => s.race?.leaderLap ?? 0);
   const live = useReplay((s) => s.mode === "live");
   const followLive = useReplay((s) => s.followLive);
   const liveEdge = useReplay((s) => s.liveEdge);
@@ -103,7 +105,7 @@ export function Timeline() {
   const watchedTo = useReplay((s) => s.watchedTo);
   // A race watched while it downloads: what's in so far.
   const spans = useReplay((s) => (s.stream && s.session?.meta.sessionKey === s.stream.key ? s.stream.spans : null));
-  const { setSpeed, seek, seekToLap, togglePlay, setNoSpoilers } = useReplay.getState();
+  const { setSpeed, seek, stepLap, togglePlay, setNoSpoilers } = useReplay.getState();
   const barRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
@@ -160,11 +162,15 @@ export function Timeline() {
     const d = session.drivers.get(n);
     return d ? d.pits.filter((p) => p.entry <= shownTo).map((p) => ({ driver: n, info: d.info, p })) : [];
   });
+  const practice = meta.practice != null;
   // By the scheduled distance: the laps actually run would give away a race cut short.
   const labelEvery = scheduledDistance(meta).totalLaps > 60 ? 10 : 5;
   const colorOf = (driver: number | null) => teamColor((driver != null && session.drivers.get(driver)?.info.teamColour) || "a1a1aa");
-  const lapAt = (ms: number) => Math.max(leaderLapAt(session, ms), 0);
+  // Practice has no race laps: the bar is the session clock (laps are each car's own).
+  const lapAt = (ms: number) => (practice ? 0 : Math.max(leaderLapAt(session, ms), 0));
   const clockAt = (ms: number) => raceClock(ms - meta.lightsOut);
+  // Practice: a tick every 5 minutes of session time, labelled every 10.
+  const minuteTicks = practice ? Array.from({ length: Math.max(0, Math.floor((duration - meta.lightsOut) / TICK_MS)) + 1 }, (_, i) => meta.lightsOut + i * TICK_MS) : [];
 
   // One tooltip: details of the marker / pit stop under the pointer, else lap, time and track status on the bar.
   let tip: { t: number; content: ReactNode } | null = null;
@@ -200,7 +206,7 @@ export function Timeline() {
           <PitGlyph color={teamColor(info.teamColour)} />
           <span className="text-zinc-400">{clockAt(pit.entry)}</span>
           <span>
-            {info.acronym} pit stop · lap {pit.lap}
+            {practice ? `${info.acronym} in the pits${pit.exit > pit.entry ? ` · ${raceClock(pit.exit - pit.entry)}` : ""}` : `${info.acronym} pit stop · lap ${pit.lap}`}
           </span>
         </span>
       ),
@@ -223,7 +229,8 @@ export function Timeline() {
       t: hover.t,
       content: (
         <span className="flex items-center gap-1">
-          Lap {lapAt(hover.t)} · {clockAt(hover.t)}
+          {practice ? "" : `Lap ${lapAt(hover.t)} · `}
+          {clockAt(hover.t)}
           {status && (
             <>
               <span>·</span>
@@ -245,9 +252,9 @@ export function Timeline() {
     <div className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
       <div className="flex items-center gap-1">
         <button
-          onClick={() => seekToLap(leaderLap - 1)}
+          onClick={() => stepLap(-1)}
           className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-          title="Previous lap ([)"
+          title={practice ? "Previous lap of the driver shown ([)" : "Previous lap ([)"}
           aria-label="Previous lap"
         >
           <Icon name="previous" size={14} />
@@ -267,9 +274,9 @@ export function Timeline() {
           {pauses ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className={`translate-x-px ${playing ? "animate-pulse" : ""}`} />}
         </button>
         <button
-          onClick={() => seekToLap(leaderLap + 1)}
+          onClick={() => stepLap(1)}
           className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-          title="Next lap (])"
+          title={practice ? "Next lap of the driver shown (])" : "Next lap (])"}
           aria-label="Next lap"
         >
           <Icon name="next" size={14} />
@@ -339,8 +346,18 @@ export function Timeline() {
           )}
         </div>
 
+        {/* practice: minute ticks */}
+        {minuteTicks.map((mt, i) =>
+          mt > shownTo ? null : (
+            <div key={mt} className="absolute top-7 h-4" style={{ left: pct(mt) }}>
+              <div className={`w-px ${i % 2 === 0 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
+              {i % 2 === 0 && <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{`${(i * TICK_MS) / 60_000}'`}</span>}
+            </div>
+          ),
+        )}
+
         {/* lap ticks */}
-        {session.lapStartTimes.map((lt, lap) =>
+        {!practice && session.lapStartTimes.map((lt, lap) =>
           lap === 0 || lt === undefined || lt > shownTo ? null : (
             <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
               <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />

@@ -9,9 +9,11 @@ import { carPositionAt, mapOpacity, type RaceState } from "../engine/raceState";
 import type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackGeometry } from "../types";
 import { deepEqual } from "./equal";
 
-export type SessionKind = "race" | "qualifying";
+export type SessionKind = "race" | "qualifying" | "practice";
 
-export const sessionKind = (session: Session): SessionKind => (session.meta.quali ? "qualifying" : "race");
+const kindOf = (meta: SessionMeta): SessionKind => (meta.quali ? "qualifying" : meta.practice ? "practice" : "race");
+
+export const sessionKind = (session: Session): SessionKind => kindOf(session.meta);
 
 /** Cached per key object, so every block reading the same thing shares one result. */
 function cached<K extends object, V>(make: (key: K) => V): (key: K) => V {
@@ -37,10 +39,15 @@ export interface SessionInfo {
   /** ISO UTC timestamp of t = 0, and the circuit's UTC offset (e.g. "04:00:00"), for local time. */
   t0: string;
   gmtOffset: string;
-  /** Lights out, in ms since t0 (race time = t - lightsOut). Live, before lap 1, only an estimate. */
+  /**
+   * Lights out, in ms since t0 (race time = t - lightsOut). Live, before lap 1, only an estimate. Practice: the green
+   * light (pit exit open); live, until it shows, the scheduled start.
+   */
   lightsOut: number;
   lightsOutEstimated: boolean;
-  /** Scheduled race distance (useTotalLaps() is the distance as known at t: shortened races change). */
+  /** Practice: when the session clock runs out (ms since t0; it keeps running under a red flag). Null otherwise. */
+  scheduledEnd: number | null;
+  /** Scheduled race distance (useTotalLaps() is the distance as known at t: shortened races change). Practice: 0. */
   totalLaps: number;
   /** Live, no scheduled distance known: totalLaps is estimated from the lap length. */
   totalLapsEstimated: boolean;
@@ -49,7 +56,7 @@ export interface SessionInfo {
 export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => {
   const scheduled = scheduledDistance(meta);
   return {
-    kind: meta.quali ? "qualifying" : "race",
+    kind: kindOf(meta),
     sessionKey: meta.sessionKey,
     meetingName: meta.meetingName,
     sessionName: meta.sessionName,
@@ -60,7 +67,9 @@ export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => {
     gmtOffset: meta.gmtOffset,
     lightsOut: meta.lightsOut,
     lightsOutEstimated: meta.lightsOutEstimated ?? false,
-    totalLaps: scheduled.totalLaps,
+    scheduledEnd: meta.practice?.scheduledEnd ?? null,
+    // (Practice has no distance: meta.totalLaps, the most laps anyone did, would give away the session.)
+    totalLaps: meta.practice ? 0 : scheduled.totalLaps,
     totalLapsEstimated: scheduled.estimated,
   };
 });

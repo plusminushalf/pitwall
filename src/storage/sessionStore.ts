@@ -13,7 +13,7 @@ export type Bytes = Uint8Array<ArrayBuffer>;
  */
 export interface LibraryEntry extends SessionIndexEntry {
   sessionType: SessionType;
-  /** FORMAT_VERSION (scripts/lib/ingestCore.ts) of the app that processed it. */
+  /** Format version (scripts/lib/formatVersion.ts, per session type) of the app that processed it. */
   format: number;
   /** When it was processed (ISO). */
   processedAt: string;
@@ -53,7 +53,7 @@ export interface SessionStore {
   has(key: number): Promise<boolean>;
   readMeta(key: number): Promise<SessionMeta>;
   readDriver(key: number, driver: number): Promise<DriverTelemetry>;
-  /** Qualifying lap traces (laps/<driver>.json). */
+  /** Lap traces of qualifying and finished practice sessions (laps/<driver>.json). */
   readLaps(key: number, driver: number): Promise<DriverLapTraces>;
   /** Remove a session: processed files and raw responses. */
   delete(key: number): Promise<void>;

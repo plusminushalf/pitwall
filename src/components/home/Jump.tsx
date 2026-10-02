@@ -99,7 +99,7 @@ export function Jump({ children }: { children: ReactNode }) {
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Jump to a session: monza 24 quali, spa race, r15"
+          placeholder="Jump to a session: monza 24 quali, spa race, japan fp2, r15"
           className={`peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-2 focus:outline-zinc-400`}
         />
         <span className={`pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-xs text-zinc-400 ${searching ? "" : "peer-focus:hidden"}`}>
@@ -142,8 +142,8 @@ export function Jump({ children }: { children: ReactNode }) {
             </RowTable>
           ) : (
             <p id="jump-results" className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-300">
-              Pitwall has every race, sprint and qualifying since 2023. Try a Grand Prix, circuit or country, a year, and a session: “spa 23 race”,
-              “japan quali”, “brazil sprint”.
+              Pitwall has every race, sprint, qualifying and free practice since 2023. Try a Grand Prix, circuit or country, a year, and a session:
+              “spa 23 race”, “japan quali”, “brazil sprint”, “monaco fp2”.
             </p>
           )}
         </section>

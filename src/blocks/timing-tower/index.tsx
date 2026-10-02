@@ -18,7 +18,9 @@ import {
   useLeaderLap,
   useRunningOrder,
   useSelection,
+  useSessionInfo,
   useSettings,
+  useTime,
   type DriverInfo,
   type DriverState,
   type Lap,
@@ -33,12 +35,19 @@ const HEAD_H = 28 + 1 + 12 + (11 * 20) / 14 + 1;
 const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_58px_40px_20px]";
 /** With the last lap's sectors and the best lap, once the block is WIDE px or more. */
 const WIDE_COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_46px_46px_46px_58px_58px_40px_20px]";
+/** Practice: no grid to gain places from, and laps run (or a PIT tag) in the last column. */
+const PRACTICE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_58px_40px_28px]";
+const PRACTICE_WIDE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_46px_46px_46px_58px_58px_40px_28px]";
+const colsOf = (wide: boolean, practice: boolean) => (practice ? (wide ? PRACTICE_WIDE_COLS : PRACTICE_COLS) : wide ? WIDE_COLS : COLS);
 const WIDE = 590;
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
 /** What the columns other than the driver's take (fixed widths, gap-1 between, PAD), so the driver's gets the rest. */
 const FIXED_W = 22 + 22 + 60 + 58 + 40 + 20 + 6 * 4 + 20 + 8;
 const WIDE_FIXED_W = FIXED_W + 3 * 46 + 58 + 4 * 4;
+/** Practice's (no grid-change column, a wider last one). */
+const PRACTICE_FIXED_W = 28 + 60 + 58 + 40 + 28 + 5 * 4 + 20 + 8;
+const fixedWidthOf = (wide: boolean, practice: boolean) => (practice ? PRACTICE_FIXED_W : FIXED_W) + (wide ? WIDE_FIXED_W - FIXED_W : 0);
 
 /**
  * How wide the driver column must be to show every team's name whole after the stripe and acronym (gap-2
@@ -84,6 +93,13 @@ const rowData = (mode: GapMode) => (s: DriverState): RowData => ({
   pitStops: s.pitStops,
 });
 
+/** Practice: the gap to the fastest (or the car ahead) by best lap, also from the garage; P1 shows its time. */
+function PracticeGapCell({ s }: { s: RowData }) {
+  if (s.status === "OUT") return <span className="font-semibold text-red-400">OUT</span>;
+  if (s.position === 1 && s.bestLap != null) return <span className="tabular-nums text-zinc-200">{lapTime(s.bestLap)}</span>;
+  return <span className="tabular-nums">{gap(s.gap)}</span>;
+}
+
 function GapCell({ s, mode }: { s: RowData; mode: GapMode }) {
   // Only the leader's row reads the leader's lap (whether the race has started).
   const started = useLeaderLap((l) => l > 0);
@@ -103,9 +119,25 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
   const l = s.lastLap;
   // The fastest lap's number if it's this driver's, so other rows ignore a new fastest lap.
   const fastest = useFastestLap((f) => (f?.driver === n ? f.lap : null));
+  // Practice: race control has deleted it by now (track limits).
+  const deleted = useTime((t) => l?.deleted != null && t >= l.deleted.t);
   if (!l) return <span className="text-zinc-600">—</span>;
+  if (deleted) {
+    return (
+      <span className="tabular-nums text-zinc-400 line-through" title={`Deleted: ${l.deleted!.reason.toLowerCase()}`}>
+        {lapTime(l.duration)}
+      </span>
+    );
+  }
   const color = fastest === l.lap ? "text-fuchsia-400" : s.personalBest ? "text-emerald-400" : "text-zinc-300";
   return <span className={`tabular-nums ${color}`}>{lapTime(l.duration)}</span>;
+}
+
+/** Practice's last column: laps run so far, or PIT while the car is in the pits (the garage, mostly). */
+function LapsCell({ n, s }: { n: number; s: RowData }) {
+  const laps = useLaps(n, (l) => l.length);
+  if (s.status === "PIT") return <span className="rounded bg-zinc-200 px-1 text-[10px] font-bold text-zinc-900">PIT</span>;
+  return <span className="text-right text-xs tabular-nums text-zinc-400">{laps}</span>;
 }
 
 /** Each sector's fastest time among a driver's laps so far. */
@@ -152,6 +184,7 @@ const Row = memo(function Row({
   mode,
   wide,
   team,
+  practice,
   isSelected,
   isFocused,
   onToggle,
@@ -162,6 +195,7 @@ const Row = memo(function Row({
   wide: boolean;
   /** Show the team's name after the acronym. */
   team: boolean;
+  practice: boolean;
   isSelected: boolean;
   isFocused: boolean;
   onToggle: (n: number) => void;
@@ -174,7 +208,7 @@ const Row = memo(function Row({
       onClick={() => onToggle(d.number)}
       aria-pressed={isSelected}
       title={isSelected ? `Remove ${d.acronym} from the selection` : `Add ${d.acronym} to the selection (filters the track map)`}
-      className={`group absolute inset-x-0 grid ${wide ? WIDE_COLS : COLS} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
+      className={`group absolute inset-x-0 grid ${colsOf(wide, practice)} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
         isFocused ? "bg-zinc-800" : isSelected ? "bg-zinc-800/50 hover:bg-zinc-800/70" : "hover:bg-zinc-900"
       } ${s.status === "OUT" ? "opacity-50" : ""}`}
       style={{ height: ROW_H, transform: `translateY(${index * ROW_H}px)` }}
@@ -188,9 +222,11 @@ const Row = memo(function Row({
         {isSelected && <Icon name="check" size={9} className="[&_path]:[stroke-width:2.5]" />}
       </span>
       <span className="font-bold tabular-nums">{s.status === "OUT" ? "–" : s.position}</span>
-      <span className="text-[10px]">
-        <Change s={s} />
-      </span>
+      {!practice && (
+        <span className="text-[10px]">
+          <Change s={s} />
+        </span>
+      )}
       <span className="flex min-w-0 items-center gap-2">
         <span className="h-4 w-1 shrink-0 rounded-sm" style={{ background: teamColor(d.teamColour) }} />
         <span className="font-bold tracking-wide">{d.acronym}</span>
@@ -200,16 +236,20 @@ const Row = memo(function Row({
           </span>
         )}
       </span>
-      <span className="text-xs">
-        <GapCell s={s} mode={mode} />
-      </span>
+      <span className="text-xs">{practice ? <PracticeGapCell s={s} /> : <GapCell s={s} mode={mode} />}</span>
       {wide && <SectorCells n={d.number} s={s} />}
       <span className="text-xs">
         <LastLapCell n={d.number} s={s} />
       </span>
       {wide && <BestLapCell n={d.number} s={s} />}
       <TyreBadge compound={s.compound} age={s.tyreAge} />
-      <span className="text-right text-xs tabular-nums text-zinc-400">{s.pitStops}</span>
+      {practice ? (
+        <span className="flex justify-end">
+          <LapsCell n={d.number} s={s} />
+        </span>
+      ) : (
+        <span className="text-right text-xs tabular-nums text-zinc-400">{s.pitStops}</span>
+      )}
     </button>
   );
 });
@@ -222,8 +262,10 @@ function TimingTower() {
   const rowIndex = useMemo(() => new Map(order.map((n, i) => [n, i])), [order]);
   const { width } = useBlockSize();
   const wide = width >= WIDE;
+  // Practice: ordered by best lap, gaps by best lap, and laps run instead of pit stops.
+  const practice = useSessionInfo((i) => i.kind === "practice");
   const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers]);
-  const teams = width - (wide ? WIDE_FIXED_W : FIXED_W) >= teamRoom;
+  const teams = width - fixedWidthOf(wide, practice) >= teamRoom;
 
   return (
     <div className="flex h-full flex-col text-sm">
@@ -239,14 +281,22 @@ function TimingTower() {
           <span className="text-zinc-400">Click drivers to show only them on the track map</span>
         )}
       </div>
-      <div className={`grid shrink-0 ${wide ? WIDE_COLS : COLS} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
+      <div className={`grid shrink-0 ${colsOf(wide, practice)} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
         <span>Pos</span>
-        <span />
+        {!practice && <span />}
         <span>Driver</span>
         <button
           onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
           className="flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100"
-          title={gapMode === "leader" ? "Gap to the leader: switch to the interval to the car ahead" : "Interval to the car ahead: switch to the gap to the leader"}
+          title={
+            practice
+              ? gapMode === "leader"
+                ? "Gap to the fastest by best lap: switch to the car ahead"
+                : "Gap to the car ahead by best lap: switch to the fastest"
+              : gapMode === "leader"
+                ? "Gap to the leader: switch to the interval to the car ahead"
+                : "Interval to the car ahead: switch to the gap to the leader"
+          }
         >
           {gapMode === "leader" ? "Gap" : "Int"}
           <Icon name="swap" size={11} />
@@ -261,7 +311,13 @@ function TimingTower() {
         <span>Last</span>
         {wide && <span title="Best lap so far">Best</span>}
         <span>Tyre</span>
-        <span className="text-right">Pit</span>
+        {practice ? (
+          <span className="text-right" title="Laps run">
+            Laps
+          </span>
+        ) : (
+          <span className="text-right">Pit</span>
+        )}
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="relative" style={{ height: order.length * ROW_H }}>
@@ -273,6 +329,7 @@ function TimingTower() {
               mode={gapMode}
               wide={wide}
               team={teams}
+              practice={practice}
               isSelected={selected.includes(d.number)}
               isFocused={focused === d.number}
               onToggle={toggle}
@@ -287,12 +344,12 @@ function TimingTower() {
 export default defineBlock({
   id: "timing-tower",
   name: "Timing tower",
-  description: "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops.",
+  description: "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops. In practice, by best lap.",
   version: "1.0.0",
   // Fills its column; the rows scroll inside when they don't all fit.
   height: { min: HEAD_H + 5 * ROW_H },
   width: { min: 22, default: 35, max: 45 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { gapMode: "leader" as GapMode },
   fields: {
     gapMode: {

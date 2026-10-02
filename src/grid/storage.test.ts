@@ -1,9 +1,10 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { defineBlock, settingField, type BlockDefinition } from "../blockkit/defineBlock";
 import { BUILTIN_BLOCKS } from "./builtins";
+import { DEFAULT_LAYOUT, DEFAULT_LAYOUTS } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { COLUMNS, MIN_HEIGHT, type Layout } from "./layout";
-import { clearSavedLayout, loadLayout, parseLayout, rescaleLayout, saveLayout, STORAGE_KEY } from "./storage";
+import { clearSavedLayout, loadLayout, parseLayout, rescaleLayout, saveLayout, STORAGE_KEY, storageKey } from "./storage";
 
 /** A Map-backed localStorage; `broken` makes every call throw (private mode, quota, blocked). */
 function fakeStorage(broken = false) {
@@ -96,6 +97,24 @@ describe("load and save", () => {
     expect(loadLayout(BUILTIN_BLOCKS, DRIVER_LAYOUT)).toBe(DRIVER_LAYOUT);
     expect(() => saveLayout(DRIVER_LAYOUT)).not.toThrow();
     expect(() => clearSavedLayout()).not.toThrow();
+  });
+
+  test("practice has a layout of its own, of blocks that show practice", () => {
+    saveLayout(DEFAULT_LAYOUT);
+    expect(storageKey("practice")).not.toBe(STORAGE_KEY);
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS.practice, "practice")).toBe(DEFAULT_LAYOUTS.practice);
+    // Practice's own blocks don't go into a race layout.
+    storage.items.set(STORAGE_KEY, JSON.stringify(DEFAULT_LAYOUTS.practice));
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT, "race").blocks["long-runs"]).toBeUndefined();
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT, "race").blocks["stint-pace"]).toBeDefined();
+    // The race layout read as practice's leaves out the race-only blocks (gap chart, battles, pit stops).
+    storage.items.set(storageKey("practice"), JSON.stringify(DEFAULT_LAYOUT));
+    expect(Object.keys(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS.practice, "practice").blocks).sort()).toEqual(["race-feed", "stint-pace", "timing-tower", "track-map"]);
+    saveLayout(DEFAULT_LAYOUT);
+    expect(loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS.practice, "race").blocks["gap-chart"]).toBeDefined();
+    clearSavedLayout("practice");
+    expect(storage.items.has(storageKey("practice"))).toBe(false);
+    expect(storage.items.has(STORAGE_KEY)).toBe(true);
   });
 
   test("clearSavedLayout forgets it", () => {

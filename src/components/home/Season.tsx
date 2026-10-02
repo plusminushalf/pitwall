@@ -1,6 +1,7 @@
 // Home's season sheet (from OpenF1): one row per race weekend, newest first, with the next weekend on top. Each
-// session has its column (SQ · Sprint · Quali · Race, so a season lines up), and each cell is that session's own
-// action in its state: watch (downloading it as it plays when it isn't here), resume, its download, update, retry.
+// session has its column (FP1 · FP2 · FP3 · SQ · Sprint · Quali · Race, so a season lines up), and each cell is that
+// session's own action in its state: watch (downloading it as it plays when it isn't here), resume, its download,
+// update, retry.
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { isLive, type CatalogRow } from "../../ingest/catalog";
@@ -14,6 +15,7 @@ const FILTERS: { id: RaceFilter; label: string }[] = [
   { id: "all", label: "All" },
   { id: "Race", label: "Races" },
   { id: "Qualifying", label: "Qualifying" },
+  { id: "Practice", label: "Practice" },
 ];
 
 interface Column {
@@ -27,7 +29,14 @@ const SQ: Column = { id: "sq", label: "SQ", title: "Sprint qualifying (Sprint Sh
 const SPRINT: Column = { id: "sprint", label: "Sprint", title: "Sprint", match: (r) => r.sessionName === "Sprint" };
 const QUALI: Column = { id: "quali", label: "Quali", title: "Qualifying", match: (r) => r.sessionName === "Qualifying" };
 const RACE: Column = { id: "race", label: "Race", title: "Race", match: (r) => r.sessionName === "Race" };
-const COLUMNS: Record<RaceFilter, Column[]> = { all: [SQ, SPRINT, QUALI, RACE], Race: [SPRINT, RACE], Qualifying: [SQ, QUALI] };
+const fp = (n: number): Column => ({ id: `fp${n}`, label: `FP${n}`, title: `Free practice ${n}`, match: (r) => r.sessionName === `Practice ${n}` });
+const [FP1, FP2, FP3] = [fp(1), fp(2), fp(3)];
+const COLUMNS: Record<RaceFilter, Column[]> = {
+  all: [FP1, FP2, FP3, SQ, SPRINT, QUALI, RACE],
+  Race: [SPRINT, RACE],
+  Qualifying: [SQ, QUALI],
+  Practice: [FP1, FP2, FP3],
+};
 
 interface Meeting {
   key: number;
@@ -66,8 +75,26 @@ const Fill = ({ frac, className }: { frac: number; className: string }) => (
 
 const Label = ({ children }: { children: ReactNode }) => <span className="relative flex min-w-0 items-center gap-1.5">{children}</span>;
 
-/** A session's own action in its current state. Stored sessions are filled cells; the rest are quiet. */
-function Cell({ row, state, resume, now, waitUntil }: { row: CatalogRow; state: RowState; resume: string | null; now: number; waitUntil: number | null }) {
+/**
+ * A session's own action in its current state. Stored sessions are filled cells; the rest are quiet. `compact`: the
+ * narrow cells of a sheet with every session, where a resume point is just its clock after the play mark.
+ */
+function Cell({
+  row,
+  state,
+  resume,
+  now,
+  waitUntil,
+  compact,
+}: {
+  row: CatalogRow;
+  state: RowState;
+  resume: string | null;
+  now: number;
+  waitUntil: number | null;
+  compact: boolean;
+}) {
+  const resumeLabel = resume ? (compact ? resume : `Resume ${resume}`) : "Watch";
   const stream = useLibrary((s) => s.stream);
   const reprocess = useLibrary((s) => s.reprocess);
   const watchNow = useLibrary((s) => s.watchNow);
@@ -120,7 +147,7 @@ function Cell({ row, state, resume, now, waitUntil }: { row: CatalogRow; state: 
         >
           <Label>
             <Glyph name="play" />
-            {resume ? `Resume ${resume}` : "Watch"}
+            {resumeLabel}
           </Label>
         </button>
       );
@@ -149,7 +176,7 @@ function Cell({ row, state, resume, now, waitUntil }: { row: CatalogRow; state: 
           <Fill frac={state.cache.cachedFiles / Math.max(1, state.cache.expectedFiles)} className="bg-zinc-800" />
           <Label>
             <Glyph name="play" />
-            {resume ? `Resume ${resume}` : "Watch"}
+            {resumeLabel}
           </Label>
         </button>
       );
@@ -250,10 +277,35 @@ function Notice({ meeting, states, now }: { meeting: Meeting; states: RowState[]
 /**
  * The sheet's columns, by the width it has (a container query): round and Grand Prix, circuit, dates, one per
  * session (`--cells` of them), delete. Narrower, it drops the circuit, then the dates; narrower still it scrolls
- * sideways with the round and Grand Prix pinned.
+ * sideways with the round and Grand Prix pinned. Every session at once (seven) takes narrower cells, so the circuit
+ * and dates come in later: the breakpoints are where each column fits (with the row's padding).
  */
-const SHEET_GRID =
-  "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),8.25rem)_2rem] @[56rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem] @[66rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem]";
+interface Sheet {
+  grid: string;
+  circuit: string;
+  dates: string;
+  /** Below this the sheet scrolls sideways. */
+  min: string;
+  scroll: string;
+  compact: boolean;
+}
+const SHEET: Sheet = {
+  grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),8.25rem)_2rem] @[56rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem] @[66rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem]",
+  circuit: "hidden @[66rem]:block",
+  dates: "hidden @[56rem]:block",
+  min: "min-w-[48rem]",
+  scroll: "overflow-x-auto @[48rem]:overflow-visible",
+  compact: false,
+};
+const WIDE_SHEET: Sheet = {
+  grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),6.25rem)_2rem] @[68.75rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem] @[80rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem]",
+  circuit: "hidden @[80rem]:block",
+  dates: "hidden @[68.75rem]:block",
+  min: "min-w-[61.5rem]",
+  scroll: "overflow-x-auto @[61.5rem]:overflow-visible",
+  compact: true,
+};
+const sheetOf = (columns: Column[]) => (columns.length > 4 ? WIDE_SHEET : SHEET);
 const cellsOf = (columns: Column[]) => ({ "--cells": columns.length }) as CSSProperties;
 /** Round and Grand Prix: pinned when the sheet scrolls sideways (its ground follows the row's). */
 const PINNED = "sticky left-0 z-[1] flex min-w-0 items-center gap-2 bg-zinc-950 group-hover:bg-zinc-900";
@@ -285,6 +337,7 @@ function WeekendRow({
   const deletable = meeting.rows.flatMap((r, i) => (storedBytes(states[i]) != null ? [{ row: r, bytes: storedBytes(states[i])! }] : []));
   const confirming = deletable.find((d) => d.row.sessionKey === confirm);
   const span = { gridColumn: `span ${columns.length + 1} / -1` };
+  const sheet = sheetOf(columns);
 
   let cells: ReactNode;
   if (confirming) {
@@ -330,7 +383,9 @@ function WeekendRow({
           const i = meeting.rows.findIndex(c.match);
           return (
             <div key={c.id}>
-              {i >= 0 && <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} waitUntil={waitUntil} />}
+              {i >= 0 && (
+                <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} waitUntil={waitUntil} compact={sheet.compact} />
+              )}
             </div>
           );
         })}
@@ -352,17 +407,17 @@ function WeekendRow({
 
   return (
     <li className="group border-b border-zinc-800/70 px-3 hover:bg-zinc-900">
-      <div className={`${SHEET_GRID} min-h-11 py-1`} style={cellsOf(columns)}>
+      <div className={`${sheet.grid} min-h-11 py-1`} style={cellsOf(columns)}>
         <span className={PINNED}>
           <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{meeting.round != null ? `R${meeting.round}` : "–"}</span>
           <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
           {next && <span className="shrink-0 rounded bg-zinc-800 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-zinc-200">Next</span>}
         </span>
-        <span className="hidden min-w-0 truncate text-xs text-zinc-400 @[66rem]:block">
+        <span className={`${sheet.circuit} min-w-0 truncate text-xs text-zinc-400`}>
           {meeting.circuit}
           {meeting.country ? ` · ${meeting.country}` : ""}
         </span>
-        <span className="hidden text-xs tabular-nums text-zinc-400 @[56rem]:block">{dateRange(first.dateStart, last.dateEnd)}</span>
+        <span className={`${sheet.dates} text-xs tabular-nums text-zinc-400`}>{dateRange(first.dateStart, last.dateEnd)}</span>
         {cells}
       </div>
       <Notice meeting={meeting} states={states} now={now} />
@@ -409,6 +464,7 @@ export function Season() {
   const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
   const learned = useMemo(() => loadLearned(), [jobs]);
   const columns = COLUMNS[filter];
+  const sheet = sheetOf(columns);
   // Read once per visit to Home (it's written while watching).
   const [resume] = useState(resumeClocks);
   const waitUntil = useDownloadBlock();
@@ -457,10 +513,10 @@ export function Season() {
         <div className="@container">
           {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
               stay under the page header while the season scrolls. */}
-          <div className="overflow-x-auto @[48rem]:overflow-visible">
-            <div className="min-w-[48rem]">
+          <div className={sheet.scroll}>
+            <div className={sheet.min}>
               <div
-                className={`${LABEL} ${SHEET_GRID} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
+                className={`${LABEL} ${sheet.grid} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
                 style={cellsOf(columns)}
                 aria-hidden
               >
@@ -468,8 +524,8 @@ export function Season() {
                   <span className="w-9 shrink-0">Rd</span>
                   Grand Prix
                 </span>
-                <span className="hidden @[66rem]:block">Circuit</span>
-                <span className="hidden @[56rem]:block">Dates</span>
+                <span className={sheet.circuit}>Circuit</span>
+                <span className={sheet.dates}>Dates</span>
                 {columns.map((c) => (
                   <span key={c.id} className="px-2" title={c.title}>
                     {c.label}

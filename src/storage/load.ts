@@ -2,13 +2,13 @@
 
 import { decodeLapTrace, type DecodedLap } from "../engine/compare";
 import { buildSession, type Session } from "../data/session";
-import { FORMAT_VERSION } from "../../scripts/lib/formatVersion";
+import { isCurrentFormat } from "../../scripts/lib/formatVersion";
 import { sessionStore, storageSupported, type LibraryEntry } from ".";
 
-/** The library's sessions that the replay can open (processed by this version of the app), by date. */
+/** The library's sessions that the replay can open (processed in this version of the app's format for their type), by date. */
 export async function listPlayable(): Promise<LibraryEntry[]> {
   if (!storageSupported()) return [];
-  return (await sessionStore().list()).filter((e) => e.format === FORMAT_VERSION);
+  return (await sessionStore().list()).filter(isCurrentFormat);
 }
 
 /** Load meta + every driver's telemetry, reporting progress in [0, 1]. */
@@ -30,7 +30,7 @@ export async function fetchSession(key: number, onProgress: (p: number) => void)
 
 const lapCache = new Map<string, Promise<Map<number, DecodedLap>>>();
 
-/** Every traced lap of one driver in a qualifying session, by lap number (decoded once per session). */
+/** Every traced lap of one driver in a qualifying or finished practice session, by lap number (decoded once per session). */
 export function fetchLapTraces(sessionKey: number, driver: number): Promise<Map<number, DecodedLap>> {
   const key = `${sessionKey}:${driver}`;
   let p = lapCache.get(key);

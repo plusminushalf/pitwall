@@ -19,7 +19,7 @@ Both use it on a desktop or laptop, in Chromium, often on a second monitor next 
 
 ## Product Purpose
 
-Replay any F1 race, sprint or qualifying session since 2023, built on OpenF1 data, entirely in the browser. A session starts playing about 5 seconds after you pick it and downloads into the browser while you watch, so it opens instantly next time, offline too. Live mode follows a session as it happens.
+Replay any F1 race, sprint, qualifying or free practice session since 2023, built on OpenF1 data, entirely in the browser. A session starts playing about 5 seconds after you pick it and downloads into the browser while you watch, so it opens instantly next time, offline too. Live mode follows a session as it happens.
 
 Success: a fan gets from the home screen to the session they want, and from there to the data they came for, with no wait and no spoilers.
 
@@ -33,17 +33,17 @@ Success: a fan gets from the home screen to the session they want, and from ther
 ## Operating Context
 
 - Home screen: the next race weekend with its session times, the latest session, and the user's library of sessions stored in this browser (with download progress, watch progress and storage size).
-- Session screen: block grid between a top bar and a timeline. Pause, scrub, play at up to 64×. Qualifying compares up to 4 laps (speed, delta, throttle, brake, gear, mini-sectors, ghosts).
+- Session screen: block grid between a top bar and a timeline. Pause, scrub, play at up to 64×. Qualifying compares up to 4 laps (speed, delta, throttle, brake, gear, mini-sectors, ghosts). Free practice uses the block grid with its own layout: the timing screen by best lap, a session clock, long runs and stint pace; once downloaded, its Fastest laps compares laps as qualifying does.
 - Settings live on the home screen: spoiler preference, OpenF1 account (Connect via the vault popup, optional passkey lock).
 - Storage is per browser and can be evicted unless the user makes it persistent.
 
 ## Capabilities and Constraints
 
-- Sessions: race, sprint, qualifying, 2023 onward.
+- Sessions: race, sprint, qualifying, free practice, 2023 onward (not pre-season testing).
 - Chromium only for now. Firefox and Safari are deferred.
 - Desktop and laptop only. Mobile is not designed for.
 - Free OpenF1 tier: about 5 s to start a race, about a minute to finish downloading it, about 20 s to open qualifying. Free users may be blocked during live windows.
-- Live mode needs an OpenF1 account and is local-only today (`bun run live`). It is not on the hosted site yet.
+- Live mode (races, sprints and free practice) needs an OpenF1 account and is local-only today (`bun run live`). It is not on the hosted site yet.
 - Hosted at `pitwall.plusminushalf.com`, a static site on Cloudflare. Analytics: Cloudflare Web Analytics, no cookies.
 - Stack: React 19, Tailwind CSS v4, Vite, zustand.
 

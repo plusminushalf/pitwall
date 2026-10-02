@@ -1,4 +1,4 @@
-// A race watched while it downloads, in the ingest worker: the raw files the ingest core reads or downloads
+// A race (or practice session) watched while it downloads, in the ingest worker: the raw files the ingest core reads or downloads
 // (its events), normalized into a provisional replay as they come in (normalize's `partial` option: everything
 // but telemetry is in, telemetry only for some spans) and handed to the page bit by bit: the meta whenever it
 // changes, and each span's telemetry once, when it's complete (both car data and locations). The page grows its
@@ -88,12 +88,15 @@ export class StreamBuilder {
   }
 
   /**
-   * The replay can start: the session files it needs, and telemetry somewhere. Races only: qualifying's lap
-   * comparison needs every lap, so it opens once it's downloaded.
+   * The replay can start: the session files it needs, and telemetry somewhere. Races and practice (which needs the pit
+   * stops too: its laps are prepared with them) only: qualifying's lap comparison needs every lap, so it opens once
+   * it's downloaded.
    */
   ready(): boolean {
-    if (this.doc<{ session_type: string }>("sessions")[0]?.session_type !== "Race") return false;
-    return this.window != null && NEEDED.every((n) => this.docs.has(n)) && (this.plan?.complete().length ?? 0) > 0;
+    const type = this.doc<{ session_type: string }>("sessions")[0]?.session_type;
+    if (type !== "Race" && type !== "Practice") return false;
+    const needed = type === "Practice" ? [...NEEDED, "pit" as const] : NEEDED;
+    return this.window != null && needed.every((n) => this.docs.has(n)) && (this.plan?.complete().length ?? 0) > 0;
   }
 
   private doc<T>(name: DocName): T[] {

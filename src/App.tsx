@@ -14,7 +14,7 @@ import { useKeyboard } from "./hooks/useKeyboard";
 import { useReplayLoop } from "./hooks/useReplayLoop";
 import { applyUrl, useHistoryNav, useUrlSync } from "./hooks/useUrlState";
 import { useLibrary } from "./library";
-import { useReplay } from "./store";
+import { comparing, useReplay } from "./store";
 
 function LoadingScreen() {
   const loading = useReplay((s) => s.loading);
@@ -71,6 +71,7 @@ export function App() {
   const link = useLibrary((s) => s.link);
   const live = useReplay((s) => s.mode === "live");
   const streaming = useReplay((s) => s.stream != null);
+  const compare = useReplay(comparing);
   const spoilerPrompt = useSpoilerPrompt();
 
   useEffect(() => {
@@ -91,8 +92,8 @@ export function App() {
   // Watched while it downloads, before it can start.
   if (!session && streaming) return <StreamLoading />;
   if (!session) return <LoadingScreen />;
-  // Qualifying sessions open in the lap comparison view.
-  if (session.meta.quali) {
+  // Qualifying sessions open in the lap comparison view, as do practice's Fastest laps.
+  if (compare) {
     return (
       <>
         <QualiView overlay={loading && <div className="absolute inset-0 z-10 bg-zinc-950/80"><LoadingScreen /></div>} />

@@ -53,7 +53,7 @@ export default defineBlock({
   // pt-2.5 and a 60 px row: the height of the bars beside it (throttle-brake-rpm).
   height: 70,
   width: { min: 7, default: 7, max: 12 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: SpeedGear,
 });

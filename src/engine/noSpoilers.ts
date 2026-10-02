@@ -1,6 +1,7 @@
 // No-spoiler mode: the timeline shows only what has been watched. Its length mustn't give the race
 // away either (a long red flag, a race cut short), so until the chequered flag has been watched it
 // spans the scheduled distance at the race's typical lap time, growing if the race runs longer.
+// Practice runs to the clock: until the flag, the timeline ends at the scheduled end.
 
 import type { Ms, SessionMeta } from "../types";
 import { scheduledDistance } from "./raceDistance";
@@ -14,13 +15,20 @@ const POST_FINISH_MS = 3 * 60_000;
 /** No timed laps at all: a typical lap. */
 const FALLBACK_LAP_MS = 95_000;
 
-type Meta = Pick<SessionMeta, "circuit" | "sessionName" | "totalLaps" | "totalLapsEstimated" | "quali" | "laps" | "lightsOut" | "chequered" | "duration">;
+type Meta = Pick<
+  SessionMeta,
+  "circuit" | "sessionName" | "totalLaps" | "totalLapsEstimated" | "quali" | "practice" | "laps" | "lightsOut" | "chequered" | "duration"
+>;
 
 const projections = new WeakMap<object, Ms>();
 
 /** When the race would end over its scheduled distance at its median lap time (with the cool-down after the flag). */
 export function projectedEnd(meta: Meta): Ms {
   let end = projections.get(meta);
+  if (end == null && meta.practice) {
+    end = meta.practice.scheduledEnd + POST_FINISH_MS;
+    projections.set(meta, end);
+  }
   if (end == null) {
     const laps = meta.laps.flatMap((l) => (l.duration != null ? [l.duration * 1000] : [])).sort((a, b) => a - b);
     const typical = laps.length > 0 ? laps[laps.length >> 1] : FALLBACK_LAP_MS;

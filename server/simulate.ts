@@ -1,7 +1,7 @@
 // Simulated live session: replays a finished session's raw cache (data/raw/<key>/) through the
 // same ingestion path as MQTT messages, time-shifted so it behaves like a session happening now.
 //
-//   LIVE_SIMULATE=<session_key>   LIVE_SIMULATE_SPEED=1   LIVE_SIMULATE_START=-60 (s from lights out)
+//   LIVE_SIMULATE=<session_key>   LIVE_SIMULATE_SPEED=1   LIVE_SIMULATE_START=-60 (s from lights out; practice: the green light)
 //
 // Time series are emitted at their `date`. Documents without a natural timestamp are emitted as
 // OpenF1 publishes them: laps at their start and again as each sector and the lap complete, stints
@@ -19,6 +19,8 @@ import {
   type RawStint,
 } from "../scripts/openf1";
 import { readdir } from "node:fs/promises";
+import { practiceStart } from "../scripts/lib/practice";
+import { isFreePractice } from "../scripts/lib/season";
 import { parseSliceFile, sliceFile } from "../scripts/lib/slices";
 import type { Hub } from "./hub";
 import { LiveStore, type Topic } from "./store";
@@ -109,7 +111,11 @@ export async function simulate(hub: Hub, opts: SimulateOptions): Promise<void> {
 
   // The original timeline.
   const lap1 = laps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => ms(l.date_start));
-  const lightsOut = lap1.length ? Math.min(...lap1) : ms(session.date_start) + LIGHTS_OUT_AFTER_START_MS;
+  const lightsOut = isFreePractice(session)
+    ? (practiceStart(raceControl) ?? ms(session.date_start))
+    : lap1.length
+      ? Math.min(...lap1)
+      : ms(session.date_start) + LIGHTS_OUT_AFTER_START_MS;
   const lapEnds = laps.filter((l) => l.date_start && l.lap_duration != null).map((l) => ms(l.date_start) + l.lap_duration! * 1000);
   const lastLapEnd = lapEnds.length ? Math.max(...lapEnds) : lightsOut + 90 * 60_000;
   const chequered = ms(raceControl.find((m) => m.flag === "CHEQUERED")?.date);

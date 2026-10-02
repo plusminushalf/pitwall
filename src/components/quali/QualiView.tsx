@@ -1,11 +1,17 @@
+// The lap comparison: qualifying's screen, and finished practice's Fastest laps (Header.tsx's switch). The timing
+// board on the left, speed, delta, throttle, brake and gear on one distance axis, and the track map with who's
+// fastest in each mini-sector and the laps as ghosts.
+
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { compareModel, type CompareModel } from "../../data/compare";
 import { miniSectors } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";
 import { ghost, GHOST_SPEEDS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
 import type { SessionMeta } from "../../types";
-import { SessionPicker } from "../Header";
+import { PracticeViewSwitch, SessionPicker } from "../Header";
 import { RacesButton } from "../Navigation";
 import { CompareBar } from "./CompareBar";
 import { CompareCharts, Swatch } from "./CompareCharts";
@@ -51,34 +57,80 @@ function Help() {
   );
 }
 
-function QualiHeader({ meta }: { meta: SessionMeta }) {
+/** Qualifying: the best time of each segment, and pole. */
+function QualiSummary({ meta }: { meta: SessionMeta }) {
   const q = meta.quali!;
-  const pole = q.results[0];
-  const poleInfo = meta.drivers.find((d) => d.number === pole?.driver);
-  const poleTime = pole ? ([...pole.times].reverse().find((t) => t != null) ?? null) : null;
+  return (
+    <div className="flex items-center gap-3">
+      {q.segments.map((s) => (
+        <span key={s.number} className="flex flex-col leading-tight" title={`${s.name}: ${Math.round((s.end - s.start) / 60_000)} minutes${s.advance ? `, top ${s.advance} go through` : ""}`}>
+          <span className={LABEL}>{s.name}</span>
+          <span className="text-xs tabular-nums text-zinc-300">{lapTime(Math.min(...q.results.map((r) => r.times[s.number - 1] ?? Infinity)))}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+const COMPOUNDS = ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET"];
+
+/** Practice: the fastest lap on each compound (laps that count). */
+function PracticeSummary({ meta, model }: { meta: SessionMeta; model: CompareModel }) {
+  const best = useMemo(() => {
+    const out = new Map<string, { driver: number; time: number }>();
+    for (const l of meta.laps) {
+      if (l.duration == null || l.pitOut || l.deleted) continue;
+      const tyre = model.tyre(l.driver, l.lap);
+      const b = tyre && out.get(tyre.compound);
+      if (tyre && (!b || l.duration < b.time)) out.set(tyre.compound, { driver: l.driver, time: l.duration });
+    }
+    return [...out].sort(([a], [b]) => COMPOUNDS.indexOf(a) - COMPOUNDS.indexOf(b));
+  }, [meta, model]);
+  const acronym = (n: number) => meta.drivers.find((d) => d.number === n)?.acronym ?? `#${n}`;
+  return (
+    <div className="flex items-center gap-3">
+      {best.map(([compound, b]) => (
+        <span key={compound} className="flex items-center gap-1.5 leading-tight" title={`Fastest on the ${compound.toLowerCase()}: ${acronym(b.driver)}`}>
+          <TyreBadge compound={compound} size={16} />
+          <span className="flex flex-col">
+            <span className={LABEL}>{acronym(b.driver)}</span>
+            <span className="text-xs tabular-nums text-zinc-300">{lapTime(b.time)}</span>
+          </span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function CompareHeader({ meta, model }: { meta: SessionMeta; model: CompareModel }) {
+  // Pole, or practice's fastest lap.
+  let top: { label: string; driver: number; time: number } | null = null;
+  if (meta.quali) {
+    const pole = meta.quali.results[0];
+    const time = pole ? ([...pole.times].reverse().find((t) => t != null) ?? null) : null;
+    if (pole && time != null) top = { label: "Pole", driver: pole.driver, time };
+  } else {
+    const p1 = model.classification[0];
+    if (p1?.best != null) top = { label: "Fastest", driver: p1.driver, time: p1.best };
+  }
+  const topInfo = top ? meta.drivers.find((d) => d.number === top.driver) : null;
   return (
     <header className="grid h-[52px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4">
       <div className="flex min-w-0 items-center gap-3">
         <RacesButton />
         <SessionPicker meta={meta} />
+        <PracticeViewSwitch />
       </div>
       <div className="flex items-center gap-5">
         <span className="text-xl font-black uppercase tracking-tight">{meta.sessionName}</span>
-        <div className="flex items-center gap-3">
-          {q.segments.map((s) => (
-            <span key={s.number} className="flex flex-col leading-tight" title={`${s.name}: ${Math.round((s.end - s.start) / 60_000)} minutes${s.advance ? `, top ${s.advance} go through` : ""}`}>
-              <span className={LABEL}>{s.name}</span>
-              <span className="text-xs tabular-nums text-zinc-300">{lapTime(Math.min(...q.results.map((r) => r.times[s.number - 1] ?? Infinity)))}</span>
-            </span>
-          ))}
-        </div>
+        {meta.quali ? <QualiSummary meta={meta} /> : <PracticeSummary meta={meta} model={model} />}
       </div>
       <div className="flex items-center justify-end gap-4">
-        {poleInfo && poleTime != null && (
+        {top && topInfo && (
           <span className="flex flex-col items-end leading-tight">
-            <span className={LABEL}>Pole</span>
+            <span className={LABEL}>{top.label}</span>
             <span className="text-sm tabular-nums text-zinc-100">
-              <span className="font-bold">{poleInfo.acronym}</span> {lapTime(poleTime)}
+              <span className="font-bold">{topInfo.acronym}</span> {lapTime(top.time)}
             </span>
           </span>
         )}
@@ -121,11 +173,12 @@ function useGhostLoop(maxDuration: number) {
   }, []);
 }
 
-/** Ghost keys (the replay's own handler also sees them, harmlessly: its clock isn't shown here). */
+/** Ghost keys (the replay's own handler leaves them to this view: they'd move the replay behind it). */
 function useGhostKeys() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
       const { seekGhost, ghostSpeed, setGhostSpeed } = useQuali.getState();
       const i = GHOST_SPEEDS.indexOf(ghostSpeed as (typeof GHOST_SPEEDS)[number]);
       if (e.key === "ArrowLeft") seekGhost(ghost.t - (e.shiftKey ? 5_000 : 1_000));
@@ -133,6 +186,8 @@ function useGhostKeys() {
       else if (e.key === "Home") seekGhost(0);
       else if (e.key === "-") setGhostSpeed(GHOST_SPEEDS[Math.max(0, i - 1)]);
       else if (e.key === "+" || e.key === "=") setGhostSpeed(GHOST_SPEEDS[Math.min(GHOST_SPEEDS.length - 1, i + 1)]);
+      else return;
+      e.preventDefault();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -159,20 +214,21 @@ function Dominance({ entries, sectors }: { entries: CompareEntry[]; sectors: Ret
 export function QualiView({ overlay }: { overlay?: ReactNode }) {
   const session = useReplay((s) => s.session)!;
   const meta = session.meta;
-  const q = meta.quali!;
+  const model = compareModel(meta)!;
   const entries = useCompare();
   const zoom = useQuali((s) => s.zoom);
   const [miniCount, setMiniCount] = useState(25);
 
-  // A fresh session: reset the compare state, and start with pole vs P2 unless a link picked drivers.
+  // A fresh session: reset the compare state, and start with pole vs P2 (practice: the two fastest) unless a link
+  // (or the replay, in practice) picked drivers.
   useEffect(() => {
     useQuali.getState().reset(meta.sessionKey);
     const { selected } = useReplay.getState();
     if (selected.length === 0) {
-      const top = q.results.slice(0, 2).map((r) => r.driver);
-      useReplay.setState({ selected: top });
+      useReplay.setState({ selected: model.defaultDrivers });
+      useQuali.setState({ autoPicked: model.defaultDrivers });
     }
-  }, [meta.sessionKey, q]);
+  }, [meta.sessionKey, model]);
 
   const withTrace = useMemo(() => entries.filter((e) => e.trace), [entries]);
   const maxDuration = Math.max(0, ...withTrace.map((e) => e.trace!.duration));
@@ -202,13 +258,13 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
   const ref = entries[0];
   return (
     <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
-      <QualiHeader meta={meta} />
+      <CompareHeader meta={meta} model={model} />
       <div className="grid min-h-0 grid-cols-[360px_minmax(0,1fr)_400px]">
         <aside className="min-h-0 border-r border-zinc-800">
           <QualiBoard />
         </aside>
         <main className="flex min-h-0 min-w-0 flex-col">
-          <CompareBar meta={meta} entries={entries} />
+          <CompareBar model={model} entries={entries} />
           <div className="flex h-7 shrink-0 items-center justify-between px-3 text-[11px] text-zinc-500">
             <span>
               {ref && entries.length > 1 ? (
@@ -235,7 +291,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
             </span>
           </div>
           {withTrace.length ? (
-            <CompareCharts entries={entries} lapLength={q.lapLength} sectorDistances={q.sectorDistances} corners={corners} />
+            <CompareCharts entries={entries} lapLength={model.lapLength} sectorDistances={model.sectorDistances} corners={corners} />
           ) : (
             <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
               {entries.some((e) => e.loading) ? "Loading lap telemetry…" : "Pick drivers on the timing board to compare their laps"}

@@ -13,7 +13,7 @@ import { BlockHost } from "../blockkit/BlockHost";
 import type { BlockDefinition, BlockSettings } from "../blockkit/defineBlock";
 import { heightInputOf, orderOf, selectedDriverOf } from "../blockkit/select";
 import { useReplay } from "../store";
-import { BlockPicker, raceBlocks } from "./BlockPicker";
+import { BlockPicker, gridBlocks } from "./BlockPicker";
 import { BUILTIN_BLOCKS } from "./builtins";
 import { BlockChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
 import {
@@ -34,6 +34,7 @@ import {
 } from "./edit";
 import { boxesOf, pack, ROW, type Box, type Layout } from "./layout";
 import { SettingsEditor, shownFields } from "./SettingsEditor";
+import { gridKind } from "./storage";
 import { useLayout } from "./store";
 
 export { useLayout } from "./store";
@@ -406,7 +407,11 @@ export const Grid = memo(function Grid() {
         >
           <BlockPicker
             columns={layout.columns}
-            entries={raceBlocks(BUILTIN_BLOCKS, layout).map(({ block, placed }) => ({ block, placed, room: canAdd(layout, ctx, block.id, picker.slot) }))}
+            entries={gridBlocks(BUILTIN_BLOCKS, layout, gridKind(ctx.input.info.kind)).map(({ block, placed }) => ({
+              block,
+              placed,
+              room: canAdd(layout, ctx, block.id, picker.slot),
+            }))}
             onPick={(id) => {
               const next = addBlock(layout, ctx, id, picker.slot);
               if (next) useLayout.getState().setLayout(next);

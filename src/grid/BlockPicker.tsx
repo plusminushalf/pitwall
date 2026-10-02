@@ -1,10 +1,11 @@
-// The block picker behind "+ Add block" (H3.10): every race block, also those on the screen already (a
-// block can be placed more than once, H3.11), greyed out where there's no room for it, and the marketplace
-// still to come.
+// The block picker behind "+ Add block" (H3.10): every block for the session's kind (race or practice), also
+// those on the screen already (a block can be placed more than once, H3.11), greyed out where there's no room
+// for it, and the marketplace still to come.
 
 import type { BlockDefinition } from "../blockkit/defineBlock";
 import { LABEL_CLASS } from "../blockkit/ui/Label";
 import { blockIdOf, columnRange, type Layout } from "./layout";
+import type { GridKind } from "./storage";
 
 export interface PickerEntry {
   block: BlockDefinition;
@@ -13,10 +14,10 @@ export interface PickerEntry {
   placed: number;
 }
 
-/** Race blocks in the app's order, with how many of each the layout places. */
-export function raceBlocks(blocks: ReadonlyMap<string, BlockDefinition>, layout: Layout): { block: BlockDefinition; placed: number }[] {
+/** The blocks for `kind` sessions in the app's order, with how many of each the layout places. */
+export function gridBlocks(blocks: ReadonlyMap<string, BlockDefinition>, layout: Layout, kind: GridKind = "race"): { block: BlockDefinition; placed: number }[] {
   const ids = Object.entries(layout.blocks).map(([key, entry]) => blockIdOf(key, entry));
-  return [...blocks.values()].filter((b) => b.sessions.includes("race")).map((block) => ({ block, placed: ids.filter((id) => id === block.id).length }));
+  return [...blocks.values()].filter((b) => b.sessions.includes(kind)).map((block) => ({ block, placed: ids.filter((id) => id === block.id).length }));
 }
 
 /** Default width in whole columns, as the grid would place it. */

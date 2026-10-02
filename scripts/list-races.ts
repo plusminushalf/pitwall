@@ -1,16 +1,18 @@
 // List race and sprint sessions for a season, with their session keys for ingest.
 //
-//   bun run races [year] [--quali]      (--quali: qualifying and sprint qualifying sessions too)
+//   bun run races [year] [--quali] [--practice]   (qualifying and sprint qualifying, free practice sessions too)
 
 import { seasonSessions } from "./season";
 
 const args = process.argv.slice(2);
 const quali = args.includes("--quali");
+const practice = args.includes("--practice");
 const year = Number(args.find((a) => !a.startsWith("--")) ?? new Date().getUTCFullYear());
-const sessions = await seasonSessions(year, { quali });
+const sessions = await seasonSessions(year, { quali, practice });
 const width = Math.max(7, ...sessions.map((s) => s.session.session_name.length));
 
-console.log(`${year}: ${sessions.length} ${quali ? "race and qualifying" : "race"} sessions\n`);
+const kinds = ["race", quali && "qualifying", practice && "practice"].filter(Boolean).join(", ");
+console.log(`${year}: ${sessions.length} ${kinds} sessions\n`);
 console.log(` key    date        ${"session".padEnd(width)}  circuit`);
 for (const { session: s, status } of sessions) {
   const note = status === "pending" ? "" : status;

@@ -30,8 +30,9 @@ export function SpoilerPrompt() {
           {meta.year} {meta.meetingName} · {meta.sessionName}
         </p>
         <p className="mt-2 text-sm leading-relaxed text-zinc-300">
-          The timeline will only show what you've watched so far. Safety cars, retirements, penalties and the finish stay hidden until you
-          get to them.
+          {meta.practice
+            ? "The timeline will only show what you've watched so far. Red flags, VSCs, yellows and penalties stay hidden until you get to them."
+            : "The timeline will only show what you've watched so far. Safety cars, retirements, penalties and the finish stay hidden until you get to them."}
         </p>
         <div className="mt-4 flex gap-2">
           <button autoFocus onClick={() => choose(true)} className="flex-1 rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white">
@@ -46,7 +47,7 @@ export function SpoilerPrompt() {
         </div>
         <label className="mt-4 flex cursor-pointer items-center gap-2 text-xs text-zinc-300">
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="accent-zinc-100" />
-          Remember my choice for every race
+          Remember my choice for every session
         </label>
         <p className="mt-1 pl-5 text-[11px] text-zinc-400">You can change it in Settings on the home page.</p>
       </div>

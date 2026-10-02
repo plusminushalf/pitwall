@@ -146,6 +146,7 @@ function RaceFeed() {
   const items = useFeed((feed) => feed.slice(0, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]));
   const drivers = useDrivers();
   const lightsOut = useSessionInfo((i) => i.lightsOut);
+  const practice = useSessionInfo((i) => i.kind === "practice");
   const seek = usePlayback((p) => p.seek);
   const focus = useSelection((s) => s.focus);
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
@@ -163,9 +164,9 @@ function RaceFeed() {
   return (
     <section className="flex h-full flex-col text-sm">
       <div className="border-b border-zinc-800 px-3 py-1.5">
-        <Label as="h2">Race feed</Label>
+        <Label as="h2">{practice ? "Session feed" : "Race feed"}</Label>
         <div className="mt-1 flex flex-wrap gap-1">
-          {GROUPS.map((g) => {
+          {GROUPS.filter((g) => !practice || g.id !== "overtake").map((g) => {
             const on = groups[g.id];
             return (
               <button
@@ -205,7 +206,7 @@ export default defineBlock({
   // Fills its column and scrolls inside, so the layout never jumps as items arrive.
   height: { min: 150 },
   width: { min: 15, default: 21, max: 40 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: {},
   Component: RaceFeed,
 });

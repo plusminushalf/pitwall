@@ -83,6 +83,13 @@ const RAW_FILES: Record<string, { session: RawFileSpec[]; perDriver: RawFileSpec
     session: SESSION_FILES.map((f) => (f.name === "intervals" ? { ...f, bytes: 30, scales: false } : f)),
     perDriver: PER_DRIVER,
   },
+  // Nor overtakes; and an hour of runs from the garage has more pit records than a race (2026 Melbourne FP2: 86).
+  Practice: {
+    session: SESSION_FILES.map((f) =>
+      f.name === "intervals" || f.name === "overtakes" ? { ...f, bytes: 30, scales: false } : f.name === "pit" ? { ...f, bytes: 2_500 } : f,
+    ),
+    perDriver: PER_DRIVER,
+  },
 };
 
 /** Gzipped bytes per 5-minute unit of a slice, for 22 cars (2026 Baku). */

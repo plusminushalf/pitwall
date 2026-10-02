@@ -8,7 +8,7 @@ dist/
 # Never commit or bundle it: the app downloads races from OpenF1 into each user's own browser, and the
 # optional CLI (`bun run ingest`) keeps its copy here: raw OpenF1 responses in data/raw/, processed
 # sessions in data/sessions/.
-data/
+/data/
 
 # CodeGraph index (local code navigation)
 .codegraph/

@@ -39,7 +39,7 @@ function statusText(live: LiveInfo, hasSession: boolean): Status | null {
   if (hasSession) return null;
   if (live.state === null) return { text: "Connecting to the live relay…", tone: "muted" };
   if (live.state === "connecting") return { text: "Loading the live session…", tone: "muted" };
-  if (live.state === "idle") return { text: live.next ? nextLabel(live.next) : "No live race or sprint right now", tone: "muted" };
+  if (live.state === "idle") return { text: live.next ? nextLabel(live.next) : "No live session right now", tone: "muted" };
   return { text: "Waiting for live data…", tone: "muted" };
 }
 

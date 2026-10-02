@@ -9,19 +9,25 @@ export const FIRST_YEAR = 2023;
 
 /**
  * OpenF1 session types that can be ingested: "Race" covers sprints, "Qualifying" covers sprint qualifying
- * and sprint shootouts (session_name tells them apart).
+ * and sprint shootouts (session_name tells them apart), "Practice" free practice (and pre-season testing, which
+ * isn't: see isFreePractice).
  */
-export const INGESTIBLE_TYPES: readonly string[] = ["Race", "Qualifying"];
+export const INGESTIBLE_TYPES: readonly string[] = ["Race", "Qualifying", "Practice"];
 
-export const isIngestible = (s: { session_type: string }) => INGESTIBLE_TYPES.includes(s.session_type);
+/** Free practice ("Practice 1".."Practice 3"); pre-season testing is session_type "Practice" too ("Day 1"..). */
+export const isFreePractice = (s: { session_type: string; session_name: string }) => s.session_type === "Practice" && /^Practice \d$/.test(s.session_name);
+
+export const isIngestible = (s: { session_type: string; session_name: string }) =>
+  INGESTIBLE_TYPES.includes(s.session_type) && (s.session_type !== "Practice" || isFreePractice(s));
 
 /**
- * Session types the live relay follows (server/openf1Source.ts): races and sprints. Qualifying isn't streamed live;
- * it can be downloaded once it's over.
+ * Session types the live relay follows (server/openf1Source.ts): races, sprints and free practice. Qualifying isn't
+ * streamed live; it can be downloaded once it's over.
  */
-export const LIVE_TYPES: readonly string[] = ["Race"];
+export const LIVE_TYPES: readonly string[] = ["Race", "Practice"];
 
-export const isFollowedLive = (s: { session_type: string }) => LIVE_TYPES.includes(s.session_type);
+export const isFollowedLive = (s: { session_type: string; session_name: string }) =>
+  LIVE_TYPES.includes(s.session_type) && (s.session_type !== "Practice" || isFreePractice(s));
 
 export type SeasonStatus = "cancelled" | "not run yet" | "ingested" | "pending";
 

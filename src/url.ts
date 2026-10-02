@@ -1,6 +1,7 @@
 // The app's addresses. The path says what's on screen, the query where in it you are (t in seconds of replay time):
 //   /                                                Home
 //   /session/11377?t=3725&drivers=1,63,55&focus=63   a session: its replay, or the offer to download it
+//   /session/11228?view=laps&drivers=1,63            finished practice's Fastest laps (the lap comparison)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
 // Links from before paths (`/?session=11377&t=…`, `/?live=1`, the single `driver=63`) still open, and are upgraded.
 
@@ -11,12 +12,14 @@ export interface UrlState {
   t?: number;
   drivers: number[];
   focus: number | null;
+  /** Practice: the Fastest laps instead of the replay. Absent: the replay. */
+  view?: "laps";
 }
 
 const SESSION_PATH = /^\/session\/(\d+)\/?$/;
 const LIVE_PATH = /^\/live\/?$/;
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
-const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus"]);
+const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view"]);
 
 export const sessionPath = (key: number) => `/session/${key}`;
 export const livePath = "/live";
@@ -42,6 +45,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     t: t != null ? t * 1000 : undefined,
     drivers,
     focus: num("focus") ?? legacy,
+    ...(path && q.get("view") === "laps" ? { view: "laps" as const } : {}),
   };
 }
 
@@ -49,6 +53,7 @@ export function readUrl(pathname: string, search: string): UrlState {
 export function urlFor(v: UrlState): string {
   if (!v.live && v.session == null) return "/";
   const q: string[] = [];
+  if (!v.live && v.view === "laps") q.push("view=laps");
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
   if (v.drivers.length > 0) q.push(`drivers=${v.drivers.join(",")}`);
   if (v.focus != null) q.push(`focus=${v.focus}`);

@@ -1,10 +1,10 @@
-// Live relay: streams a race in progress to the app in the replay format (src/live/protocol.ts).
+// Live relay: streams a race, sprint or free practice in progress to the app in the replay format (src/live/protocol.ts).
 //
 //   bun run live                              OpenF1 live timing (needs OPENF1_USERNAME/PASSWORD in .env)
 //   LIVE_SIMULATE=11377 bun server/live.ts    replay a cached session as if it were live
 //
 // WebSocket at /relay (proxied by Vite in dev), health at GET /relay/health. Env: LIVE_PORT (8787),
-// LIVE_SIMULATE, LIVE_SIMULATE_SPEED (1), LIVE_SIMULATE_START (-60 s from lights out).
+// LIVE_SIMULATE, LIVE_SIMULATE_SPEED (1), LIVE_SIMULATE_START (-60 s from lights out, or practice's green light).
 // Credentials and tokens stay here: the browser only ever sees processed data.
 
 import { Hub } from "./hub";

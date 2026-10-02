@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { orderOf, selectedDriverOf } from "./blockkit/select";
+import { canCompare } from "./data/compare";
 import { LiveEdge } from "./data/liveEdge";
 import { appendTelemetry, buildSession, mergeTelemetry, streamSession, withMeta, type Session } from "./data/session";
 import type { StreamUpdate } from "./ingest/protocol";
@@ -22,6 +24,24 @@ export type Mode = "replay" | "live";
 
 /** The Home page (library + calendar), or the session on screen (a replay, live mode, or the offer to download a linked one). */
 export type View = "home" | "replay";
+
+/** A finished practice session's two screens: the replay, or the Fastest laps comparison (in the URL: `view=laps`). */
+export type PracticeView = "replay" | "laps";
+
+/** Where to open a session: replay time (ms), drivers, focus, and (practice) the screen. */
+export interface OpenOpts {
+  t?: number;
+  drivers?: number[];
+  focus?: number | null;
+  view?: PracticeView;
+}
+
+/**
+ * The lap comparison is on screen instead of the replay: qualifying (it has nothing else), or finished practice's
+ * Fastest laps. Its play controls drive the ghost laps; the replay's clock stays where it is.
+ */
+export const comparing = (s: { session: Session | null; practiceView: PracticeView }): boolean =>
+  s.session != null && (s.session.meta.quali != null || (s.practiceView === "laps" && canCompare(s.session.meta)));
 
 /** Home, unless the link opens a session or live mode. */
 const initialView = (): View => {
@@ -118,6 +138,9 @@ export function liveTarget(wall = performance.now()): number {
 /** Seeking at least this close to the follow position (in session ms) means following live again. */
 const followSnap = () => liveEdge.buffer() / 3;
 
+/** Practice's lap steps land this long before the lap starts (as timeForLap does). */
+const LAP_LEAD_MS = 3_000;
+
 /** Where a replay opens (unless it was watched before) and restarts after the end: lights out, so play starts the race at once. */
 const startOf = (session: Session): number => Math.max(0, session.meta.lightsOut);
 
@@ -134,7 +157,7 @@ function endOf(s: { mode: Mode; session: Session | null }): number {
 export interface StreamState {
   key: number;
   spans: [number, number][];
-  opts: { t?: number; drivers?: number[]; focus?: number | null };
+  opts: OpenOpts;
   finishing: boolean;
 }
 
@@ -264,16 +287,18 @@ interface ReplayState {
   watchedTo: number;
   /** The race on screen is being watched while it downloads (null otherwise). */
   stream: StreamState | null;
+  /** A finished practice session: the replay or the Fastest laps (shown once it can compare laps, see comparing()). */
+  practiceView: PracticeView;
 
   loadIndex: () => Promise<void>;
-  loadSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => Promise<void>;
+  loadSession: (key: number, opts?: OpenOpts) => Promise<void>;
   /** Stop showing the current session (it was deleted); back to Home if it was on screen. */
   closeSession: () => void;
   /**
    * Show a downloaded session: instantly if it's the one loaded (left for Home), else loaded (at `opts`, or where
    * it was last watched). From Home it's a new history entry, so the browser's Back returns there.
    */
-  openSession: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => void;
+  openSession: (key: number, opts?: OpenOpts) => void;
   /** Back to Home (and in history): playback stops, the replay stays loaded; live mode is left. */
   goHome: () => void;
   /** goHome() without touching history (Back / Forward already moved it). */
@@ -282,6 +307,11 @@ interface ReplayState {
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
   seekToLap: (lap: number) => void;
+  /**
+   * [ / ] and the timeline's buttons: the leader's previous / next lap (seekToLap). Practice has no leader: the laps
+   * of the driver the driver blocks show (focused, else the best-placed selected one, else P1).
+   */
+  stepLap: (dir: -1 | 1) => void;
   setPlaying: (playing: boolean) => void;
   /** P and the play button: latch playback on, or pause if it's latched (or following live). */
   togglePlay: () => void;
@@ -301,22 +331,24 @@ interface ReplayState {
   setNoSpoilers: (on: boolean) => void;
   setSpoilerPref: (pref: SpoilerPref) => void;
   /** Watch a race while it downloads (the library starts the download): shown from its first update. */
-  openStream: (key: number, opts?: { t?: number; drivers?: number[]; focus?: number | null }) => void;
+  openStream: (key: number, opts?: OpenOpts) => void;
   /** An update from the download being watched. */
   streamUpdate: (u: StreamUpdate) => void;
   /** The download being watched is done: swap in the stored replay, where it is. */
   streamDone: (key: number) => Promise<void>;
+  /** Practice: the replay or the Fastest laps. Pauses: each plays on its own (the replay, or the ghost laps). */
+  setPracticeView: (view: PracticeView) => void;
 }
 
 export const useReplay = create<ReplayState>((set, get) => {
   /**
-   * A race that opens plays (latched, as with P), once the spoiler question is answered if it's asked. Qualifying has
-   * its own player (the ghost laps).
+   * A race that opens plays (latched, as with P), once the spoiler question is answered if it's asked. The lap
+   * comparison (qualifying, practice's Fastest laps) has its own player (the ghost laps).
    */
   const autoplay = () => {
     const s = get();
     autoplayPending = false;
-    if (!s.session || s.session.meta.quali || s.mode !== "replay" || s.view !== "replay") return;
+    if (!s.session || comparing(s) || s.mode !== "replay" || s.view !== "replay") return;
     if (s.noSpoilers === null) {
       autoplayPending = true;
       return;
@@ -426,6 +458,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     noSpoilers: false,
     watchedTo: 0,
     stream: null,
+    practiceView: "replay",
 
     loadIndex: async () => {
       try {
@@ -460,7 +493,9 @@ export const useReplay = create<ReplayState>((set, get) => {
         // Spoilers: asked about for each race opened (unless an answer is saved); a reload keeps the choice.
         const prev = get();
         const noSpoilers = session.meta.quali ? false : prev.session?.meta.sessionKey === key ? prev.noSpoilers : spoilerChoice(prev.spoilerPref);
-        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers });
+        // Practice: the screen asked for (a link), else the one it was on (reloaded), else the replay.
+        const practiceView = opts.view ?? (prev.session?.meta.sessionKey === key ? prev.practiceView : "replay");
+        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers, practiceView });
         get().publish();
         // (Not when the race on screen is reloaded where it was: an update.)
         if (prev.session?.meta.sessionKey !== key) autoplay();
@@ -535,11 +570,26 @@ export const useReplay = create<ReplayState>((set, get) => {
       get().seek(timeForLap(session, lap));
     },
 
+    stepLap: (dir) => {
+      const { session, race, selected, focused } = get();
+      if (!session || !race) return;
+      if (!session.meta.practice) return get().seekToLap(race.leaderLap + dir);
+      const n = selectedDriverOf(orderOf(race), selected, focused, null);
+      const laps = n != null ? session.drivers.get(n)?.laps : undefined;
+      if (!laps?.length) return;
+      // As seekToLap: just before the lap starts, which counts as that lap (so the next step goes on from it).
+      let i = -1;
+      for (let k = 0; k < laps.length && laps[k].start - LAP_LEAD_MS <= clock.t + 1; k++) i = k;
+      const lap = laps[Math.min(Math.max(i + dir, 0), laps.length - 1)];
+      get().seek(Math.max(0, lap.start - LAP_LEAD_MS));
+    },
+
     setPlaying: (playing) => {
       const { session, mode } = get();
       if (!session) return;
-      // Pressing play at the end restarts from lights out (live: the end is the live edge, which playback follows).
-      if (playing && mode === "replay" && clock.t >= session.meta.duration) clock.t = startOf(session);
+      // Pressing play at the end restarts from lights out (live: the end is the live edge, which playback follows; the
+      // lap comparison: it plays the ghost laps, not the replay).
+      if (playing && mode === "replay" && !comparing(get()) && clock.t >= session.meta.duration) clock.t = startOf(session);
       set(playing ? { playing } : { playing, latched: false });
       get().publish();
     },
@@ -669,6 +719,8 @@ export const useReplay = create<ReplayState>((set, get) => {
         focused: null,
         watchedTo: last?.watchedTo ?? 0,
         stream: { key, spans: [], opts: opts.t == null && last ? { ...opts, t: last.t } : opts, finishing: false },
+        // The Fastest laps open once the download is done (it compares every lap); until then the replay plays.
+        practiceView: opts.view ?? "replay",
       });
       reportPlayhead(true);
     },
@@ -715,17 +767,24 @@ export const useReplay = create<ReplayState>((set, get) => {
           set({ session: stored, stream: null, selected, focused, noSpoilers });
           autoplay();
         } else {
-          // The same race, as stored: carry on where it is.
+          // The same race, as stored: carry on where it is. (Practice asked for its Fastest laps: they open now, paused.)
           clock.t = Math.min(clock.t, stored.meta.duration);
           const selected = s.selected.filter((n) => stored.drivers.has(n));
           const focused = s.focused != null && stored.drivers.has(s.focused) ? s.focused : null;
-          set({ session: stored, stream: null, selected, focused });
+          const laps = comparing({ session: stored, practiceView: s.practiceView });
+          set({ session: stored, stream: null, selected, focused, ...(laps ? { playing: false, latched: false } : {}) });
         }
       } catch (e) {
         console.warn(`[stream ${key}] couldn't load the stored replay; keeping the streamed one`, e);
         if (get().stream?.key === key) set({ stream: null });
       }
       reportPlayhead(true);
+      get().publish();
+    },
+
+    setPracticeView: (practiceView) => {
+      if (practiceView === get().practiceView) return;
+      set({ practiceView, playing: false, latched: false });
       get().publish();
     },
   };

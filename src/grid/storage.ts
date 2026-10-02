@@ -1,12 +1,22 @@
-// The saved layout (H3.11): one per browser, in localStorage (sync, so the first frame already shows it).
-// What's read back is checked and repaired against the blocks the app has: entries of unknown and non-race
-// blocks are dropped, widths clamped, heights kept to at least MIN_HEIGHT, settings the block no longer accepts
-// dropped, and a layout saved at another column count rescaled. Anything unusable falls back to the default layout.
+// The saved layouts (H3.11): one per browser for races and one for free practice, in localStorage (sync, so the first
+// frame already shows it). What's read back is checked and repaired against the blocks the app has: entries of
+// unknown blocks and blocks for other sessions are dropped, widths clamped, heights kept to at least MIN_HEIGHT,
+// settings the block no longer accepts dropped, and a layout saved at another column count rescaled. Anything
+// unusable falls back to the default layout.
 
 import { settingField, type BlockDefinition, type BlockSettings, type SettingValue } from "../blockkit/defineBlock";
+import type { SessionKind } from "../blockkit/select";
 import { blockIdOf, COLUMNS, columnRange, MIN_HEIGHT, type Layout, type LayoutEntry } from "./layout";
 
+/** The sessions shown on the grid, each with its own layout (qualifying has its own screen). */
+export type GridKind = Exclude<SessionKind, "qualifying">;
+
+/** The layout a session of `kind` is shown with. */
+export const gridKind = (kind: SessionKind | undefined): GridKind => (kind === "practice" ? "practice" : "race");
+
 export const STORAGE_KEY = "f1-replay:layout";
+/** Where each kind's layout is saved: races where the only layout was before practice had its own. */
+export const storageKey = (kind: GridKind) => (kind === "race" ? STORAGE_KEY : `${STORAGE_KEY}:${kind}`);
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const major = (version: string) => /^(\d+)\./.exec(version)?.[1] ?? null;
@@ -63,8 +73,8 @@ function readEntry(raw: unknown): LayoutEntry | null {
   return group === undefined ? entry : { ...entry, group };
 }
 
-/** Validates and repairs a stored layout (see the top of this file). null if it's unusable. */
-export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefinition>, columns = COLUMNS): Layout | null {
+/** Validates and repairs a stored layout of `kind` sessions (see the top of this file). null if it's unusable. */
+export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefinition>, columns = COLUMNS, kind: GridKind = "race"): Layout | null {
   if (!isObject(raw) || raw.version !== 1 || !isObject(raw.blocks)) return null;
   const stored = raw.columns;
   if (typeof stored !== "number" || !Number.isInteger(stored) || stored < 1) return null;
@@ -74,7 +84,7 @@ export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefin
     const entry = readEntry(value);
     if (!entry) return null;
     const block = blocks.get(blockIdOf(id, entry));
-    if (!block || !block.sessions.includes("race")) continue;
+    if (!block || !block.sessions.includes(kind)) continue;
     // One version of each block is available: the same major keeps the settings, another resets them.
     const settings = major(entry.blockVersion) === major(block.version) ? cleanSettings(block, entry.settings) : {};
     kept[id] = { ...entry, blockVersion: block.version, settings };
@@ -85,27 +95,27 @@ export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefin
   return { ...layout, blocks: Object.fromEntries(Object.entries(layout.blocks).map(([id, e]) => [id, clampEntry(e, blocks.get(blockIdOf(id, e)), columns)])) };
 }
 
-/** The saved layout, or `fallback`. Never throws (localStorage may be missing or throw). */
-export function loadLayout(blocks: ReadonlyMap<string, BlockDefinition>, fallback: Layout): Layout {
+/** The saved layout for `kind` sessions, or `fallback`. Never throws (localStorage may be missing or throw). */
+export function loadLayout(blocks: ReadonlyMap<string, BlockDefinition>, fallback: Layout, kind: GridKind = "race"): Layout {
   try {
-    const saved = globalThis.localStorage?.getItem(STORAGE_KEY);
-    return (saved != null && parseLayout(JSON.parse(saved), blocks)) || fallback;
+    const saved = globalThis.localStorage?.getItem(storageKey(kind));
+    return (saved != null && parseLayout(JSON.parse(saved), blocks, COLUMNS, kind)) || fallback;
   } catch {
     return fallback;
   }
 }
 
-export function saveLayout(layout: Layout): void {
+export function saveLayout(layout: Layout, kind: GridKind = "race"): void {
   try {
-    globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify(layout));
+    globalThis.localStorage?.setItem(storageKey(kind), JSON.stringify(layout));
   } catch {
     // Full or blocked storage: the layout lasts until the page closes.
   }
 }
 
-export function clearSavedLayout(): void {
+export function clearSavedLayout(kind: GridKind = "race"): void {
   try {
-    globalThis.localStorage?.removeItem(STORAGE_KEY);
+    globalThis.localStorage?.removeItem(storageKey(kind));
   } catch {
     // Nothing saved that we can reach.
   }

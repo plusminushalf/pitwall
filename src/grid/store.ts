@@ -1,18 +1,25 @@
 // The layout on screen and edit mode (H3.10, H3.11). In normal mode a block's own setting changes (the
 // tower's Gap/Int toggle) are saved at once; in edit mode everything is saved on Done. Playback pauses
 // in edit mode (dragging with the race playing janks) and resumes on Done, unless the user pressed play
-// meanwhile, in which case it's left as they set it.
+// meanwhile, in which case it's left as they set it. Races and free practice each have a layout: opening a
+// session of the other kind shows (and edits) that one.
 
 import { create } from "zustand";
 import type { BlockSettings } from "../blockkit/defineBlock";
+import type { Session } from "../data/session";
 import { useReplay } from "../store";
 import { BUILTIN_BLOCKS } from "./builtins";
-import { DEFAULT_LAYOUT } from "./defaultLayout";
+import { DEFAULT_LAYOUTS } from "./defaultLayout";
 import type { Slot } from "./edit";
 import type { Layout } from "./layout";
-import { loadLayout, saveLayout } from "./storage";
+import { loadLayout, saveLayout, type GridKind } from "./storage";
+
+/** Which layout a session is shown with. */
+const gridKindOf = (session: Session | null): GridKind | null => (session ? (session.meta.practice ? "practice" : "race") : null);
 
 interface LayoutState {
+  /** The kind of session the layout is for. */
+  kind: GridKind;
   layout: Layout;
   editing: boolean;
   /** Edit mode paused the race, and Done will resume it. */
@@ -33,8 +40,12 @@ interface LayoutState {
 /** While edit mode has the race paused: the watch for the user pressing play. */
 let stopWatching: (() => void) | null = null;
 
+/** The kind on screen when this store is made (a hot reload can make it with a session open); "race" before one is. */
+const initialKind = gridKindOf(useReplay.getState().session) ?? "race";
+
 export const useLayout = create<LayoutState>((set, get) => ({
-  layout: loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUT),
+  kind: initialKind,
+  layout: loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS[initialKind], initialKind),
   editing: false,
   pausedPlayback: false,
   picker: null,
@@ -57,7 +68,7 @@ export const useLayout = create<LayoutState>((set, get) => ({
     stopWatching = unsubscribe;
   },
   done: () => {
-    saveLayout(get().layout);
+    saveLayout(get().layout, get().kind);
     const resume = get().pausedPlayback;
     stopWatching?.();
     stopWatching = null;
@@ -65,16 +76,29 @@ export const useLayout = create<LayoutState>((set, get) => ({
     // Paused and unlatched, toggling plays and latches again, as before edit mode.
     if (resume && !useReplay.getState().playing) useReplay.getState().togglePlay();
   },
-  reset: () => set({ layout: DEFAULT_LAYOUT, picker: null }),
+  reset: () => set({ layout: DEFAULT_LAYOUTS[get().kind], picker: null }),
   setLayout: (layout) => set({ layout }),
   setSettings: (id, settings) => {
-    const { layout, editing } = get();
+    const { layout, editing, kind } = get();
     const entry = layout.blocks[id];
     if (!entry) return;
     const next = { ...layout, blocks: { ...layout.blocks, [id]: { ...entry, settings } } };
     set({ layout: next });
-    if (!editing) saveLayout(next);
+    if (!editing) saveLayout(next, kind);
   },
   openPicker: (slot) => set({ picker: slot ? { slot } : {} }),
   closePicker: () => set({ picker: null }),
 }));
+
+// A session of the other kind: its layout. Editing the one on screen ends as Done would (saved), so nothing's lost.
+useReplay.subscribe((s) => {
+  const kind = gridKindOf(s.session);
+  const state = useLayout.getState();
+  if (kind == null || kind === state.kind) return;
+  if (state.editing) {
+    saveLayout(state.layout, state.kind);
+    stopWatching?.();
+    stopWatching = null;
+  }
+  useLayout.setState({ kind, layout: loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS[kind], kind), editing: false, pausedPlayback: false, picker: null });
+});

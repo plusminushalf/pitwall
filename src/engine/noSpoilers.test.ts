@@ -50,6 +50,13 @@ describe("no-spoiler timeline length", () => {
     expect(spoilerFreeEnd(meta, 9_000_000)).toBe(9_180_000);
   });
 
+  test("practice runs to the clock: the scheduled end and the cool-down, whatever the laps", () => {
+    const fp = race({ practice: { scheduledEnd: 3_660_000 }, lightsOut: 60_000, chequered: 3_660_000, duration: 3_900_000, laps: [80, 130].map(lap) });
+    expect(projectedEnd(fp)).toBe(3_660_000 + 180_000);
+    expect(spoilerFreeEnd(fp, 3_659_999)).toBe(3_840_000);
+    expect(spoilerFreeEnd(fp, 3_660_000)).toBe(3_900_000);
+  });
+
   test("a race that ends before the projection only shows its real end at the flag", () => {
     const meta = race({});
     expect(spoilerFreeEnd(meta, 5_199_999)).toBe(projectedEnd(meta));

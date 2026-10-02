@@ -59,7 +59,7 @@ export default defineBlock({
   // pt-2.5 and three 16 px bars 6 px apart.
   height: 70,
   width: { min: 10, default: 15, max: 30 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: ThrottleBrakeRpm,
 });

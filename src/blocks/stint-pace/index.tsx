@@ -447,7 +447,7 @@ export default defineBlock({
   // Fills its column: a taller chart separates close lap times better.
   height: { min: 160 },
   width: { min: 21, default: 42, max: 100 },
-  sessions: ["race"],
+  sessions: ["race", "practice"],
   settings: { driver: "follow-selection" as DriverSetting, x: "lap" as XAxis, colour: "auto" as Colour },
   fields: {
     x: {
