@@ -50,7 +50,7 @@ export function App() {
         </a>
       </header>
 
-      <main className="pt-6 sm:pt-10">
+      <main className="pt-4 sm:pt-10">
         {id ? <Permalink key={id} id={id} fresh={fresh?.id === id ? fresh : null} onNew={() => go("/predictions")} /> : <Compose hero={<Hero />} onLocked={(p) => go(predictionPath(p.id), p)} />}
       </main>
     </div>
@@ -60,10 +60,10 @@ export function App() {
 function Hero() {
   return (
     <div>
-      <h1 className="ci-display text-[3.4rem] font-black uppercase italic leading-[0.86] text-white sm:text-7xl">
+      <h1 className="ci-display text-[2.75rem] font-black uppercase italic leading-[0.86] text-white sm:text-7xl">
         Who leads into <span className="text-[#ff1e28]">Turn 1?</span>
       </h1>
-      <p className="mt-5 max-w-xl text-lg text-zinc-400">
+      <p className="mt-3 max-w-xl text-zinc-400 sm:mt-5 sm:text-lg">
         Call it before lights out. Our server stamps the time and nobody can edit it, not even you. When you're right, you've got proof.
       </p>
     </div>

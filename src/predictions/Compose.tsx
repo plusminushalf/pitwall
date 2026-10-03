@@ -47,8 +47,8 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
   };
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-14">
-      <div className="flex min-w-0 flex-col gap-8">
+    <div className="grid gap-10 pb-28 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-14 lg:pb-0">
+      <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
         {hero}
         <section>
           <div className="mb-1 flex items-baseline gap-3">
@@ -67,7 +67,7 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
                   type="button"
                   aria-pressed={on}
                   onClick={() => setChosen(d.number)}
-                  className={`relative flex h-[4.5rem] items-stretch overflow-hidden rounded-md border text-left transition-colors ${on ? "border-white bg-zinc-800" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"}`}
+                  className={`relative flex h-16 items-stretch lg:h-[4.5rem] overflow-hidden rounded-md border text-left transition-colors ${on ? "border-white bg-zinc-800" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"}`}
                 >
                   <span className="flex-none transition-[width]" style={{ background: t.colour, width: on ? 10 : 6 }} />
                   <span className="ci-display flex w-12 flex-none items-center justify-center text-2xl font-black italic text-zinc-500">P{d.quali}</span>
@@ -85,21 +85,24 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
       </div>
 
       <div className="lg:sticky lg:top-6 lg:self-start">
-        <div className="mx-auto max-w-[380px]">
+        <div className="mx-auto max-w-[300px] lg:max-w-[380px]">
           <ScaledCard race={race} call={call} host={location.host} tz={tz} className="rounded-xl shadow-2xl shadow-black ring-1 ring-white/10" />
+        </div>
+        {/* On a phone, Lock it in stays at the bottom of the screen. */}
+        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950/90 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-auto lg:max-w-[380px] lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
           <button
             type="button"
             onClick={lock}
             disabled={!!problem || busy}
-            className="ci-display mt-5 flex h-16 w-full items-center justify-center gap-3 rounded-md bg-[#ff1e28] text-3xl font-black uppercase italic tracking-wide text-white shadow-lg shadow-red-950/50 transition hover:bg-[#ff3a43] active:scale-[0.99] disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
+            className="ci-display flex h-14 w-full items-center justify-center gap-3 rounded-md bg-[#ff1e28] lg:mt-5 lg:h-16 text-3xl font-black uppercase italic tracking-wide text-white shadow-lg shadow-red-950/50 transition hover:bg-[#ff3a43] active:scale-[0.99] disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
           >
             <svg viewBox="0 0 24 24" className="size-6 fill-none stroke-current stroke-[2.5]">
               <rect x="5" y="11" width="14" height="10" rx="2" />
               <path d="M8 11V8a4 4 0 0 1 8 0v3" />
             </svg>
-            {busy ? "Locking…" : "Lock it in"}
+            {busy ? "Locking…" : driver != null ? `Lock it in: ${driverIn(race.id, driver)?.last}` : "Lock it in"}
           </button>
-          <p className={`mt-3 text-center text-sm ${error ? "text-[#ff6467]" : "text-zinc-500"}`}>
+          <p className={`mt-2 text-center text-xs lg:mt-3 lg:text-sm ${error ? "text-[#ff6467]" : "text-zinc-500"}`}>
             {error ?? (driver == null ? "Pick a driver." : "Once it's locked, nobody can change it. Not even you.")}
           </p>
         </div>

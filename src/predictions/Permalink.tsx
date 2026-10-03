@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { adoptTokenFromHash, ApiError, getPrediction, revealLink, revealPrediction, tokenFor } from "./api";
 import { ScaledCard } from "./Card";
 import { span, stamp } from "./format";
-import { cardPng, copy, copyImage, download, share } from "./image";
+import { canShareImage, cardPng, copy, copyImage, shareImage } from "./image";
 import { calledIt, driverIn, raceById, SOMEONE_ELSE, team, topFive, type Prediction } from "./model";
 
 type Load = { state: "loading" } | { state: "missing" } | { state: "error"; message: string } | { state: "ready"; p: Prediction };
@@ -45,14 +45,24 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
   const when = stamp(p.lockedAt, p.tz);
   const d = driverIn(p.race, p.call.driver);
 
-  // The PNG is made ahead, so Share still has the tap's permission when it hands the file on.
+  // Phones share the card itself; elsewhere, copy the caption and the card.
+  const [phone] = useState(canShareImage);
+  // The PNG is made ahead, so Share and Copy image still have the tap's permission when they hand it on.
+  const [blob, setBlob] = useState<Blob | null>(null);
   useEffect(() => {
     png.current = null;
+    setBlob(null);
     if (!shareable) return;
+    let live = true;
     const t = setTimeout(() => {
-      if (cardRef.current) png.current = cardPng(cardRef.current);
+      if (!cardRef.current) return;
+      png.current = cardPng(cardRef.current);
+      png.current.then((b) => live && setBlob(b)).catch(() => (png.current = null));
     }, 300);
-    return () => clearTimeout(t);
+    return () => {
+      live = false;
+      clearTimeout(t);
+    };
   }, [p, shareable]);
   const image = () => (png.current ??= cardPng(cardRef.current!));
 
@@ -60,13 +70,12 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
     setToast(s);
     setTimeout(() => setToast((t) => (t === s ? null : t)), 2400);
   };
-  const name = `called-it-${race.short.toLowerCase().replace(/\W+/g, "-")}-${p.id}.png`;
   const text = right ? `Called it: ${d?.last} led into Turn 1. Locked before lights out.` : `${d?.last} leads into Turn 1. Locked before lights out.`;
   // The caption to post with the card: the call, the tags, the link.
   const caption = `${text} #F1 #${race.short.replace(/\W/g, "")}\n${url}`;
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14">
+    <div className="grid gap-8 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14">
       <div className="mx-auto w-full max-w-[380px] lg:max-w-none">
         <div className={right === false ? "opacity-35 grayscale-[0.7]" : ""}>
           <ScaledCard
@@ -78,58 +87,35 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
             className={`rounded-xl shadow-2xl ring-1 ${right ? "shadow-emerald-950/60 ring-emerald-400/30" : "shadow-black ring-white/10"}`}
           />
         </div>
-        {shareable && (
-          <div className="mt-5 grid grid-cols-2 gap-2">
+        {shareable && phone && (
+          <>
             <button
               type="button"
-              className="ci-btn col-span-2 bg-white text-zinc-950 hover:bg-zinc-200"
+              disabled={!blob}
+              className="ci-btn mt-5 h-16 w-full gap-3 bg-white text-2xl text-zinc-950 hover:bg-zinc-200"
               onClick={async () => {
-                try {
-                  say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images: download it instead.");
-                } catch {
-                  png.current = null;
-                  say("Couldn't copy the card. Try Download.");
-                }
+                if (!blob) return;
+                const r = await shareImage(blob, caption, `called-it-${p.id}.png`);
+                if (r === "failed") say("Couldn't share it. Try again.");
               }}
             >
-              Copy image
+              <svg viewBox="0 0 24 24" className="size-6 fill-none stroke-current stroke-[2.2]" aria-hidden>
+                <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+              {blob ? "Share" : "Getting it ready…"}
             </button>
-            <button
-              type="button"
-              className="ci-btn bg-zinc-800 text-white hover:bg-zinc-700"
-              onClick={async () => {
-                try {
-                  download(await image(), name);
-                } catch {
-                  png.current = null;
-                  say("Couldn't make the image. Try again.");
-                }
-              }}
-            >
-              Download image
-            </button>
-            <button
-              type="button"
-              className="ci-btn bg-zinc-800 text-white hover:bg-zinc-700"
-              onClick={async () => {
-                const r = await share({ url, text, image, name });
-                if (r === "copied") say("Link copied");
-              }}
-            >
-              Share
-            </button>
-          </div>
+            <div aria-live="polite" className="mt-2 h-5 text-center text-sm text-zinc-300">
+              {toast}
+            </div>
+          </>
         )}
-        <div aria-live="polite" className="mt-3 h-5 text-center text-sm text-zinc-300">
-          {toast}
-        </div>
       </div>
 
       <div className="flex min-w-0 flex-col gap-6 lg:pt-4">
         <Status p={p} owner={owner} justLocked={justLocked} started={started} when={when} />
-        {shareable && (
+        {shareable && !phone && (
           <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Text to post with it</div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Post it with this</div>
             <p className="select-all whitespace-pre-wrap break-words text-zinc-100">{caption}</p>
             <button
               type="button"
@@ -141,6 +127,23 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
             >
               Copy text
             </button>
+            <button
+              type="button"
+              className="ci-btn mt-2 w-full bg-white text-zinc-950 hover:bg-zinc-200"
+              onClick={async () => {
+                try {
+                  say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images. Long-press or right-click the card to save it.");
+                } catch {
+                  png.current = null;
+                  say("Couldn't copy the card. Try again.");
+                }
+              }}
+            >
+              Copy image
+            </button>
+            <div aria-live="polite" className="mt-2 h-5 text-center text-sm text-zinc-300">
+              {toast}
+            </div>
           </div>
         )}
         {owner && !p.result && started && <Reveal p={p} onRevealed={onRevealed} />}

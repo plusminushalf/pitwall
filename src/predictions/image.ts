@@ -1,39 +1,12 @@
-// The card as a 1080×1920 PNG, and handing it on: download it, copy it, or share it (the image where the platform
-// takes files, else the link; without the Web Share API, the link is copied).
+// The card as a 1080×1920 PNG, and the clipboard: the card or the text to post with it.
 
 import { CARD_H, CARD_W } from "./Card";
 
 export async function cardPng(node: HTMLElement): Promise<Blob> {
   await document.fonts.ready;
-  // Loaded on the first download or share, not with the page.
+  // Loaded on the first copy, not with the page.
   const { domToBlob } = await import("modern-screenshot");
   return domToBlob(node, { width: CARD_W, height: CARD_H, scale: 1, type: "image/png", backgroundColor: "#08080b" });
-}
-
-export function download(blob: Blob, name: string) {
-  const url = URL.createObjectURL(blob);
-  const a = Object.assign(document.createElement("a"), { href: url, download: name });
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-export type Shared = "shared" | "copied" | "cancelled";
-
-export async function share(opts: { url: string; text: string; image?: () => Promise<Blob>; name: string }): Promise<Shared> {
-  try {
-    if (navigator.share) {
-      const blob = opts.image && "canShare" in navigator ? await opts.image() : null;
-      const file = blob && new File([blob], opts.name, { type: "image/png" });
-      // With a file, some apps drop the url: it goes in the text too.
-      if (file && navigator.canShare({ files: [file] })) await navigator.share({ files: [file], text: `${opts.text} ${opts.url}` });
-      else await navigator.share({ url: opts.url, text: opts.text });
-      return "shared";
-    }
-  } catch (e) {
-    if (e instanceof DOMException && e.name === "AbortError") return "cancelled";
-  }
-  await copy(opts.url);
-  return "copied";
 }
 
 export async function copy(text: string) {
@@ -54,4 +27,24 @@ export async function copyImage(image: () => Promise<Blob>): Promise<boolean> {
   // A promise in the item, so Safari still counts the tap that asked for it.
   await navigator.clipboard.write([new ClipboardItem({ "image/png": image() })]);
   return true;
+}
+
+/** Whether this is a phone or tablet that can hand the card itself to another app (the share sheet: X, Instagram…). */
+export function canShareImage(): boolean {
+  if (typeof navigator.canShare !== "function" || !matchMedia("(pointer: coarse)").matches) return false;
+  try {
+    return navigator.canShare({ files: [new File([new Uint8Array(1)], "card.png", { type: "image/png" })] });
+  } catch {
+    return false;
+  }
+}
+
+/** The card and its caption to the share sheet. The blob must be ready: the tap that asked has to still count. */
+export async function shareImage(blob: Blob, text: string, name: string): Promise<"shared" | "cancelled" | "failed"> {
+  try {
+    await navigator.share({ files: [new File([blob], name, { type: "image/png" })], text });
+    return "shared";
+  } catch (e) {
+    return e instanceof DOMException && e.name === "AbortError" ? "cancelled" : "failed";
+  }
 }
