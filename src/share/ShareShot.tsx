@@ -1,6 +1,6 @@
 // Share a screenshot (S, or the Share button): the screen is frozen as it is, the user drags out an area, clicks a
-// widget or panel (anything marked data-widget / data-shot), or presses Enter for all of it, and the area is copied
-// to the clipboard as a PNG with Pitwall's name and address underneath. A toast then offers the link to this moment
+// widget or panel (anything marked data-widget / data-shot; shift-click for several), or presses Enter for all of it,
+// and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. A toast then offers the link to this moment
 // (share/link.ts) and the image to save.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -123,18 +123,41 @@ function regionAt(x: number, y: number, bounds: Rect): Rect | null {
   return null;
 }
 
+const sameRect = (a: Rect, b: Rect) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
+
+/** The smallest area holding all of `rects`; null if there are none. */
+function union(rects: Rect[]): Rect | null {
+  if (rects.length === 0) return null;
+  const left = Math.min(...rects.map((r) => r.left));
+  const top = Math.min(...rects.map((r) => r.top));
+  const right = Math.max(...rects.map((r) => r.left + r.width));
+  const bottom = Math.max(...rects.map((r) => r.top + r.height));
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+/** Whether a click adds to the widgets picked instead of sharing (shift, or ⌘ / Ctrl). */
+const adding = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) => e.shiftKey || e.metaKey || e.ctrlKey;
+
+/**
+ * The area picker over the frozen screen: drag out an area, or click a widget; shift-click (or ⌘ / Ctrl-click) picks
+ * several, and what's shared is the smallest area holding them all (and the one clicked or dragged last).
+ */
 function Picker({ shot, image }: { shot: Shot; image: string }) {
   const { pick, cancel } = useShare.getState();
   const { bounds } = shot;
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<Rect | null>(null);
   const [hover, setHover] = useState<Rect | null>(null);
+  const [picked, setPicked] = useState<Rect[]>([]);
+  const pickedRef = useRef(picked);
+  pickedRef.current = picked;
 
   useEffect(() => {
     // Before the replay's keys (window, bubbling): Esc here mustn't also clear the selection.
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") cancel();
-      else if (e.key === "Enter") pick(null);
+      // The widgets picked, or without any the whole screen.
+      else if (e.key === "Enter") pick(union(pickedRef.current));
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -164,13 +187,22 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
     if (drag) {
       setDrag(null);
       // Too small to be meant: start again.
-      if (drag.width >= 8 && drag.height >= 8) pick(drag);
+      if (drag.width >= 8 && drag.height >= 8) pick(union([...picked, drag]));
       return;
     }
-    pick(regionAt(e.clientX, e.clientY, bounds));
+    const region = regionAt(e.clientX, e.clientY, bounds);
+    if (adding(e)) {
+      if (region) setPicked(picked.some((r) => sameRect(r, region)) ? picked.filter((r) => !sameRect(r, region)) : [...picked, region]);
+      return;
+    }
+    // Outside any widget, with some picked: those.
+    pick(region || picked.length > 0 ? union(region ? [...picked, region] : picked) : null);
   };
 
-  const area = drag ?? hover;
+  const hovering = hover && !picked.some((r) => sameRect(r, hover));
+  // Lit: what Enter would share (the widgets picked), what a click would (the one under the pointer), or the area
+  // being dragged out. With widgets picked, the one under the pointer is outlined: a click adds it.
+  const area = drag ? union([...picked, drag]) : picked.length > 0 ? union(picked) : hover;
   return (
     <div
       data-shot-ignore=""
@@ -187,24 +219,53 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
       <img src={image} alt="" draggable={false} className="absolute max-w-none" style={{ left: bounds.left, top: bounds.top, width: bounds.width, height: bounds.height }} />
       {area ? (
         <div
-          className="pointer-events-none absolute outline-1 outline-zinc-100 outline-solid"
+          className={`pointer-events-none absolute ${picked.length > 0 ? "" : "outline-1 outline-zinc-100 outline-solid"}`}
           style={{ left: bounds.left + area.left, top: bounds.top + area.top, width: area.width, height: area.height, boxShadow: "0 0 0 200vmax rgb(0 0 0 / 0.55)" }}
         >
           {drag && (
             <span className="absolute left-0 top-full mt-1 rounded bg-zinc-900 px-1.5 py-0.5 text-[11px] tabular-nums text-zinc-300">
-              {Math.round(drag.width)} × {Math.round(drag.height)}
+              {Math.round(area.width)} × {Math.round(area.height)}
             </span>
           )}
         </div>
       ) : (
         <div className="pointer-events-none absolute inset-0 bg-black/40" />
       )}
+      {picked.map((r, i) => (
+        <div
+          key={i}
+          className="pointer-events-none absolute outline-2 -outline-offset-2 outline-zinc-100 outline-solid"
+          style={{ left: bounds.left + r.left, top: bounds.top + r.top, width: r.width, height: r.height }}
+        />
+      ))}
+      {picked.length > 0 && hovering && !drag && (
+        <div
+          className="pointer-events-none absolute outline-1 -outline-offset-1 outline-zinc-400 outline-dashed"
+          style={{ left: bounds.left + hover.left, top: bounds.top + hover.top, width: hover.width, height: hover.height }}
+        />
+      )}
       {!drag && (
         <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-xl">
           <Icon name="camera" size={14} className="text-zinc-400" />
-          Drag out an area or click a widget
-          <span className="text-zinc-500">·</span>
-          <Kbd>Enter</Kbd> whole screen
+          {picked.length > 0 ? (
+            <>
+              <span className="font-semibold tabular-nums text-zinc-100">
+                {picked.length} {picked.length === 1 ? "widget" : "widgets"}
+              </span>
+              <span className="text-zinc-500">·</span>
+              <Kbd>Shift</Kbd> click to add or remove
+              <span className="text-zinc-500">·</span>
+              <Kbd>Enter</Kbd> share
+            </>
+          ) : (
+            <>
+              Drag out an area or click a widget
+              <span className="text-zinc-500">·</span>
+              <Kbd>Shift</Kbd> click for several
+              <span className="text-zinc-500">·</span>
+              <Kbd>Enter</Kbd> whole screen
+            </>
+          )}
           <span className="text-zinc-500">·</span>
           <Kbd>Esc</Kbd> cancel
         </div>
