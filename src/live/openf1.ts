@@ -5,6 +5,7 @@
 
 import { AuthError } from "../../scripts/lib/openf1Http";
 import type { RawCircuit, RawMeeting, RawSession } from "../../scripts/lib/openf1Types";
+import { endingFlag } from "../../scripts/lib/normalize";
 import { isFollowedLive } from "../../scripts/lib/season";
 import type { LiveSink } from "./hub";
 import type { LiveStatus } from "./protocol";
@@ -50,7 +51,8 @@ export function finished(store: LiveStore, now: number): boolean {
   if (now > end + MAX_OVERRUN_MS) return true;
   if (now <= end + AFTER_END_MS) return false;
   const quiet = store.lastMessageAt == null || now - store.lastMessageAt > QUIET_MS;
-  const flag = store.list<{ flag: string | null; date: string }>("race_control").find((m) => m.flag === "CHEQUERED");
+  // (Qualifying: the last segment's flag, not Q1's.)
+  const flag = endingFlag(store.list<{ flag: string | null; date: string }>("race_control"), store.session);
   return quiet || (flag != null && now - Date.parse(flag.date) > AFTER_END_MS);
 }
 

@@ -262,6 +262,22 @@ describe("backfill", () => {
 });
 
 describe("finished", () => {
+  test("qualifying: a flag after each segment; over only after the last one's (Q3 can overrun)", () => {
+    const quali = { ...race, session_name: "Qualifying", session_type: "Qualifying" };
+    const end = Date.parse(quali.date_end);
+    let clock = end + 31 * MIN;
+    const store = new LiveStore({ session: quali, meeting: null, circuit: null, t0: Date.parse(quali.date_start) - 10 * MIN, clock: () => clock });
+    const flag = (t: number) => store.ingest("race_control", { session_key: 11731, date: iso(t), category: "Flag", flag: "CHEQUERED", scope: "Track", message: "CHEQUERED FLAG" });
+    flag(end - 90 * MIN); // Q1
+    flag(end - 60 * MIN); // Q2
+    store.ingest("position", { session_key: 11731, driver_number: 1, position: 1, date: iso(clock) }); // Q3 still running
+    expect(finished(store, clock)).toBe(false);
+    flag(clock); // Q3
+    clock += 31 * MIN;
+    store.ingest("position", { session_key: 11731, driver_number: 1, position: 2, date: iso(clock) });
+    expect(finished(store, clock)).toBe(true);
+  });
+
   test("not before 30 min after the scheduled end; then once the data dries up or 30 min after the flag", () => {
     const end = Date.parse(race.date_end);
     let clock = end + 20 * MIN;

@@ -428,6 +428,17 @@ export function estimateTotalLaps(
  * Free practice (laps as preparePracticeLaps leaves them): "lights out" is the green light, t0 a minute before it.
  * Ingest plans its telemetry requests from it before any telemetry is in.
  */
+/**
+ * The chequered flag that ends a session: the first one, except in qualifying, which shows one after each segment (Q1,
+ * Q2, Q3; SQ1 to SQ3): there the third, so none until the last segment's is out. (Live mode: a qualifying replay's
+ * segments come from quali.ts.)
+ */
+export function endingFlag<T extends { flag: string | null; date: string }>(raceControl: readonly T[], session: { session_type: string }): T | undefined {
+  if (session.session_type !== "Qualifying") return raceControl.find((m) => m.flag === "CHEQUERED");
+  const flags = raceControl.filter((m) => m.flag === "CHEQUERED").sort((a, b) => Date.parse(a.date) - Date.parse(b.date));
+  return flags.length >= 3 ? flags.at(-1) : undefined;
+}
+
 export function replayWindow(raw: Pick<RawSessionData, "session" | "laps" | "raceControl">): { lightsOut: number; t0: number; end: number } {
   const practice = isFreePractice(raw.session);
   const lap1Starts = raw.laps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
@@ -482,7 +493,8 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     });
     lightsOutAbs = lap2.length ? Math.min(...lap2) : Math.max(abs(session.date_start) + LIGHTS_OUT_AFTER_START_MS, live.now);
   }
-  const chequeredMsg = rawRaceControl.find((m) => m.flag === "CHEQUERED");
+  // (Live qualifying: the last segment's flag, not Q1's.)
+  const chequeredMsg = live ? endingFlag(rawRaceControl, session) : rawRaceControl.find((m) => m.flag === "CHEQUERED");
   const chequeredAbs = chequeredMsg ? abs(chequeredMsg.date) : null;
 
   const t0 = live ? live.t0 : lightsOutAbs - (practice ? PRACTICE_PRE_MS : PRE_START_MS);
@@ -1037,9 +1049,18 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const statusEvents: TrackStatusEvent[] = [];
   let currentStatus: TrackStatus = "GREEN";
   let scAtRestart = false;
+  // Live qualifying: a flag ends a segment and the next one starts green (a replay's segments: quali.ts).
+  const segmented = live != null && session.session_type === "Qualifying";
   for (const m of allRaceControl) {
-    if (currentStatus === "CHEQUERED") break; // e.g. TRACK CLEAR after the flag is not a green-flag phase
     const msg = m.message.toUpperCase();
+    if (currentStatus === "CHEQUERED") {
+      if (!segmented) break; // e.g. TRACK CLEAR after the flag is not a green-flag phase
+      if (m.category === "SessionStatus" && /STARTED/.test(msg)) {
+        statusEvents.push({ t: m.t, status: "GREEN" });
+        currentStatus = "GREEN";
+      }
+      continue;
+    }
     let status = statusFor(m);
     if (currentStatus === "RED") {
       // TRACK CLEAR while the cars wait in the pit lane is not a restart. The race resumes with the
