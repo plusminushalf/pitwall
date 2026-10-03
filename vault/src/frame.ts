@@ -25,7 +25,7 @@ import { Rpc, type PortLike, type Vault } from "./rpc";
 import { TOKEN_TIMEOUT_MS, type Timers } from "./scheduler";
 import { SimBroker, loadSimConfig } from "./sim";
 import { IdbStore } from "./storage";
-import { CHANNEL, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
+import { channelName, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
 
 const parent = window.parent !== window ? parentOrigin(location.ancestorOrigins, __VAULT_APP_ORIGINS__) : null;
 
@@ -46,7 +46,7 @@ async function boot(parent: string) {
   const gated = <A extends unknown[]>(fn: (...a: A) => unknown): ((...a: A) => void) => (gate ? gate.wrap(fn) : (...a: A) => void fn(...a));
   const gFetch: typeof fetch = gate ? (input, init) => gate.hold(fetch(input, init)) : (input, init) => fetch(input, init);
   // Frames in other tabs of the same app share this partition (IndexedDB, BroadcastChannel, Web Locks).
-  const bc = new BroadcastChannel(CHANNEL);
+  const bc = new BroadcastChannel(channelName(__VAULT_VERSION__));
   const raw: ChannelLike = { postMessage: (m) => bc.postMessage(m), onmessage: null };
   bc.onmessage = (e) => raw.onmessage?.(e);
   const channel = gate ? gate.channel(raw) : raw;

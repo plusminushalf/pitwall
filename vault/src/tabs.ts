@@ -2,6 +2,10 @@
 // the app's site), so one BroadcastChannel and one set of Web Locks, and nothing else can join either: this is
 // one trust boundary. Among them, one leader (docs/hypotheses.md, H2.10):
 //
+// - Per build: the channel and lock names carry the vault's version and source hash (channelName, lockNames). A tab
+//   still open from before a deploy runs the old code; its frame must not lead the new ones (it would serve their
+//   requests the old way). So each build elects its own leader: two builds open means two MQTT sessions (OpenF1
+//   allows 10 an account), each tab streaming from its own build's.
 // - Election: navigator.locks.request(LEADER_LOCK) held for the frame's lifetime. The first frame gets it;
 //   the others queue for it, so when the leader's tab closes the next frame in line takes over at once.
 // - The leader alone refreshes the token (/token), runs the MQTT stream (for the union of every frame's
@@ -38,6 +42,14 @@ import type { Timers } from "./scheduler";
 export const CHANNEL = "f1-vault";
 export const LEADER_LOCK = "f1-vault-leader";
 export const FRAME_LOCK = "f1-vault-frame:";
+
+/**
+ * The channel and lock names of one build (`version`: the build's, with its source hash). Frames of different builds
+ * never elect, follow or talk to each other: after a deploy, a tab still running the old build would otherwise lead
+ * and serve the new frames' requests with its old code. Each build has its own leader (and stream) instead.
+ */
+export const channelName = (version: string) => `${CHANNEL}:${version}`;
+export const lockNames = (version: string) => ({ leader: `${LEADER_LOCK}:${version}`, frame: `${FRAME_LOCK}${version}:` });
 /** How often the leader lists the frame locks to drop the subscriptions of closed tabs. */
 export const PRUNE_MS = 5_000;
 /**
@@ -179,7 +191,11 @@ export class VaultNode {
   constructor(private deps: NodeDeps) {
     this.id = deps.id ?? newId();
     this.initDone = new Promise((r) => (this.initResolve = r));
+    this.locksOf = lockNames(deps.version);
   }
+
+  /** This build's lock names. */
+  private readonly locksOf: { leader: string; frame: string };
 
   /** Join: take the lead if nobody has it, else follow (and queue to take over). */
   async start(): Promise<void> {
@@ -188,8 +204,8 @@ export class VaultNode {
     // No Web Locks, or a browser that refuses them (third-party storage blocked, e.g. Helium's default: every
     // call is a SecurityError, which hold() can't tell from "another frame has it"): no election, lead alone.
     if (!locks || !(await this.locksWork(locks))) return this.lead(false);
-    void this.hold(FRAME_LOCK + this.id, {}).then((ok) => void (ok && this.learnClientId()));
-    if (await this.hold(LEADER_LOCK, { ifAvailable: true }, () => this.lostLock())) return this.lead(false);
+    void this.hold(this.locksOf.frame + this.id, {}).then((ok) => void (ok && this.learnClientId()));
+    if (await this.hold(this.locksOf.leader, { ifAvailable: true }, () => this.lostLock())) return this.lead(false);
     this.send({ k: "hello", from: this.id });
     this.queueForLead();
     this.lastHeard = this.lastWatch = this.leaderHeardAt = this.deps.timers.now();
@@ -367,7 +383,7 @@ export class VaultNode {
   private async learnClientId() {
     try {
       const q = await this.deps.locks!.query();
-      this.clientId = q.held?.find((l) => l.name === FRAME_LOCK + this.id)?.clientId ?? null;
+      this.clientId = q.held?.find((l) => l.name === this.locksOf.frame + this.id)?.clientId ?? null;
     } catch {
       // (then the lock check trusts that the leader lock is ours)
     }
@@ -377,7 +393,7 @@ export class VaultNode {
   private async checkLock(): Promise<boolean> {
     try {
       const q = await this.deps.locks!.query();
-      const leader = q.held?.find((l) => l.name === LEADER_LOCK);
+      const leader = q.held?.find((l) => l.name === this.locksOf.leader);
       if (!leader) return false;
       return !this.clientId || !leader.clientId || leader.clientId === this.clientId;
     } catch {
@@ -390,7 +406,7 @@ export class VaultNode {
     this.queued?.abort();
     const ac = new AbortController();
     this.queued = ac;
-    void this.hold(LEADER_LOCK, { signal: ac.signal }, () => this.lostLock()).then((ok) => {
+    void this.hold(this.locksOf.leader, { signal: ac.signal }, () => this.lostLock()).then((ok) => {
       if (this.queued === ac) this.queued = null;
       if (ok) void this.lead(true);
     });
@@ -402,7 +418,7 @@ export class VaultNode {
     this.queued = null;
     this.counts.steals++;
     this.stealing = { from: this.leaderId, clientId: this.leaderClientId };
-    void this.hold(LEADER_LOCK, { steal: true }, () => this.lostLock()).then((ok) => {
+    void this.hold(this.locksOf.leader, { steal: true }, () => this.lostLock()).then((ok) => {
       if (ok) void this.lead(true);
       else this.queueForLead();
     });
@@ -561,7 +577,7 @@ export class VaultNode {
     if (!locks) return;
     void locks.query().then(
       (q) => {
-        const alive = new Set((q.held ?? []).map((l) => l.name ?? "").filter((n) => n.startsWith(FRAME_LOCK)).map((n) => n.slice(FRAME_LOCK.length)));
+        const alive = new Set((q.held ?? []).map((l) => l.name ?? "").filter((n) => n.startsWith(this.locksOf.frame)).map((n) => n.slice(this.locksOf.frame.length)));
         let changed = false;
         for (const id of this.followerSubs.keys()) if (!alive.has(id)) changed = this.followerSubs.delete(id) || changed;
         // (A closed tab's queued gets: nobody will read their answers.)

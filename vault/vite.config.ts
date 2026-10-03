@@ -19,6 +19,8 @@
 // VAULT_SIMULATE_SPEED, _START (s from lights out), _TOKEN_S, _DROP_EVERY (min), _REFUSE_AT (min), _JITTER
 // (ms): see simserver.ts. A build ignores all of it (__VAULT_SIMULATE__ = false; e2e checks dist/).
 
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { COMMON_HEADERS, formatHeaders, headerRules, pageHeaders, pageOf } from "./headers.ts";
@@ -32,6 +34,16 @@ const env = (name: string) => process.env[name] || loadEnv("", repo, "")[name] |
 
 const appOrigins = parseOrigins(env("VAULT_APP_ORIGINS") || DEFAULT_APP_ORIGINS);
 const VERSION = "0.1.0";
+
+/**
+ * The build: a hash of the vault's source (src/, not the tests). In the version, so frames of different builds never
+ * share a leader (tabs.ts, lockNames): a tab still open from before a deploy runs the old code.
+ */
+function buildHash(): string {
+  const h = createHash("sha256");
+  for (const f of readdirSync(`${root}src`).filter((n) => n.endsWith(".ts") && !n.endsWith(".test.ts")).sort()) h.update(f).update(readFileSync(`${root}src/${f}`));
+  return h.digest("hex").slice(0, 10);
+}
 
 /** VAULT_FAKE_EXPIRES_IN as whole seconds (0: off), bounded like debug:fakeExpiry. */
 function fakeExpiresIn(): number {
@@ -70,7 +82,7 @@ function devConnect(dev: boolean): string[] {
  * environment says, so the dev knobs (src/debug.ts) are dropped from it.
  */
 function vaultConstants(): Plugin {
-  let version = VERSION;
+  let version = `${VERSION}+${buildHash()}`;
   let dev = false;
   let fake = 0;
   let broker = "";
@@ -80,7 +92,7 @@ function vaultConstants(): Plugin {
     configResolved(config) {
       dev = config.command === "serve";
       if (dev) {
-        version = `${VERSION}-dev`;
+        version = `${VERSION}-dev+${buildHash()}`;
         fake = fakeExpiresIn();
         broker = fakeBroker();
         simulate = !!env("VAULT_SIMULATE");

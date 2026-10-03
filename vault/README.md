@@ -280,6 +280,11 @@ them: one trust boundary.
   leader alone calls `/token` (the refresh schedule), runs the stream and spends the REST budget. Followers
   forward `get` and the dev knobs to it, send it their subscriptions (the leader streams the union), and get
   data and status over the channel. `status.tab`: `{role, id, leader, frames}`.
+- One election per build: the lock and channel names carry the version and a hash of `src/`
+  (`f1-vault-leader:0.1.0+<hash>`). A tab still open from before a deploy runs the old code, and its frame must not
+  lead the new ones (it would serve their requests the old way: seen on 2026-10-03, an old leader without the REST
+  pass-through). Two builds open means two leaders, two streams and two logins in memory, each restored from the
+  same stored login; OpenF1 allows 10 connections an account.
 - A browser that refuses Web Locks (third-party storage blocked, e.g. Helium by default: every call is a
   `SecurityError`) gets no election: each frame leads alone. It refuses IndexedDB too, so the vault says
   `unavailable`, and the app asks the user to allow third-party cookies for its site.

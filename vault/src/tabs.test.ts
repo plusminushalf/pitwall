@@ -7,22 +7,23 @@ import type { LiveTopic, PopupMessage, VaultStatus } from "./protocol";
 import { MemoryStore } from "./storage";
 import { FreezeGate } from "./freeze";
 import { Budget } from "./budget";
-import { FORWARD_TIMEOUT_MS, FRAME_LOCK, HEARTBEAT_MS, LEADER_LOCK, LEASE_MS, PROVISIONAL_MS, TAKEOVER_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
+import { channelName, FORWARD_TIMEOUT_MS, HEARTBEAT_MS, LEASE_MS, lockNames, PROVISIONAL_MS, TAKEOVER_MS, VaultNode, type ChannelLike, type LocksLike } from "./tabs";
 
 const USER = "someone@example.com";
 const PASS = "correct horse battery staple";
 const T = "ticket_ticket_ticket_01";
 
-/** BroadcastChannel: every other channel on the bus gets a structured clone, asynchronously. */
+/** BroadcastChannel: every other channel of the same name on the bus gets a structured clone, asynchronously. */
 class Bus {
-  channels = new Set<ChannelLike & { dead?: boolean }>();
-  make(): ChannelLike & { dead?: boolean } {
-    const ch: ChannelLike & { dead?: boolean } = {
+  channels = new Set<ChannelLike & { dead?: boolean; name: string }>();
+  make(name = channelName("test")): ChannelLike & { dead?: boolean } {
+    const ch: ChannelLike & { dead?: boolean; name: string } = {
+      name,
       onmessage: null,
       postMessage: (m) => {
         if (ch.dead) return;
         const copy = structuredClone(m);
-        for (const o of this.channels) if (o !== ch && !o.dead) setImmediate(() => !o.dead && o.onmessage?.({ data: copy }));
+        for (const o of this.channels) if (o !== ch && !o.dead && o.name === name) setImmediate(() => !o.dead && o.onmessage?.({ data: copy }));
       },
     };
     this.channels.add(ch);
@@ -97,7 +98,8 @@ function world() {
     return { status: 200, text: async () => JSON.stringify({ access_token: `eyJhbGciOiJIUzI1NiJ9.tok${tokens}.sig`, token_type: "bearer", expires_in: "3600" }) };
   };
   let seq = 0;
-  function frame(opts: { gate?: boolean; visible?: () => boolean; budget?: boolean; restDelay?: number; deniedLocks?: boolean } = {}) {
+  function frame(opts: { gate?: boolean; visible?: () => boolean; budget?: boolean; restDelay?: number; deniedLocks?: boolean; version?: string } = {}) {
+    const version = opts.version ?? "test";
     const id = `frame${++seq}`;
     const gate = opts.gate ? new FreezeGate(clock) : null;
     const timers = gate ? gate.timers() : clock;
@@ -106,7 +108,7 @@ function world() {
     const gets: string[] = [];
     let node: VaultNode | null = null;
     let live: LiveManager | null = null;
-    const rawChannel = bus.make();
+    const rawChannel = bus.make(channelName(version));
     const channel = gate ? gate.channel(rawChannel) : rawChannel;
     const core = new VaultCore({
       store,
@@ -159,7 +161,7 @@ function world() {
       channel,
       locks: gate ? gate.locks(frameLocks) : frameLocks,
       timers,
-      version: "test",
+      version,
       onStatus: (s) => statuses.push(s),
       deliver: (b) => got.push(...b),
       ...(opts.visible && { visible: opts.visible }),
@@ -224,8 +226,8 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(a.status().tab).toMatchObject({ role: "leader", id: "frame1", leader: "frame1" });
     expect(b.status().tab).toEqual({ role: "follower", id: "frame2", leader: "frame1", changes: 0, steals: 0, lost: 0 });
     expect(b.status().state).toBe("disconnected");
-    expect(w.locks.held.get(LEADER_LOCK)).toBe("frame1");
-    expect(w.locks.held.has(FRAME_LOCK + "frame2")).toBe(true);
+    expect(w.locks.held.get(lockNames("test").leader)).toBe("frame1");
+    expect(w.locks.held.has(lockNames("test").frame + "frame2")).toBe(true);
   });
 
   test("Web Locks refused (third-party storage blocked): the frame leads on its own and says unavailable", async () => {
@@ -322,6 +324,38 @@ describe("VaultNode: one leader among the vault frames", () => {
     w.pub("car_data");
     await w.run(FLUSH_MS);
     expect(b.ns()).toEqual([1, 2]);
+  });
+
+  test("a frame of another build never follows this one's leader: each build leads on its own", async () => {
+    const w = world();
+    const old = w.frame({ version: "0.1.0+old" });
+    await old.node.start();
+    await w.run();
+    await old.login();
+    old.node.setTopics(["car_data"]);
+    await w.run(10);
+    // A tab opened after a deploy: the new build.
+    const fresh = w.frame({ version: "0.1.0+new" });
+    await fresh.node.start();
+    await w.run();
+    expect(old.status().tab?.role).toBe("leader");
+    expect(fresh.status().tab).toMatchObject({ role: "leader", leader: fresh.id });
+    // Its own login (restored from storage), its own requests and its own stream.
+    expect(fresh.status().state).toBe("connected");
+    const g = fresh.node.get("sessions", { session_key: "latest" }, "p0");
+    await w.run();
+    expect((await g).status).toBe(200);
+    expect(fresh.gets).toEqual([`${fresh.id}:sessions`]);
+    expect(old.gets).toEqual([]);
+    fresh.node.setTopics(["position"]);
+    await w.run(10);
+    expect(fresh.live.status().topics).toEqual(["position"]);
+    expect(old.live.status().topics).toEqual(["car_data"]);
+    expect(w.broker.current).toBe(2);
+    w.pub("position");
+    await w.run(FLUSH_MS);
+    expect(fresh.ns()).toEqual([1]);
+    expect(old.ns()).toEqual([]);
   });
 
   test("a follower's get goes through the leader (its REST budget)", async () => {
