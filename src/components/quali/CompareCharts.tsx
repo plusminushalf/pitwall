@@ -225,15 +225,6 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
       ctx.beginPath();
       ctx.rect(M.left, s.top - 2, plotW, s.height + 4);
       ctx.clip();
-      if (s.key === "delta") {
-        // Zero is also a tick, so it needs to stand out from the grid.
-        ctx.strokeStyle = INK_MUTED;
-        const y = Math.round(yOf(s, 0)) + 0.5;
-        ctx.beginPath();
-        ctx.moveTo(M.left, y);
-        ctx.lineTo(right, y);
-        ctx.stroke();
-      }
       // Series: the reference drawn last, on top.
       for (let k = withTrace.length - 1; k >= 0; k--) {
         const e = withTrace[k];
@@ -253,8 +244,16 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
           continue;
         }
         if (s.key === "delta") {
+          // The reference is the delta's zero.
+          if (k === 0) {
+            ctx.beginPath();
+            ctx.moveTo(M.left, yOf(s, 0));
+            ctx.lineTo(right, yOf(s, 0));
+            ctx.stroke();
+            continue;
+          }
           const series = deltas.get(e.driver);
-          if (k === 0 || !series) continue;
+          if (!series) continue;
           ctx.beginPath();
           let started = false;
           for (let i = 0; i < series.d.length; i++) {
@@ -316,7 +315,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
         if (s.key === "brake") continue;
         withTrace.forEach((e, k) => {
           let v: number | null;
-          if (s.key === "delta") v = k === 0 ? null : ref ? (timeAtDistance(e.trace!, hover) - timeAtDistance(ref, hover)) / 1000 : null;
+          if (s.key === "delta") v = k === 0 ? 0 : ref ? (timeAtDistance(e.trace!, hover) - timeAtDistance(ref, hover)) / 1000 : null;
           else v = valueAtDistance(e.trace!, s.key, hover);
           if (v == null) return;
           ctx.fillStyle = e.style.color;
