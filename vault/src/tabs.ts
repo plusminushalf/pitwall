@@ -604,7 +604,9 @@ export class VaultNode {
   private wiped() {
     this.shared = null;
     if (this.role === "leader") {
+      // Still the leader: the stream waits for the next login (its token) for whatever the tabs subscribe to.
       this.deps.live.stop({ reset: true });
+      this.deps.live.start();
       this.pushStatus();
     } else {
       this.deps.live.state.reset();

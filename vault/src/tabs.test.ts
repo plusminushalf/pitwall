@@ -294,6 +294,36 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(a.core.sharedLogin()).toBeNull();
   });
 
+  test("after a disconnect, a new login in the same page streams again what the tabs subscribe to", async () => {
+    const w = world();
+    const a = w.frame();
+    await a.node.start();
+    const b = w.frame();
+    await b.node.start();
+    await w.run();
+    await a.login();
+    b.node.setTopics(["car_data"]);
+    await w.run(10);
+    w.pub("car_data");
+    await w.run(FLUSH_MS);
+    expect(b.ns()).toEqual([1]);
+    await b.node.disconnect();
+    await w.run();
+    expect(a.status().stream?.phase).toBe("waiting");
+    // A new popup login (a ticket of its own): the leader's stream starts again.
+    const ticket = "ticket_ticket_ticket_02";
+    expect(a.core.expect("connect", ticket).ok).toBe(true);
+    const popup = {};
+    const send = (m: Record<string, unknown>) => a.core.popup({ v: 1, ticket, ...m } as PopupMessage, popup);
+    await send({ type: "popup:hello" });
+    await send({ type: "popup:login", username: USER, password: PASS, mode: "device" });
+    await w.run(10);
+    expect(a.status().stream).toMatchObject({ phase: "connected", sessions: 1, topics: ["car_data"] });
+    w.pub("car_data");
+    await w.run(FLUSH_MS);
+    expect(b.ns()).toEqual([1, 2]);
+  });
+
   test("a follower's get goes through the leader (its REST budget)", async () => {
     const w = world();
     const a = w.frame();
