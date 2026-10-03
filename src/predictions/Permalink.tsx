@@ -2,11 +2,13 @@
 // Called right, it's the trophy (CALLED IT); wrong, it fades quietly, with nothing to share.
 
 import { useEffect, useRef, useState } from "react";
+import { LABEL, PRIMARY, SECONDARY } from "../components/controls";
 import { adoptTokenFromHash, ApiError, getPrediction, revealLink, revealPrediction, tokenFor } from "./api";
 import { ScaledCard } from "./Card";
-import { span, stamp } from "./format";
+import { DriverList } from "./DriverList";
+import { lead, span, stamp } from "./format";
 import { canShareImage, cardPng, copy, copyImage, shareImage } from "./image";
-import { calledIt, driverIn, raceById, SOMEONE_ELSE, team, topFive, type Prediction } from "./model";
+import { calledIt, driverIn, raceById, SOMEONE_ELSE, type Prediction } from "./model";
 
 type Load = { state: "loading" } | { state: "missing" } | { state: "error"; message: string } | { state: "ready"; p: Prediction };
 
@@ -20,19 +22,21 @@ export function Permalink({ id, fresh, onNew }: { id: string; fresh: Prediction 
       .catch((e) => setLoad(e instanceof ApiError && e.status === 404 ? { state: "missing" } : { state: "error", message: e.message }));
   }, [id, fresh]);
 
-  if (load.state === "loading") return <div className="mx-auto aspect-[9/16] w-full max-w-[420px] animate-pulse rounded-xl bg-zinc-900" />;
+  if (load.state === "loading") return <div className="aspect-[9/16] w-full max-w-[320px] animate-pulse rounded-md bg-zinc-900" />;
   if (load.state !== "ready")
     return (
-      <div className="mx-auto max-w-md py-16 text-center">
-        <p className="ci-display text-4xl font-black uppercase italic text-white">{load.state === "missing" ? "No call here" : "Couldn't load it"}</p>
-        <p className="mt-3 text-zinc-400">{load.state === "missing" ? "Check the link, or make a call of your own." : load.message}</p>
-        <NewCall onNew={onNew} className="mt-8" />
+      <div className="max-w-[75ch]">
+        <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{load.state === "missing" ? "No call here" : "Couldn't load it"}</h1>
+        <p className="mt-2 text-sm text-zinc-400">{load.state === "missing" ? "Check the link, or make a call of your own." : load.message}</p>
+        <button type="button" onClick={onNew} className={`${PRIMARY} mt-6 px-4 py-2 text-sm`}>
+          Make a call
+        </button>
       </div>
     );
-  return <Locked p={load.p} justLocked={!!fresh} onRevealed={(p) => setLoad({ state: "ready", p })} onNew={onNew} />;
+  return <Locked p={load.p} justLocked={!!fresh} onRevealed={(p) => setLoad({ state: "ready", p })} />;
 }
 
-function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocked: boolean; onRevealed: (p: Prediction) => void; onNew: () => void }) {
+function Locked({ p, justLocked, onRevealed }: { p: Prediction; justLocked: boolean; onRevealed: (p: Prediction) => void }) {
   const race = raceById(p.race)!;
   const owner = !!tokenFor(p.id);
   const right = p.result ? calledIt(p.call, p.result) : null;
@@ -70,13 +74,20 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
     setToast(s);
     setTimeout(() => setToast((t) => (t === s ? null : t)), 2400);
   };
-  const text = right ? `Called it: ${d?.last} led into Turn 1. Locked before lights out.` : `${d?.last} leads into Turn 1. Locked before lights out.`;
-  // The caption to post with the card: the call, the tags, the link.
-  const caption = `${text} #F1 #${race.short.replace(/\W/g, "")}\n${url}`;
+  // The caption to post with the card, a line each: the call, how early, then the tags and the link.
+  const caption = [
+    right ? `Called it: ${d?.last} led into Turn 1.` : `My call: ${d?.last} leads into Turn 1.`,
+    `Locked with ${lead(race.start - p.lockedAt)} to go.`,
+    "",
+    `#F1 #${race.short.replace(/\W/g, "")}`,
+    url,
+  ].join("\n");
+  // The page's one white button: Reveal while the caller has a result to enter, else posting the card.
+  const revealing = owner && !p.result && started;
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14">
-      <div className="mx-auto w-full max-w-[380px] lg:max-w-none">
+    <div className="grid gap-8 lg:grid-cols-[320px_minmax(0,1fr)] lg:gap-12">
+      <div className="mx-auto w-full max-w-[320px] lg:max-w-none">
         <div className={right === false ? "opacity-35 grayscale-[0.7]" : ""}>
           <ScaledCard
             race={race}
@@ -84,7 +95,7 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
             locked={p}
             host={location.host}
             cardRef={cardRef}
-            className={`rounded-xl shadow-2xl ring-1 ${right ? "shadow-emerald-950/60 ring-emerald-400/30" : "shadow-black ring-white/10"}`}
+            className="rounded-md border border-zinc-800"
           />
         </div>
         {shareable && phone && (
@@ -92,68 +103,70 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
             <button
               type="button"
               disabled={!blob}
-              className="ci-btn mt-5 h-16 w-full gap-3 bg-white text-2xl text-zinc-950 hover:bg-zinc-200"
+              className={`${revealing ? SECONDARY : PRIMARY} mt-4 flex h-11 w-full items-center justify-center gap-2 text-sm`}
               onClick={async () => {
                 if (!blob) return;
                 const r = await shareImage(blob, caption, `called-it-${p.id}.png`);
                 if (r === "failed") say("Couldn't share it. Try again.");
               }}
             >
-              <svg viewBox="0 0 24 24" className="size-6 fill-none stroke-current stroke-[2.2]" aria-hidden>
+              <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-2" aria-hidden>
                 <path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               {blob ? "Share" : "Getting it ready…"}
             </button>
-            <div aria-live="polite" className="mt-2 h-5 text-center text-sm text-zinc-300">
+            <div aria-live="polite" className="mt-2 h-4 text-center text-xs text-zinc-300">
               {toast}
             </div>
           </>
         )}
       </div>
 
-      <div className="flex min-w-0 flex-col gap-6 lg:pt-4">
+      <div className="flex min-w-0 flex-col gap-6">
         <Status p={p} owner={owner} justLocked={justLocked} started={started} when={when} />
         {shareable && !phone && (
-          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Post it with this</div>
-            <p className="select-all whitespace-pre-wrap break-words text-zinc-100">{caption}</p>
-            <button
-              type="button"
-              className="ci-btn mt-3 w-full bg-zinc-800 text-white hover:bg-zinc-700"
-              onClick={async () => {
-                await copy(caption);
-                say("Text copied");
-              }}
-            >
-              Copy text
-            </button>
-            <button
-              type="button"
-              className="ci-btn mt-2 w-full bg-white text-zinc-950 hover:bg-zinc-200"
-              onClick={async () => {
-                try {
-                  say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images. Long-press or right-click the card to save it.");
-                } catch {
-                  png.current = null;
-                  say("Couldn't copy the card. Try again.");
-                }
-              }}
-            >
-              Copy image
-            </button>
-            <div aria-live="polite" className="mt-2 h-5 text-center text-sm text-zinc-300">
-              {toast}
+          <section aria-label="Post it" className="border-y border-zinc-800 px-3 py-3">
+            <div className={LABEL}>Text to post</div>
+            <p className="mt-1.5 select-all whitespace-pre-wrap break-words text-sm text-zinc-100">{caption}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                className={revealing ? SECONDARY : PRIMARY}
+                onClick={async () => {
+                  try {
+                    say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images.");
+                  } catch {
+                    png.current = null;
+                    say("Couldn't copy the card. Try again.");
+                  }
+                }}
+              >
+                Copy image
+              </button>
+              <button
+                type="button"
+                className={SECONDARY}
+                onClick={async () => {
+                  await copy(caption);
+                  say("Text copied");
+                }}
+              >
+                Copy text
+              </button>
+              <span aria-live="polite" className="text-xs text-zinc-300">
+                {toast}
+              </span>
             </div>
-          </div>
+          </section>
         )}
         {owner && !p.result && started && <Reveal p={p} onRevealed={onRevealed} />}
         {owner && !p.result && (
           // Only this browser holds the call's token (api.ts); the private link carries it to another device.
-          <p className="text-sm text-zinc-500">
+          <p className="px-3 text-xs text-zinc-400">
             Revealing from another device?{" "}
             <button
               type="button"
-              className="text-zinc-300 underline decoration-zinc-600 underline-offset-4 hover:text-white"
+              className="rounded-sm text-zinc-200 underline decoration-zinc-500 underline-offset-2 hover:text-white"
               onClick={async () => {
                 await copy(revealLink(p.id));
                 say("Private link copied. Don't post this one.");
@@ -163,7 +176,6 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
             </button>
           </p>
         )}
-        {!owner && <NewCall onNew={onNew} />}
       </div>
     </div>
   );
@@ -178,25 +190,25 @@ function Status({ p, owner, justLocked, started, when }: { p: Prediction; owner:
   let title: string;
   let body: string;
   if (right) {
-    title = owner ? "You called it." : "They called it.";
+    title = owner ? "You called it" : "They called it";
     body = `${name} led into Turn 1. Locked ${locked}, ${early} before lights out. Go collect.`;
   } else if (right === false) {
-    title = owner ? "Not this one." : "This call is closed.";
+    title = owner ? "Not this one" : "This call is closed";
     body = owner ? "It happens to real pit walls too. The receipt stays locked, quietly. On to the next race." : "Make your own for the next race.";
   } else if (justLocked) {
-    title = "Locked in.";
+    title = "Locked in";
     body = `Stamped by our server at ${when.time} ${when.zone}, ${early} before lights out. Nobody can change it now, not even you. Post it, then come back after the start.`;
   } else if (owner) {
-    title = started ? "Lights out." : "Your call is locked.";
+    title = started ? "Lights out" : "Your call is locked";
     body = started ? "Enter who led out of Turn 1." : `Locked ${locked}. Come back after the start to reveal it.`;
   } else {
-    title = started ? "Lights out. Result pending." : "Locked before lights out.";
+    title = started ? "Lights out, result pending" : "Locked before lights out";
     body = `${name} to lead into Turn 1 at the ${race.name}. Locked ${locked}, ${early} before lights out. Can't be edited.`;
   }
   return (
     <div>
-      <h1 className={`ci-display text-5xl font-black uppercase italic leading-[0.9] ${right ? "text-[#19e68c]" : "text-white"}`}>{title}</h1>
-      <p className="mt-3 max-w-prose text-zinc-400">{body}</p>
+      <h1 className={`text-2xl font-bold tracking-tight ${right ? "text-emerald-400" : "text-zinc-50"}`}>{title}</h1>
+      <p className="mt-2 max-w-[75ch] text-sm leading-relaxed text-zinc-400">{body}</p>
     </div>
   );
 }
@@ -226,45 +238,30 @@ function Reveal({ p, onRevealed }: { p: Prediction; onRevealed: (p: Prediction) 
     }
   };
 
+  const leaderName = leader == null ? null : leader === SOMEONE_ELSE ? "Someone else" : driverIn(p.race, leader)?.last;
   return (
-    <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-      <h2 className="ci-display text-2xl font-extrabold uppercase italic text-white">Who led into Turn 1?</h2>
-      <p className="mb-4 mt-1 text-sm text-zinc-400">Whoever was ahead coming out of Turn 1. You get one go at this.</p>
-      <div className="grid grid-cols-2 gap-2">
-        {[...topFive(p.race), null].map((d) => {
-          const n = d?.number ?? SOMEONE_ELSE;
-          const on = leader === n;
-          return (
-            <button
-              key={n}
-              type="button"
-              aria-pressed={on}
-              onClick={() => setLeader(n)}
-              className={`flex h-12 items-center gap-3 overflow-hidden rounded-md border pr-3 text-left ${on ? "border-white bg-zinc-800" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"}`}
-            >
-              <span className="h-full w-1.5 flex-none" style={{ background: d ? team(d.team).colour : "#3f3f46" }} />
-              <span className="ci-display truncate text-lg font-bold uppercase italic text-zinc-100">{d ? d.last : "Someone else"}</span>
+    <section aria-label="Reveal">
+      <h2 className="text-2xl font-bold tracking-tight text-zinc-50">Who led into Turn 1?</h2>
+      <p className="mb-3 mt-1 text-sm text-zinc-400">Whoever was ahead coming out of Turn 1. You get one go at this.</p>
+      <DriverList race={p.race} value={leader} onChange={setLeader} label="Who led into Turn 1" someoneElse />
+      <div className="mt-4 flex flex-wrap items-center gap-3 px-3">
+        {armed ? (
+          <>
+            <span className="text-xs text-zinc-300">{leaderName} led? This is final.</span>
+            <button type="button" disabled={busy} onClick={submit} className={PRIMARY}>
+              {busy ? "Revealing…" : "Reveal"}
             </button>
-          );
-        })}
+            <button type="button" disabled={busy} onClick={() => setArmed(false)} className={SECONDARY}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <button type="button" disabled={leader == null} onClick={submit} className={`${PRIMARY} px-4 py-2 text-sm`}>
+            Reveal my call
+          </button>
+        )}
+        {error && <span className="text-xs text-red-400">{error}</span>}
       </div>
-      <button
-        type="button"
-        disabled={busy || leader == null}
-        onClick={submit}
-        className={`ci-btn mt-4 w-full ${armed ? "bg-[#ff1e28] text-white hover:bg-[#ff3a43]" : "bg-white text-zinc-950 hover:bg-zinc-200"}`}
-      >
-        {busy ? "Revealing…" : armed ? "Sure? This is final" : "Reveal my call"}
-      </button>
-      {error && <p className="mt-2 text-sm text-[#ff6467]">{error}</p>}
-    </div>
-  );
-}
-
-function NewCall({ onNew, label = "Make your own call", className = "" }: { onNew: () => void; label?: string; className?: string }) {
-  return (
-    <button type="button" onClick={onNew} className={`ci-display self-start text-xl font-extrabold uppercase italic text-white hover:text-[#ff6467] ${className}`}>
-      {label} →
-    </button>
+    </section>
   );
 }

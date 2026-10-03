@@ -1,10 +1,13 @@
-// Called It's page: /predictions makes a call (who leads into Turn 1 at the next race), /predictions/<id> is one
-// (worker/index.ts serves both).
+// Called It's page, in Pitwall's look (DESIGN.md): its header, then /predictions makes a call (who leads into Turn 1
+// at the next race) and /predictions/<id> is one (worker/index.ts serves both). The card is the one thing in its
+// own broadcast style: it's the picture people post.
 
 import { useEffect, useState } from "react";
-import { Wordmark } from "./Card";
+import { LABEL, SECONDARY } from "../components/controls";
+import { Logo } from "../components/Logo";
 import { Compose } from "./Compose";
-import { ID_PATTERN, predictionPath, type Prediction } from "./model";
+import { span } from "./format";
+import { ID_PATTERN, nextRace, predictionPath, topFive, type Prediction } from "./model";
 import { Permalink } from "./Permalink";
 
 const idIn = (path: string) => {
@@ -12,9 +15,18 @@ const idIn = (path: string) => {
   return id && ID_PATTERN.test(id) ? id : id ? "missing" : null;
 };
 
+export function useNow(every = 30_000) {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), every);
+    return () => clearInterval(t);
+  }, [every]);
+  return now;
+}
+
 export function App() {
   const [path, setPath] = useState(location.pathname);
-  // The call just locked in this tab: shown at once, with its "Locked in." moment.
+  // The call just locked in this tab: shown at once, with its "Locked in" moment.
   const [fresh, setFresh] = useState<Prediction | null>(null);
   useEffect(() => {
     const pop = () => {
@@ -33,39 +45,53 @@ export function App() {
   const id = idIn(path);
 
   return (
-    <div className="mx-auto flex min-h-full max-w-5xl flex-col px-5 pb-12 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-8">
-      <header className="flex items-center justify-between py-2">
-        <a
-          href="/predictions"
-          onClick={(e) => {
-            e.preventDefault();
-            go("/predictions");
-          }}
-          className="text-white"
-        >
-          <Wordmark className="ci-wordmark ci-wordmark-sm" />
-        </a>
-        <a href="/" className="text-sm text-zinc-500 hover:text-zinc-200">
-          by Pitwall
-        </a>
+    <div className="flex min-h-full flex-col">
+      <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)]">
+        <div className="mx-auto grid h-[52px] max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-6 px-4 sm:px-6">
+          <a href="/" className="text-zinc-100" aria-label="Pitwall">
+            <Logo className="h-6 w-auto" />
+          </a>
+          {/* Its column stays when a phone hides it, so the button stays right (as on Home). */}
+          <div className="flex min-w-0 justify-center">
+            <div className="hidden min-w-0 sm:block">
+              <Moment />
+            </div>
+          </div>
+          <div className="flex justify-end">
+            {id && (
+              <button type="button" onClick={() => go("/predictions")} className={SECONDARY}>
+                Make a call
+              </button>
+            )}
+          </div>
+        </div>
       </header>
 
-      <main className="pt-4 sm:pt-10">
-        {id ? <Permalink key={id} id={id} fresh={fresh?.id === id ? fresh : null} onNew={() => go("/predictions")} /> : <Compose hero={<Hero />} onLocked={(p) => go(predictionPath(p.id), p)} />}
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-6 sm:px-6">
+        {id ? <Permalink key={id} id={id} fresh={fresh?.id === id ? fresh : null} onNew={() => go("/predictions")} /> : <Compose onLocked={(p) => go(predictionPath(p.id), p)} />}
       </main>
     </div>
   );
 }
 
-function Hero() {
+/** The header's centre, as on Home: the race calls are open for, over its countdown to lights out. */
+function Moment() {
+  const now = useNow();
+  const race = nextRace(now);
+  if (!race) return <div />;
+  const open = topFive(race.id).length > 0;
   return (
-    <div>
-      <h1 className="ci-display text-[2.75rem] font-black uppercase italic leading-[0.86] text-white sm:text-7xl">
-        Who leads into <span className="text-[#ff1e28]">Turn 1?</span>
-      </h1>
-      <p className="mt-3 max-w-xl text-zinc-400 sm:mt-5 sm:text-lg">
-        Call it before lights out. Our server stamps the time and nobody can edit it, not even you. When you're right, you've got proof.
-      </p>
+    <div className="flex min-w-0 flex-col items-center leading-tight">
+      <span className={`${LABEL} truncate`}>Called it · {race.short}</span>
+      <span className="truncate text-sm tabular-nums text-zinc-100">
+        {open ? (
+          <>
+            Locks in <span className="font-bold text-zinc-50">{span(race.start - now)}</span>
+          </>
+        ) : (
+          "Opens after qualifying"
+        )}
+      </span>
     </div>
   );
 }

@@ -1,18 +1,18 @@
-// Making a call: who leads into Turn 1 at the next race, from the top five in its qualifying. The card fills in as you
-// pick; lock it in and it's stored with the server's time, for good. Before qualifying, there's nothing to pick.
+// Making a call: who leads into Turn 1 at the next race, from the top five in its qualifying, picked from a timing
+// list like Home's rows. The card fills in as you pick; Lock it in (the page's one white button) stores it with the
+// server's time, for good. Before qualifying there's nothing to pick.
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { PRIMARY } from "../components/controls";
 import { ApiError, lockPrediction } from "./api";
+import { useNow } from "./App";
 import { ScaledCard } from "./Card";
-import { localTz, span, stamp } from "./format";
-import { driverIn, lockProblem, nextRace, team, topFive, type Prediction } from "./model";
+import { DriverList } from "./DriverList";
+import { localTz, stamp } from "./format";
+import { driverIn, lockProblem, nextRace, topFive, type Prediction } from "./model";
 
-export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (p: Prediction) => void }) {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 30_000);
-    return () => clearInterval(t);
-  }, []);
+export function Compose({ onLocked }: { onLocked: (p: Prediction) => void }) {
+  const now = useNow();
   const race = nextRace(now);
   const [chosen, setChosen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
@@ -21,10 +21,10 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
 
   if (!race || !topFive(race.id).length)
     return (
-      <div className="flex flex-col gap-8">
-        {hero}
-        <p className="max-w-xl rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-zinc-300">
-          {race ? `Calls for the ${race.name} open once qualifying is done. Come back then.` : "That's the season. Calls open again next year."}
+      <div className="max-w-[75ch]">
+        <Intro />
+        <p className="mt-6 border-y border-zinc-800 px-4 py-3 text-sm text-zinc-300">
+          {race ? `Calls for the ${race.name} open once qualifying is done.` : "That's the season. Calls open again next year."}
         </p>
       </div>
     );
@@ -33,6 +33,7 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
   const call = { kind: "turn1-leader" as const, driver };
   const problem = lockProblem({ race: race.id, call }, now);
   const lights = stamp(race.start, tz);
+  const name = driver != null ? driverIn(race.id, driver)?.last : null;
 
   const lock = async () => {
     if (problem || busy) return;
@@ -45,68 +46,52 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
       setBusy(false);
     }
   };
+  const note = error ?? (name ? "Once it's locked, nobody can change it, not even you." : "Pick a driver.");
 
   return (
-    <div className="grid gap-10 pb-28 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-14 lg:pb-0">
-      <div className="flex min-w-0 flex-col gap-6 lg:gap-8">
-        {hero}
-        <section>
-          <div className="mb-1 flex items-baseline gap-3">
-            <h2 className="ci-display text-3xl font-black uppercase italic text-white">{race.name}</h2>
+    <div className="grid gap-8 pb-24 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-12 lg:pb-0">
+      <div className="min-w-0">
+        <Intro />
+
+        <section aria-label="The top five from qualifying" className="mt-8">
+          <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+            <h2 className="text-2xl font-bold tracking-tight text-zinc-50">{race.name}</h2>
+            <span className="text-xs tabular-nums text-zinc-400">
+              Lights out {lights.date.replace(/ \d{4}$/, "")}, {lights.time} {lights.zone}
+            </span>
           </div>
-          <p className="mb-5 text-sm text-zinc-400">
-            Locks at lights out: {lights.date.replace(/ \d{4}$/, "")}, {lights.time} {lights.zone} · <span className="text-zinc-200">in {span(race.start - now)}</span>
-          </p>
-          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {topFive(race.id).map((d) => {
-              const t = team(d.team);
-              const on = driver === d.number;
-              return (
-                <button
-                  key={d.number}
-                  type="button"
-                  aria-pressed={on}
-                  onClick={() => setChosen(d.number)}
-                  className={`relative flex h-16 items-stretch lg:h-[4.5rem] overflow-hidden rounded-md border text-left transition-colors ${on ? "border-white bg-zinc-800" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"}`}
-                >
-                  <span className="flex-none transition-[width]" style={{ background: t.colour, width: on ? 10 : 6 }} />
-                  <span className="ci-display flex w-12 flex-none items-center justify-center text-2xl font-black italic text-zinc-500">P{d.quali}</span>
-                  <span className="flex min-w-0 flex-1 flex-col justify-center pr-3">
-                    <span className="ci-display truncate text-2xl font-black uppercase italic leading-tight text-white">{d.last}</span>
-                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{t.name}</span>
-                  </span>
-                  <span className="ci-display absolute -bottom-3 right-2 text-6xl font-black italic text-white/[0.07]">{d.number}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="mt-3 text-sm text-zinc-500">The top five from qualifying. Whoever's ahead coming out of Turn 1.</p>
+          <DriverList race={race.id} value={driver} onChange={setChosen} label="Who leads into Turn 1" />
+          <p className="mt-3 px-3 text-xs text-zinc-400">The top five from qualifying. It's whoever's ahead coming out of Turn 1.</p>
         </section>
+
+        <div className="mt-6 hidden items-center gap-4 px-3 lg:flex">
+          <button type="button" onClick={lock} disabled={!!problem || busy} className={`${PRIMARY} px-4 py-2 text-sm`}>
+            {busy ? "Locking…" : name ? `Lock in ${name}` : "Lock it in"}
+          </button>
+          <span className={`text-xs ${error ? "text-red-400" : "text-zinc-400"}`}>{note}</span>
+        </div>
       </div>
 
-      <div className="lg:sticky lg:top-6 lg:self-start">
-        <div className="mx-auto max-w-[300px] lg:max-w-[380px]">
-          <ScaledCard race={race} call={call} host={location.host} tz={tz} className="rounded-xl shadow-2xl shadow-black ring-1 ring-white/10" />
-        </div>
-        {/* On a phone, Lock it in stays at the bottom of the screen. */}
-        <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950/90 px-5 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur lg:static lg:mx-auto lg:max-w-[380px] lg:border-0 lg:bg-transparent lg:p-0 lg:backdrop-blur-none">
-          <button
-            type="button"
-            onClick={lock}
-            disabled={!!problem || busy}
-            className="ci-display flex h-14 w-full items-center justify-center gap-3 rounded-md bg-[#ff1e28] lg:mt-5 lg:h-16 text-3xl font-black uppercase italic tracking-wide text-white shadow-lg shadow-red-950/50 transition hover:bg-[#ff3a43] active:scale-[0.99] disabled:bg-zinc-800 disabled:text-zinc-500 disabled:shadow-none"
-          >
-            <svg viewBox="0 0 24 24" className="size-6 fill-none stroke-current stroke-[2.5]">
-              <rect x="5" y="11" width="14" height="10" rx="2" />
-              <path d="M8 11V8a4 4 0 0 1 8 0v3" />
-            </svg>
-            {busy ? "Locking…" : driver != null ? `Lock it in: ${driverIn(race.id, driver)?.last}` : "Lock it in"}
-          </button>
-          <p className={`mt-2 text-center text-xs lg:mt-3 lg:text-sm ${error ? "text-[#ff6467]" : "text-zinc-500"}`}>
-            {error ?? (driver == null ? "Pick a driver." : "Once it's locked, nobody can change it. Not even you.")}
-          </p>
-        </div>
+      <div className="lg:sticky lg:top-[76px] lg:self-start">
+        <ScaledCard race={race} call={call} host={location.host} tz={tz} className="mx-auto max-w-[280px] rounded-md border border-zinc-800 lg:max-w-none" />
       </div>
+
+      {/* On a phone, the button stays at the bottom of the screen. */}
+      <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 lg:hidden">
+        <button type="button" onClick={lock} disabled={!!problem || busy} className={`${PRIMARY} h-11 w-full text-sm`}>
+          {busy ? "Locking…" : name ? `Lock in ${name}` : "Lock it in"}
+        </button>
+        <p className={`mt-2 text-center text-xs ${error ? "text-red-400" : "text-zinc-400"}`}>{note}</p>
+      </div>
+    </div>
+  );
+}
+
+function Intro() {
+  return (
+    <div>
+      <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Who leads into Turn 1?</h1>
+      <p className="mt-2 max-w-[75ch] text-sm leading-relaxed text-zinc-400">Call it before lights out.</p>
     </div>
   );
 }

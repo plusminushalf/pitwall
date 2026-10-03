@@ -8,15 +8,10 @@ import type { CatalogRow } from "../../ingest/catalog";
 import { liveWindowOf, rowState, useLibrary, type Job, type RemoteJob, type RowState } from "../../library";
 import { useVault } from "../vault/useVault";
 import { useReplay } from "../../store";
+import { BUTTON, FOCUS, LABEL, PRIMARY, SECONDARY } from "../controls";
 
-export const FOCUS = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-300";
-const BUTTON = `whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${FOCUS}`;
-/** The page's one filled button: whatever can be done right now. */
-export const PRIMARY = `${BUTTON} bg-zinc-100 text-zinc-950 hover:bg-white`;
-export const SECONDARY = `${BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`;
+export { FOCUS, LABEL, PRIMARY, SECONDARY };
 const DANGER = `${BUTTON} bg-red-600 text-white hover:bg-red-500`;
-/** Column headers and small labels, as on the replay screen. */
-export const LABEL = "text-[11px] font-semibold uppercase tracking-wider text-zinc-400";
 const ICON = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`;
 
 /** Up-front estimate: "~45s", "~1.5 min", "~12 min". */
