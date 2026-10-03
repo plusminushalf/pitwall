@@ -31,6 +31,7 @@ const SHORTCUTS: [string, string][] = [
   ["Home", "Ghost back to the line"],
   ["− / +", "Slower / faster ghost"],
   ["Drag / wheel", "Zoom the charts"],
+  ["Swipe sideways / shift + wheel", "Pan the zoomed charts"],
   ["Double-click", "Reset zoom"],
   ["Esc", "Clear the comparison"],
   ["S", "Share a screenshot and a link"],
@@ -283,6 +284,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
             <span className="flex items-center gap-2">
               {zoom ? (
                 <>
+                  <span className="text-zinc-600">Swipe sideways to pan</span>
                   <span className="tabular-nums">
                     {Math.round(zoom[0])}–{Math.round(zoom[1])} m
                   </span>

@@ -332,7 +332,37 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
 
   // Pointer: hover, drag to zoom, wheel to zoom, double-click to reset.
   const inPlot = (x: number) => x >= M.left && x <= size.w - M.right;
-  const localX = (e: React.PointerEvent | React.WheelEvent | React.MouseEvent) => e.clientX - e.currentTarget.getBoundingClientRect().left;
+
+  // Wheel: up/down zooms about the pointer; sideways (a trackpad swipe, or shift + wheel) pans a zoomed lap. Not
+  // passive, so a sideways swipe doesn't also go Back.
+  const wheel = useRef<(e: WheelEvent) => void>(() => {});
+  wheel.current = (e) => {
+    const x = e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left;
+    if (!inPlot(x)) return;
+    e.preventDefault();
+    // Shift + a mouse wheel scrolls sideways (some browsers turn it into deltaX themselves).
+    const dx = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX;
+    const dy = e.shiftKey ? 0 : e.deltaY;
+    const span = x1 - x0;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (span >= lapLength) return;
+      const a = Math.min(Math.max(x0 + (dx / plotW) * span, 0), lapLength - span);
+      return setZoom([a, a + span]);
+    }
+    const at = dOf(x);
+    const next = Math.min(lapLength, Math.max(60, span * Math.exp(dy * 0.0015)));
+    if (next >= lapLength - 1) return setZoom(null);
+    const a = Math.min(Math.max(at - ((at - x0) / span) * next, 0), lapLength - next);
+    setZoom([a, a + next]);
+  };
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => wheel.current(e);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, []);
+  const localX = (e: React.PointerEvent | React.MouseEvent) => e.clientX - e.currentTarget.getBoundingClientRect().left;
   const clampD = (d: number) => Math.min(Math.max(d, 0), lapLength);
 
   const tipEntries = hover != null ? withTrace : [];
@@ -379,17 +409,6 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
             if (!drag.current) setHover(null);
           }}
           onDoubleClick={() => setZoom(null)}
-          onWheel={(e) => {
-            const x = localX(e);
-            if (!inPlot(x)) return;
-            const at = dOf(x);
-            const span = Math.min(lapLength, Math.max(60, (x1 - x0) * Math.exp(e.deltaY * 0.0015)));
-            if (span >= lapLength - 1) return setZoom(null);
-            const f = (at - x0) / (x1 - x0);
-            let a = at - f * span;
-            a = Math.min(Math.max(a, 0), lapLength - span);
-            setZoom([a, a + span]);
-          }}
         />
         {brush && (
           <div
