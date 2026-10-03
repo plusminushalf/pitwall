@@ -2,7 +2,7 @@
 // qualifying, until lights out), a strip across the top of Home, or a button on a phone's screen.
 
 import { useEffect, useState } from "react";
-import { nextRace, topFive, type Race } from "../predictions/model";
+import { openRace, type Race } from "../predictions/model";
 
 /** The race calls are open for now, or null; checked again every minute. */
 function useOpenRace(): Race | null {
@@ -11,8 +11,7 @@ function useOpenRace(): Race | null {
     const t = setInterval(() => setNow(Date.now()), 60_000);
     return () => clearInterval(t);
   }, []);
-  const race = nextRace(now);
-  return race && topFive(race.id).length ? race : null;
+  return openRace(now);
 }
 
 export function CallBanner() {

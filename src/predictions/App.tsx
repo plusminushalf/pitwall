@@ -1,19 +1,13 @@
-// Called It's page, in Pitwall's look (DESIGN.md): its header, then /predictions makes a call (who leads into Turn 1
-// at the next race) and /predictions/<id> is one (worker/index.ts serves both). The card is the one thing in its
-// own broadcast style: it's the picture people post.
+// Called It's page (/predictions), in Pitwall's look (DESIGN.md): its header over the one thing it does, a Turn 1
+// call made into a card to post (Compose). The card is the one thing in its own broadcast style: it's the picture
+// people post. A static page like the rest of the site: nothing leaves the browser.
 
 import { useEffect, useState } from "react";
-import { LABEL, SECONDARY } from "../components/controls";
+import { LABEL } from "../components/controls";
 import { Logo } from "../components/Logo";
 import { Compose } from "./Compose";
 import { span } from "./format";
-import { ID_PATTERN, nextRace, predictionPath, topFive, type Prediction } from "./model";
-import { Permalink } from "./Permalink";
-
-const idIn = (path: string) => {
-  const id = /^\/predictions\/([^/]+)\/?$/.exec(path)?.[1];
-  return id && ID_PATTERN.test(id) ? id : id ? "missing" : null;
-};
+import { nextRace, topFive } from "./model";
 
 export function useNow(every = 30_000) {
   const [now, setNow] = useState(Date.now);
@@ -25,25 +19,6 @@ export function useNow(every = 30_000) {
 }
 
 export function App() {
-  const [path, setPath] = useState(location.pathname);
-  // The call just locked in this tab: shown at once, with its "Locked in" moment.
-  const [fresh, setFresh] = useState<Prediction | null>(null);
-  useEffect(() => {
-    const pop = () => {
-      setFresh(null);
-      setPath(location.pathname);
-    };
-    addEventListener("popstate", pop);
-    return () => removeEventListener("popstate", pop);
-  }, []);
-  const go = (to: string, p: Prediction | null = null) => {
-    history.pushState(null, "", to);
-    setFresh(p);
-    setPath(to);
-    scrollTo({ top: 0 });
-  };
-  const id = idIn(path);
-
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)]">
@@ -51,24 +26,18 @@ export function App() {
           <a href="/" className="text-zinc-100" aria-label="Pitwall">
             <Logo className="h-6 w-auto" />
           </a>
-          {/* Its column stays when a phone hides it, so the button stays right (as on Home). */}
+          {/* Its column stays when a phone hides it (as on Home). */}
           <div className="flex min-w-0 justify-center">
             <div className="hidden min-w-0 sm:block">
               <Moment />
             </div>
           </div>
-          <div className="flex justify-end">
-            {id && (
-              <button type="button" onClick={() => go("/predictions")} className={SECONDARY}>
-                Make a call
-              </button>
-            )}
-          </div>
+          <div />
         </div>
       </header>
 
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 pb-16 pt-6 sm:px-6">
-        {id ? <Permalink key={id} id={id} fresh={fresh?.id === id ? fresh : null} onNew={() => go("/predictions")} /> : <Compose onLocked={(p) => go(predictionPath(p.id), p)} />}
+        <Compose />
       </main>
     </div>
   );

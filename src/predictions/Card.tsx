@@ -1,33 +1,25 @@
 // The card: 1080×1920 (a 9:16 story), drawn in CSS at full size and scaled down on screen (ScaledCard), so the
 // PNG (image.ts) is the very thing on screen. The question up top, the answer under it (the driver, and the rest of
-// the top five they were picked over), and the credibility strip: when the server locked it, how long before lights
-// out, the race and the link. Called right, it gets a CALLED IT stamp between question and answer and a tick on the
-// driver; the stamp sits in the layout, not over the driver, so what it vouches for stays readable. (Wrong calls
-// aren't shared.)
+// the top five they were picked over), then how long before lights out it was made, the race and where to make one.
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
-import { dayMonth, lead, stamp } from "./format";
-import { calledIt, driverIn, team, topFive, type Prediction, type Race } from "./model";
+import { dayMonth, lead } from "./format";
+import { driverIn, team, topFive, type Call, type Race } from "./model";
 import "./card.css";
 
 export const CARD_W = 1080;
 export const CARD_H = 1920;
 
-/** A call, maybe half made (the composer's preview: no driver yet). */
-export type Draft = { kind: "turn1-leader"; driver: number | null };
-
 export interface CardProps {
   race: Race;
-  call: Draft;
-  /** Absent: not locked yet (the composer's preview). */
-  locked?: Pick<Prediction, "id" | "lockedAt" | "tz" | "result">;
-  /** Where the link on the card points, without the scheme. */
+  call: Call;
+  /** When it's made, ms since the epoch: how long before lights out. */
+  at: number;
+  /** Where to make one, without the scheme. */
   host: string;
-  /** Composing: the caller's zone, for the race's date. */
-  tz?: string;
+  /** The caller's zone, for the race's date. */
+  tz: string;
 }
-
-const QUESTION = "Who leads into Turn 1?";
 
 /** Dark ink on light team colours, white on dark ones. */
 function inkOn(hex: string): string {
@@ -35,51 +27,11 @@ function inkOn(hex: string): string {
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.3 ? "#0a0a0d" : "#ffffff";
 }
 
-const TICK = (
-  <div className="ci-tick" aria-label="Right">
-    <svg viewBox="0 0 24 24">
-      <path d="M5 12.5l4.5 4.5L19 7.5" />
-    </svg>
-  </div>
-);
-
-export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
-  const zone = locked?.tz ?? tz ?? "UTC";
-  const result = locked?.result ?? null;
-  const right = result && call.driver != null ? calledIt({ kind: call.kind, driver: call.driver }, result) : null;
+export function Card({ race, call, at, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
   const leadTeam = call.driver != null ? driverIn(race.id, call.driver)?.team : undefined;
   const p1 = leadTeam ? team(leadTeam).colour : "#e7000b";
-  const when = locked ? stamp(locked.lockedAt, zone) : null;
-  const revealed = right === true;
-
-  // The question shouts, then gets smaller until everything above the driver fits (the stamp, when called).
-  const base = 212;
-  const [size, setSize] = useState(base);
-  const wrap = useRef<HTMLDivElement>(null);
-  const headlineEl = useRef<HTMLParagraphElement>(null);
-  useLayoutEffect(() => {
-    const fit = () => {
-      const w = wrap.current;
-      const h = headlineEl.current;
-      if (!w || !h) return;
-      const cs = getComputedStyle(w);
-      const room = w.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
-      const used = () => [...w.children].reduce((sum, c) => sum + (c as HTMLElement).offsetHeight + parseFloat(getComputedStyle(c).marginTop), 0);
-      let px = base;
-      h.style.fontSize = `${px}px`;
-      while (used() > room && px > 56) h.style.fontSize = `${(px -= 4)}px`;
-      setSize(px);
-    };
-    fit();
-    let live = true;
-    document.fonts.ready.then(() => live && fit());
-    return () => {
-      live = false;
-    };
-  }, [revealed]);
-
   return (
-    <div ref={ref} className={`ci-card${revealed ? " ci-revealed" : ""}`} style={{ "--p1": p1 } as CSSProperties} >
+    <div ref={ref} className="ci-card" style={{ "--p1": p1 } as CSSProperties}>
       <div className="ci-bg" aria-hidden />
       <div className="ci-ghost" aria-hidden>
         TURN
@@ -95,61 +47,34 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
         <div className="ci-race">
           <div className="ci-race-name">{race.short}</div>
           <div className="ci-race-meta">
-            {race.place} · {dayMonth(race.start, zone)}
+            {race.place} · {dayMonth(race.start, tz)}
           </div>
         </div>
       </header>
 
-      <div ref={wrap} className="ci-headline-wrap">
-        <p ref={headlineEl} className="ci-headline" style={{ fontSize: size }}>
-          {QUESTION}
+      <div className="ci-headline-wrap">
+        <p className="ci-headline" style={{ fontSize: 192 }}>
+          Who leads into Turn 1?
         </p>
-        {revealed && when && (
-          <div className="ci-stamp-slot">
-            <div className="ci-stamp ci-stamp-called">
-              <div>Called it</div>
-              <div className="ci-stamp-date">
-                Called this {lead(race.start - locked!.lockedAt)} before lights out
-              </div>
-            </div>
-          </div>
-        )}
       </div>
 
-      <Turn1 race={race} driver={call.driver} right={right} />
+      <Turn1 race={race} driver={call.driver} />
 
       <footer className="ci-strip">
-        {when && locked ? (
-          <>
-            <div className="ci-locked-label">Locked in with</div>
-            <div className="ci-togo">
-              {lead(race.start - locked.lockedAt)} <span>to go</span>
-            </div>
-            <div className="ci-locked-meta">
-              <b>Before lights out</b>
-              <span className="ci-dot">·</span>
-              {race.name}
-            </div>
-          </>
-        ) : (
-          <>
-            <div className="ci-locked-label ci-pending">Not locked yet</div>
-            <div className="ci-togo ci-pending-time">
-              —— <span>to go</span>
-            </div>
-            <div className="ci-locked-meta">
-              <b>Before lights out</b>
-              <span className="ci-dot">·</span>
-              {race.name}
-            </div>
-          </>
-        )}
+        <div className="ci-locked-label">Called with</div>
+        <div className="ci-togo">
+          {lead(race.start - at)} <span>to go</span>
+        </div>
+        <div className="ci-locked-meta">
+          <b>Before lights out</b>
+          <span className="ci-dot">·</span>
+          {race.name}
+        </div>
         <div className="ci-sign">
           <Wordmark />
           <span className="ci-url">{host}/predictions</span>
         </div>
       </footer>
-
     </div>
   );
 }
@@ -163,7 +88,7 @@ function surnameSize(n: number): number {
 }
 
 /** The pick: the driver big on their team's colour, and the rest of the top five they were picked over. */
-function Turn1({ race, driver, right }: { race: Race; driver: number | null; right: boolean | null }) {
+function Turn1({ race, driver }: { race: Race; driver: number | null }) {
   const d = driver != null ? driverIn(race.id, driver) : undefined;
   const others = topFive(race.id).filter((o) => o.number !== driver);
   const t = d && team(d.team);
@@ -187,7 +112,6 @@ function Turn1({ race, driver, right }: { race: Race; driver: number | null; rig
               {t.name} · Qualified P{d.quali}
             </span>
           </div>
-          {right && TICK}
         </div>
       ) : (
         <div className="ci-hero ci-row-empty">

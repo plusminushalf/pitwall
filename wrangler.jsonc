@@ -1,24 +1,18 @@
-// Cloudflare Workers: dist/ served at pitwall.plusminushalf.com, with index.html for the app's own paths
-// (/session/11377, /live: src/url.ts). Static files never touch the Worker; only Called It's paths run it first
-// (worker/index.ts): its API, its page and a call's preview image. Calls (and their drawn preview images) live in the
-// PredictionStore Durable Object's SQLite database.
+// Cloudflare Workers, static assets only: dist/ served at pitwall.plusminushalf.com, with index.html for the app's own
+// paths (/session/11377, /live: src/url.ts) and predictions/index.html for /predictions.
 // `bun run deploy` builds and uploads; the custom domain's DNS record and certificate are created on first deploy.
+//
+// For one deploy: Called It had a Worker and a Durable Object (PredictionStore). Cloudflare only deletes a Durable
+// Object class through a migration, and a migration needs a script, so worker/retire.ts is here (no path runs it)
+// until this deploy has deleted the class; the next one drops it and goes back to assets only.
 {
   "name": "pitwall",
-  "main": "worker/index.ts",
+  "main": "worker/retire.ts",
   "compatibility_date": "2026-09-01",
-  "assets": {
-    "directory": "./dist",
-    "binding": "ASSETS",
-    "not_found_handling": "single-page-application",
-    "run_worker_first": ["/api/*", "/predictions", "/predictions/*"],
-  },
-  // Call links' drawn preview image (worker/og.ts): off for now. Each costs ~200 ms of CPU, more than the free plan
-  // allows; "on" needs Workers Paid.
-  "vars": { "OG_IMAGES": "off" },
-  // The link-preview image's fonts (worker/og.ts), bundled as bytes.
-  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
-  "durable_objects": { "bindings": [{ "name": "PREDICTIONS", "class_name": "PredictionStore" }] },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PredictionStore"] }],
+  "assets": { "directory": "./dist", "binding": "ASSETS", "not_found_handling": "single-page-application" },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["PredictionStore"] },
+    { "tag": "v2", "deleted_classes": ["PredictionStore"] },
+  ],
   "routes": [{ "pattern": "pitwall.plusminushalf.com", "custom_domain": true }],
 }

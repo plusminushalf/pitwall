@@ -19,7 +19,6 @@
     "../src/engine",
     "../src/ingest/eta.ts",
     "../src/ingest/catalog.ts",
-    "../src/ingest/*.test.ts",
-    "../worker/*.test.ts"
+    "../src/ingest/*.test.ts"
   ]
 }
