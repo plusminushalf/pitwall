@@ -32,10 +32,12 @@ The same ingest runs on the command line, into `data/` (gitignored): the tests r
 bun run races 2026          # list race/sprint sessions and their keys (--quali: qualifying too, --practice: free practice)
 bun run ingest 11377        # download + process one session into data/sessions/11377
 bun run ingest:season 2026  # every completed race + sprint not ingested yet (--force, --quali, --practice)
+bun run export 11730        # one session as CSVs + a stats summary in data/exports/ (ingests it first if needed)
 bun test                    # data-dependent tests skip without data/sessions/11377
 ```
 
 - Raw responses are cached gzip-compressed in `data/raw/<key>/*.json.gz` (~12 MB per race instead of ~150 MB of JSON), so re-running ingest needs no network. Telemetry comes in time slices like in the browser; a cache with per-driver files (from before slices, or the live relay's) is read as it is. Output goes to `data/sessions/<key>/` (listed in `data/sessions/index.json`): `meta.json` (timing, events, track outline) and `drivers/<number>.json` (columnar location + car telemetry). The format is typed in `src/types.ts`; all times are ms since `meta.t0`.
+- `bun run export <key>` writes spreadsheets for charts and posts to `data/exports/<key>-<slug>/`: `summary.md` (headlines, classification, strategies, team-mates, best sectors and ideal laps, weather), `results.csv`, `laps.csv` (times, sectors, tyre, races' running order and gap to the leader, track status, speed traps), `stints.csv`, `pits.csv`, `race_control.csv`, `weather.csv`, and each driver's fastest lap over distance: `telemetry.csv` (long) and `speed_trace.csv` (speed every 10 m, a column per driver). `--trace VER:12` adds a lap to the traces. Qualifying and practice use the aligned lap traces; races integrate speed from the car data, stretched to a common lap length.
 - With sponsor credentials in `.env` (see Live mode) the CLI works during live windows and at the faster sponsor rate limit.
 
 ## Qualifying

@@ -12,6 +12,7 @@
     "races": "bun scripts/list-races.ts",
     "ingest": "bun scripts/ingest.ts",
     "ingest:season": "bun scripts/ingest-season.ts",
+    "export": "bun scripts/export.ts",
     "check:quali": "bun scripts/check-quali.ts",
     "live": "bun server/live.ts",
     "live:sim": "LIVE_SIMULATE=11377 bun server/live.ts",
