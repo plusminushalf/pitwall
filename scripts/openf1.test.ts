@@ -83,14 +83,16 @@ describe("without credentials (free tier)", () => {
     const starts: number[] = [];
     respond = () => (starts.push(Date.now()), json([]));
     setRequestInterval(40);
+    const t0 = Date.now();
     try {
       await Promise.all([1, 2, 3, 4].map((k) => fetchEndpoint("laps", { session_key: k })));
     } finally {
       setRequestInterval(0);
     }
     expect(starts.length).toBe(4);
-    const gaps = starts.slice(1).map((t, i) => t - starts[i]!);
-    expect(Math.min(...gaps)).toBeGreaterThanOrEqual(35);
+    // Each starts at or after its own slot, 40 ms after the one before. (Not the gaps between starts: a timer
+    // that fires late under load brings one start closer to the next, which is on time.)
+    starts.forEach((t, k) => expect(t - t0).toBeGreaterThanOrEqual(k * 40));
   });
 
   test("a blank username counts as missing", () => {
