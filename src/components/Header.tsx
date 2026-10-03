@@ -8,6 +8,7 @@ import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useQuali } from "../qualiStore";
 import { comparing, useReplay, type PracticeView } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
+import { ShareButton } from "../share/ShareShot";
 import { LiveControl } from "./LiveControl";
 import { RacesButton } from "./Navigation";
 
@@ -20,6 +21,7 @@ const SHORTCUTS: [string, string][] = [
   ["− / +", "Slower / faster"],
   ["1 – 7", "Speed 1× · 2× · 4× … 64×"],
   ["Esc", "Clear selection"],
+  ["S", "Share a screenshot and a link"],
 ];
 
 const sessionLabel = (s: { year: number; meetingName: string; sessionName: string }) =>
@@ -200,7 +202,39 @@ function LayoutControls() {
   const editing = useLayout((s) => s.editing);
   const pickerOpen = useLayout((s) => s.picker != null && s.picker.slot == null);
   const paused = useLayout((s) => s.pausedPlayback);
+  const shared = useLayout((s) => s.shared);
   const blur = (e: { currentTarget: HTMLButtonElement }) => e.currentTarget.blur();
+  if (shared && !editing) {
+    return (
+      <div className="flex items-center gap-1.5">
+        <span className="mr-1.5 whitespace-nowrap" title="The layout the link was shared with. Yours is kept unless you keep this one.">
+          <Label>Shared layout</Label>
+        </span>
+        <button
+          type="button"
+          onClick={(e) => {
+            blur(e);
+            useLayout.getState().keepShared();
+          }}
+          className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
+          title="Make this layout yours"
+        >
+          Keep
+        </button>
+        <button
+          type="button"
+          onClick={(e) => {
+            blur(e);
+            useLayout.getState().dropShared();
+          }}
+          className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
+          title="Back to your own layout"
+        >
+          Use mine
+        </button>
+      </div>
+    );
+  }
   if (!editing) {
     return (
       <button
@@ -295,6 +329,7 @@ export function Header() {
       <div className="flex items-center justify-end gap-4">
         <Weather w={race?.weather ?? null} />
         {!meta.quali && <LayoutControls />}
+        <ShareButton />
         <ShortcutsHelp />
       </div>
     </header>

@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import { rowForKey, rowState, useLibrary } from "../library";
 import { comparing, saveWatched, useReplay } from "../store";
+import { useLayout } from "../grid/store";
+import { useQuali } from "../qualiStore";
+import { decodeLayout } from "../share/layoutCode";
 import { readUrl, upgradeUrl, urlFor } from "../url";
 
 /** Browsers rate-limit history.replaceState (Safari throws past ~100 calls per 30 s). */
@@ -27,6 +30,9 @@ export function applyUrl() {
     library.setLink(null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
   }
+  // A shared link's set-up: shown when its session is (the address bar drops it once the session's open).
+  if (url.compare) useQuali.getState().applyLink(url.session!, url.compare);
+  if (url.layout) void decodeLayout(url.layout).then((shared) => shared && useLayout.getState().showShared(shared.kind, shared.layout));
   // A shared link: open it if it's here; carry on streaming it if its download is under way (a reload); otherwise
   // offer to watch it (downloading it, from `t`).
   const key = url.session!;

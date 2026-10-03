@@ -9,6 +9,7 @@ import { StreamBuffering, StreamLoading } from "./components/StreamStatus";
 import { Timeline } from "./components/Timeline";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
+import { ShareShot } from "./share/ShareShot";
 import { Grid } from "./grid/Grid";
 import { useKeyboard } from "./hooks/useKeyboard";
 import { useReplayLoop } from "./hooks/useReplayLoop";
@@ -98,6 +99,7 @@ export function App() {
       <>
         <QualiView overlay={loading && <div className="absolute inset-0 z-10 bg-zinc-950/80"><LoadingScreen /></div>} />
         <ReadyToast />
+        <ShareShot />
       </>
     );
   }
@@ -120,6 +122,7 @@ export function App() {
       </div>
       <SpoilerPrompt />
       <ReadyToast />
+      <ShareShot />
     </>
   );
 }

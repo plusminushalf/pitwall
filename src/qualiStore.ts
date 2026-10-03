@@ -6,9 +6,12 @@ import { create } from "zustand";
 import type { LapPreset } from "./data/quali";
 import { fetchLapTraces } from "./storage/load";
 import type { DecodedLap } from "./engine/compare";
+import type { CompareLink } from "./url";
 
 export const MAX_COMPARE = 4;
 export const GHOST_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
+export const MINI_SECTOR_COUNTS = [12, 25, 50] as const;
+const MINI_SECTORS = 25;
 
 /** Per-frame ghost time (ms since the compared laps started); published to React at ~10 Hz. */
 export const ghost = { t: 0 };
@@ -27,6 +30,10 @@ interface QualiState {
   hover: number | null;
   /** Distance window of the charts (m), or null for the whole lap. */
   zoom: [number, number] | null;
+  /** Mini-sectors on the map (one of MINI_SECTOR_COUNTS). */
+  miniCount: number;
+  /** Corner names on the map and charts instead of numbers. */
+  cornerNames: boolean;
   ghostT: number;
   ghostSpeed: number;
   /**
@@ -42,9 +49,18 @@ interface QualiState {
   setBoard: (tab: BoardTab) => void;
   setHover: (d: number | null) => void;
   setZoom: (zoom: [number, number] | null) => void;
+  setMiniCount: (n: number) => void;
+  setCornerNames: (on: boolean) => void;
+  /** A shared link's set-up for session `key`: now if it's the one compared, else when it is (reset()). */
+  applyLink: (key: number, link: CompareLink) => void;
+  /** The set-up as a shared link says it (the defaults left out). */
+  link: () => CompareLink;
   seekGhost: (t: number) => void;
   setGhostSpeed: (speed: number) => void;
 }
+
+/** A shared link's set-up waiting for its session to be compared. */
+let pendingLink: { key: number; link: CompareLink } | null = null;
 
 export const useQuali = create<QualiState>((set, get) => ({
   sessionKey: null,
@@ -55,6 +71,8 @@ export const useQuali = create<QualiState>((set, get) => ({
   board: "result",
   hover: null,
   zoom: null,
+  miniCount: MINI_SECTORS,
+  cornerNames: false,
   ghostT: 0,
   ghostSpeed: 1,
   autoPicked: null,
@@ -62,7 +80,9 @@ export const useQuali = create<QualiState>((set, get) => ({
   reset: (sessionKey) => {
     if (get().sessionKey === sessionKey) return;
     ghost.t = 0;
-    set({ sessionKey, traces: new Map(), traceErrors: new Map(), laps: {}, preset: "best", board: "result", hover: null, zoom: null, ghostT: 0, autoPicked: null });
+    set({ sessionKey, traces: new Map(), traceErrors: new Map(), laps: {}, preset: "best", board: "result", hover: null, zoom: null, miniCount: MINI_SECTORS, cornerNames: false, ghostT: 0, autoPicked: null });
+    if (pendingLink?.key === sessionKey) get().applyLink(sessionKey, pendingLink.link);
+    pendingLink = null;
   },
 
   ensureTraces: (driver) => {
@@ -93,6 +113,31 @@ export const useQuali = create<QualiState>((set, get) => ({
     if (get().hover !== hover) set({ hover });
   },
   setZoom: (zoom) => set({ zoom }),
+  setMiniCount: (miniCount) => set({ miniCount }),
+  setCornerNames: (cornerNames) => set({ cornerNames }),
+  applyLink: (key, link) => {
+    if (get().sessionKey !== key) {
+      pendingLink = { key, link };
+      return;
+    }
+    set({
+      zoom: link.zoom ?? null,
+      preset: link.preset ?? "best",
+      laps: link.laps ?? {},
+      miniCount: MINI_SECTOR_COUNTS.find((n) => n === link.mini) ?? MINI_SECTORS,
+      cornerNames: link.names ?? false,
+    });
+  },
+  link: () => {
+    const { zoom, preset, laps, miniCount, cornerNames } = get();
+    return {
+      ...(zoom ? { zoom } : {}),
+      ...(preset !== "best" ? { preset } : {}),
+      ...(Object.keys(laps).length > 0 ? { laps } : {}),
+      ...(miniCount !== MINI_SECTORS ? { mini: miniCount } : {}),
+      ...(cornerNames ? { names: true as const } : {}),
+    };
+  },
   seekGhost: (t) => {
     ghost.t = Math.max(0, t);
     set({ ghostT: ghost.t });

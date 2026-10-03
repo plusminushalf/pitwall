@@ -2,18 +2,19 @@
 // board on the left, speed, delta, throttle, brake and gear on one distance axis, and the track map with who's
 // fastest in each mini-sector and the laps as ghosts.
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, type ReactNode } from "react";
 import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { cornerLabel } from "../../data/circuits";
 import { compareModel, type CompareModel } from "../../data/compare";
 import { miniSectors } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";
-import { ghost, GHOST_SPEEDS, useQuali } from "../../qualiStore";
+import { ghost, GHOST_SPEEDS, MINI_SECTOR_COUNTS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
 import type { SessionMeta } from "../../types";
 import { PracticeViewSwitch, SessionPicker } from "../Header";
 import { RacesButton } from "../Navigation";
+import { ShareButton } from "../../share/ShareShot";
 import { CompareBar } from "./CompareBar";
 import { CompareCharts, Swatch } from "./CompareCharts";
 import { CompareMap } from "./CompareMap";
@@ -22,7 +23,6 @@ import { QualiBoard } from "./QualiBoard";
 import { SectorTable } from "./SectorTable";
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
-const MINI_SECTOR_COUNTS = [12, 25, 50];
 const PUBLISH_EVERY_MS = 100;
 
 const SHORTCUTS: [string, string][] = [
@@ -33,6 +33,7 @@ const SHORTCUTS: [string, string][] = [
   ["Drag / wheel", "Zoom the charts"],
   ["Double-click", "Reset zoom"],
   ["Esc", "Clear the comparison"],
+  ["S", "Share a screenshot and a link"],
 ];
 
 function Help() {
@@ -135,6 +136,7 @@ function CompareHeader({ meta, model }: { meta: SessionMeta; model: CompareModel
             </span>
           </span>
         )}
+        <ShareButton />
         <Help />
       </div>
     </header>
@@ -218,8 +220,9 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
   const model = compareModel(meta)!;
   const entries = useCompare();
   const zoom = useQuali((s) => s.zoom);
-  const [miniCount, setMiniCount] = useState(25);
-  const [cornerNames, setCornerNames] = useState(false);
+  const miniCount = useQuali((s) => s.miniCount);
+  const cornerNames = useQuali((s) => s.cornerNames);
+  const { setMiniCount, setCornerNames } = useQuali.getState();
 
   // A fresh session: reset the compare state, and start with pole vs P2 (practice: the two fastest) unless a link
   // (or the replay, in practice) picked drivers.
@@ -262,10 +265,10 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
     <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
       <CompareHeader meta={meta} model={model} />
       <div className="grid min-h-0 grid-cols-[360px_minmax(0,1fr)_400px]">
-        <aside className="min-h-0 border-r border-zinc-800">
+        <aside data-shot="" className="min-h-0 border-r border-zinc-800">
           <QualiBoard />
         </aside>
-        <main className="flex min-h-0 min-w-0 flex-col">
+        <main data-shot="" className="flex min-h-0 min-w-0 flex-col">
           <CompareBar model={model} entries={entries} />
           <div className="flex h-7 shrink-0 items-center justify-between px-3 text-[11px] text-zinc-500">
             <span>
@@ -301,27 +304,30 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
           )}
         </main>
         <aside className="flex min-h-0 flex-col border-l border-zinc-800">
-          <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
-            <span className={LABEL}>Fastest per mini-sector</span>
-            <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
-              {MINI_SECTOR_COUNTS.map((n) => (
-                <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
-                  {n}
-                </button>
-              ))}
+          {/* The map and what goes with it: one region to share (share/ShareShot.tsx). */}
+          <div data-shot="" className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
+              <span className={LABEL}>Fastest per mini-sector</span>
+              <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
+                {MINI_SECTOR_COUNTS.map((n) => (
+                  <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+                    {n}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-          <div className="shrink-0 px-3 pt-1">
-            <Dominance entries={entries} sectors={sectors} />
-          </div>
-          <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} names={cornerNames} />
-          <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
-            <p>Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
-            {meta.track.corners.some((c) => c.name) && (
-              <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
-                Corner names
-              </button>
-            )}
+            <div className="shrink-0 px-3 pt-1">
+              <Dominance entries={entries} sectors={sectors} />
+            </div>
+            <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} names={cornerNames} />
+            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
+              <p>Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
+              {meta.track.corners.some((c) => c.name) && (
+                <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+                  Corner names
+                </button>
+              )}
+            </div>
           </div>
           <SectorTable entries={entries} />
         </aside>

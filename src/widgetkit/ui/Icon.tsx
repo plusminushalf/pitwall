@@ -20,6 +20,14 @@ const PATHS = {
   next: <path {...SOLID} d="M11 3.5h2v9h-2zM3 3.5v9L10 8z" />,
   check: <path {...STROKE} d="M3 8.5l3.2 3L13 4.5" />,
   close: <path {...STROKE} d="M4 4l8 8M12 4l-8 8" />,
+  camera: (
+    <>
+      <path {...STROKE} d="M2 5.5A1.5 1.5 0 0 1 3.5 4h1.8l1.2-1.5h3l1.2 1.5h1.8A1.5 1.5 0 0 1 14 5.5v6a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5z" />
+      <circle {...STROKE} cx="8" cy="8.5" r="2.25" />
+    </>
+  ),
+  link: <path {...STROKE} d="M7 9a2.5 2.5 0 0 0 3.5 0l2-2A2.5 2.5 0 0 0 9 3.5l-.75.75M9 7a2.5 2.5 0 0 0-3.5 0l-2 2A2.5 2.5 0 0 0 7 12.5l.75-.75" />,
+  download: <path {...STROKE} d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" />,
   "chevron-left": <path {...STROKE} d="M10 3.5 5.5 8l4.5 4.5" />,
   /** Two ways: switches between two readings of the same thing (gap to the leader, or to the car ahead). */
   swap: <path {...STROKE} d="M2.5 5.5h10M10 3l2.5 2.5L10 8M13.5 10.5h-10M6 8l-2.5 2.5L6 13" />,

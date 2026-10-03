@@ -1,12 +1,14 @@
 import { useEffect } from "react";
+import { useShare } from "../share/ShareShot";
 import { comparing, SPEEDS, useReplay } from "../store";
 
 /**
  * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
- * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× · esc: clear selection
+ * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× · esc: clear selection · s: share a screenshot
  *
- * The lap comparison (qualifying, practice's Fastest laps) keeps space, P (its ghost laps) and esc; its other keys
- * are its own (QualiView), so they don't move the replay behind it.
+ * The lap comparison (qualifying, practice's Fastest laps) keeps space, P (its ghost laps), S and esc; its other keys
+ * are its own (QualiView), so they don't move the replay behind it. While a screenshot's area is being picked, keys
+ * are the picker's (share/ShareShot.tsx).
  */
 export function useKeyboard() {
   useEffect(() => {
@@ -21,11 +23,11 @@ export function useKeyboard() {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
       const s = useReplay.getState();
       // Nothing to control on Home (the session left there stays paused).
-      if (!s.session || s.view !== "replay") return;
+      if (!s.session || s.view !== "replay" || useShare.getState().phase.kind !== "idle") return;
       const compare = comparing(s);
       // The spoiler prompt is open (over the replay): keys are its own.
       if (s.noSpoilers === null && !compare) return;
-      if (compare && e.key !== " " && e.key !== "p" && e.key !== "P" && e.key !== "Escape") return;
+      if (compare && !" pPsS".includes(e.key) && e.key !== "Escape") return;
       // Don't let space/arrows also activate whatever button was clicked last.
       if (e.target instanceof HTMLButtonElement) e.target.blur();
       const speedIndex = SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);
@@ -63,6 +65,11 @@ export function useKeyboard() {
           break;
         case "Escape":
           s.clearSelection();
+          break;
+        case "s":
+        case "S":
+          if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+          useShare.getState().start();
           break;
         default: {
           // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×.

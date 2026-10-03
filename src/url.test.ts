@@ -33,6 +33,20 @@ describe("readUrl", () => {
     expect(readUrl("/", "?live=1").live).toBe(true);
   });
 
+  test("a shared link's set-up", () => {
+    expect(readUrl("/session/11730", "?drivers=1,44&zoom=120-560&preset=2&laps=1:14,44:12&mini=50&names=1").compare).toEqual({
+      zoom: [120, 560],
+      preset: 2,
+      laps: { 1: 14, 44: 12 },
+      mini: 50,
+      names: true,
+    });
+    expect(readUrl("/session/11731", "?t=60&layout=abc_-9").layout).toBe("abc_-9");
+    // What doesn't parse is left out.
+    expect(readUrl("/session/11730", "?zoom=560-120&preset=0&laps=1:x&mini=-1&names=yes&layout=a%2Fb")).toEqual({ live: false, session: 11730, t: undefined, drivers: [], focus: null });
+    expect(readUrl("/live", "?zoom=1-2&layout=abc").compare).toBeUndefined();
+  });
+
   test("a path the app doesn't have is Home", () => {
     expect(readUrl("/session/abc", "")).toMatchObject({ live: false, session: null });
     expect(readUrl("/races", "")).toMatchObject({ live: false, session: null });
@@ -50,7 +64,11 @@ describe("urlFor", () => {
   });
 
   test("round-trips through readUrl", () => {
-    for (const url of ["/session/11377?t=3725&drivers=1,63,55&focus=63", "/session/11228?view=laps&t=600&drivers=1,63", "/live?session=11377&t=90&drivers=4", "/live"]) {
+    for (const url of [
+      "/session/11377?t=3725&drivers=1,63,55&focus=63",
+      "/session/11228?view=laps&t=600&drivers=1,63",
+      "/session/11730?drivers=1,44&zoom=120-560&preset=2&laps=1:14,44:12&mini=50&names=1",
+      "/session/11731?t=60&layout=abc_-9", "/live?session=11377&t=90&drivers=4", "/live"]) {
       const [path, search = ""] = url.split("?");
       expect(urlFor(readUrl(path!, search ? `?${search}` : ""))).toBe(url);
     }

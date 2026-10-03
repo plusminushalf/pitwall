@@ -3,6 +3,10 @@
 //   /session/11377?t=3725&drivers=1,63,55&focus=63   a session: its replay, or the offer to download it
 //   /session/11228?view=laps&drivers=1,63            finished practice's Fastest laps (the lap comparison)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
+// Shared links (share/ShareShot.tsx) can also say how the screen was set up:
+//   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't the default
+//   zoom=120-560&preset=2&laps=1:14,63:12&mini=50&names=1   the lap comparison: its charts' distance window (m), the
+//                                                    segment its laps come from, hand-picked laps, mini-sectors, corner names
 // Links from before paths (`/?session=11377&t=…`, `/?live=1`, the single `driver=63`) still open, and are upgraded.
 
 /** What a URL asks for. `t` is in ms of replay time. */
@@ -14,12 +18,31 @@ export interface UrlState {
   focus: number | null;
   /** Practice: the Fastest laps instead of the replay. Absent: the replay. */
   view?: "laps";
+  /** A shared link's lap comparison set-up. Absent: the comparison's own defaults. */
+  compare?: CompareLink;
+  /** A shared link's widget layout, encoded (share/layoutCode.ts). Absent: the browser's own. */
+  layout?: string;
+}
+
+/** How a shared link sets up the lap comparison (qualifying, practice's Fastest laps). */
+export interface CompareLink {
+  /** The charts' distance window, in m. */
+  zoom?: [number, number];
+  /** The segment the laps come from (Q1 = 1); absent, each driver's fastest. */
+  preset?: number;
+  /** Laps picked by hand, by driver. */
+  laps?: Record<number, number>;
+  /** Mini-sectors on the map. */
+  mini?: number;
+  /** Corner names on the map instead of numbers. */
+  names?: true;
 }
 
 const SESSION_PATH = /^\/session\/(\d+)\/?$/;
 const LIVE_PATH = /^\/live\/?$/;
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
-const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view"]);
+const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view", "zoom", "preset", "laps", "mini", "names", "layout"]);
+const LAYOUT_CODE = /^[A-Za-z0-9_-]+$/;
 
 export const sessionPath = (key: number) => `/session/${key}`;
 export const livePath = "/live";
@@ -46,7 +69,31 @@ export function readUrl(pathname: string, search: string): UrlState {
     drivers,
     focus: num("focus") ?? legacy,
     ...(path && q.get("view") === "laps" ? { view: "laps" as const } : {}),
+    ...(path ? readShared(q) : {}),
   };
+}
+
+/** A shared link's set-up (session paths only); what doesn't parse is left out. */
+function readShared(q: URLSearchParams): Pick<UrlState, "compare" | "layout"> {
+  const out: Pick<UrlState, "compare" | "layout"> = {};
+  const compare: CompareLink = {};
+  const positive = (v: string | null) => (v != null && /^\d+$/.test(v) && Number(v) > 0 ? Number(v) : null);
+  const zoom = /^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)$/.exec(q.get("zoom") ?? "");
+  if (zoom && Number(zoom[1]) < Number(zoom[2])) compare.zoom = [Number(zoom[1]), Number(zoom[2])];
+  const preset = positive(q.get("preset"));
+  if (preset != null) compare.preset = preset;
+  const laps = (q.get("laps") ?? "")
+    .split(",")
+    .map((pair) => /^(\d+):(\d+)$/.exec(pair))
+    .filter((m) => m != null);
+  if (laps.length > 0) compare.laps = Object.fromEntries(laps.map((m) => [Number(m[1]), Number(m[2])]));
+  const mini = positive(q.get("mini"));
+  if (mini != null) compare.mini = mini;
+  if (q.get("names") === "1") compare.names = true;
+  if (Object.keys(compare).length > 0) out.compare = compare;
+  const layout = q.get("layout");
+  if (layout && LAYOUT_CODE.test(layout)) out.layout = layout;
+  return out;
 }
 
 /** The address of a view. Built by hand (all values are numbers) so the driver list keeps readable commas instead of %2C. */
@@ -57,6 +104,15 @@ export function urlFor(v: UrlState): string {
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
   if (v.drivers.length > 0) q.push(`drivers=${v.drivers.join(",")}`);
   if (v.focus != null) q.push(`focus=${v.focus}`);
+  if (!v.live) {
+    const c = v.compare ?? {};
+    if (c.zoom) q.push(`zoom=${Math.round(c.zoom[0])}-${Math.round(c.zoom[1])}`);
+    if (c.preset != null) q.push(`preset=${c.preset}`);
+    if (c.laps && Object.keys(c.laps).length > 0) q.push(`laps=${Object.entries(c.laps).map(([d, l]) => `${d}:${l}`).join(",")}`);
+    if (c.mini != null) q.push(`mini=${c.mini}`);
+    if (c.names) q.push("names=1");
+    if (v.layout) q.push(`layout=${v.layout}`);
+  }
   const path = v.live ? livePath : sessionPath(v.session!);
   return q.length > 0 ? `${path}?${q.join("&")}` : path;
 }
