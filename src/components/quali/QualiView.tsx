@@ -4,6 +4,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
+import { cornerLabel } from "../../data/circuits";
 import { compareModel, type CompareModel } from "../../data/compare";
 import { miniSectors } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";
@@ -218,6 +219,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
   const entries = useCompare();
   const zoom = useQuali((s) => s.zoom);
   const [miniCount, setMiniCount] = useState(25);
+  const [cornerNames, setCornerNames] = useState(false);
 
   // A fresh session: reset the compare state, and start with pole vs P2 (practice: the two fastest) unless a link
   // (or the replay, in practice) picked drivers.
@@ -251,7 +253,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
           best = i;
         }
       }
-      return { number: c.number, d: ref.d[best] };
+      return { label: cornerLabel(c), d: ref.d[best] };
     });
   }, [withTrace, meta]);
 
@@ -312,8 +314,15 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
           <div className="shrink-0 px-3 pt-1">
             <Dominance entries={entries} sectors={sectors} />
           </div>
-          <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} />
-          <p className="shrink-0 px-3 pb-1 text-[10px] text-zinc-600">Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
+          <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} names={cornerNames} />
+          <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
+            <p>Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
+            {meta.track.corners.some((c) => c.name) && (
+              <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+                Corner names
+              </button>
+            )}
+          </div>
           <SectorTable entries={entries} />
         </aside>
       </div>

@@ -15,6 +15,7 @@ import type {
 } from "../types";
 import { yellowCulprits } from "../engine/yellowCause";
 import { carPathOf } from "../engine/carPath";
+import { withCircuit } from "./circuits";
 import type { StreamChunk } from "../ingest/protocol";
 
 export interface LocSeries {
@@ -184,6 +185,8 @@ export function buildSession(meta: SessionMeta, telemetry: DriverTelemetry[], op
 }
 
 function assemble(meta: SessionMeta, series: Map<number, DriverSeries>, live: boolean): Session {
+  const track = withCircuit(meta.track, meta.circuit);
+  if (track !== meta.track) meta = { ...meta, track };
   const drivers = new Map<number, DriverData>();
   const lapsOf = byDriver(meta.laps);
   const stintsOf = byDriver(meta.stints);
@@ -252,8 +255,9 @@ function assemble(meta: SessionMeta, series: Map<number, DriverSeries>, live: bo
  * the filter for cars' paths built now (a streamed race is a replay).
  */
 export function withMeta(session: Session, meta: SessionMeta, live = true): Session {
-  const same = meta.track === session.meta.track || JSON.stringify(meta.track) === JSON.stringify(session.meta.track);
-  return assemble(same ? { ...meta, track: session.meta.track } : meta, new Map(session.series), live);
+  const track = withCircuit(meta.track, meta.circuit);
+  const same = track === session.meta.track || JSON.stringify(track) === JSON.stringify(session.meta.track);
+  return assemble({ ...meta, track: same ? session.meta.track : track }, new Map(session.series), live);
 }
 
 type Column = Float64Array | Float32Array | Uint8Array;

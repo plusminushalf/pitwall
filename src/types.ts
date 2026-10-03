@@ -151,9 +151,11 @@ export interface TrackGeometry {
   sectorMarks: { x: number; y: number }[]; // start of sector 2 and 3; finish line is outline[0]
   bounds: { minX: number; maxX: number; minY: number; maxY: number };
   referenceLap: { driver: number; lap: number; duration: number };
-  // From the MultiViewer circuit API when available (rotation 0 / empty lists otherwise).
+  // From the MultiViewer circuit API when available (rotation 0 / empty lists otherwise). Loading a session fills
+  // in the circuits the API doesn't have, and corner names (src/data/circuits.ts).
   rotation: number; // degrees, counter-clockwise, to show the track in its usual orientation
-  corners: { number: number; x: number; y: number; angle: number }[];
+  // `angle`: degrees, from the corner to where its number goes (usually out of the bend). `letter`: "A" in turn 5A.
+  corners: { number: number; letter?: string; name?: string; x: number; y: number; angle: number }[];
   // Marshal sectors as outline index ranges; `to` < `from` wraps past the finish line.
   // Race control sector flags ("YELLOW IN TRACK SECTOR 15") refer to these numbers.
   marshalSectors: { number: number; from: number; to: number }[];

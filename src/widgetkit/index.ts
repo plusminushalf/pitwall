@@ -83,7 +83,7 @@
 //     Icon                        the app's icons (16-unit SVG, 1.5 stroke): never Unicode or emoji
 //     DriverTag                   a driver's acronym on their team colour
 //     TyreBadge                   compound circle and tyre age
-//   and, still as they were lifted from the core: format helpers, colours and the track projection.
+//   and, still as they were lifted from the core: format helpers, colours, the track projection and corner labels.
 
 export { defineWidget } from "./defineWidget";
 export type { WidgetDefinition, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
@@ -137,6 +137,8 @@ export { COMPOUND, gap, lapTime, raceClock, sectorTime, shortTeam, teamColor, te
 export { drsEligible, drsOpen } from "../engine/raceState";
 /** Track coordinates to canvas px: rotated to the circuit's usual orientation and fitted with padding. */
 export { makeTrackTransform as trackTransform, type TrackTransform } from "../lib/trackTransform";
+/** Corner numbers, and names if asked, on a canvas drawn with trackTransform. */
+export { drawCornerLabels, type CornerLabelStyle } from "../lib/cornerLabels";
 export { DriverTag } from "./ui/DriverTag";
 export { Icon, type IconName } from "./ui/Icon";
 export { Label, LABEL_CLASS, Stat } from "./ui/Label";

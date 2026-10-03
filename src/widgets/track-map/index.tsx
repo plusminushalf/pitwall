@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, type MouseEvent } from "react";
 import {
   defineWidget,
+  drawCornerLabels,
   teamColor,
   TRACK_STATUS,
   trackTransform,
@@ -11,6 +12,7 @@ import {
   useRunningOrder,
   useSectorFlags,
   useSelection,
+  useSettings,
   useTrack,
   useTrackStatus,
   type DriverInfo,
@@ -54,6 +56,9 @@ const PIT_MS = 200;
 const PIT_CLEAR = 13;
 /** Pushed out to PIT_CLEAR gradually over this much of each end of the lane (CSS px, at most a quarter of it). */
 const PIT_TAPER = 40;
+
+/** cornerNames: corner names next to their numbers, where the circuit's corners have names. */
+type Settings = { cornerNames: boolean };
 
 interface StaticLayer {
   canvas: HTMLCanvasElement;
@@ -260,7 +265,7 @@ function onPitLane(pit: PitLane, x: number, y: number, k: number): [number, numb
   return [x + k * mx, y + k * my];
 }
 
-function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLayer {
+function drawStatic(track: Track, w: number, h: number, dpr: number, names: boolean): StaticLayer {
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
@@ -321,17 +326,8 @@ function drawStatic(track: Track, w: number, h: number, dpr: number): StaticLaye
     ctx.fillText(`S${i + 2}`, mx + 6, my - 6);
   });
 
-  // Corner numbers, pushed off the racing line along the circuit's label angle: zinc-400, text to read.
-  ctx.fillStyle = "#9f9fa9";
-  ctx.font = "500 10px ui-sans-serif, system-ui";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  const offset = 20 / tf.scale;
-  for (const c of track.corners) {
-    const a = (c.angle * Math.PI) / 180;
-    const [cx, cy] = tf(c.x + offset * Math.cos(a), c.y + offset * Math.sin(a));
-    ctx.fillText(String(c.number), cx, cy);
-  }
+  // Corner numbers (and names, by setting): zinc-400, text to read.
+  drawCornerLabels(ctx, tf, track.corners, w, { offset: 20, size: 10, color: "#9f9fa9", background: "#09090b", names });
 
   return { canvas, tf, dpr, pit };
 }
@@ -499,6 +495,7 @@ function drawCars(ctx: CanvasRenderingContext2D, cars: DrawnCar[], dpr: number, 
 }
 
 function TrackMap() {
+  const [{ cornerNames }] = useSettings<Settings>();
   const track = useTrack();
   const drivers = useDrivers();
   const order = useRunningOrder();
@@ -515,7 +512,7 @@ function TrackMap() {
   const stackHeldSince = useRef<number | null>(null); // since when a swap of overlapping dots is held back
   const drawn = useRef<Drawn | null>(null);
 
-  const layer = useMemo(() => (w > 0 && h > 0 ? drawStatic(track, w, h, pixelRatio) : null), [track, w, h, pixelRatio]);
+  const layer = useMemo(() => (w > 0 && h > 0 ? drawStatic(track, w, h, pixelRatio, cornerNames) : null), [track, w, h, pixelRatio, cornerNames]);
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
   // What the per-frame draw reads, updated at the hooks' rate.
   const latest = useRef({ order, positions, selected, focused, info });
@@ -712,6 +709,6 @@ export default defineWidget({
   height: { min: 200 },
   width: { min: 20, default: 55, max: 80 },
   sessions: ["race", "practice"],
-  settings: {},
+  settings: { cornerNames: false },
   Component: TrackMap,
 });

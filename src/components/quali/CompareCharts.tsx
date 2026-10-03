@@ -57,7 +57,7 @@ interface Props {
   entries: CompareEntry[];
   lapLength: number;
   sectorDistances: [number, number];
-  corners: { number: number; d: number }[];
+  corners: { label: string; d: number }[];
 }
 
 export function CompareCharts({ entries, lapLength, sectorDistances, corners }: Props) {
@@ -185,7 +185,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
       if (c.d < x0 || c.d > x1) continue;
       const x = xOf(c.d);
       if (x - lastLabel < 16 || sectorDistances.some((s) => Math.abs(xOf(s) - x) < 12)) continue;
-      ctx.fillText(`T${c.number}`, x, M.top - 3);
+      ctx.fillText(`T${c.label}`, x, M.top - 3);
       lastLabel = x;
     }
 

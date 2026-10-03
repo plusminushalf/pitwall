@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deltaAt, distanceAtTime, positionAtDistance, positionAtTime, type DecodedLap, type MiniSector } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
+import { drawCornerLabels } from "../../lib/cornerLabels";
 import { makeTrackTransform, type TrackTransform } from "../../lib/trackTransform";
 import { ghost, useQuali } from "../../qualiStore";
 import type { TrackGeometry } from "../../types";
@@ -12,6 +13,8 @@ interface Props {
   track: TrackGeometry;
   entries: CompareEntry[];
   sectors: MiniSector[];
+  /** Corner names next to their numbers. */
+  names: boolean;
 }
 
 /** Stroke the reference lap's own path between two distances. */
@@ -64,7 +67,7 @@ function tick(ctx: CanvasRenderingContext2D, tf: TrackTransform, lap: DecodedLap
   ctx.stroke();
 }
 
-export function CompareMap({ track, entries, sectors }: Props) {
+export function CompareMap({ track, entries, sectors, names }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -127,18 +130,9 @@ export function CompareMap({ track, entries, sectors }: Props) {
     ctx.lineTo(sx + px * 9, sy + py * 9);
     ctx.stroke();
 
-    ctx.fillStyle = "#71717a";
-    ctx.font = "500 9px ui-sans-serif, system-ui";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    const offset = 16 / tf.scale;
-    for (const c of track.corners) {
-      const a = (c.angle * Math.PI) / 180;
-      const [cx, cy] = tf(c.x + offset * Math.cos(a), c.y + offset * Math.sin(a));
-      ctx.fillText(String(c.number), cx, cy);
-    }
+    drawCornerLabels(ctx, tf, track.corners, size.w, { offset: 16, size: 9, color: "#71717a", background: "#09090b", names });
     return { canvas, tf, dpr };
-  }, [size, track, ref, sectors, withTrace]);
+  }, [size, track, ref, sectors, withTrace, names]);
 
   // Dynamic layer: hover cursor and ghost cars, every frame.
   useEffect(() => {
