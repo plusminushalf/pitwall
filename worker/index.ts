@@ -15,6 +15,8 @@ import { OG_H, OG_W, ogPng, ogState, ogSvg } from "./og";
 
 interface Env {
   ASSETS: Fetcher;
+  /** "on": call links get their drawn preview image (worker/og.ts, ~200 ms of CPU each: needs Workers Paid). */
+  OG_IMAGES?: string;
   PREDICTIONS: DurableObjectNamespace<PredictionStore>;
 }
 
@@ -110,8 +112,9 @@ async function ogImage(req: Request, store: Store, stub: DurableObjectStub<Predi
   return new Response(png, { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" } });
 }
 
-/** The page, with link-preview tags for the call in its path (if any): "Hamilton leads lap 1.", and once right, "Called it." */
+/** The page, with link-preview tags for the call in its path (if any): "Hamilton leads into Turn 1.", and once right, "Called it." */
 async function page(req: Request, env: Env, store: Store, id: string | undefined): Promise<Response> {
+  const ogOn = env.OG_IMAGES === "on";
   const html = await env.ASSETS.fetch(new URL("/predictions/", req.url));
   const p = id && ID_PATTERN.test(id) ? await store.get(id) : null;
   const r = p && raceById(p.race);
@@ -120,13 +123,13 @@ async function page(req: Request, env: Env, store: Store, id: string | undefined
   const title = !p
     ? "Called It: receipts for your F1 calls"
     : p.result && calledIt(p.call, p.result)
-      ? `${name} led lap 1. Called it.`
-      : `${name} leads lap 1.`;
+      ? `${name} led into Turn 1. Called it.`
+      : `${name} leads into Turn 1.`;
   const description = r
-    ? `Locked in before lights out at the ${r.name}. Who leads lap 1?`
-    : "Call who leads lap 1 before lights out. Locked with a server timestamp, nobody can edit it.";
+    ? `Locked in before lights out at the ${r.name}. Who leads into Turn 1?`
+    : "Call who leads into Turn 1 before lights out. Locked with a server timestamp, nobody can edit it.";
   const url = new URL(req.url);
-  const image = p && `${url.origin}/predictions/${p.id}/og.png?v=${ogState(p)}`;
+  const image = ogOn && p && `${url.origin}/predictions/${p.id}/og.png?v=${ogState(p)}`;
   return new HTMLRewriter()
     .on('meta[name="twitter:card"]', { element: (el) => void el.setAttribute("content", image ? "summary_large_image" : "summary") })
     .on("head", {
@@ -167,7 +170,10 @@ export default {
     const api = await handleApi(req, store);
     if (api) return api;
     const og = OG.exec(new URL(req.url).pathname);
-    if (og && (req.method === "GET" || req.method === "HEAD")) return ogImage(req, store, stub, og[1]!);
+    if (og) {
+      if (env.OG_IMAGES !== "on" || (req.method !== "GET" && req.method !== "HEAD")) return new Response("Not found", { status: 404 });
+      return ogImage(req, store, stub, og[1]!);
+    }
     const m = PAGE.exec(new URL(req.url).pathname);
     if (m && (req.method === "GET" || req.method === "HEAD")) return page(req, env, store, m[1] || undefined);
     return env.ASSETS.fetch(req);

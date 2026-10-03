@@ -62,11 +62,11 @@ export function ogSvg(p: Prediction, host: string): string {
     .join("");
 
   const headline = called
-    ? text(64, 214, 76, 900, "WHO LEADS LAP 1?", `${italic} fill="#ffffff"`)
-    : `${text(64, 248, 112, 900, "WHO LEADS", `${italic} fill="#ffffff"`)}${text(64, 350, 112, 900, "LAP 1?", `${italic} fill="#ffffff"`)}`;
+    ? text(64, 190, 62, 900, "WHO LEADS INTO TURN 1?", `${italic} fill="#ffffff"`)
+    : `${text(64, 238, 100, 900, "WHO LEADS", `${italic} fill="#ffffff"`)}${text(64, 334, 100, 900, "INTO TURN 1?", `${italic} fill="#ffffff"`)}`;
 
   const stampSvg = called
-    ? `<g transform="translate(0 -16) rotate(-7 330 330)">
+    ? `<g transform="translate(330 326) rotate(-7) scale(0.9) translate(-330 -330)">
         <rect x="70" y="246" width="520" height="176" rx="16" fill="${BG}" fill-opacity="0.6" stroke="${GREEN}" stroke-width="9"/>
         <rect x="84" y="260" width="492" height="148" rx="9" fill="none" stroke="${GREEN}" stroke-width="3"/>
         ${text(330, 360, 112, 900, "CALLED IT", `${italic} fill="${GREEN}" text-anchor="middle"`)}
@@ -116,7 +116,7 @@ export function ogSvg(p: Prediction, host: string): string {
   <rect x="864" y="0" width="36" height="8" fill="${RED}"/>
 
   <polygon points="72,60 84,60 76,92 64,92" fill="${RED}"/>
-  ${text(96, 88, 26, 700, "LAP 1 CALL", 'fill="#ffffff" letter-spacing="4"')}
+  ${text(96, 88, 26, 700, "TURN 1 CALL", 'fill="#ffffff" letter-spacing="4"')}
   ${text(1136, 86, 38, 800, race.short.toUpperCase(), `${italic} fill="#ffffff" text-anchor="end"`)}
   ${text(1136, 116, 19, 600, `${race.place} · ${dayMonth(race.start, p.tz)}`.toUpperCase(), 'fill="#f7f7f8" fill-opacity="0.55" text-anchor="end" letter-spacing="2.5"')}
 

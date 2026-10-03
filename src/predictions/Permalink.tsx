@@ -61,7 +61,7 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
     setTimeout(() => setToast((t) => (t === s ? null : t)), 2400);
   };
   const name = `called-it-${race.short.toLowerCase().replace(/\W+/g, "-")}-${p.id}.png`;
-  const text = right ? `Called it: ${d?.last} led lap 1. Locked before lights out.` : `${d?.last} leads lap 1. Locked before lights out.`;
+  const text = right ? `Called it: ${d?.last} led into Turn 1. Locked before lights out.` : `${d?.last} leads into Turn 1. Locked before lights out.`;
   // The caption to post with the card: the call, the tags, the link.
   const caption = `${text} #F1 #${race.short.replace(/\W/g, "")}\n${url}`;
 
@@ -176,19 +176,19 @@ function Status({ p, owner, justLocked, started, when }: { p: Prediction; owner:
   let body: string;
   if (right) {
     title = owner ? "You called it." : "They called it.";
-    body = `${name} led lap 1. Locked ${locked}, ${early} before lights out. Go collect.`;
+    body = `${name} led into Turn 1. Locked ${locked}, ${early} before lights out. Go collect.`;
   } else if (right === false) {
     title = owner ? "Not this one." : "This call is closed.";
     body = owner ? "It happens to real pit walls too. The receipt stays locked, quietly. On to the next race." : "Make your own for the next race.";
   } else if (justLocked) {
     title = "Locked in.";
-    body = `Stamped by our server at ${when.time} ${when.zone}, ${early} before lights out. Nobody can change it now, not even you. Post it, then come back after lap 1.`;
+    body = `Stamped by our server at ${when.time} ${when.zone}, ${early} before lights out. Nobody can change it now, not even you. Post it, then come back after the start.`;
   } else if (owner) {
     title = started ? "Lights out." : "Your call is locked.";
-    body = started ? "Enter who led once lap 1 is done." : `Locked ${locked}. Come back after lap 1 to reveal it.`;
+    body = started ? "Enter who led out of Turn 1." : `Locked ${locked}. Come back after the start to reveal it.`;
   } else {
     title = started ? "Lights out. Result pending." : "Locked before lights out.";
-    body = `${name} to lead lap 1 of the ${race.name}. Locked ${locked}, ${early} before lights out. Can't be edited.`;
+    body = `${name} to lead into Turn 1 at the ${race.name}. Locked ${locked}, ${early} before lights out. Can't be edited.`;
   }
   return (
     <div>
@@ -215,7 +215,7 @@ function Reveal({ p, onRevealed }: { p: Prediction; onRevealed: (p: Prediction) 
     setBusy(true);
     setError(null);
     try {
-      onRevealed(await revealPrediction(p.id, { kind: "lap1-leader", driver: leader }));
+      onRevealed(await revealPrediction(p.id, { kind: "turn1-leader", driver: leader }));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
       setBusy(false);
@@ -225,8 +225,8 @@ function Reveal({ p, onRevealed }: { p: Prediction; onRevealed: (p: Prediction) 
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
-      <h2 className="ci-display text-2xl font-extrabold uppercase italic text-white">Who led lap 1?</h2>
-      <p className="mb-4 mt-1 text-sm text-zinc-400">Whoever was ahead when lap 1 was done. You get one go at this.</p>
+      <h2 className="ci-display text-2xl font-extrabold uppercase italic text-white">Who led into Turn 1?</h2>
+      <p className="mb-4 mt-1 text-sm text-zinc-400">Whoever was ahead coming out of Turn 1. You get one go at this.</p>
       <div className="grid grid-cols-2 gap-2">
         {[...topFive(p.race), null].map((d) => {
           const n = d?.number ?? SOMEONE_ELSE;

@@ -14,7 +14,7 @@ export const CARD_W = 1080;
 export const CARD_H = 1920;
 
 /** A call, maybe half made (the composer's preview: no driver yet). */
-export type Draft = { kind: "lap1-leader"; driver: number | null };
+export type Draft = { kind: "turn1-leader"; driver: number | null };
 
 export interface CardProps {
   race: Race;
@@ -27,7 +27,7 @@ export interface CardProps {
   tz?: string;
 }
 
-const QUESTION = "Who leads lap 1?";
+const QUESTION = "Who leads into Turn 1?";
 
 /** Dark ink on light team colours, white on dark ones. */
 function inkOn(hex: string): string {
@@ -82,7 +82,7 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
     <div ref={ref} className={`ci-card${revealed ? " ci-revealed" : ""}`} style={{ "--p1": p1 } as CSSProperties} >
       <div className="ci-bg" aria-hidden />
       <div className="ci-ghost" aria-hidden>
-        LAP
+        TURN
         <br />
         ONE
       </div>
@@ -90,7 +90,7 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
       <header className="ci-top">
         <div className="ci-tag">
           <span className="ci-tag-bar" />
-          Lap 1 call
+          Turn 1 call
         </div>
         <div className="ci-race">
           <div className="ci-race-name">{race.short}</div>
@@ -116,7 +116,7 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
         )}
       </div>
 
-      <Lap1 race={race} driver={call.driver} right={right} />
+      <Turn1 race={race} driver={call.driver} right={right} />
 
       <footer className="ci-strip">
         {when && locked ? (
@@ -164,12 +164,12 @@ function surnameSize(n: number): number {
 }
 
 /** The pick: the driver big on their team's colour, and the rest of the top five they were picked over. */
-function Lap1({ race, driver, right }: { race: Race; driver: number | null; right: boolean | null }) {
+function Turn1({ race, driver, right }: { race: Race; driver: number | null; right: boolean | null }) {
   const d = driver != null ? driverIn(race.id, driver) : undefined;
   const others = topFive(race.id).filter((o) => o.number !== driver);
   const t = d && team(d.team);
   return (
-    <section className="ci-order ci-lap1">
+    <section className="ci-order ci-turn1">
       <div className="ci-order-label">
         <span>My call</span>
         <span className="ci-order-rule" />

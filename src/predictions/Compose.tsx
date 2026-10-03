@@ -1,4 +1,4 @@
-// Making a call: who leads lap 1 of the next race, from the top five in its qualifying. The card fills in as you
+// Making a call: who leads into Turn 1 at the next race, from the top five in its qualifying. The card fills in as you
 // pick; lock it in and it's stored with the server's time, for good. Before qualifying, there's nothing to pick.
 
 import { useEffect, useState } from "react";
@@ -30,7 +30,7 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
     );
 
   const driver = chosen != null && driverIn(race.id, chosen) ? chosen : null;
-  const call = { kind: "lap1-leader" as const, driver };
+  const call = { kind: "turn1-leader" as const, driver };
   const problem = lockProblem({ race: race.id, call }, now);
   const lights = stamp(race.start, tz);
 
@@ -80,7 +80,7 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
               );
             })}
           </div>
-          <p className="mt-3 text-sm text-zinc-500">The top five from qualifying. Whoever's ahead when lap 1 is done.</p>
+          <p className="mt-3 text-sm text-zinc-500">The top five from qualifying. Whoever's ahead coming out of Turn 1.</p>
         </section>
       </div>
 

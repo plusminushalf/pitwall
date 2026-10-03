@@ -1,5 +1,5 @@
-// Called It (/predictions): a fan's call of who leads lap 1 of the next race, from the top five in its qualifying,
-// locked before lights out with the server's clock, and revealed after lap 1. Shared by the page (src/predictions/) and
+// Called It (/predictions): a fan's call of who leads into Turn 1 at the next race, from the top five in its
+// qualifying, locked before lights out with the server's clock, and revealed after the start. Shared by the page (src/predictions/) and
 // the Worker (worker/), so both read a call, a race, a team and a driver the same way.
 
 export const TEAMS = [
@@ -109,17 +109,18 @@ export const driverIn = (race: number, number: number): Driver | undefined => to
 export const SOMEONE_ELSE = 0;
 
 /**
- * What was called: who's ahead at the end of lap 1, by car number. The kind is stored with it, so other calls can
+ * What was called: who's ahead coming out of Turn 1, by car number. The kind is stored with it, so other calls can
  * join later without reading old ones differently.
  */
-export type Call = { kind: "lap1-leader"; driver: number };
+export type Call = { kind: "turn1-leader"; driver: number };
 
 /** What really happened, in the same terms (driver: SOMEONE_ELSE if it wasn't one of the five). */
-export type Outcome = { kind: "lap1-leader"; driver: number };
+export type Outcome = { kind: "turn1-leader"; driver: number };
 
 /**
- * The outcome, and where it came from. "manual": the caller entered it after lap 1. A feed (OpenF1's /position for
- * the race's session key) can add its own source without changing the call.
+ * The outcome, and where it came from. "manual": the caller entered it after the start. Timing data has no
+ * Turn 1 line, but a feed (OpenF1's /location or /position for the race's session key) can add its own source without
+ * changing the call.
  */
 export type Result = Outcome & { source: "manual"; at: number };
 
@@ -147,14 +148,14 @@ const record = (v: unknown): Record<string, unknown> | null => (v && typeof v ==
 /** A call for this race, or null: one of its top five. */
 export function readCall(v: unknown, race: number): Call | null {
   const o = record(v);
-  return o?.kind === "lap1-leader" && typeof o.driver === "number" && driverIn(race, o.driver) ? { kind: "lap1-leader", driver: o.driver } : null;
+  return o?.kind === "turn1-leader" && typeof o.driver === "number" && driverIn(race, o.driver) ? { kind: "turn1-leader", driver: o.driver } : null;
 }
 
 /** An outcome for a call on this race, or null: one of the five, or SOMEONE_ELSE. */
 export function readOutcome(v: unknown, race: number): Outcome | null {
   const o = record(v);
   const d = o?.driver;
-  return o?.kind === "lap1-leader" && typeof d === "number" && (d === SOMEONE_ELSE || driverIn(race, d)) ? { kind: "lap1-leader", driver: d } : null;
+  return o?.kind === "turn1-leader" && typeof d === "number" && (d === SOMEONE_ELSE || driverIn(race, d)) ? { kind: "turn1-leader", driver: d } : null;
 }
 
 /** Why a call can't be locked, or null if it can. */

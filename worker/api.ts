@@ -108,7 +108,7 @@ export async function handleApi(req: Request, store: Store, now: () => number = 
   if (stored.result) return problem("The result is already in", 409);
   if (now() < raceById(stored.race)!.start) return problem("Lights aren't out yet", 409);
   const outcome = readOutcome(body.outcome, stored.race);
-  if (!outcome) return problem("Pick who led lap 1");
+  if (!outcome) return problem("Pick who led into Turn 1");
   const res: Result = { ...outcome, source: "manual", at: now() };
   if (!(await store.reveal(id, res))) return problem("The result is already in", 409);
   return json({ prediction: { ...publicPart(stored), result: res } });
