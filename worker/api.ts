@@ -1,16 +1,17 @@
 // Called It's API, apart from where calls are kept (the Store), so it can be tested without Cloudflare.
-//   POST /api/predictions              { race, teams, hook, tz }  -> { prediction, ownerToken }   lock a call
-//   GET  /api/predictions/:id                                     -> { prediction }
-//   POST /api/predictions/:id/result   { token, order }           -> { prediction }               reveal it, once
+//   POST /api/predictions              { race, call, tz }        -> { prediction, ownerToken }   lock a call
+//   GET  /api/predictions/:id                                    -> { prediction }
+//   POST /api/predictions/:id/result   { token, outcome }        -> { prediction }               reveal it, once
+// (call and outcome: model.ts's Call and Outcome, by kind.)
 // The server's clock is the only one that counts: a call is stamped when it's stored, and refused once lights are out.
 
 import {
-  cleanHook,
   ID_PATTERN,
   lockProblem,
   raceById,
+  readCall,
+  readOutcome,
   safeTz,
-  threeTeams,
   type NewPrediction,
   type Prediction,
   type Result,
@@ -69,11 +70,7 @@ export async function handleApi(req: Request, store: Store, now: () => number = 
     if (req.method !== "POST") return problem("Method not allowed", 405);
     const body = await readBody(req);
     if (!body) return problem("That isn't a call");
-    const input: NewPrediction = {
-      race: Number(body.race),
-      teams: Array.isArray(body.teams) ? body.teams : [],
-      hook: typeof body.hook === "string" ? body.hook : "",
-    };
+    const input: NewPrediction = { race: Number(body.race), call: body.call };
     const why = lockProblem(input, now());
     const started = (raceById(input.race)?.start ?? Infinity) <= now();
     if (why) return problem(why, started ? 409 : 400);
@@ -83,8 +80,7 @@ export async function handleApi(req: Request, store: Store, now: () => number = 
       const p: Stored = {
         id: randomId(),
         race: input.race,
-        teams: threeTeams(input.teams)!,
-        hook: cleanHook(input.hook),
+        call: readCall(input.call, input.race)!,
         // Stamped here, after every check, so nothing the page sends can move it.
         lockedAt: now(),
         tz: safeTz(body.tz),
@@ -111,9 +107,9 @@ export async function handleApi(req: Request, store: Store, now: () => number = 
   if ((await sha256(body.token)) !== stored.ownerHash) return problem("Only the caller can reveal this", 403);
   if (stored.result) return problem("The result is already in", 409);
   if (now() < raceById(stored.race)!.start) return problem("Lights aren't out yet", 409);
-  const order = threeTeams(body.order);
-  if (!order || !stored.teams.every((t) => order.includes(t))) return problem("Put the same three teams in order");
-  const res: Result = { order, source: "manual", at: now() };
+  const outcome = readOutcome(body.outcome, stored.race);
+  if (!outcome) return problem("Pick who led lap 1");
+  const res: Result = { ...outcome, source: "manual", at: now() };
   if (!(await store.reveal(id, res))) return problem("The result is already in", 409);
   return json({ prediction: { ...publicPart(stored), result: res } });
 }

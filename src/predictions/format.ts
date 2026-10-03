@@ -1,6 +1,5 @@
-// How Called It writes times, names and hooks.
+// How Called It writes times.
 
-import { team, type TeamId } from "./model";
 
 /** A short zone name: "BST", "CEST", "EDT" where some English locale has one, else "GMT+8". */
 export function zoneName(ms: number, tz: string): string {
@@ -47,21 +46,3 @@ export function shortSpan(ms: number): string {
 }
 
 export const localTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-
-/** Hooks to tap, about the teams picked so far (in the order picked). */
-export function hookIdeas(teams: TeamId[]): string[] {
-  const [p1, p2, p3] = teams.map((t) => team(t).name);
-  const last = p3 ?? p2 ?? p1;
-  const ideas = [
-    last && `${last} will pit too late. As always.`,
-    p1 && `${p1} will panic first.`,
-    p2 && `${p2} reads this race perfectly.`,
-    teams.includes("ferrari") ? "Ferrari being Ferrari." : last && `${last} being ${last}.`,
-    p1 && `${p1} blinks first. Watch.`,
-    "Trust me, I know this team.",
-    last && `${last} stays out way too long.`,
-    "Box, box. You heard it here first.",
-  ];
-  const fallback = ["Ferrari will pit too late. As always.", "Mercedes will panic first.", "McLaren reads this race perfectly.", "Trust me, I know this team."];
-  return teams.length ? [...new Set(ideas.filter((s): s is string => !!s && [...s].length <= 60))] : fallback;
-}

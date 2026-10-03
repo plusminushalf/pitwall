@@ -1,6 +1,6 @@
-// Called It (/predictions): a fan's call of which of three teams pits first, locked before lights out with the
-// server's clock, and revealed after the race. Shared by the page (src/predictions/) and the Worker (worker/), so
-// both read a call, a race and a team the same way.
+// Called It (/predictions): a fan's call of who leads lap 1 of the next race, from the top five in its qualifying,
+// locked before lights out with the server's clock, and revealed after lap 1. Shared by the page (src/predictions/) and
+// the Worker (worker/), so both read a call, a race, a team and a driver the same way.
 
 export const TEAMS = [
   { id: "mclaren", name: "McLaren", colour: "#F47600" },
@@ -73,18 +73,61 @@ export const RACES: Race[] = [
 
 const RACE_BY_ID = new Map(RACES.map((r) => [r.id, r]));
 export const raceById = (id: number): Race | undefined => RACE_BY_ID.get(id);
-/** Races a call can still be locked for. */
-export const openRaces = (now: number) => RACES.filter((r) => r.start > now);
+/** The next race: the one calls are for (open once its qualifying's top five are in QUALI_TOP5). */
+export const nextRace = (now: number): Race | undefined => RACES.find((r) => r.start > now);
 
-export const HOOK_MAX = 60;
+export interface Driver {
+  number: number;
+  first: string;
+  last: string;
+  code: string;
+  team: TeamId;
+  /** Where they qualified. */
+  quali: number;
+}
+
+const driver = (quali: number, number: number, first: string, last: string, code: string, team: TeamId): Driver => ({ number, first, last, code, team, quali });
+
+/**
+ * The top five from each race's qualifying (OpenF1's session_result), the drivers a call picks from. Calls for a race
+ * open once its five are here: add them after each qualifying.
+ */
+export const QUALI_TOP5: Record<number, Driver[]> = {
+  // Qualifying 11730, 2026-10-03.
+  11731: [
+    driver(1, 3, "Max", "Verstappen", "VER", "redbull"),
+    driver(2, 44, "Lewis", "Hamilton", "HAM", "ferrari"),
+    driver(3, 6, "Isack", "Hadjar", "HAD", "redbull"),
+    driver(4, 12, "Kimi", "Antonelli", "ANT", "mercedes"),
+    driver(5, 16, "Charles", "Leclerc", "LEC", "ferrari"),
+  ],
+};
+
+export const topFive = (race: number): Driver[] => QUALI_TOP5[race] ?? [];
+export const driverIn = (race: number, number: number): Driver | undefined => topFive(race).find((d) => d.number === number);
+/** In a result: the leader wasn't one of the five. */
+export const SOMEONE_ELSE = 0;
+
+/**
+ * What was called: who's ahead at the end of lap 1, by car number. The kind is stored with it, so other calls can
+ * join later without reading old ones differently.
+ */
+export type Call = { kind: "lap1-leader"; driver: number };
+
+/** What really happened, in the same terms (driver: SOMEONE_ELSE if it wasn't one of the five). */
+export type Outcome = { kind: "lap1-leader"; driver: number };
+
+/**
+ * The outcome, and where it came from. "manual": the caller entered it after lap 1. A feed (OpenF1's /position for
+ * the race's session key) can add its own source without changing the call.
+ */
+export type Result = Outcome & { source: "manual"; at: number };
 
 /** A locked call, as anyone with its link sees it. */
 export interface Prediction {
   id: string;
   race: number;
-  /** Who pits first, second, third. */
-  teams: [TeamId, TeamId, TeamId];
-  hook: string;
+  call: Call;
   /** When the server locked it, ms since the epoch. */
   lockedAt: number;
   /** The caller's time zone (IANA), so the card reads in their local time for everyone. */
@@ -92,38 +135,26 @@ export interface Prediction {
   result: Result | null;
 }
 
-/**
- * The real pit order of the three teams. "manual": the caller typed it in after the race. A pit-stop feed (OpenF1's
- * /pit for the race's session key) can add its own source without changing the call.
- */
-export interface Result {
-  order: [TeamId, TeamId, TeamId];
-  source: "manual";
-  at: number;
-}
-
 /** What the page sends to lock a call. */
 export interface NewPrediction {
   race: number;
-  teams: TeamId[];
-  hook: string;
+  call: unknown;
   tz?: string;
 }
 
-/** The hook as stored: one line, no control or text-direction characters, trimmed, at most HOOK_MAX characters. */
-export function cleanHook(raw: string): string {
-  return raw
-    .replace(/[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const record = (v: unknown): Record<string, unknown> | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null);
+
+/** A call for this race, or null: one of its top five. */
+export function readCall(v: unknown, race: number): Call | null {
+  const o = record(v);
+  return o?.kind === "lap1-leader" && typeof o.driver === "number" && driverIn(race, o.driver) ? { kind: "lap1-leader", driver: o.driver } : null;
 }
 
-export const hookLength = (s: string) => [...s].length;
-
-/** Three different teams from the grid, or null. */
-export function threeTeams(v: unknown): [TeamId, TeamId, TeamId] | null {
-  if (!Array.isArray(v) || v.length !== 3 || !v.every(isTeamId) || new Set(v).size !== 3) return null;
-  return [v[0], v[1], v[2]];
+/** An outcome for a call on this race, or null: one of the five, or SOMEONE_ELSE. */
+export function readOutcome(v: unknown, race: number): Outcome | null {
+  const o = record(v);
+  const d = o?.driver;
+  return o?.kind === "lap1-leader" && typeof d === "number" && (d === SOMEONE_ELSE || driverIn(race, d)) ? { kind: "lap1-leader", driver: d } : null;
 }
 
 /** Why a call can't be locked, or null if it can. */
@@ -131,22 +162,13 @@ export function lockProblem(p: NewPrediction, now: number): string | null {
   const r = raceById(p.race);
   if (!r) return "Pick a race";
   if (r.start <= now) return "Lights are already out for that one";
-  if (!threeTeams(p.teams)) return "Pick three different teams";
-  const hook = cleanHook(p.hook ?? "");
-  if (!hook) return "Write your hook";
-  if (hookLength(hook) > HOOK_MAX) return `Keep the hook to ${HOOK_MAX} characters`;
+  if (!topFive(p.race).length) return "Calls open after qualifying";
+  if (!readCall(p.call, p.race)) return "Pick a driver";
   return null;
 }
 
-/** Which predicted places were right (by place, 1st first). */
-export const hits = (p: Pick<Prediction, "teams">, r: Pick<Result, "order">): boolean[] => p.teams.map((t, i) => r.order[i] === t);
-
-/** How the reveal reads: all three right, some, or none (a strict order of three can't have exactly two right). */
-export type Verdict = "called" | "partial" | "missed";
-export function verdict(p: Pick<Prediction, "teams">, r: Pick<Result, "order">): Verdict {
-  const n = hits(p, r).filter(Boolean).length;
-  return n === 3 ? "called" : n > 0 ? "partial" : "missed";
-}
+/** Whether the call was right. */
+export const calledIt = (call: Call, outcome: Outcome) => outcome.driver === call.driver;
 
 /** A time zone the runtime knows, or UTC. */
 export function safeTz(tz: unknown): string {

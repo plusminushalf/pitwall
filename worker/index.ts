@@ -3,7 +3,7 @@
 // Calls are kept in one Durable Object's SQLite database (PredictionStore), written once and never edited.
 
 import { DurableObject } from "cloudflare:workers";
-import { ID_PATTERN, raceById, type Result, type TeamId } from "../src/predictions/model";
+import { calledIt, driverIn, ID_PATTERN, raceById, type Call, type Result } from "../src/predictions/model";
 import { handleApi, type Store, type Stored } from "./api";
 
 interface Env {
@@ -14,8 +14,7 @@ interface Env {
 interface Row extends Record<string, SqlStorageValue> {
   id: string;
   race: number;
-  teams: string;
-  hook: string;
+  call: string;
   locked_at: number;
   tz: string;
   owner_hash: string;
@@ -31,8 +30,8 @@ export class PredictionStore extends DurableObject<Env> implements Store {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS predictions (
       id TEXT PRIMARY KEY,
       race INTEGER NOT NULL,
-      teams TEXT NOT NULL,
-      hook TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      call TEXT NOT NULL,
       locked_at INTEGER NOT NULL,
       tz TEXT NOT NULL,
       owner_hash TEXT NOT NULL,
@@ -42,11 +41,11 @@ export class PredictionStore extends DurableObject<Env> implements Store {
 
   async insert(p: Stored): Promise<boolean> {
     const cur = this.sql.exec(
-      "INSERT INTO predictions (id, race, teams, hook, locked_at, tz, owner_hash) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
+      "INSERT INTO predictions (id, race, kind, call, locked_at, tz, owner_hash) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING",
       p.id,
       p.race,
-      JSON.stringify(p.teams),
-      p.hook,
+      p.call.kind,
+      JSON.stringify(p.call),
       p.lockedAt,
       p.tz,
       p.ownerHash,
@@ -60,8 +59,7 @@ export class PredictionStore extends DurableObject<Env> implements Store {
     return {
       id: row.id,
       race: row.race,
-      teams: JSON.parse(row.teams) as [TeamId, TeamId, TeamId],
-      hook: row.hook,
+      call: JSON.parse(row.call) as Call,
       lockedAt: row.locked_at,
       tz: row.tz,
       result: row.result ? (JSON.parse(row.result) as Result) : null,
@@ -77,18 +75,24 @@ export class PredictionStore extends DurableObject<Env> implements Store {
 
 const PAGE = /^\/predictions(?:\/([^/]*))?\/?$/;
 
-/** The page, with link-preview tags for the call in its path (if any). */
+/** The page, with link-preview tags for the call in its path (if any): "Hamilton leads lap 1.", and once right, "Called it." */
 async function page(req: Request, env: Env, store: Store, id: string | undefined): Promise<Response> {
   const html = await env.ASSETS.fetch(new URL("/predictions/", req.url));
   const p = id && ID_PATTERN.test(id) ? await store.get(id) : null;
   const r = p && raceById(p.race);
-  const title = p ? `“${p.hook}”` : "Called It: receipts for your pit calls";
+  const d = p && driverIn(p.race, p.call.driver);
+  const name = d ? d.last : "Someone";
+  const title = !p
+    ? "Called It: receipts for your F1 calls"
+    : p.result && calledIt(p.call, p.result)
+      ? `${name} led lap 1. Called it.`
+      : `${name} leads lap 1.`;
   const description = r
-    ? `Locked in before lights out at the ${r.name}. Who pits first?`
-    : "Call the pit order before lights out. Locked with a server timestamp, nobody can edit it.";
+    ? `Locked in before lights out at the ${r.name}. Who leads lap 1?`
+    : "Call who leads lap 1 before lights out. Locked with a server timestamp, nobody can edit it.";
   const url = new URL(req.url);
   return new HTMLRewriter()
-    .on("title", { element: (el) => void el.setInnerContent(p ? `${title} · Called It` : title) })
+    .on("title", { element: (el) => void el.setInnerContent(title) })
     .on('meta[property="og:title"], meta[name="twitter:title"]', { element: (el) => void el.setAttribute("content", title) })
     .on('meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]', {
       element: (el) => void el.setAttribute("content", description),

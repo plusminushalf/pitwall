@@ -1,12 +1,11 @@
-// Making a call: a race, three teams, the order they'll pit, a hook; the card fills in as you go. Lock it in and
-// it's stored with the server's time, for good.
+// Making a call: who leads lap 1 of the next race, from the top five in its qualifying. The card fills in as you
+// pick; lock it in and it's stored with the server's time, for good. Before qualifying, there's nothing to pick.
 
 import { useEffect, useState } from "react";
 import { ApiError, lockPrediction } from "./api";
 import { ScaledCard } from "./Card";
-import { hookIdeas, localTz, span, stamp } from "./format";
-import { HOOK_MAX, hookLength, lockProblem, openRaces, TEAMS, type Prediction, type TeamId } from "./model";
-import { RankList } from "./RankList";
+import { localTz, span, stamp } from "./format";
+import { driverIn, lockProblem, nextRace, team, topFive, type Prediction } from "./model";
 
 export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (p: Prediction) => void }) {
   const [now, setNow] = useState(Date.now);
@@ -14,25 +13,25 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
-  const races = openRaces(now);
-  const [raceId, setRaceId] = useState(() => races[0]?.id ?? 0);
-  const race = races.find((r) => r.id === raceId) ?? races[0];
-  const [teams, setTeams] = useState<TeamId[]>([]);
-  const [hook, setHook] = useState("");
+  const race = nextRace(now);
+  const [chosen, setChosen] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const tz = localTz();
 
-  if (!race)
+  if (!race || !topFive(race.id).length)
     return (
-      <Section>
+      <div className="flex flex-col gap-8">
         {hero}
-        <p className="mt-8 text-zinc-400">That's the season. Calls open again for the first race of next year.</p>
-      </Section>
+        <p className="max-w-xl rounded-lg border border-zinc-800 bg-zinc-900/60 p-5 text-zinc-300">
+          {race ? `Calls for the ${race.name} open once qualifying is done. Come back then.` : "That's the season. Calls open again next year."}
+        </p>
+      </div>
     );
 
-  const toggle = (id: TeamId) => setTeams((ts) => (ts.includes(id) ? ts.filter((t) => t !== id) : ts.length < 3 ? [...ts, id] : ts));
-  const problem = lockProblem({ race: race.id, teams, hook }, now);
+  const driver = chosen != null && driverIn(race.id, chosen) ? chosen : null;
+  const call = { kind: "lap1-leader" as const, driver };
+  const problem = lockProblem({ race: race.id, call }, now);
   const lights = stamp(race.start, tz);
 
   const lock = async () => {
@@ -40,7 +39,7 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
     setBusy(true);
     setError(null);
     try {
-      onLocked(await lockPrediction({ race: race.id, teams, hook, tz }));
+      onLocked(await lockPrediction({ race: race.id, call, tz }));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Something went wrong. Try again.");
       setBusy(false);
@@ -49,92 +48,45 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
 
   return (
     <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_380px] lg:gap-14">
-      <div className="flex min-w-0 flex-col gap-9">
+      <div className="flex min-w-0 flex-col gap-8">
         {hero}
-        <Step n={1} title="The race">
-          <div className="relative">
-            <select
-              value={race.id}
-              onChange={(e) => setRaceId(Number(e.target.value))}
-              className="ci-display h-14 w-full appearance-none rounded-md border border-zinc-800 bg-zinc-900 pl-4 pr-10 text-2xl font-extrabold uppercase italic text-white focus:border-zinc-500"
-            >
-              {races.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-            <svg viewBox="0 0 20 20" className="pointer-events-none absolute right-3 top-1/2 size-5 -translate-y-1/2 fill-none stroke-zinc-400 stroke-2">
-              <path d="M5 8l5 5 5-5" />
-            </svg>
+        <section>
+          <div className="mb-1 flex items-baseline gap-3">
+            <h2 className="ci-display text-3xl font-black uppercase italic text-white">{race.name}</h2>
           </div>
-          <p className="mt-2 text-sm text-zinc-400">
-            Locks at lights out: {lights.date.replace(/ \d{4}$/, "")}, {lights.time} {lights.zone} ·{" "}
-            <span className="text-zinc-200">in {span(race.start - now)}</span>
+          <p className="mb-5 text-sm text-zinc-400">
+            Locks at lights out: {lights.date.replace(/ \d{4}$/, "")}, {lights.time} {lights.zone} · <span className="text-zinc-200">in {span(race.start - now)}</span>
           </p>
-        </Step>
-
-        <Step n={2} title="Pick three teams" aside={`${teams.length}/3`}>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {TEAMS.map((t) => {
-              const at = teams.indexOf(t.id);
-              const full = at < 0 && teams.length === 3;
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {topFive(race.id).map((d) => {
+              const t = team(d.team);
+              const on = driver === d.number;
               return (
                 <button
-                  key={t.id}
+                  key={d.number}
                   type="button"
-                  aria-pressed={at >= 0}
-                  onClick={() => toggle(t.id)}
-                  className={`group relative flex h-12 items-center gap-3 overflow-hidden rounded-md border pr-3 text-left transition-colors ${
-                    at >= 0 ? "border-zinc-400 bg-zinc-800" : full ? "border-zinc-900 bg-zinc-950 opacity-40" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"
-                  }`}
+                  aria-pressed={on}
+                  onClick={() => setChosen(d.number)}
+                  className={`relative flex h-[4.5rem] items-stretch overflow-hidden rounded-md border text-left transition-colors ${on ? "border-white bg-zinc-800" : "border-zinc-800 bg-zinc-900 hover:border-zinc-600"}`}
                 >
-                  <span className="h-full w-1.5 flex-none transition-[width]" style={{ background: t.colour, width: at >= 0 ? 10 : undefined }} />
-                  <span className="ci-display min-w-0 flex-1 truncate text-lg font-bold uppercase italic leading-none text-zinc-100">{t.name}</span>
-                  {at >= 0 && <span className="ci-display flex size-6 flex-none items-center justify-center rounded-sm bg-white text-sm font-black italic text-zinc-950">{at + 1}</span>}
+                  <span className="flex-none transition-[width]" style={{ background: t.colour, width: on ? 10 : 6 }} />
+                  <span className="ci-display flex w-12 flex-none items-center justify-center text-2xl font-black italic text-zinc-500">P{d.quali}</span>
+                  <span className="flex min-w-0 flex-1 flex-col justify-center pr-3">
+                    <span className="ci-display truncate text-2xl font-black uppercase italic leading-tight text-white">{d.last}</span>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">{t.name}</span>
+                  </span>
+                  <span className="ci-display absolute -bottom-3 right-2 text-6xl font-black italic text-white/[0.07]">{d.number}</span>
                 </button>
               );
             })}
           </div>
-        </Step>
-
-        <Step n={3} title="Who pits first?">
-          {teams.length ? (
-            <>
-              <RankList teams={teams} onChange={setTeams} label={(i) => ["pits first", "pits second", "pits third"][i]!} />
-              <p className="mt-2 text-sm text-zinc-500">Drag to reorder. A team's first stop counts, whichever car makes it.</p>
-            </>
-          ) : (
-            <p className="rounded-md border border-dashed border-zinc-800 px-4 py-5 text-sm text-zinc-500">Pick your teams first. The order you tap them is your starting order.</p>
-          )}
-        </Step>
-
-        <Step n={4} title="Your hook" aside={`${hookLength(hook)}/${HOOK_MAX}`}>
-          <input
-            value={hook}
-            onChange={(e) => setHook([...e.target.value].slice(0, HOOK_MAX).join(""))}
-            placeholder="The bold claim at the top of your card"
-            enterKeyHint="done"
-            className="ci-display h-14 w-full rounded-md border border-zinc-800 bg-zinc-900 px-4 text-xl font-bold uppercase italic text-white placeholder:normal-case placeholder:not-italic placeholder:font-medium placeholder:text-lg placeholder:text-zinc-600 focus:border-zinc-500"
-          />
-          <div className="mt-3 flex flex-wrap gap-2">
-            {hookIdeas(teams).map((idea) => (
-              <button
-                key={idea}
-                type="button"
-                onClick={() => setHook(idea)}
-                className={`rounded-full border px-3 py-1.5 text-sm transition-colors ${hook === idea ? "border-white bg-white text-zinc-950" : "border-zinc-800 bg-zinc-900 text-zinc-300 hover:border-zinc-600 hover:text-white"}`}
-              >
-                {idea}
-              </button>
-            ))}
-          </div>
-        </Step>
+          <p className="mt-3 text-sm text-zinc-500">The top five from qualifying. Whoever's ahead when lap 1 is done.</p>
+        </section>
       </div>
 
       <div className="lg:sticky lg:top-6 lg:self-start">
         <div className="mx-auto max-w-[380px]">
-          <ScaledCard race={race} teams={teams} hook={hook} host={location.host} tz={tz} className="rounded-xl shadow-2xl shadow-black ring-1 ring-white/10" />
+          <ScaledCard race={race} call={call} host={location.host} tz={tz} className="rounded-xl shadow-2xl shadow-black ring-1 ring-white/10" />
           <button
             type="button"
             onClick={lock}
@@ -148,27 +100,10 @@ export function Compose({ hero, onLocked }: { hero: React.ReactNode; onLocked: (
             {busy ? "Locking…" : "Lock it in"}
           </button>
           <p className={`mt-3 text-center text-sm ${error ? "text-[#ff6467]" : "text-zinc-500"}`}>
-            {error ?? (problem && problem !== "Write your hook" && teams.length ? problem : "Once it's locked, nobody can change it. Not even you.")}
+            {error ?? (driver == null ? "Pick a driver." : "Once it's locked, nobody can change it. Not even you.")}
           </p>
         </div>
       </div>
     </div>
   );
-}
-
-function Step({ n, title, aside, children }: { n: number; title: string; aside?: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <div className="mb-3 flex items-baseline gap-3">
-        <span className="ci-display text-lg font-black italic text-[#ff1e28]">0{n}</span>
-        <h2 className="ci-display text-xl font-extrabold uppercase tracking-wider text-white">{title}</h2>
-        {aside && <span className="ml-auto text-sm tabular-nums text-zinc-500">{aside}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Section({ children }: { children: React.ReactNode }) {
-  return <div className="py-10">{children}</div>;
 }

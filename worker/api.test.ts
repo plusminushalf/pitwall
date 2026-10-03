@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { raceById, verdict } from "../src/predictions/model";
+import { calledIt, raceById, SOMEONE_ELSE } from "../src/predictions/model";
 import { handleApi, memoryStore } from "./api";
 
+// Bahrain (at Sepang) has qualified; Singapore hasn't.
+const BAHRAIN = raceById(11731)!;
 const SINGAPORE = raceById(11388)!;
-const BEFORE = SINGAPORE.start - 3 * 86_400_000;
-const AFTER = SINGAPORE.start + 2 * 3_600_000;
+const BEFORE = BAHRAIN.start - 9 * 3_600_000;
+const AFTER = BAHRAIN.start + 10 * 60_000;
 
 const call = (store = memoryStore(), at = BEFORE) => {
   const req = (path: string, init?: RequestInit) => handleApi(new Request(`https://x${path}`, init), store, () => at);
@@ -13,7 +15,12 @@ const call = (store = memoryStore(), at = BEFORE) => {
 };
 
 const lock = async (api = call(), body: Record<string, unknown> = {}) => {
-  const res = await api.post("/api/predictions", { race: SINGAPORE.id, teams: ["ferrari", "mercedes", "mclaren"], hook: "Ferrari will pit too late. As always.", tz: "Europe/Rome", ...body });
+  const res = await api.post("/api/predictions", {
+    race: BAHRAIN.id,
+    call: { kind: "lap1-leader", driver: 44 },
+    tz: "Europe/London",
+    ...body,
+  });
   return { res: res!, data: (await res!.json()) as any };
 };
 
@@ -22,8 +29,9 @@ describe("Called It API", () => {
     const { res, data } = await lock();
     expect(res.status).toBe(201);
     expect(data.prediction.id).toMatch(/^[a-z0-9]{7}$/);
+    expect(data.prediction.call).toEqual({ kind: "lap1-leader", driver: 44 });
     expect(data.prediction.lockedAt).toBe(BEFORE);
-    expect(data.prediction.tz).toBe("Europe/Rome");
+    expect(data.prediction.tz).toBe("Europe/London");
     expect(data.ownerToken).toHaveLength(48);
     expect(data.prediction.ownerHash).toBeUndefined();
   });
@@ -33,19 +41,17 @@ describe("Called It API", () => {
     expect(data.prediction.lockedAt).toBe(BEFORE);
   });
 
-  test("refuses calls once lights are out, bad teams and long hooks", async () => {
-    expect((await lock(call(memoryStore(), SINGAPORE.start))).res.status).toBe(409);
-    expect((await lock(call(), { teams: ["ferrari", "ferrari", "mclaren"] })).res.status).toBe(400);
-    expect((await lock(call(), { teams: ["ferrari", "mclaren"] })).res.status).toBe(400);
-    expect((await lock(call(), { teams: ["ferrari", "mclaren", "brawn"] })).res.status).toBe(400);
-    expect((await lock(call(), { hook: "x".repeat(61) })).res.status).toBe(400);
-    expect((await lock(call(), { hook: "   " })).res.status).toBe(400);
+  test("refuses calls once lights are out, before qualifying and outside the top five", async () => {
+    expect((await lock(call(memoryStore(), BAHRAIN.start))).res.status).toBe(409);
+    expect((await lock(call(), { race: SINGAPORE.id })).res.status).toBe(400);
+    expect((await lock(call(), { call: { kind: "lap1-leader", driver: 1 } })).res.status).toBe(400); // Norris qualified sixth
+    expect((await lock(call(), { call: { kind: "lap1-leader", driver: "44" } })).res.status).toBe(400);
+    expect((await lock(call(), { call: { kind: "pit-order", teams: ["ferrari", "mercedes", "mclaren"] } })).res.status).toBe(400);
     expect((await lock(call(), { race: 11234 })).res.status).toBe(409);
   });
 
-  test("cleans the hook and falls back to UTC for an unknown time zone", async () => {
-    const { data } = await lock(call(), { hook: "  Mercedes\nwill   panic first. ", tz: "Mars/Olympus" });
-    expect(data.prediction.hook).toBe("Mercedes will panic first.");
+  test("falls back to UTC for an unknown time zone", async () => {
+    const { data } = await lock(call(), { tz: "Mars/Olympus" });
     expect(data.prediction.tz).toBe("UTC");
   });
 
@@ -62,30 +68,29 @@ describe("Called It API", () => {
     const api = call();
     const { data } = await lock(api);
     const path = `/api/predictions/${data.prediction.id}/result`;
-    const order = ["ferrari", "mercedes", "mclaren"];
-    expect((await api.post(path, { token: data.ownerToken, order }))!.status).toBe(409);
+    const outcome = { kind: "lap1-leader", driver: 44 };
+    expect((await api.post(path, { token: data.ownerToken, outcome }))!.status).toBe(409);
     const later = api.at(AFTER);
-    expect((await later.post(path, { token: "nope", order }))!.status).toBe(403);
-    expect((await later.post(path, { token: data.ownerToken, order: ["ferrari", "mercedes", "haas"] }))!.status).toBe(400);
-    const res = await later.post(path, { token: data.ownerToken, order });
+    expect((await later.post(path, { token: "nope", outcome }))!.status).toBe(403);
+    expect((await later.post(path, { token: data.ownerToken, outcome: { kind: "lap1-leader", driver: 1 } }))!.status).toBe(400);
+    const res = await later.post(path, { token: data.ownerToken, outcome });
     expect(res!.status).toBe(200);
     const revealed = ((await res!.json()) as any).prediction;
-    expect(revealed.result).toEqual({ order, source: "manual", at: AFTER });
-    expect(verdict(revealed, revealed.result)).toBe("called");
-    expect((await later.post(path, { token: data.ownerToken, order: ["mclaren", "mercedes", "ferrari"] }))!.status).toBe(409);
+    expect(revealed.result).toEqual({ ...outcome, source: "manual", at: AFTER });
+    expect(calledIt(revealed.call, revealed.result)).toBe(true);
+    expect((await later.post(path, { token: data.ownerToken, outcome: { kind: "lap1-leader", driver: 3 } }))!.status).toBe(409);
+  });
+
+  test("the leader can be someone outside the five", async () => {
+    const api = call();
+    const { data } = await lock(api);
+    const res = await api.at(AFTER).post(`/api/predictions/${data.prediction.id}/result`, { token: data.ownerToken, outcome: { kind: "lap1-leader", driver: SOMEONE_ELSE } });
+    const revealed = ((await res!.json()) as any).prediction;
+    expect(calledIt(revealed.call, revealed.result)).toBe(false);
   });
 
   test("leaves other paths alone", async () => {
     expect(await call().req("/predictions/abc")).toBeNull();
     expect(await call().req("/session/11377")).toBeNull();
-  });
-});
-
-describe("verdict", () => {
-  const p = { teams: ["ferrari", "mercedes", "mclaren"] as const } as any;
-  test("all, some or none", () => {
-    expect(verdict(p, { order: ["ferrari", "mercedes", "mclaren"] })).toBe("called");
-    expect(verdict(p, { order: ["ferrari", "mclaren", "mercedes"] })).toBe("partial");
-    expect(verdict(p, { order: ["mercedes", "mclaren", "ferrari"] })).toBe("missed");
   });
 });

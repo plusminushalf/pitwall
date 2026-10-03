@@ -1,4 +1,5 @@
-// Called It's page: /predictions makes a call, /predictions/<id> is one (worker/index.ts serves both).
+// Called It's page: /predictions makes a call (who leads lap 1 of the next race), /predictions/<id> is one
+// (worker/index.ts serves both).
 
 import { useEffect, useState } from "react";
 import { Wordmark } from "./Card";
@@ -60,10 +61,10 @@ function Hero() {
   return (
     <div>
       <h1 className="ci-display text-[3.4rem] font-black uppercase italic leading-[0.86] text-white sm:text-7xl">
-        Receipts for your <span className="text-[#ff1e28]">pit calls.</span>
+        Who leads <span className="text-[#ff1e28]">lap 1?</span>
       </h1>
       <p className="mt-5 max-w-xl text-lg text-zinc-400">
-        Call who pits first before lights out. Our server stamps the time and nobody can edit it, not even you. When you're right, you've got proof.
+        Call it before lights out. Our server stamps the time and nobody can edit it, not even you. When you're right, you've got proof.
       </p>
     </div>
   );

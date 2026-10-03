@@ -1,7 +1,7 @@
 // The page's side of the API (worker/api.ts), and the caller's tokens: a call's link is public, its token (kept in
 // this browser, or in a reveal link's #owner=…) is what lets its caller enter the result.
 
-import type { NewPrediction, Prediction, TeamId } from "./model";
+import type { NewPrediction, Outcome, Prediction } from "./model";
 
 export class ApiError extends Error {
   constructor(
@@ -35,10 +35,10 @@ export async function lockPrediction(p: NewPrediction): Promise<Prediction> {
 
 export const getPrediction = (id: string) => call<{ prediction: Prediction }>(`/api/predictions/${id}`).then((r) => r.prediction);
 
-export const revealPrediction = (id: string, order: TeamId[]) =>
+export const revealPrediction = (id: string, outcome: Outcome) =>
   call<{ prediction: Prediction }>(`/api/predictions/${id}/result`, {
     method: "POST",
-    body: JSON.stringify({ token: tokenFor(id), order }),
+    body: JSON.stringify({ token: tokenFor(id), outcome }),
   }).then((r) => r.prediction);
 
 const TOKENS = "called-it:tokens";

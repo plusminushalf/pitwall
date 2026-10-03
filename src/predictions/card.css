@@ -4,7 +4,6 @@
 .ci-card {
   --red: #ff1e28;
   --called: #19e68c;
-  --partial: #ffc933;
   position: relative;
   width: 1080px;
   height: 1920px;
@@ -124,7 +123,7 @@
   color: rgba(247, 247, 248, 0.55);
 }
 
-.ci-hook-wrap {
+.ci-headline-wrap {
   position: relative;
   flex: 1;
   display: flex;
@@ -133,16 +132,7 @@
   padding: 40px 0 56px;
   min-height: 0;
 }
-.ci-quote {
-  font-weight: 900;
-  font-style: italic;
-  font-size: 240px;
-  line-height: 0.6;
-  height: 104px;
-  color: var(--red);
-  margin-left: -8px;
-}
-.ci-hook {
+.ci-headline {
   margin: 0;
   font-weight: 800;
   font-style: italic;
@@ -153,9 +143,6 @@
   overflow-wrap: anywhere;
   color: #fff;
   text-shadow: 0 6px 40px rgba(0, 0, 0, 0.5);
-}
-.ci-hook-empty {
-  color: rgba(255, 255, 255, 0.22);
 }
 
 .ci-order {
@@ -181,25 +168,6 @@
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), transparent);
 }
 
-.ci-row {
-  position: relative;
-  display: flex;
-  align-items: stretch;
-  height: 184px;
-}
-.ci-pos {
-  position: relative;
-  width: 152px;
-  flex: none;
-  display: flex;
-  align-items: center;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 196px;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  color: #fff;
-}
 .ci-slab {
   position: relative;
   flex: 1;
@@ -234,9 +202,6 @@
   padding-bottom: 6px;
 }
 
-.ci-row-empty .ci-pos {
-  color: rgba(255, 255, 255, 0.16);
-}
 .ci-row-empty .ci-slab {
   background: repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.06) 0 3px, transparent 3px 20px);
 }
@@ -245,14 +210,6 @@
   font-size: 72px;
 }
 
-/* A revealed place that was wrong: there, but quiet. */
-.ci-row-miss .ci-slab {
-  filter: saturate(0.15) brightness(0.55);
-}
-.ci-row-miss .ci-pos,
-.ci-row-miss .ci-name {
-  opacity: 0.5;
-}
 
 .ci-tick {
   position: absolute;
@@ -389,29 +346,122 @@
   white-space: nowrap;
 }
 
-/* Revealed: tighter rows, so the stamp gets its own place under the hook. */
-.ci-revealed .ci-row {
-  height: 150px;
+/* Lap 1: one driver, big, on their team's colour. */
+.ci-hero {
+  position: relative;
+  height: 470px;
+  display: flex;
 }
-.ci-revealed .ci-pos {
-  font-size: 168px;
+.ci-hero-slab {
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 0 60px 0 88px;
+  overflow: hidden;
+  clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
 }
-.ci-revealed .ci-name {
-  font-size: 100px;
+.ci-hero-slab::after {
+  clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
+  width: 110px;
 }
-.ci-revealed .ci-tick {
-  width: 96px;
-  height: 96px;
-  margin-top: -48px;
+.ci-hero-num {
+  position: absolute;
+  right: 70px;
+  bottom: -60px;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 440px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: var(--ink);
+  opacity: 0.14;
 }
-.ci-revealed .ci-tick svg {
-  width: 62px;
-  height: 62px;
+.ci-hero-first {
+  position: relative;
+  font-weight: 700;
+  font-style: italic;
+  font-size: 64px;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.8;
 }
+.ci-hero-last {
+  position: relative;
+  margin-top: 4px;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 0.88;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink);
+}
+.ci-hero-meta {
+  position: relative;
+  margin-top: 26px;
+  font-weight: 700;
+  font-size: 38px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink);
+  opacity: 0.75;
+}
+.ci-hero .ci-tick {
+  right: -18px;
+  top: 0;
+  margin-top: -30px;
+}
+.ci-over {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 4px;
+}
+.ci-over-label {
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(247, 247, 248, 0.45);
+  margin-right: 6px;
+}
+.ci-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  height: 72px;
+  padding: 0 24px 0 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  font-weight: 800;
+  font-style: italic;
+  font-size: 40px;
+  letter-spacing: 0.04em;
+  color: rgba(247, 247, 248, 0.8);
+  overflow: hidden;
+}
+.ci-chip i {
+  width: 12px;
+  align-self: stretch;
+  background: var(--team);
+}
+.ci-chip em {
+  font-style: italic;
+  font-weight: 600;
+  font-size: 30px;
+  color: rgba(247, 247, 248, 0.45);
+}
+
+/* Called: a shorter driver slab, so the stamp gets its own place under the question. */
 .ci-revealed .ci-order {
   gap: 20px;
 }
-.ci-revealed .ci-hook-wrap {
+.ci-revealed .ci-hero {
+  height: 400px;
+}
+.ci-revealed .ci-headline-wrap {
   padding: 36px 0 40px;
 }
 
@@ -445,11 +495,6 @@
 .ci-stamp-called {
   color: var(--called);
   font-size: 184px;
-}
-.ci-stamp-partial {
-  color: var(--partial);
-  font-size: 150px;
-  transform: rotate(-5deg);
 }
 /* The date line under a real rubber stamp's word. */
 .ci-stamp-date {

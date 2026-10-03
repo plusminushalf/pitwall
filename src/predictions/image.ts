@@ -1,5 +1,5 @@
-// The card as a 1080×1920 PNG, and handing it on: download it, or share it (the image where the platform takes
-// files, else the link; without the Web Share API, the link is copied).
+// The card as a 1080×1920 PNG, and handing it on: download it, copy it, or share it (the image where the platform
+// takes files, else the link; without the Web Share API, the link is copied).
 
 import { CARD_H, CARD_W } from "./Card";
 
@@ -46,4 +46,12 @@ export async function copy(text: string) {
     document.execCommand("copy");
     t.remove();
   }
+}
+
+/** Puts the card on the clipboard as a PNG; false where the browser can't. */
+export async function copyImage(image: () => Promise<Blob>): Promise<boolean> {
+  if (typeof ClipboardItem === "undefined" || !navigator.clipboard?.write) return false;
+  // A promise in the item, so Safari still counts the tap that asked for it.
+  await navigator.clipboard.write([new ClipboardItem({ "image/png": image() })]);
+  return true;
 }

@@ -1,22 +1,24 @@
 // The card: 1080×1920 (a 9:16 story), drawn in CSS at full size and scaled down on screen (ScaledCard), so the
-// PNG (image.ts) is the very thing on screen. The hook up top, the three teams in the order they'll pit, and the
-// credibility strip: when the server locked it, how long before lights out, the race and the link.
-// Revealed, it gets a stamp under the hook (all three right: CALLED IT; some: N OUT OF 3) and ticks on the right
-// places; the stamp sits in the layout, not over the teams, so the order it vouches for stays readable.
+// PNG (image.ts) is the very thing on screen. The question up top, the answer under it (the driver, and the rest of
+// the top five they were picked over), and the credibility strip: when the server locked it, how long before lights
+// out, the race and the link. Called right, it gets a CALLED IT stamp between question and answer and a tick on the
+// driver; the stamp sits in the layout, not over the driver, so what it vouches for stays readable. (Wrong calls
+// aren't shared.)
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
 import { dayMonth, shortSpan, stamp } from "./format";
-import { hits, hookLength, team, verdict, type Prediction, type Race, type TeamId } from "./model";
+import { calledIt, driverIn, team, topFive, type Prediction, type Race } from "./model";
 import "./card.css";
 
 export const CARD_W = 1080;
 export const CARD_H = 1920;
 
+/** A call, maybe half made (the composer's preview: no driver yet). */
+export type Draft = { kind: "lap1-leader"; driver: number | null };
+
 export interface CardProps {
   race: Race;
-  /** In the order they'll pit; fewer than three while composing. */
-  teams: TeamId[];
-  hook: string;
+  call: Draft;
   /** Absent: not locked yet (the composer's preview). */
   locked?: Pick<Prediction, "id" | "lockedAt" | "tz" | "result">;
   /** Where the link on the card points, without the scheme. */
@@ -25,17 +27,7 @@ export interface CardProps {
   tz?: string;
 }
 
-/** Hook size by length: short claims shout, long ones still fit in five lines. Revealed, it makes room for the stamp. */
-function hookSize(n: number, revealed: boolean): number {
-  return Math.round(baseHookSize(n) * (revealed ? 0.72 : 1));
-}
-function baseHookSize(n: number): number {
-  if (n <= 14) return 212;
-  if (n <= 24) return 184;
-  if (n <= 36) return 158;
-  if (n <= 48) return 138;
-  return 122;
-}
+const QUESTION = "Who leads lap 1?";
 
 /** Dark ink on light team colours, white on dark ones. */
 function inkOn(hex: string): string {
@@ -43,25 +35,32 @@ function inkOn(hex: string): string {
   return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.3 ? "#0a0a0d" : "#ffffff";
 }
 
-export function Card({ race, teams, hook, locked, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
+const TICK = (
+  <div className="ci-tick" aria-label="Right">
+    <svg viewBox="0 0 24 24">
+      <path d="M5 12.5l4.5 4.5L19 7.5" />
+    </svg>
+  </div>
+);
+
+export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
   const zone = locked?.tz ?? tz ?? "UTC";
   const result = locked?.result ?? null;
-  const right = result ? hits({ teams: teams as Prediction["teams"] }, result) : null;
-  const kind = result ? verdict({ teams: teams as Prediction["teams"] }, result) : null;
-  const shownHook = hook.trim() || "Your hook goes here.";
-  const p1 = teams[0] ? team(teams[0]).colour : "#e7000b";
+  const right = result && call.driver != null ? calledIt({ kind: call.kind, driver: call.driver }, result) : null;
+  const lead = call.driver != null ? driverIn(race.id, call.driver)?.team : undefined;
+  const p1 = lead ? team(lead).colour : "#e7000b";
   const when = locked ? stamp(locked.lockedAt, zone) : null;
-  const revealed = kind === "called" || kind === "partial";
+  const revealed = right === true;
 
-  // The hook's size by its length, then smaller until everything above the teams fits (long words, the stamp).
-  const base = hookSize(hookLength(shownHook), revealed);
+  // The question shouts, then gets smaller until everything above the driver fits (the stamp, when called).
+  const base = 212;
   const [size, setSize] = useState(base);
   const wrap = useRef<HTMLDivElement>(null);
-  const hookEl = useRef<HTMLParagraphElement>(null);
+  const headlineEl = useRef<HTMLParagraphElement>(null);
   useLayoutEffect(() => {
     const fit = () => {
       const w = wrap.current;
-      const h = hookEl.current;
+      const h = headlineEl.current;
       if (!w || !h) return;
       const cs = getComputedStyle(w);
       const room = w.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
@@ -77,21 +76,21 @@ export function Card({ race, teams, hook, locked, host, tz, ref }: CardProps & {
     return () => {
       live = false;
     };
-  }, [base, shownHook, kind]);
+  }, [revealed]);
 
   return (
-    <div ref={ref} className={`ci-card${revealed ? " ci-revealed" : ""}`} style={{ "--p1": p1 } as CSSProperties} data-verdict={kind ?? undefined}>
+    <div ref={ref} className={`ci-card${revealed ? " ci-revealed" : ""}`} style={{ "--p1": p1 } as CSSProperties} >
       <div className="ci-bg" aria-hidden />
       <div className="ci-ghost" aria-hidden>
-        BOX
+        LAP
         <br />
-        BOX
+        ONE
       </div>
 
       <header className="ci-top">
         <div className="ci-tag">
           <span className="ci-tag-bar" />
-          Pit call
+          Lap 1 call
         </div>
         <div className="ci-race">
           <div className="ci-race-name">{race.short}</div>
@@ -101,16 +100,11 @@ export function Card({ race, teams, hook, locked, host, tz, ref }: CardProps & {
         </div>
       </header>
 
-      <div ref={wrap} className="ci-hook-wrap">
-        {!revealed && (
-          <div className="ci-quote" aria-hidden>
-            “
-          </div>
-        )}
-        <p ref={hookEl} className={`ci-hook${hook.trim() ? "" : " ci-hook-empty"}`} style={{ fontSize: size }}>
-          {shownHook}
+      <div ref={wrap} className="ci-headline-wrap">
+        <p ref={headlineEl} className="ci-headline" style={{ fontSize: size }}>
+          {QUESTION}
         </p>
-        {kind === "called" && when && (
+        {revealed && when && (
           <div className="ci-stamp-slot">
             <div className="ci-stamp ci-stamp-called">
               <div>Called it</div>
@@ -120,51 +114,9 @@ export function Card({ race, teams, hook, locked, host, tz, ref }: CardProps & {
             </div>
           </div>
         )}
-        {kind === "partial" && right && (
-          <div className="ci-stamp-slot">
-            <div className="ci-stamp ci-stamp-partial">
-              <div>{right.filter(Boolean).length} out of 3</div>
-              {when && <div className="ci-stamp-date">Locked {when.time}, before lights out</div>}
-            </div>
-          </div>
-        )}
       </div>
 
-      <section className="ci-order">
-        <div className="ci-order-label">
-          <span>First to pit</span>
-          <span className="ci-order-rule" />
-        </div>
-        {[0, 1, 2].map((i) => {
-          const id = teams[i];
-          if (!id)
-            return (
-              <div key={i} className="ci-row ci-row-empty">
-                <div className="ci-pos">{i + 1}</div>
-                <div className="ci-slab">
-                  <span className="ci-name">Pick a team</span>
-                </div>
-              </div>
-            );
-          const t = team(id);
-          const miss = right && !right[i];
-          return (
-            <div key={i} className={`ci-row${miss ? " ci-row-miss" : ""}`} style={{ "--team": t.colour, "--ink": inkOn(t.colour) } as CSSProperties}>
-              <div className="ci-pos">{i + 1}</div>
-              <div className="ci-slab">
-                <span className="ci-name">{t.name}</span>
-              </div>
-              {right?.[i] && (
-                <div className="ci-tick" aria-label="Right">
-                  <svg viewBox="0 0 24 24">
-                    <path d="M5 12.5l4.5 4.5L19 7.5" />
-                  </svg>
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </section>
+      <Lap1 race={race} driver={call.driver} right={right} />
 
       <footer className="ci-strip">
         {when && locked ? (
@@ -200,6 +152,62 @@ export function Card({ race, teams, hook, locked, host, tz, ref }: CardProps & {
       </footer>
 
     </div>
+  );
+}
+
+/** Surname size by length, so VERSTAPPEN fits as well as NORRIS shouts. */
+function surnameSize(n: number): number {
+  if (n <= 6) return 232;
+  if (n <= 8) return 196;
+  if (n <= 10) return 160;
+  return 136;
+}
+
+/** The pick: the driver big on their team's colour, and the rest of the top five they were picked over. */
+function Lap1({ race, driver, right }: { race: Race; driver: number | null; right: boolean | null }) {
+  const d = driver != null ? driverIn(race.id, driver) : undefined;
+  const others = topFive(race.id).filter((o) => o.number !== driver);
+  const t = d && team(d.team);
+  return (
+    <section className="ci-order ci-lap1">
+      <div className="ci-order-label">
+        <span>My call</span>
+        <span className="ci-order-rule" />
+      </div>
+      {d && t ? (
+        <div className="ci-hero" style={{ "--team": t.colour, "--ink": inkOn(t.colour) } as CSSProperties}>
+          <div className="ci-slab ci-hero-slab">
+            <span className="ci-hero-num" aria-hidden>
+              {d.number}
+            </span>
+            <span className="ci-hero-first">{d.first}</span>
+            <span className="ci-hero-last" style={{ fontSize: surnameSize(d.last.length) }}>
+              {d.last}
+            </span>
+            <span className="ci-hero-meta">
+              {t.name} · Qualified P{d.quali}
+            </span>
+          </div>
+          {right && TICK}
+        </div>
+      ) : (
+        <div className="ci-hero ci-row-empty">
+          <div className="ci-slab ci-hero-slab">
+            <span className="ci-name">Pick a driver</span>
+          </div>
+        </div>
+      )}
+      <div className="ci-over">
+        <span className="ci-over-label">Over</span>
+        {others.map((o) => (
+          <span key={o.number} className="ci-chip" style={{ "--team": team(o.team).colour } as CSSProperties}>
+            <i />
+            {o.code}
+            <em>P{o.quali}</em>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
 
