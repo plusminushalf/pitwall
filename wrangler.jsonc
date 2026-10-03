@@ -1,6 +1,7 @@
 // Cloudflare Workers: dist/ served at pitwall.plusminushalf.com, with index.html for the app's own paths
 // (/session/11377, /live: src/url.ts). Static files never touch the Worker; only Called It's paths run it first
-// (worker/index.ts): its API and its page. Calls live in the PredictionStore Durable Object's SQLite database.
+// (worker/index.ts): its API, its page and a call's preview image. Calls (and their drawn preview images) live in the
+// PredictionStore Durable Object's SQLite database.
 // `bun run deploy` builds and uploads; the custom domain's DNS record and certificate are created on first deploy.
 {
   "name": "pitwall",
@@ -12,6 +13,8 @@
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api/*", "/predictions", "/predictions/*"],
   },
+  // The link-preview image's fonts (worker/og.ts), bundled as bytes.
+  "rules": [{ "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }],
   "durable_objects": { "bindings": [{ "name": "PREDICTIONS", "class_name": "PredictionStore" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["PredictionStore"] }],
   "routes": [{ "pattern": "pitwall.plusminushalf.com", "custom_domain": true }],

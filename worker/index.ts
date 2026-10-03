@@ -3,8 +3,15 @@
 // Calls are kept in one Durable Object's SQLite database (PredictionStore), written once and never edited.
 
 import { DurableObject } from "cloudflare:workers";
+import resvg from "@resvg/resvg-wasm/index_bg.wasm";
+import black from "./fonts/BarlowCondensed-BlackItalic.ttf";
+import bold from "./fonts/BarlowCondensed-Bold.ttf";
+import extraBold from "./fonts/BarlowCondensed-ExtraBoldItalic.ttf";
+import semiBold from "./fonts/BarlowCondensed-SemiBold.ttf";
+import mono from "./fonts/JetBrainsMono-Medium.ttf";
 import { calledIt, driverIn, ID_PATTERN, raceById, type Call, type Result } from "../src/predictions/model";
 import { handleApi, type Store, type Stored } from "./api";
+import { OG_H, OG_W, ogPng, ogState, ogSvg } from "./og";
 
 interface Env {
   ASSETS: Fetcher;
@@ -37,6 +44,17 @@ export class PredictionStore extends DurableObject<Env> implements Store {
       owner_hash TEXT NOT NULL,
       result TEXT
     )`);
+    // Preview images, drawn once per call and state (worker/og.ts): "<id>:locked", "<id>:called".
+    this.sql.exec("CREATE TABLE IF NOT EXISTS og (key TEXT PRIMARY KEY, png BLOB NOT NULL)");
+  }
+
+  async getOg(key: string): Promise<ArrayBuffer | null> {
+    const row = this.sql.exec<{ png: ArrayBuffer }>("SELECT png FROM og WHERE key = ?", key).toArray()[0];
+    return row ? row.png : null;
+  }
+
+  async putOg(key: string, png: ArrayBuffer): Promise<void> {
+    this.sql.exec("INSERT INTO og (key, png) VALUES (?, ?) ON CONFLICT (key) DO NOTHING", key, png);
   }
 
   async insert(p: Stored): Promise<boolean> {
@@ -74,6 +92,23 @@ export class PredictionStore extends DurableObject<Env> implements Store {
 }
 
 const PAGE = /^\/predictions(?:\/([^/]*))?\/?$/;
+const OG = /^\/predictions\/([^/]+)\/og\.png$/;
+const FONTS = [black, extraBold, bold, semiBold, mono].map((f) => new Uint8Array(f));
+
+/** A call's preview image: drawn the first time it's asked for in each state, then kept. */
+async function ogImage(req: Request, store: Store, stub: DurableObjectStub<PredictionStore>, id: string): Promise<Response> {
+  const p = ID_PATTERN.test(id) ? await store.get(id) : null;
+  if (!p) return new Response("No such call", { status: 404 });
+  const key = `${p.id}:${ogState(p)}`;
+  let png = await stub.getOg(key);
+  if (!png) {
+    const bytes = await ogPng(ogSvg(p, new URL(req.url).host), resvg, FONTS);
+    png = bytes.slice().buffer as ArrayBuffer;
+    await stub.putOg(key, png);
+  }
+  // The URL carries the state (?v=), so each version can be kept for good.
+  return new Response(png, { headers: { "content-type": "image/png", "cache-control": "public, max-age=31536000, immutable" } });
+}
 
 /** The page, with link-preview tags for the call in its path (if any): "Hamilton leads lap 1.", and once right, "Called it." */
 async function page(req: Request, env: Env, store: Store, id: string | undefined): Promise<Response> {
@@ -91,7 +126,25 @@ async function page(req: Request, env: Env, store: Store, id: string | undefined
     ? `Locked in before lights out at the ${r.name}. Who leads lap 1?`
     : "Call who leads lap 1 before lights out. Locked with a server timestamp, nobody can edit it.";
   const url = new URL(req.url);
+  const image = p && `${url.origin}/predictions/${p.id}/og.png?v=${ogState(p)}`;
   return new HTMLRewriter()
+    .on('meta[name="twitter:card"]', { element: (el) => void el.setAttribute("content", image ? "summary_large_image" : "summary") })
+    .on("head", {
+      element: (el) => {
+        if (!image) return;
+        const alt = `${title} A Called It card from before lights out.`;
+        el.append(
+          [
+            `<meta property="og:image" content="${image}" />`,
+            `<meta property="og:image:width" content="${OG_W}" />`,
+            `<meta property="og:image:height" content="${OG_H}" />`,
+            `<meta property="og:image:alt" content="${alt}" />`,
+            `<meta name="twitter:image" content="${image}" />`,
+          ].join(""),
+          { html: true },
+        );
+      },
+    })
     .on("title", { element: (el) => void el.setInnerContent(title) })
     .on('meta[property="og:title"], meta[name="twitter:title"]', { element: (el) => void el.setAttribute("content", title) })
     .on('meta[name="description"], meta[property="og:description"], meta[name="twitter:description"]', {
@@ -113,6 +166,8 @@ export default {
     };
     const api = await handleApi(req, store);
     if (api) return api;
+    const og = OG.exec(new URL(req.url).pathname);
+    if (og && (req.method === "GET" || req.method === "HEAD")) return ogImage(req, store, stub, og[1]!);
     const m = PAGE.exec(new URL(req.url).pathname);
     if (m && (req.method === "GET" || req.method === "HEAD")) return page(req, env, store, m[1] || undefined);
     return env.ASSETS.fetch(req);
