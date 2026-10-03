@@ -8,17 +8,18 @@
 
 import { create } from "zustand";
 import { isCurrentFormat } from "../scripts/lib/formatVersion";
-import { LiveWindowError, seedRequestStarts, setRequestObserver } from "../scripts/lib/openf1Http";
+import { fetchEndpoint, LiveWindowError, seedRequestStarts, setRequestObserver } from "../scripts/lib/openf1Http";
 import { FIRST_YEAR, isIngestible, LIVE_WINDOW_MARGIN_MS } from "../scripts/lib/season";
 import type { RawMeeting, RawSession } from "../scripts/lib/openf1Types";
-import { buildCatalog, catalogFresh, fetchCatalog, fetchSessionInfo, liveWindowNow, windowLabel, withCurrentRows, type Catalog, type CatalogRow } from "./ingest/catalog";
+import { buildCatalog, catalogFresh, fetchCatalog, fetchSessionInfo, liveWindowNow, windowLabel, withCurrentRows, type Catalog, type CatalogRow, type Fetcher } from "./ingest/catalog";
 import { assumedDrivers, cacheProgress, estimate, expectedRawFiles, layoutOf, placeholderFiles, sizeScale, type CacheProgress } from "./ingest/eta";
 import type { FailureKind, FromWorker } from "./ingest/protocol";
+import { choosePath } from "./ingest/vaultPort";
 import { loadLearned, noteRequest, recentRequests, runJob, type JobInfo, type Progress, type RunHandle } from "./ingest/runner";
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
 import { clock, onStreamWatch, useReplay, type OpenOpts } from "./store";
-import { getVault } from "./vault/client";
+import { getVault, type RestEndpoint } from "./vault/client";
 
 export { FIRST_YEAR };
 /** UTC, like OpenF1's `year`. */
@@ -173,6 +174,43 @@ const newJob = (info: JobInfo): Job => ({
   finishedAt: null,
 });
 
+/** A download paused for a live window says so. */
+const LIVE_WINDOW_NOTICE = "OpenF1 blocks free downloads during live sessions";
+
+/** Signed in to the vault with a token that works: downloads go through it, live windows or not (src/ingest/vaultPort.ts). */
+const signedIn = () => choosePath(getVault().getState().status ?? null).path === "vault";
+
+/**
+ * The page's own OpenF1 reads (the calendar, link lookups): through the vault when signed in (OpenF1 refuses browsers
+ * without a token during live sessions, and the vault's reads get through: vault/proxy.ts), else straight to OpenF1.
+ */
+async function openf1Get(): Promise<Fetcher> {
+  if (!(await signedInSoon())) return fetchEndpoint;
+  return async <T,>(endpoint: string, params: Record<string, string | number>): Promise<T[]> => {
+    const r = await getVault().get(endpoint as RestEndpoint, params);
+    if (r.status === 404) return [];
+    if (r.status !== 200) throw new Error(`OpenF1 ${r.status} for ${endpoint} (through the vault)`);
+    return JSON.parse(new TextDecoder().decode(r.body)) as T[];
+  };
+}
+
+/** How long the page's first reads wait for the vault to say whether it's signed in (its frame loading, a login restoring). */
+const VAULT_SETTLE_MS = 4_000;
+
+/** signedIn(), once the vault has said (at most VAULT_SETTLE_MS after the page loads). */
+async function signedInSoon(): Promise<boolean> {
+  const vault = getVault();
+  if (!vault.origin) return false;
+  void vault.start();
+  const end = Date.now() + VAULT_SETTLE_MS;
+  const unsettled = () => {
+    const s = vault.getState();
+    return s.phase !== "unavailable" && (!s.status || s.status.state === "connecting");
+  };
+  while (unsettled() && Date.now() < end) await sleep(100);
+  return signedIn();
+}
+
 /** The live window we're in (from the calendar, or from OpenF1 refusing us), or null. */
 export function liveWindowOf(s: Pick<LibraryState, "years" | "blocked">, now = Date.now()): { until: number; label: string } | null {
   const catalogs = Object.values(s.years).flatMap((y) => (y.catalog ? [y.catalog] : []));
@@ -310,7 +348,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     }
     setYear({ catalog, loading: true, error: null });
     try {
-      const fresh = await fetchCatalog(year);
+      const fresh = await fetchCatalog(year, await openf1Get());
       if (get().supported) await store().writeDoc(`catalog-${year}`, fresh).catch(() => {});
       setYear({ catalog: fresh, loading: false, error: null });
     } catch (e) {
@@ -353,15 +391,19 @@ export const useLibrary = create<LibraryState>((set, get) => {
     saveQueue();
   };
 
-  /** The next job that can run now: queued, or paused with its wait over (downloads wait out live windows). */
+  /**
+   * The next job that can run now: queued, or paused with its wait over. Downloads wait out live windows, unless the
+   * vault is signed in: its requests carry the account's token, through its pass-through while OpenF1 refuses
+   * browsers (vault/proxy.ts).
+   */
   const nextRunnable = (now = Date.now()): number | null => {
-    const w = liveWindowOf(get(), now);
+    const w = signedIn() ? null : liveWindowOf(get(), now);
     for (const key of get().queue) {
       const job = get().jobs[key];
       if (!job || !(job.phase === "queued" || job.phase === "paused")) continue;
       if (job.phase === "paused" && (job.resumeAt ?? 0) > now) continue;
       if (job.info.mode === "download" && w) {
-        setJob(key, { phase: "paused", resumeAt: w.until, notice: `OpenF1 blocks free downloads during live sessions (${w.label}).` });
+        setJob(key, { phase: "paused", resumeAt: w.until, notice: `${LIVE_WINDOW_NOTICE} (${w.label}).` });
         continue;
       }
       return key;
@@ -494,7 +536,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const w = liveWindowOf(get(), now);
       const until = w?.until ?? now + BLOCKED_RECHECK_MS;
       set({ blocked: { until, label: w?.label ?? "a live session" } });
-      setJob(key, { phase: "paused", progress: null, resumeAt: until, notice: `OpenF1 blocks free downloads during live sessions (${w?.label ?? "a session is live"}).` });
+      setJob(key, { phase: "paused", progress: null, resumeAt: until, notice: `${LIVE_WINDOW_NOTICE} (${w?.label ?? "a session is live"}).` });
       return;
     }
     // (Watched: sooner.)
@@ -643,6 +685,27 @@ export const useLibrary = create<LibraryState>((set, get) => {
     init: async () => {
       if (initialized) return;
       initialized = true;
+      // Signed in: downloads that wait out a live window can go now, and a calendar that couldn't load (OpenF1 refusing
+      // browsers without a token during a session) loads through the vault.
+      let wasSignedIn = signedIn();
+      // (On every page, not only Home's: a download from a shared link needs to know too.)
+      if (getVault().origin) void getVault().start();
+      getVault().onState(() => {
+        const now = signedIn();
+        const fresh = now && !wasSignedIn;
+        wasSignedIn = now;
+        if (!now) return;
+        if (fresh) for (const [year, y] of Object.entries(get().years)) if (y.error) void get().loadYear(Number(year), { force: true });
+        let woke = false;
+        for (const key of get().queue) {
+          const job = get().jobs[key];
+          if (job?.phase === "paused" && job.info.mode === "download" && job.notice?.startsWith(LIVE_WINDOW_NOTICE)) {
+            setJob(key, { resumeAt: Date.now() });
+            woke = true;
+          }
+        }
+        if (woke) void pump();
+      });
       // This page's own OpenF1 requests (the calendar, link lookups) pace around the downloads' and count for them.
       seedRequestStarts(recentRequests());
       setRequestObserver((e) => noteRequest(Date.now() - e.ms));
@@ -738,7 +801,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           }
         }
         if (!row) {
-          const info = await fetchSessionInfo(key);
+          const info = await fetchSessionInfo(key, await openf1Get());
           if (!info) throw new Error(`OpenF1 has no session ${key}.`);
           if (!isIngestible(info)) throw new Error(`Session ${key} is ${info.session_name} (${info.country_name} ${info.year}); only races, sprints, qualifying and free practice can be replayed.`);
           await get().loadYear(info.year);
@@ -818,3 +881,6 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
 /** Minutes OpenF1's free-tier lockout extends before and after each session. */
 export const LIVE_MARGIN_MIN = LIVE_WINDOW_MARGIN_MS / 60_000;
+
+// Dev app only: browser checks (vault/livecheck.ts) read the downloads through the library the app uses.
+if (import.meta.env.DEV && typeof window !== "undefined") Object.assign(window, { __library: useLibrary });

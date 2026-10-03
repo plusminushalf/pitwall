@@ -116,15 +116,18 @@ export function heroWeekend(c: Pick<Catalog, "rows" | "sessions">, now: number, 
 }
 
 /** A season from OpenF1 (two requests, one after the other: the client spaces them out). */
-export async function fetchCatalog(year: number): Promise<Catalog> {
-  const sessions = await fetchEndpoint<RawSession>("sessions", { year });
-  const meetings = await fetchEndpoint<RawMeeting>("meetings", { year });
+/** One OpenF1 read: straight to OpenF1 (the free tier) by default; the library passes the vault's when signed in. */
+export type Fetcher = <T>(endpoint: string, params: Record<string, string | number>) => Promise<T[]>;
+
+export async function fetchCatalog(year: number, get: Fetcher = fetchEndpoint): Promise<Catalog> {
+  const sessions = await get<RawSession>("sessions", { year });
+  const meetings = await get<RawMeeting>("meetings", { year });
   return buildCatalog(year, sessions, meetings);
 }
 
 /** One session looked up by key (for a shared link to a session whose season isn't loaded). */
-export async function fetchSessionInfo(key: number): Promise<RawSession | null> {
-  const [s] = await fetchEndpoint<RawSession>("sessions", { session_key: key });
+export async function fetchSessionInfo(key: number, get: Fetcher = fetchEndpoint): Promise<RawSession | null> {
+  const [s] = await get<RawSession>("sessions", { session_key: key });
   return s ?? null;
 }
 
