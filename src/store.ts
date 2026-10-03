@@ -5,9 +5,11 @@ import { LiveEdge } from "./data/liveEdge";
 import { appendTelemetry, buildSession, mergeTelemetry, streamSession, withMeta, type Session } from "./data/session";
 import type { StreamUpdate } from "./ingest/protocol";
 import { raceStateAt, timeForLap, type RaceState } from "./engine/raceState";
-import { connectLive, LIVE_RELAY, type LiveConnection } from "./live/client";
+import { connectLive, liveVia, type LiveConnection, type LiveVia } from "./live/client";
 import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
+import { connectVaultLive, type LiveAccount, type LiveStall } from "./live/vault";
 import { fetchSession, listPlayable } from "./storage/load";
+import { getVault } from "./vault/client";
 import type { SessionIndexEntry } from "./types";
 import { livePath, readUrl, sessionPath } from "./url";
 
@@ -113,19 +115,25 @@ function readSpoilerPref(): SpoilerPref {
 const spoilerChoice = (pref: SpoilerPref): boolean | null => (pref === "ask" ? null : pref === "hide");
 
 export interface LiveInfo {
-  /** The relay's state; null until its first status message. */
+  /** Where live data comes from: the relay, or the credential vault (no relay: the hosted site); null: nowhere. */
+  via: LiveVia | null;
+  /** The relay's state (or the vault path's, which sends the same messages); null until its first status message. */
   state: LiveState | null;
   source: LiveStatus["source"] | null;
   sessionKey: number | null;
   detail: string | null;
   next: LiveStatus["next"];
-  /** The socket to the relay is open. */
+  /** The socket to the relay is open (through the vault: the live worker runs). */
   connected: boolean;
   /** The last connection attempt failed or the socket dropped: the relay isn't reachable (it keeps retrying). */
   offline: boolean;
+  /** Through the vault: what the OpenF1 account needs before live can run (connect, unlock...); null when it runs. */
+  account: LiveAccount | null;
+  /** Through the vault: its stream isn't delivering right now (null when it is). */
+  stall: LiveStall | null;
 }
 
-const NO_LIVE: LiveInfo = { state: null, source: null, sessionKey: null, detail: null, next: null, connected: false, offline: false };
+const NO_LIVE: LiveInfo = { via: null, state: null, source: null, sessionKey: null, detail: null, next: null, connected: false, offline: false, account: null, stall: null };
 
 /** The relay's live edge (per-message, extrapolated per frame); the replay clock follows it while `followLive`. */
 export const liveEdge = new LiveEdge();
@@ -642,10 +650,11 @@ export const useReplay = create<ReplayState>((set, get) => {
       replayStash = s.session && !streaming ? { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused } : null;
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
+      const via = liveVia();
       set({
         mode: "live",
         view: "replay",
-        live: NO_LIVE,
+        live: { ...NO_LIVE, via },
         liveEdge: 0,
         followLive: true,
         session: null,
@@ -659,13 +668,21 @@ export const useReplay = create<ReplayState>((set, get) => {
         watchedTo: 0,
         noSpoilers: false,
       });
-      // No relay behind this site (a static build): LiveScreen explains, nothing to connect to.
-      if (!LIVE_RELAY) return;
-      live = connectLive({
+      const handlers = {
         onOpen: () => set({ live: { ...get().live, connected: true, offline: false } }),
         onDown: () => set({ live: { ...get().live, connected: false, offline: true } }),
         onMessage: onLiveMessage,
-      });
+      };
+      if (via === "relay") live = connectLive(handlers);
+      else if (via === "vault") {
+        // The vault streams OpenF1 with the user's own account: LiveScreen says what the account needs, if anything.
+        live = connectVaultLive({
+          ...handlers,
+          onAccount: (account) => set({ live: { ...get().live, account, ...(account ? { connected: false, offline: false } : {}) } }),
+          onStall: (stall) => set({ live: { ...get().live, stall } }),
+        });
+      }
+      // Neither (a static build without the vault): LiveScreen explains, nothing to connect to.
     },
 
     exitLive: () => {
@@ -789,3 +806,6 @@ export const useReplay = create<ReplayState>((set, get) => {
     },
   };
 });
+
+// Dev app only: browser checks (vault/livecheck.ts) read live mode's state through the store and vault client the app uses.
+if (import.meta.env.DEV && typeof window !== "undefined") Object.assign(window, { __replay: useReplay, __vault: getVault() });

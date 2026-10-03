@@ -153,9 +153,10 @@ export class VaultClient {
   unsubscribe = (topics: LiveTopic[]) => this.setTopics("unsubscribe", topics);
   /**
    * An OpenF1 read through the vault: authenticated when it holds a valid token (`auth` in the result),
-   * unauthenticated otherwise. A 401 there refreshes the token and retries once, inside the vault.
+   * unauthenticated otherwise. A 401 there refreshes the token and retries once, inside the vault. `timeoutMs`: how
+   * long to wait for the answer, its turn in the vault's REST budget included (default 30 s).
    */
-  get = (endpoint: RestEndpoint, params: Params) => this.call("get", { endpoint, params });
+  get = (endpoint: RestEndpoint, params: Params, timeoutMs?: number) => this.call("get", { endpoint, params }, [], timeoutMs);
   /**
    * Hand `port` to the vault: it speaks this same protocol on it (the download worker's, transferred on to the
    * worker: its gets go straight to the vault). Send `close` on it when done (ports have no close event).
@@ -195,10 +196,10 @@ export class VaultClient {
     return r;
   }
 
-  async call<M extends Method>(type: M, args: Args<M>, transfer: Transferable[] = []): Promise<Result<M>> {
+  async call<M extends Method>(type: M, args: Args<M>, transfer: Transferable[] = [], timeoutMs = REQUEST_MS): Promise<Result<M>> {
     const port = await this.attached();
     if (!port) throw new VaultRequestError("unavailable", this.state.reason ?? "vault unavailable");
-    return this.request(port, type, args, transfer);
+    return this.request(port, type, args, transfer, timeoutMs);
   }
 
   /** The port once the handshake is done, waiting out a re-mount; null when the vault is unavailable. */
@@ -211,13 +212,13 @@ export class VaultClient {
     }
   }
 
-  private request<M extends Method>(port: MessagePort, type: M, args: Args<M>, transfer: Transferable[] = []): Promise<Result<M>> {
+  private request<M extends Method>(port: MessagePort, type: M, args: Args<M>, transfer: Transferable[] = [], timeoutMs = REQUEST_MS): Promise<Result<M>> {
     const id = this.nextId++;
     return new Promise<Result<M>>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
         reject(new VaultRequestError("timeout", `${type} timed out`));
-      }, REQUEST_MS);
+      }, timeoutMs);
       this.pending.set(id, { resolve: resolve as (r: unknown) => void, reject, timer });
       port.postMessage({ v: 1, id, type, ...args } as Request, transfer);
     });

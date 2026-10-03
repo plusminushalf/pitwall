@@ -8,10 +8,12 @@ import { useEffect, useMemo } from "react";
 import { LIVE_TYPES } from "../../../scripts/lib/season";
 import { isLive, nextSession, nextWeekend, type CatalogRow } from "../../ingest/catalog";
 import { currentYear, FIRST_YEAR, useLibrary } from "../../library";
-import { LIVE_RELAY } from "../../live/client";
+import { liveVia } from "../../live/client";
+import { accountNeed } from "../../live/vault";
 import { useReplay } from "../../store";
-import { LiveDot } from "../LiveControl";
+import { accountStatus, LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
+import { useVault } from "../vault/useVault";
 import { VaultIndicators } from "../vault/VaultStatus";
 import { Attribution, LABEL, PRIMARY, SECONDARY, sessionTime, shortGp, size, useDownloadBlock, useNow, waitText } from "./common";
 import { Continue } from "./Continue";
@@ -61,17 +63,17 @@ function countdownShort(ms: number) {
 // ---------------------------------------------------------------- the moment
 
 /**
- * Live mode can be opened this long before a race or sprint starts: it waits (showing the relay's "Next live")
- * and follows the session by itself once the relay streams it, from 15 minutes before the start.
+ * Live mode can be opened this long before a race, sprint or practice starts: it waits (showing "Next live") and
+ * follows the session by itself once it streams, from 15 minutes before the start.
  */
 const LIVE_WAIT_MS = 60 * 60_000;
 
-/** What the live relay offers right now: follow the session under way, or wait for the next one. */
+/** What live mode offers right now: follow the session under way, or wait for the next one. */
 type LiveAction = { kind: "watch" | "wait"; row: CatalogRow } | null;
 
 function liveAction(weekend: CatalogRow[] | null, now: number): LiveAction {
-  // A static build has no relay (the header's Live control is hidden too).
-  if (!LIVE_RELAY || !weekend) return null;
+  // Neither a relay nor the vault (a static build without it): no live mode.
+  if (!liveVia() || !weekend) return null;
   const next = nextSession(weekend, now);
   if (!next || !LIVE_TYPES.includes(next.sessionType)) return null;
   if (isLive(next, now)) return { kind: "watch", row: next };
@@ -98,7 +100,7 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
         <span className="flex items-center gap-1.5 truncate text-sm text-zinc-100">
           <LiveDot pulse={false} />
           {next.sessionName} live for <span className="font-bold tabular-nums text-zinc-50">{minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, "0")}m`}</span>
-          {!LIVE_RELAY && <span className="text-zinc-300"> · here about 30 min after it ends</span>}
+          {!liveVia() && <span className="text-zinc-300"> · here about 30 min after it ends</span>}
         </span>
       </div>
     );
@@ -116,13 +118,20 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
   );
 }
 
-/** Live mode's row, only while the relay can follow (or wait for) a race or sprint: the page's white button. */
+/**
+ * Live mode's row, only while it can follow (or wait for) a race, sprint or practice: the page's white button. Through
+ * the vault (no relay) it needs a connected OpenF1 account: until there is one, the row says so and the button gets it.
+ */
 function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
   const enterLive = useReplay((s) => s.enterLive);
   const now = useNow(1000);
   const until = useDownloadBlock();
+  const vault = useVault();
   const { row } = action;
   const watch = action.kind === "watch";
+  // (Still loading or checking the login: Watch live, and the live screen says how it goes.)
+  const need = liveVia() === "vault" ? accountNeed(vault) : null;
+  const account = need && need !== "loading" && need !== "checking" ? accountStatus(need, true) : null;
   return (
     <section aria-label="Live" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-3">
       {watch ? (
@@ -137,18 +146,38 @@ function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
         <span className="block text-xs leading-relaxed text-zinc-300">
           {watch ? "Timing, track map and the race feed, following it as it happens." : "Live mode waits for the start, then follows it."}
         </span>
+        {account && (
+          <span className={`block max-w-[75ch] text-xs leading-relaxed ${account.tone === "error" ? "text-red-400" : "text-amber-300"}`} data-testid="live-row-account">
+            {account.text}
+          </span>
+        )}
         {until != null && <span className="block max-w-[75ch] text-xs leading-relaxed text-amber-300">{waitText(until)}</span>}
       </span>
       <span className="flex-1" />
-      <button
-        onClick={(e) => {
-          e.currentTarget.blur();
-          enterLive();
-        }}
-        className={`${PRIMARY} px-4 py-2 text-sm`}
-      >
-        {watch ? "Watch live" : `Watch the ${row.sessionName.toLowerCase()} live`}
-      </button>
+      {account ? (
+        // Connect / Unlock / Reconnect open the vault's popup: inside the click.
+        account.action && (
+          <button
+            onClick={(e) => {
+              e.currentTarget.blur();
+              account.action!.run();
+            }}
+            className={`${PRIMARY} px-4 py-2 text-sm`}
+          >
+            {account.action.label}
+          </button>
+        )
+      ) : (
+        <button
+          onClick={(e) => {
+            e.currentTarget.blur();
+            enterLive();
+          }}
+          className={`${PRIMARY} px-4 py-2 text-sm`}
+        >
+          {watch ? "Watch live" : `Watch the ${row.sessionName.toLowerCase()} live`}
+        </button>
+      )}
     </section>
   );
 }

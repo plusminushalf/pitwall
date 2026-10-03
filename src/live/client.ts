@@ -1,13 +1,24 @@
-// Browser side of the live relay's WebSocket (server/live.ts; protocol in ./protocol.ts).
+// Browser side of the live relay's WebSocket (server/live.ts; protocol in ./protocol.ts), and where live data comes
+// from: the relay, or else the credential vault (./vault.ts).
 
+import { getVault } from "../vault/client";
 import type { LiveMessage } from "./protocol";
 
 /**
  * Whether this build has a live relay behind it: the dev server (proxying /relay to `bun run live`), or a
- * build made with VITE_LIVE_RELAY=1 for a host that serves the relay at /relay. A plain static build has
- * none, so live mode is hidden.
+ * build made with VITE_LIVE_RELAY=1 for a host that serves the relay at /relay. VITE_LIVE_RELAY=0 turns it off
+ * in dev too, so live goes through the vault as on the hosted site.
  */
-export const LIVE_RELAY = import.meta.env.DEV || import.meta.env.VITE_LIVE_RELAY === "1";
+export const LIVE_RELAY = import.meta.env.VITE_LIVE_RELAY === "1" || (import.meta.env.DEV && import.meta.env.VITE_LIVE_RELAY !== "0");
+
+/** Where live data comes from. */
+export type LiveVia = "relay" | "vault";
+
+/**
+ * The relay when this build has one; else the credential vault when it has one (VITE_VAULT_ORIGIN isn't `off`),
+ * which streams OpenF1 with the user's own account; else nowhere (null).
+ */
+export const liveVia = (): LiveVia | null => (LIVE_RELAY ? "relay" : getVault().origin ? "vault" : null);
 
 const RETRY_MIN_MS = 1_000;
 const RETRY_MAX_MS = 10_000;
