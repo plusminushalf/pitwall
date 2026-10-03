@@ -1,0 +1,463 @@
+/* The card (Card.tsx), in px at its real 1080×1920. Barlow Condensed for everything loud, JetBrains Mono for the
+   receipt. No team logos: colour and type only. */
+
+.ci-card {
+  --red: #ff1e28;
+  --called: #19e68c;
+  --partial: #ffc933;
+  position: relative;
+  width: 1080px;
+  height: 1920px;
+  overflow: hidden;
+  background: #08080b;
+  color: #f7f7f8;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  display: flex;
+  flex-direction: column;
+  padding: 96px 80px 76px;
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+.ci-card *,
+.ci-card *::before,
+.ci-card *::after {
+  box-sizing: border-box;
+}
+
+/* The light: the first team's colour from the top right, a red ember bottom left, broadcast speed lines, grain. */
+.ci-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 980px 820px at 100% -4%, color-mix(in srgb, var(--p1) 34%, transparent), transparent 70%),
+    radial-gradient(ellipse 900px 640px at -10% 104%, rgba(255, 30, 40, 0.16), transparent 72%),
+    linear-gradient(180deg, #0d0d11 0%, #08080b 46%, #060608 100%);
+}
+.ci-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 26px);
+  -webkit-mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
+  mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
+}
+.ci-bg::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.09;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -.2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* Red bar across the top, like a broadcast lower third turned on its side. */
+.ci-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 12px;
+  background: linear-gradient(90deg, var(--red) 0 62%, transparent 62% 64%, var(--red) 64% 70%, transparent 70% 72%, var(--red) 72% 75%, transparent 75%);
+}
+
+.ci-ghost {
+  position: absolute;
+  right: -46px;
+  top: 1000px;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 420px;
+  line-height: 0.8;
+  letter-spacing: -0.02em;
+  text-align: right;
+  color: transparent;
+  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.05);
+  pointer-events: none;
+  user-select: none;
+}
+
+.ci-top {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 40px;
+}
+.ci-tag {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  font-weight: 700;
+  font-size: 38px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: #fff;
+  padding-top: 6px;
+}
+.ci-tag-bar {
+  width: 16px;
+  height: 46px;
+  background: var(--red);
+  transform: skewX(-16deg);
+}
+.ci-race {
+  text-align: right;
+}
+.ci-race-name {
+  font-weight: 800;
+  font-style: italic;
+  font-size: 54px;
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.ci-race-meta {
+  margin-top: 10px;
+  font-weight: 600;
+  font-size: 30px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: rgba(247, 247, 248, 0.55);
+}
+
+.ci-hook-wrap {
+  position: relative;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 40px 0 56px;
+  min-height: 0;
+}
+.ci-quote {
+  font-weight: 900;
+  font-style: italic;
+  font-size: 240px;
+  line-height: 0.6;
+  height: 104px;
+  color: var(--red);
+  margin-left: -8px;
+}
+.ci-hook {
+  margin: 0;
+  font-weight: 800;
+  font-style: italic;
+  line-height: 0.92;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+  color: #fff;
+  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.5);
+}
+.ci-hook-empty {
+  color: rgba(255, 255, 255, 0.22);
+}
+
+.ci-order {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.ci-order-label {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(247, 247, 248, 0.6);
+  margin-bottom: 4px;
+}
+.ci-order-rule {
+  flex: 1;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), transparent);
+}
+
+.ci-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  height: 184px;
+}
+.ci-pos {
+  position: relative;
+  width: 152px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 196px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #fff;
+}
+.ci-slab {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 40px 0 64px;
+  clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
+  background:
+    linear-gradient(100deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 34%),
+    linear-gradient(100deg, var(--team) 40%, color-mix(in srgb, var(--team) 72%, #000) 100%);
+}
+.ci-slab::after {
+  content: "";
+  position: absolute;
+  right: 22px;
+  top: 0;
+  bottom: 0;
+  width: 70px;
+  background: repeating-linear-gradient(-72deg, rgba(0, 0, 0, 0.16) 0 8px, transparent 8px 18px);
+  clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
+}
+.ci-name {
+  position: relative;
+  font-weight: 800;
+  font-style: italic;
+  font-size: 118px;
+  line-height: 1;
+  letter-spacing: -0.005em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--ink);
+  padding-bottom: 6px;
+}
+
+.ci-row-empty .ci-pos {
+  color: rgba(255, 255, 255, 0.16);
+}
+.ci-row-empty .ci-slab {
+  background: repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.06) 0 3px, transparent 3px 20px);
+}
+.ci-row-empty .ci-name {
+  color: rgba(255, 255, 255, 0.22);
+  font-size: 72px;
+}
+
+/* A revealed place that was wrong: there, but quiet. */
+.ci-row-miss .ci-slab {
+  filter: saturate(0.15) brightness(0.55);
+}
+.ci-row-miss .ci-pos,
+.ci-row-miss .ci-name {
+  opacity: 0.5;
+}
+
+.ci-tick {
+  position: absolute;
+  right: -26px;
+  top: 50%;
+  width: 112px;
+  height: 112px;
+  margin-top: -56px;
+  border-radius: 50%;
+  background: var(--called);
+  box-shadow:
+    0 0 0 8px #08080b,
+    0 10px 40px rgba(25, 230, 140, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ci-tick svg {
+  width: 72px;
+  height: 72px;
+  fill: none;
+  stroke: #04140c;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ci-strip {
+  position: relative;
+  margin-top: 84px;
+  padding-top: 44px;
+  border-top: 2px solid rgba(255, 255, 255, 0.14);
+}
+.ci-strip::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 140px;
+  height: 2px;
+  background: var(--red);
+}
+.ci-locked-label {
+  font-weight: 700;
+  font-size: 32px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--red);
+}
+.ci-locked-label {
+  display: flex;
+  justify-content: space-between;
+}
+.ci-lead {
+  color: rgba(247, 247, 248, 0.62);
+}
+.ci-locked-time {
+  margin-top: 14px;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-weight: 500;
+  font-size: 54px;
+  letter-spacing: -0.01em;
+  text-transform: uppercase;
+  color: #fff;
+}
+.ci-zone {
+  color: rgba(255, 255, 255, 0.6);
+}
+.ci-locked-meta {
+  margin-top: 16px;
+  font-weight: 600;
+  font-size: 34px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(247, 247, 248, 0.62);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ci-locked-meta b {
+  font-weight: 800;
+  color: #fff;
+}
+.ci-dot {
+  margin: 0 14px;
+  color: rgba(255, 255, 255, 0.3);
+}
+.ci-pending {
+  color: rgba(255, 255, 255, 0.4);
+}
+.ci-pending-time {
+  color: rgba(255, 255, 255, 0.18);
+}
+
+.ci-sign {
+  margin-top: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+}
+.ci-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 46px;
+  line-height: 1;
+  letter-spacing: 0.01em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ci-wordmark svg {
+  height: 0.82em;
+  width: auto;
+  overflow: visible;
+}
+.ci-wm-box {
+  fill: var(--red, #ff1e28);
+}
+.ci-wm-tick {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 3.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.ci-url {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 26px;
+  color: rgba(255, 255, 255, 0.5);
+  white-space: nowrap;
+}
+
+/* Revealed: tighter rows, so the stamp gets its own place under the hook. */
+.ci-revealed .ci-row {
+  height: 150px;
+}
+.ci-revealed .ci-pos {
+  font-size: 168px;
+}
+.ci-revealed .ci-name {
+  font-size: 100px;
+}
+.ci-revealed .ci-tick {
+  width: 96px;
+  height: 96px;
+  margin-top: -48px;
+}
+.ci-revealed .ci-tick svg {
+  width: 62px;
+  height: 62px;
+}
+.ci-revealed .ci-order {
+  gap: 20px;
+}
+.ci-revealed .ci-hook-wrap {
+  padding: 36px 0 40px;
+}
+
+/* The stamp: inked on at an angle, double-ruled like a real one. */
+.ci-stamp-slot {
+  display: flex;
+  justify-content: center;
+  /* Room for the corners the rotation pushes out. */
+  margin-top: 40px;
+  padding: 44px 0 36px;
+}
+.ci-stamp {
+  transform: rotate(-7deg);
+  padding: 14px 60px 26px;
+  border: 14px solid currentColor;
+  border-radius: 28px;
+  font-weight: 900;
+  font-style: italic;
+  line-height: 0.9;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow:
+    inset 0 0 0 10px #0a0a0d,
+    inset 0 0 0 15px currentColor,
+    0 0 90px color-mix(in srgb, currentColor 22%, transparent);
+  text-shadow: 0 0 50px color-mix(in srgb, currentColor 40%, transparent);
+}
+.ci-stamp {
+  text-align: center;
+}
+.ci-stamp-called {
+  color: var(--called);
+  font-size: 184px;
+}
+.ci-stamp-partial {
+  color: var(--partial);
+  font-size: 150px;
+  transform: rotate(-5deg);
+}
+/* The date line under a real rubber stamp's word. */
+.ci-stamp-date {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 5px solid currentColor;
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+}

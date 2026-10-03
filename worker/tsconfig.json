@@ -1,0 +1,15 @@
+{
+  // The site's Worker (worker/index.ts) and the model it shares with the page. Its tests: scripts/tsconfig.json.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["@cloudflare/workers-types"],
+    "noEmit": true
+  },
+  "include": [".", "../src/predictions/model.ts"],
+  "exclude": ["*.test.ts"]
+}
