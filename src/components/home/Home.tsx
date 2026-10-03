@@ -1,4 +1,5 @@
-// The landing page, the front of the replay instrument (same look as the replay screen). The header says what the
+// The landing page, the front of the replay instrument (same look as the replay screen). Above it, while calls are
+// open, the way to Called It (CallBanner). The header says what the
 // moment is: the next session's countdown, or a session live now. Under it a live row, only while live mode can
 // actually follow a session (the page's one white button then). Then the jump field, which finds any session by
 // Grand Prix, year and type, over Continue (what's in this browser, the latest race first when it's newer than what
@@ -11,6 +12,7 @@ import { currentYear, FIRST_YEAR, useLibrary } from "../../library";
 import { liveVia } from "../../live/client";
 import { accountNeed } from "../../live/vault";
 import { useReplay } from "../../store";
+import { CallBanner } from "../CallBanner";
 import { accountStatus, LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
 import { useVault } from "../vault/useVault";
@@ -225,6 +227,7 @@ export function Home() {
 
   return (
     <div className="h-full overflow-y-auto">
+      <CallBanner />
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950">
         <div className="mx-auto grid h-[52px] max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-6 px-6">
           <h1 className="text-zinc-100">

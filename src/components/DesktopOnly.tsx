@@ -1,8 +1,10 @@
-// What a phone gets instead of the app: Pitwall is built for a desktop or laptop screen (PRODUCT.md). Tablets
+// What a phone gets instead of the app: Pitwall is built for a desktop or laptop screen (PRODUCT.md). Called It
+// (/predictions) is made for phones, so while its calls are open there's a button to it. Tablets
 // and narrow desktop windows still get the app: a phone is a touch screen with no hover that is under 768 px
 // wide upright, or under 500 px tall on its side.
 
 import { useState } from "react";
+import { CallButton } from "./CallBanner";
 import { Logo } from "./Logo";
 
 const TOUCH = "(hover: none) and (pointer: coarse)";
@@ -32,6 +34,8 @@ export function DesktopOnly() {
         >
           {copied ? "Link copied" : "Copy link"}
         </button>
+        {/* Called It is made for phones. */}
+        <CallButton />
       </div>
     </div>
   );
