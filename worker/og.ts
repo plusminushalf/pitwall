@@ -4,7 +4,7 @@
 // resvg (WebAssembly) with the card's fonts (worker/fonts/, OFL).
 
 import { initWasm, Resvg } from "@resvg/resvg-wasm";
-import { shortSpan, stamp, dayMonth } from "../src/predictions/format";
+import { dayMonth, lead } from "../src/predictions/format";
 import { calledIt, driverIn, raceById, team, topFive, type Prediction } from "../src/predictions/model";
 
 export const OG_W = 1200;
@@ -39,7 +39,7 @@ export function ogSvg(p: Prediction, host: string): string {
   const t = team(d.team);
   const ink = inkOn(t.colour);
   const called = ogState(p) === "called";
-  const when = stamp(p.lockedAt, p.tz);
+  const toGo = lead(race.start - p.lockedAt).toUpperCase();
   const others = topFive(p.race).filter((o) => o.number !== d.number);
   const text = (x: number, y: number, size: number, weight: number, body: string, extra = "") =>
     `<text x="${x}" y="${y}" font-family="Barlow Condensed" font-size="${size}" font-weight="${weight}" ${extra}>${esc(body)}</text>`;
@@ -71,7 +71,7 @@ export function ogSvg(p: Prediction, host: string): string {
         <rect x="84" y="260" width="492" height="148" rx="9" fill="none" stroke="${GREEN}" stroke-width="3"/>
         ${text(330, 360, 112, 900, "CALLED IT", `${italic} fill="${GREEN}" text-anchor="middle"`)}
         <rect x="128" y="372" width="404" height="3" fill="${GREEN}"/>
-        ${text(330, 398, 20, 800, `CALLED THIS AT ${when.time}, BEFORE LIGHTS OUT`, `${italic} fill="${GREEN}" text-anchor="middle" letter-spacing="1"`)}
+        ${text(330, 398, 20, 800, `CALLED THIS ${toGo} BEFORE LIGHTS OUT`, `${italic} fill="${GREEN}" text-anchor="middle" letter-spacing="1"`)}
       </g>`
     : "";
 
@@ -137,9 +137,8 @@ export function ogSvg(p: Prediction, host: string): string {
 
   <rect x="64" y="${called ? 448 : 420}" width="70" height="2" fill="${RED}"/>
   <rect x="134" y="${called ? 448 : 420}" width="430" height="2" fill="#ffffff" fill-opacity="0.12"/>
-  ${text(64, called ? 480 : 456, 18, 700, "LOCKED IN", `fill="${RED}" letter-spacing="3.5"`)}
-  ${text(564, called ? 480 : 456, 18, 700, `${shortSpan(race.start - p.lockedAt)} EARLY`, 'fill="#f7f7f8" fill-opacity="0.62" letter-spacing="3" text-anchor="end"')}
-  <text x="64" y="${called ? 518 : 500}" font-family="JetBrains Mono" font-size="28" font-weight="500" fill="#ffffff">${esc(`${when.date} · ${when.time}`.toUpperCase())}<tspan dx="14" fill="#ffffff" fill-opacity="0.6">${esc(when.zone)}</tspan></text>
+  ${text(64, called ? 480 : 456, 18, 700, "LOCKED IN WITH", `fill="${RED}" letter-spacing="3.5"`)}
+  <text x="64" y="${called ? 522 : 504}" font-family="Barlow Condensed" font-size="44" font-weight="900" font-style="italic" fill="#ffffff">${esc(toGo)}<tspan dx="12" fill="#ffffff" fill-opacity="0.55">TO GO</tspan></text>
   <text x="64" y="${called ? 550 : 536}" font-family="Barlow Condensed" font-size="19" font-weight="800" fill="#ffffff" letter-spacing="1.5">BEFORE LIGHTS OUT<tspan dx="10" font-weight="600" fill="#f7f7f8" fill-opacity="0.62">${esc(`· ${race.name}`.toUpperCase())}</tspan></text>
 
   <polygon points="72,572 102,572 95,598 65,598" fill="${RED}"/>

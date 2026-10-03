@@ -35,14 +35,12 @@ export function span(ms: number): string {
   return `${plural(days, "day", "days")}${hrs % 24 ? ` ${plural(hrs % 24, "hr", "hrs")}` : ""}`;
 }
 
-/** The same, for the card: "7D 14H", "5H 12M", "48M". */
-export function shortSpan(ms: number): string {
-  const min = Math.max(1, Math.floor(ms / 60_000));
+/** How long before lights out a call was locked, for the card: "9 hrs", "1 hr", "45 min", "under 1 min". */
+export function lead(ms: number): string {
+  const min = Math.floor(ms / 60_000);
   const hrs = Math.floor(min / 60);
-  const days = Math.floor(hrs / 24);
-  if (days) return `${days}D${hrs % 24 ? ` ${hrs % 24}H` : ""}`;
-  if (hrs) return `${hrs}H${min % 60 ? ` ${min % 60}M` : ""}`;
-  return `${min}M`;
+  if (hrs >= 1) return `${hrs} ${hrs === 1 ? "hr" : "hrs"}`;
+  return min >= 1 ? `${min} min` : "under 1 min";
 }
 
 export const localTz = () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";

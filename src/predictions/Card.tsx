@@ -6,7 +6,7 @@
 // aren't shared.)
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
-import { dayMonth, shortSpan, stamp } from "./format";
+import { dayMonth, lead, stamp } from "./format";
 import { calledIt, driverIn, team, topFive, type Prediction, type Race } from "./model";
 import "./card.css";
 
@@ -47,8 +47,8 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
   const zone = locked?.tz ?? tz ?? "UTC";
   const result = locked?.result ?? null;
   const right = result && call.driver != null ? calledIt({ kind: call.kind, driver: call.driver }, result) : null;
-  const lead = call.driver != null ? driverIn(race.id, call.driver)?.team : undefined;
-  const p1 = lead ? team(lead).colour : "#e7000b";
+  const leadTeam = call.driver != null ? driverIn(race.id, call.driver)?.team : undefined;
+  const p1 = leadTeam ? team(leadTeam).colour : "#e7000b";
   const when = locked ? stamp(locked.lockedAt, zone) : null;
   const revealed = right === true;
 
@@ -109,7 +109,7 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
             <div className="ci-stamp ci-stamp-called">
               <div>Called it</div>
               <div className="ci-stamp-date">
-                Called this at {when.time}, before lights out
+                Called this {lead(race.start - locked!.lockedAt)} before lights out
               </div>
             </div>
           </div>
@@ -121,12 +121,9 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
       <footer className="ci-strip">
         {when && locked ? (
           <>
-            <div className="ci-locked-label">
-              <span>Locked in</span>
-              <span className="ci-lead">{shortSpan(race.start - locked.lockedAt)} early</span>
-            </div>
-            <div className="ci-locked-time">
-              {when.date} · {when.time} <span className="ci-zone">{when.zone}</span>
+            <div className="ci-locked-label">Locked in with</div>
+            <div className="ci-togo">
+              {lead(race.start - locked.lockedAt)} <span>to go</span>
             </div>
             <div className="ci-locked-meta">
               <b>Before lights out</b>
@@ -137,7 +134,9 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
         ) : (
           <>
             <div className="ci-locked-label ci-pending">Not locked yet</div>
-            <div className="ci-locked-time ci-pending-time">—— ——— ———— · ——:——</div>
+            <div className="ci-togo ci-pending-time">
+              —— <span>to go</span>
+            </div>
             <div className="ci-locked-meta">
               <b>Before lights out</b>
               <span className="ci-dot">·</span>

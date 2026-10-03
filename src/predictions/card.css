@@ -259,12 +259,18 @@
   text-transform: uppercase;
   color: var(--red);
 }
-.ci-locked-label {
-  display: flex;
-  justify-content: space-between;
+/* How long before lights out it was locked: the receipt's headline. */
+.ci-togo {
+  margin-top: 6px;
+  font-weight: 900;
+  font-style: italic;
+  font-size: 112px;
+  line-height: 1;
+  text-transform: uppercase;
+  color: #fff;
 }
-.ci-lead {
-  color: rgba(247, 247, 248, 0.62);
+.ci-togo span {
+  color: rgba(255, 255, 255, 0.55);
 }
 .ci-locked-time {
   margin-top: 14px;
