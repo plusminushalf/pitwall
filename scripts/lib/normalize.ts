@@ -423,12 +423,6 @@ export function estimateTotalLaps(
 // ---------------------------------------------------------------- normalize
 
 /**
- * A finished session's replay window in absolute ms, from its laps and race control alone: t0 is 5 minutes
- * before lights out (the formation lap), the end 3 minutes after the flag (or after the last lap, if later).
- * Free practice (laps as preparePracticeLaps leaves them): "lights out" is the green light, t0 a minute before it.
- * Ingest plans its telemetry requests from it before any telemetry is in.
- */
-/**
  * The chequered flag that ends a session: the first one, except in qualifying, which shows one after each segment (Q1,
  * Q2, Q3; SQ1 to SQ3): there the third, so none until the last segment's is out. (Live mode: a qualifying replay's
  * segments come from quali.ts.)
@@ -439,6 +433,12 @@ export function endingFlag<T extends { flag: string | null; date: string }>(race
   return flags.length >= 3 ? flags.at(-1) : undefined;
 }
 
+/**
+ * A finished session's replay window in absolute ms, from its laps and race control alone: t0 is 5 minutes
+ * before lights out (the formation lap), the end 3 minutes after the flag (or after the last lap, if later).
+ * Free practice (laps as preparePracticeLaps leaves them): "lights out" is the green light, t0 a minute before it.
+ * Ingest plans its telemetry requests from it before any telemetry is in.
+ */
 export function replayWindow(raw: Pick<RawSessionData, "session" | "laps" | "raceControl">): { lightsOut: number; t0: number; end: number } {
   const practice = isFreePractice(raw.session);
   const lap1Starts = raw.laps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
