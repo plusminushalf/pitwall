@@ -12,11 +12,14 @@
 // frame's broker numbers them the same) and `_key` (the document key: a newer version of a lap has the same
 // one), like OpenF1's; REST rows have neither.
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { gunzipSync } from "node:zlib";
 import { join } from "node:path";
 
 type Rec = Record<string, any>;
+
+/** A telemetry slice's raw file: every car's records over [from, to) (Unix seconds). */
+const SLICE_FILE = /^(car_data|location)_(\d{9,11})_(\d{9,11})\.json\.gz$/;
 
 /** The topics the simulation publishes (OpenF1's MQTT v1/<topic>), in a fixed order (the feed's topic index). */
 export const SIM_TOPICS = [
@@ -203,10 +206,17 @@ export function buildTimeline(repo: string, sessionKey: number, startS: number):
   for (const rec of results) push("session_result", lastLapEnd + 30_000, rec);
   for (const topic of ["position", "intervals", "weather", "team_radio", "overtakes"] as const) for (const rec of read(topic)) push(topic, ms(rec.date), rec);
   for (const rec of raceControl) push("race_control", ms(rec.date), rec);
-  for (const d of drivers) {
-    for (const topic of ["car_data", "location"] as const) {
-      for (const rec of read(`${topic}_${d.driver_number}`)) if (ms(rec.date) >= t0Orig) push(topic, ms(rec.date), rec, true);
-    }
+  // Telemetry: one file per car (the layout before slices), or every car's in time slices (`car_data_<from>_<to>`,
+  // scripts/lib/slices.ts: what `bun run ingest` writes now), as server/simulate.ts reads it.
+  const dir = rawDir(repo, sessionKey);
+  const slices = readdirSync(dir)
+    .map((f) => SLICE_FILE.exec(f))
+    .filter((m) => m !== null)
+    .map((m) => ({ topic: m[1] as "car_data" | "location", name: m[0].replace(/\.json\.gz$/, ""), from: Number(m[2]) }))
+    .sort((a, b) => a.from - b.from);
+  for (const topic of ["car_data", "location"] as const) {
+    const recs = [...drivers.flatMap((d) => read(`${topic}_${d.driver_number}`)), ...slices.filter((s) => s.topic === topic).flatMap((s) => read(s.name))];
+    for (const rec of recs) if (ms(rec.date) >= t0Orig) push(topic, ms(rec.date), rec, true);
   }
 
   // What a live session up to now would have published before the start is history (REST only); after the
