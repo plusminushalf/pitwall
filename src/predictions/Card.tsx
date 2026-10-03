@@ -109,7 +109,7 @@ function Turn1({ race, driver }: { race: Race; driver: number | null }) {
               {d.last}
             </span>
             <span className="ci-hero-meta">
-              {t.name} · Qualified P{d.quali}
+              {t.name} · Starts P{d.grid}
             </span>
           </div>
         </div>
@@ -126,7 +126,7 @@ function Turn1({ race, driver }: { race: Race; driver: number | null }) {
           <span key={o.number} className="ci-chip" style={{ "--team": team(o.team).colour } as CSSProperties}>
             <i />
             {o.code}
-            <em>P{o.quali}</em>
+            <em>P{o.grid}</em>
           </span>
         ))}
       </div>

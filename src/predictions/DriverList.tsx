@@ -1,4 +1,4 @@
-// The top five from qualifying as a timing list (Home's rows, DESIGN.md), to pick the call from.
+// The top five on the starting grid as a timing list (Home's rows, DESIGN.md), to pick the call from.
 
 import { LABEL } from "../components/controls";
 import { team, topFive } from "./model";
@@ -10,7 +10,7 @@ export function DriverList({ race, value, onChange, label, locked = false }: { r
   return (
     <div>
       <div className={`grid ${COLS} border-b border-zinc-800 px-3 pb-2`}>
-        <span className={LABEL}>Qual</span>
+        <span className={LABEL}>Grid</span>
         <span className={LABEL}>Driver</span>
         <span className={`${LABEL} hidden sm:block`}>Team</span>
         <span className={`${LABEL} text-right`}>No.</span>
@@ -28,7 +28,7 @@ export function DriverList({ race, value, onChange, label, locked = false }: { r
               onClick={() => onChange(d.number)}
               className={`grid min-h-[44px] w-full ${COLS} items-center border-b border-zinc-800/70 px-3 text-left transition-colors ${on ? "bg-zinc-800/60" : locked ? "opacity-50" : "hover:bg-zinc-900"}`}
             >
-              <span className="text-sm tabular-nums text-zinc-400">P{d.quali}</span>
+              <span className="text-sm tabular-nums text-zinc-400">P{d.grid}</span>
               <span className="flex min-w-0 items-center gap-2.5">
                 <span className="h-4 w-1 flex-none rounded-full" style={{ background: team(d.team).colour }} />
                 <span className="truncate text-sm font-semibold text-zinc-50">

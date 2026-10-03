@@ -1,4 +1,4 @@
-// The page's one job: who leads into Turn 1 at the next race, from the top five in its qualifying, picked from a
+// The page's one job: who leads into Turn 1 at the next race, from the top five on its starting grid, picked from a
 // timing list like Home's rows. The card fills in as you pick; Lock it in keeps the call in this browser (saved.ts),
 // one per race, and the card stops at its time to go. Then post it: a phone shares the card itself, a computer copies
 // it and the text. The post's own time is the proof. Before qualifying and after lights out there's nothing to pick.
@@ -24,7 +24,9 @@ export function Compose() {
   const tz = localTz();
 
   // This browser's call for the race, once locked: it can't change, and the card keeps its time.
-  const saved = race ? calls[race.id] : undefined;
+  // One for a driver a grid penalty has since moved out of the five doesn't count: pick again.
+  const stored = race ? calls[race.id] : undefined;
+  const saved = race && stored && driverIn(race.id, stored.driver) ? stored : undefined;
   const pick = saved?.driver ?? chosen;
   const driver = race && pick != null && driverIn(race.id, pick) ? pick : null;
   const at = saved?.at ?? now;
@@ -102,7 +104,7 @@ export function Compose() {
       <div className="min-w-0">
         <Intro />
 
-        <section aria-label="The top five from qualifying" className="mt-8">
+        <section aria-label="The top five on the grid" className="mt-8">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
             <h2 className="text-2xl font-bold tracking-tight text-zinc-50">{race.name}</h2>
             <span className="text-xs tabular-nums text-zinc-400">
@@ -111,7 +113,7 @@ export function Compose() {
           </div>
           <DriverList race={race.id} value={driver} onChange={setChosen} label="Who leads into Turn 1" locked={!!saved} />
           <p className="mt-3 px-3 text-xs text-zinc-400">
-            {saved ? `Your call: ${name}, locked with ${toGo} to go. One call per race.` : "The top five from qualifying. It's whoever's ahead coming out of Turn 1."}
+            {saved ? `Your call: ${name}, locked with ${toGo} to go. One call per race.` : "The top five on the starting grid, after penalties. It's whoever's ahead coming out of Turn 1."}
           </p>
         </section>
 

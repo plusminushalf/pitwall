@@ -18,11 +18,9 @@ export function readCalls(): Record<number, SavedCall> {
   }
 }
 
-/** Saves the call (unless the race has one already) and returns them all. */
+/** Saves the race's call and returns them all. The page only offers this while the race has none that counts. */
 export function saveCall(race: number, call: SavedCall): Record<number, SavedCall> {
-  const calls = readCalls();
-  if (calls[race]) return calls;
-  const next = { ...calls, [race]: call };
+  const next = { ...readCalls(), [race]: call };
   try {
     localStorage.setItem(KEY, JSON.stringify(next));
   } catch {

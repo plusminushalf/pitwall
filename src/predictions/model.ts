@@ -1,5 +1,5 @@
-// Called It (/predictions): a fan's call of who leads into Turn 1 at the next race, from the top five in its
-// qualifying, made into a card to post before lights out. All in the browser: the post's own time is the proof.
+// Called It (/predictions): a fan's call of who leads into Turn 1 at the next race, from the top five on its
+// starting grid, made into a card to post before lights out. All in the browser: the post's own time is the proof.
 
 export const TEAMS = [
   { id: "mclaren", name: "McLaren", colour: "#F47600" },
@@ -69,7 +69,7 @@ export const RACES: Race[] = [
   race(11436, "Abu Dhabi Grand Prix", "Yas Marina", "2026-12-06T13:00:00Z"),
 ];
 
-/** The next race: the one calls are for (open once its qualifying's top five are in QUALI_TOP5). */
+/** The next race: the one calls are for (open once its starting grid's top five are in GRID_TOP5). */
 export const nextRace = (now: number): Race | undefined => RACES.find((r) => r.start > now);
 
 export interface Driver {
@@ -78,33 +78,34 @@ export interface Driver {
   last: string;
   code: string;
   team: TeamId;
-  /** Where they qualified. */
-  quali: number;
+  /** Where they start, penalties applied. */
+  grid: number;
 }
 
-const driver = (quali: number, number: number, first: string, last: string, code: string, team: TeamId): Driver => ({ number, first, last, code, team, quali });
+const driver = (grid: number, number: number, first: string, last: string, code: string, team: TeamId): Driver => ({ number, first, last, code, team, grid });
 
 /**
- * The top five from each race's qualifying (OpenF1's session_result), the drivers a call picks from. Calls for a race
- * open once its five are here: add them after each qualifying.
+ * The top five of each race's starting grid, penalties applied (formula1.com's starting grid; OpenF1's
+ * /starting_grid only has it near the start), the drivers a call picks from. Calls for a race open once its five are
+ * here: add them after qualifying, and check again when grid penalties come out.
  */
-export const QUALI_TOP5: Record<number, Driver[]> = {
-  // Qualifying 11730, 2026-10-03.
+export const GRID_TOP5: Record<number, Driver[]> = {
+  // Qualifying 11730 (2026-10-03), then Hadjar's five-place penalty (his seventh engine) took him from 3rd to 8th.
   11731: [
     driver(1, 3, "Max", "Verstappen", "VER", "redbull"),
     driver(2, 44, "Lewis", "Hamilton", "HAM", "ferrari"),
-    driver(3, 6, "Isack", "Hadjar", "HAD", "redbull"),
-    driver(4, 12, "Kimi", "Antonelli", "ANT", "mercedes"),
-    driver(5, 16, "Charles", "Leclerc", "LEC", "ferrari"),
+    driver(3, 12, "Kimi", "Antonelli", "ANT", "mercedes"),
+    driver(4, 16, "Charles", "Leclerc", "LEC", "ferrari"),
+    driver(5, 1, "Lando", "Norris", "NOR", "mclaren"),
   ],
 };
 
-export const topFive = (race: number): Driver[] => QUALI_TOP5[race] ?? [];
+export const topFive = (race: number): Driver[] => GRID_TOP5[race] ?? [];
 export const driverIn = (race: number, number: number): Driver | undefined => topFive(race).find((d) => d.number === number);
 /** What's called: who's ahead coming out of Turn 1, by car number (none picked yet: null). */
 export type Call = { kind: "turn1-leader"; driver: number | null };
 
-/** The race calls are for now: the next one, once its qualifying's top five are in. */
+/** The race calls are for now: the next one, once its grid's top five are in. */
 export function openRace(now: number): Race | null {
   const race = nextRace(now);
   return race && topFive(race.id).length ? race : null;
