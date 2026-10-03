@@ -80,7 +80,7 @@ export function Compose() {
   );
   const name = driver != null ? driverIn(race.id, driver)?.last : null;
   // The text to post with the card, a line each: the call, how early, then the tags and where to make one.
-  const caption = [`My call: ${name} leads into Turn 1.`, `Called with ${toGo} to go.`, "", `#F1 #${race.short.replace(/\W/g, "")}`, `${location.origin}/predictions`].join("\n");
+  const caption = [`My call: ${name} leads into Turn 1.`, `Called with ${toGo} to go.`, "", `#F1 #${race.short.replace(/\W/g, "")} #predictions`, `${location.origin}/predictions`].join("\n");
 
   const shareButton = (
     <button
