@@ -144,7 +144,7 @@ export function ogSvg(p: Prediction, host: string): string {
   <polygon points="72,572 102,572 95,598 65,598" fill="${RED}"/>
   <path d="M74 585 L80 591 L92 579" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
   ${text(112, 597, 32, 900, "CALLED IT", `${italic} fill="#ffffff"`)}
-  <text x="1136" y="594" font-family="JetBrains Mono" font-size="17" font-weight="500" fill="#ffffff" fill-opacity="0.5" text-anchor="end">${esc(`${host}/predictions/${p.id}`)}</text>
+  <text x="1136" y="594" font-family="JetBrains Mono" font-size="17" font-weight="500" fill="#ffffff" fill-opacity="0.5" text-anchor="end">${esc(`${host}/predictions`)}</text>
   ${stampSvg}
 </svg>`;
 }

@@ -146,7 +146,7 @@ export function Card({ race, call, locked, host, tz, ref }: CardProps & { ref?: 
         )}
         <div className="ci-sign">
           <Wordmark />
-          <span className="ci-url">{locked ? `${host}/predictions/${locked.id}` : `${host}/predictions`}</span>
+          <span className="ci-url">{host}/predictions</span>
         </div>
       </footer>
 
