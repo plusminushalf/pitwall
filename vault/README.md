@@ -514,7 +514,7 @@ working vault inside it (`e2e.ts` checks this).
 ## Threat model
 
 See H2.11. In short: the separate site keeps the password out of reach of app code, npm packages in the app
-and marketplace blocks; the popup on the vault's own address stops fake in-app login forms; the allowlist
+and marketplace widgets; the popup on the vault's own address stops fake in-app login forms; the allowlist
 plus `frame-ancestors` stop other sites embedding the vault or talking to it. Not defended: a compromised
 vault release (hence tiny code, a separate deploy, reviewed tagged releases, a published build hash) and
 malware or all-sites extensions on the device.

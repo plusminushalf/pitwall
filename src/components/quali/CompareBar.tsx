@@ -1,5 +1,5 @@
-import { Icon } from "../../blockkit/ui/Icon";
-import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { Icon } from "../../widgetkit/ui/Icon";
+import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import type { CompareModel } from "../../data/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";

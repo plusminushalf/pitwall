@@ -2,7 +2,7 @@
 // while a replay is on screen.
 
 import { useEffect } from "react";
-import { Icon } from "../blockkit/ui/Icon";
+import { Icon } from "../widgetkit/ui/Icon";
 import { isRunning, useLibrary } from "../library";
 import { useReplay } from "../store";
 

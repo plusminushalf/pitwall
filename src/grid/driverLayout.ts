@@ -1,5 +1,5 @@
 // The driver-panel layout: the default race screen until 2026-10-02 (H3.12), laid out like the screen before
-// blocks: the tower on the left, the map filling the middle, and the driver panel on the right (header, speed
+// widgets: the tower on the left, the map filling the middle, and the driver panel on the right (header, speed
 // and gear beside the bars, the 60 s trace, lap times and sectors, tyres) with the race feed filling the rest.
 // The app no longer places it; the grid's tests use it as a full, realistic layout.
 //
@@ -11,7 +11,7 @@ import { COLUMNS, type Layout, type LayoutEntry } from "./layout";
 
 /** The screen width (CSS px) the default layout matches the old widths at: the user's window. */
 export const REFERENCE_WIDTH = 1720;
-/** The narrowest screen the default layout keeps every block's contents whole at. */
+/** The narrowest screen the default layout keeps every widget's contents whole at. */
 export const MIN_WIDTH = 1440;
 
 const cols = (px: number) => Math.max(1, Math.round((px * COLUMNS) / REFERENCE_WIDTH));
@@ -21,12 +21,12 @@ const SPEED = Math.ceil((109 * COLUMNS) / MIN_WIDTH);
 const MAP = COLUMNS - TOWER - PANEL;
 const RIGHT = COLUMNS - PANEL;
 
-const at = (x: number, y: number, width: number, group?: string): LayoutEntry => ({ blockVersion: "1.0.0", x, y, width, ...(group && { group }), settings: {} });
+const at = (x: number, y: number, width: number, group?: string): LayoutEntry => ({ widgetVersion: "1.0.0", x, y, width, ...(group && { group }), settings: {} });
 
 export const DRIVER_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
-  blocks: {
+  widgets: {
     "timing-tower": at(0, 0, TOWER),
     "track-map": at(TOWER, 0, MAP),
     "driver-header": at(RIGHT, 0, PANEL),

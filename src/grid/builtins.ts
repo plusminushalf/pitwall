@@ -1,23 +1,23 @@
-// The blocks that ship with the app (compiled in: trust phase P1, H3.13).
+// The widgets that ship with the app (compiled in: trust phase P1, H3.13).
 
-import type { BlockDefinition } from "../blockkit/defineBlock";
-import battles from "../blocks/battles";
-import driverHeader from "../blocks/driver-header";
-import gapChart from "../blocks/gap-chart";
-import lapTimes from "../blocks/lap-times";
-import longRuns from "../blocks/long-runs";
-import pitStrategy from "../blocks/pit-strategy";
-import raceFeed from "../blocks/race-feed";
-import sectors from "../blocks/sectors";
-import speedGear from "../blocks/speed-gear";
-import speedTrace from "../blocks/speed-trace";
-import stintPace from "../blocks/stint-pace";
-import throttleBrakeRpm from "../blocks/throttle-brake-rpm";
-import timingTower from "../blocks/timing-tower";
-import trackMap from "../blocks/track-map";
-import tyreStrip from "../blocks/tyre-strip";
-import weather from "../blocks/weather";
+import type { WidgetDefinition } from "../widgetkit/defineWidget";
+import battles from "../widgets/battles";
+import driverHeader from "../widgets/driver-header";
+import gapChart from "../widgets/gap-chart";
+import lapTimes from "../widgets/lap-times";
+import longRuns from "../widgets/long-runs";
+import pitStrategy from "../widgets/pit-strategy";
+import raceFeed from "../widgets/race-feed";
+import sectors from "../widgets/sectors";
+import speedGear from "../widgets/speed-gear";
+import speedTrace from "../widgets/speed-trace";
+import stintPace from "../widgets/stint-pace";
+import throttleBrakeRpm from "../widgets/throttle-brake-rpm";
+import timingTower from "../widgets/timing-tower";
+import trackMap from "../widgets/track-map";
+import tyreStrip from "../widgets/tyre-strip";
+import weather from "../widgets/weather";
 
-const ALL: BlockDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns];
+const ALL: WidgetDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns];
 
-export const BUILTIN_BLOCKS: ReadonlyMap<string, BlockDefinition> = new Map(ALL.map((b) => [b.id, b as BlockDefinition]));
+export const BUILTIN_WIDGETS: ReadonlyMap<string, WidgetDefinition> = new Map(ALL.map((b) => [b.id, b as WidgetDefinition]));

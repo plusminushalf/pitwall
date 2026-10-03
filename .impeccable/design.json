@@ -332,7 +332,7 @@
       {
         "name": "menu",
         "value": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
-        "purpose": "Replay help popover, block picker (shadow-xl)."
+        "purpose": "Replay help popover, widget picker (shadow-xl)."
       },
       {
         "name": "tooltip",
@@ -488,7 +488,7 @@
   ],
   "narrative": {
     "northStar": "The Timing Screen",
-    "overview": "Pitwall looks like the timing screens on a real pit wall: a near-black page, panels split by thin hairlines, and dense rows of tabular figures. Nothing is decorative. The replay screen set this look first, a grid of blocks between a 52px top bar and a timeline. The home screen deliberately uses the same look: its sessions are laid out as timing rows, its column headers match the timing tower's, and its one white button plays the same role as the replay screen's white play button. There is one system across both screens. Home is the front page of the same instrument.\n\nThe page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and as driver tags in the feed. The interface never borrows them for chrome.\n\nMotion only shows state. Rows highlight, download fills grow, and tower rows slide when positions change. Nothing animates for its own sake.",
+    "overview": "Pitwall looks like the timing screens on a real pit wall: a near-black page, panels split by thin hairlines, and dense rows of tabular figures. Nothing is decorative. The replay screen set this look first, a grid of widgets between a 52px top bar and a timeline. The home screen deliberately uses the same look: its sessions are laid out as timing rows, its column headers match the timing tower's, and its one white button plays the same role as the replay screen's white play button. There is one system across both screens. Home is the front page of the same instrument.\n\nThe page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and as driver tags in the feed. The interface never borrows them for chrome.\n\nMotion only shows state. Rows highlight, download fills grow, and tower rows slide when positions change. Nothing animates for its own sake.",
     "keyCharacteristics": [
       "Near-black ground (pit-black) with hairline dividers (hairline) instead of cards.",
       "Timing rows: tabular figures, short bold names, 11px uppercase column labels.",

@@ -3,7 +3,7 @@
 // clicking a time compares that lap.
 
 import { useMemo, type ReactNode } from "react";
-import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { compareModel } from "../../data/compare";
 import type { Tyre } from "../../data/practice";
 import type { Session } from "../../data/session";

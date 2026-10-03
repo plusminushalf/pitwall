@@ -5,7 +5,7 @@
   </picture>
 </h1>
 
-Replay or follow a live F1 race on a polished timing screen made of blocks you arrange. Each block is a different kind of analysis. Built on [OpenF1](https://openf1.org) data. Runs in your browser.
+Replay or follow a live F1 race on a polished timing screen made of widgets you arrange. Each widget is a different kind of analysis. Built on [OpenF1](https://openf1.org) data. Runs in your browser.
 
 **Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**. The hosted site plays replays only. Live works only when you [run Pitwall locally](#run-it-locally), for now.
 
@@ -15,7 +15,7 @@ Replay or follow a live F1 race on a polished timing screen made of blocks you a
 
 - **Replays.** Every race, sprint, qualifying and free practice session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
 - **One timeline** for timing, gaps, tyres, pit stops, race control, weather and team radio. Pause, scrub, or play at up to 64×.
-- **Blocks.** Move, resize, add or remove them. Your layout is saved.
+- **Widgets.** Move, resize, add or remove them. Your layout is saved.
 - **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Click a lap, a battle or a stop to watch it.
 - **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
@@ -25,7 +25,7 @@ Replay or follow a live F1 race on a polished timing screen made of blocks you a
 
 | Qualifying | Edit the layout |
 | --- | --- |
-| ![Qualifying: three drivers' best laps compared](docs/screenshots/qualifying.png) | ![Edit mode with the block picker open](docs/screenshots/layout.png) |
+| ![Qualifying: three drivers' best laps compared](docs/screenshots/qualifying.png) | ![Edit mode with the widget picker open](docs/screenshots/layout.png) |
 
 ## Your own OpenF1 account (optional)
 
@@ -56,15 +56,15 @@ bun run live
 
 CLI ingest, the live simulator and how it all works: [docs/development.md](docs/development.md).
 
-## Write a block
+## Write a widget
 
-A block is a folder in [`src/blocks/`](src/blocks). Its `index.tsx` default-exports `defineBlock({ ... })`. It reads the race through block-kit's hooks. The hooks return data only up to the replay's current time, so a block can't spoil a race by accident. The one opt-out is `useWholeSession()`.
+A widget is a folder in [`src/widgets/`](src/widgets). Its `index.tsx` default-exports `defineWidget({ ... })`. It reads the race through widget-kit's hooks. The hooks return data only up to the replay's current time, so a widget can't spoil a race by accident. The one opt-out is `useWholeSession()`.
 
-A whole block:
+A whole widget:
 
 ```tsx
-// src/blocks/fastest-lap/index.tsx
-import { defineBlock, lapTime, Stat, useFastestLap } from "block-kit";
+// src/widgets/fastest-lap/index.tsx
+import { defineWidget, lapTime, Stat, useFastestLap } from "widget-kit";
 
 function FastestLap() {
   const lap = useFastestLap(); // the fastest lap so far, never one still to come
@@ -75,10 +75,10 @@ function FastestLap() {
   );
 }
 
-export default defineBlock({
+export default defineWidget({
   id: "fastest-lap", // kebab-case, the same as the folder
   name: "Fastest lap",
-  description: "The fastest lap so far, and who set it.", // shown in the block picker
+  description: "The fastest lap so far, and who set it.", // shown in the widget picker
   version: "1.0.0",
   height: 48, // px
   width: { min: 8, default: 10, max: 25 }, // percent of the grid's width
@@ -88,26 +88,26 @@ export default defineBlock({
 });
 ```
 
-1. Make a folder in `src/blocks/` with an `index.tsx` like the one above.
-2. Pick your hooks. They're all listed in [`src/blockkit/index.ts`](src/blockkit/index.ts). Import them from `"block-kit"`.
-3. Register the block in [`src/grid/builtins.ts`](src/grid/builtins.ts): import it and add it to the `ALL` list. It then shows up under **Edit layout** → **+ Add block**.
-4. Run `bun run lint` and `bun test src/blocks`. The lint checks that a block imports only React, `block-kit` and files in its own folder.
+1. Make a folder in `src/widgets/` with an `index.tsx` like the one above.
+2. Pick your hooks. They're all listed in [`src/widgetkit/index.ts`](src/widgetkit/index.ts). Import them from `"widget-kit"`.
+3. Register the widget in [`src/grid/builtins.ts`](src/grid/builtins.ts): import it and add it to the `ALL` list. It then shows up under **Edit layout** → **+ Add widget**.
+4. Run `bun run lint` and `bun test src/widgets`. The lint checks that a widget imports only React, `widget-kit` and files in its own folder.
 5. Open a PR.
 
-[`weather`](src/blocks/weather/index.tsx) is the smallest real block. `gap-chart`, `stint-pace`, `battles` and `pit-strategy` are bigger. Each keeps its logic in a separate file, with tests next to it.
+[`weather`](src/widgets/weather/index.tsx) is the smallest real widget. `gap-chart`, `stint-pace`, `battles` and `pit-strategy` are bigger. Each keeps its logic in a separate file, with tests next to it.
 
-To match the app's look, use block-kit's UI pieces: `Label`, `Stat`, `Icon`, `DriverTag` and `TyreBadge`. See [DESIGN.md](DESIGN.md).
+To match the app's look, use widget-kit's UI pieces: `Label`, `Stat`, `Icon`, `DriverTag` and `TyreBadge`. See [DESIGN.md](DESIGN.md).
 
-### What a block can read
+### What a widget can read
 
 - **Timing:** `useRunningOrder`, `usePositions`, `useDriver` (position, gaps, tyres, lap, status), `useFastestLap`, `useBestSectors`.
 - **Laps and strategy:** `useLaps` (sector times, mini-sectors, speed traps), `useStints`, `usePitStops` (pit lane and stationary time). `useAllLaps`, `useAllStints` and `useAllPitStops` cover the whole field.
 - **Telemetry:** `useCar` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory` (recent samples), `useFrame` (car positions every animation frame, for canvas drawing).
 - **The race:** `useTrackStatus`, `useNeutralPeriods` (SC, VSC and red flag periods), `useSectorFlags`, `useWeather`, `useFeed` (race control, overtakes, pit stops, team radio).
 - **Session:** `useDrivers` (names, teams, colours), `useTrack` (outline, pit lane, corners, sectors), `useSessionInfo`.
-- **Playback and the block:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useBlockSize`.
+- **Playback and the widget:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useWidgetSize`.
 
-## Request a block
+## Request a widget
 
 Not up for writing one? Missing some data? [Open an issue](https://github.com/plusminushalf/pitwall/issues/new?labels=enhancement). Say what you want to see and why.
 

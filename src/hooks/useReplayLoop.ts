@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { runFrames } from "../blockkit/frame";
+import { runFrames } from "../widgetkit/frame";
 import { followStep } from "../data/liveEdge";
 import { clock, comparing, liveEdge, streamLimit, useReplay } from "../store";
 
@@ -50,7 +50,7 @@ export function useReplayLoop() {
         lastPublish = now;
         publish();
       }
-      // Canvas blocks draw this frame's time (block kit useFrame).
+      // Canvas widgets draw this frame's time (widget kit useFrame).
       runFrames(now);
       raf = requestAnimationFrame(frame);
     };

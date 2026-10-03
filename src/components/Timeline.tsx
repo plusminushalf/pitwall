@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Icon } from "../blockkit/ui/Icon";
+import { Icon } from "../widgetkit/ui/Icon";
 import { stepAt } from "../engine/lookup";
 import { spoilerFreeEnd } from "../engine/noSpoilers";
 import { scheduledDistance } from "../engine/raceDistance";

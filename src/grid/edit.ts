@@ -1,14 +1,14 @@
-// Edit mode's layout changes (H3.10): remove, move, resize and add blocks. Pure functions over the stored
+// Edit mode's layout changes (H3.10): remove, move, resize and add widgets. Pure functions over the stored
 // layout; the grid packs the result. Each returns a new layout with every y renumbered 0..n-1 in pack
 // order, so pack order never depends on x ties. Whether a change fits is the caller's check (fits(),
-// fitsAsWell()), except resizeBlock, resizeHeight, fitHeight and addBlock, which refuse steps that don't.
+// fitsAsWell()), except resizeWidget, resizeHeight, fitHeight and addWidget, which refuse steps that don't.
 
-import type { BlockDefinition } from "../blockkit/defineBlock";
-import { blockIdOf, columnRange, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type LayoutEntry, type Placement } from "./layout";
+import type { WidgetDefinition } from "../widgetkit/defineWidget";
+import { widgetIdOf, columnRange, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type LayoutEntry, type Placement } from "./layout";
 import { gridKind } from "./storage";
 
 export interface EditContext {
-  blocks: ReadonlyMap<string, BlockDefinition>;
+  widgets: ReadonlyMap<string, WidgetDefinition>;
   input: GridInput;
   gridHeight: number;
 }
@@ -20,31 +20,31 @@ const MIN_SLOT = 1;
 const overlaps = (a: { x: number; width: number }, b: { x: number; width: number }) => a.x < b.x + b.width && b.x < a.x + a.width;
 const overlapsVertically = (a: Placement, b: Placement) => a.top < b.top + b.height - EPS && b.top < a.top + a.height - EPS;
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
-/** A placed block's box top: its hairline, if any, belongs to it. */
+/** A placed widget's box top: its hairline, if any, belongs to it. */
 const boxTop = (p: Placement) => p.top - (p.dividerTop ? DIVIDER : 0);
 
 /** The layout's ids in pack order (by y, then x). */
-const order = (layout: Layout) => Object.keys(layout.blocks).sort((a, b) => layout.blocks[a].y - layout.blocks[b].y || layout.blocks[a].x - layout.blocks[b].x);
+const order = (layout: Layout) => Object.keys(layout.widgets).sort((a, b) => layout.widgets[a].y - layout.widgets[b].y || layout.widgets[a].x - layout.widgets[b].x);
 
-/** `blocks` (every id in `ids`) with y set to each id's index in `ids`. */
-const renumber = (layout: Layout, blocks: Record<string, LayoutEntry>, ids: readonly string[]): Layout => ({
+/** `widgets` (every id in `ids`) with y set to each id's index in `ids`. */
+const renumber = (layout: Layout, widgets: Record<string, LayoutEntry>, ids: readonly string[]): Layout => ({
   ...layout,
-  blocks: Object.fromEntries(ids.map((id, y) => [id, { ...blocks[id], y }])),
+  widgets: Object.fromEntries(ids.map((id, y) => [id, { ...widgets[id], y }])),
 });
 
-/** Each column's bottom with stretching blocks at their minimum. */
+/** Each column's bottom with stretching widgets at their minimum. */
 function columnBottoms(placed: readonly Placement[], columns: number): number[] {
   const bottoms = new Array<number>(columns).fill(0);
   for (const p of placed) for (let c = Math.max(p.x, 0); c < Math.min(p.x + p.width, columns); c++) bottoms[c] = Math.max(bottoms[c], p.top + p.height);
   return bottoms;
 }
 
-/** How far the columns reach below ctx.gridHeight with stretching blocks at their minimum, summed over columns, in px. */
+/** How far the columns reach below ctx.gridHeight with stretching widgets at their minimum, summed over columns, in px. */
 export function overflow(layout: Layout, ctx: EditContext): number {
-  return columnBottoms(pack(layout, ctx.blocks, ctx.input, 0), layout.columns).reduce((sum, b) => sum + Math.max(0, b - ctx.gridHeight - EPS), 0);
+  return columnBottoms(pack(layout, ctx.widgets, ctx.input, 0), layout.columns).reduce((sum, b) => sum + Math.max(0, b - ctx.gridHeight - EPS), 0);
 }
 
-/** Every column's blocks fit in ctx.gridHeight with stretching blocks at their minimum (pack at height 0). */
+/** Every column's widgets fit in ctx.gridHeight with stretching widgets at their minimum (pack at height 0). */
 export function fits(layout: Layout, ctx: EditContext): boolean {
   return overflow(layout, ctx) === 0;
 }
@@ -57,22 +57,22 @@ export function fitsAsWell(before: Layout, after: Layout, ctx: EditContext): boo
   return overflow(after, ctx) <= overflow(before, ctx) + EPS;
 }
 
-/** Ids of blocks whose bottom (stretching blocks at min) is below ctx.gridHeight: "cut off". */
+/** Ids of widgets whose bottom (stretching widgets at min) is below ctx.gridHeight: "cut off". */
 export function cutOff(layout: Layout, ctx: EditContext): string[] {
-  return pack(layout, ctx.blocks, ctx.input, 0)
+  return pack(layout, ctx.widgets, ctx.input, 0)
     .filter((p) => p.top + p.height > ctx.gridHeight + EPS)
     .map((p) => p.id);
 }
 
-export function removeBlock(layout: Layout, id: string): Layout {
-  if (!(id in layout.blocks)) return layout;
-  return renumber(layout, layout.blocks, order(layout).filter((k) => k !== id));
+export function removeWidget(layout: Layout, id: string): Layout {
+  if (!(id in layout.widgets)) return layout;
+  return renumber(layout, layout.widgets, order(layout).filter((k) => k !== id));
 }
 
 /**
- * Where a dragged block would land: its left column and its index among the blocks overlapping its span
+ * Where a dragged widget would land: its left column and its index among the widgets overlapping its span
  * (excluding itself), in pack order. `left` is the dragged box's left edge and `centerY` its vertical centre, in
- * grid px; `gridWidth` maps px to columns. x is rounded to the nearest column and clamped so the block's (clamped)
+ * grid px; `gridWidth` maps px to columns. x is rounded to the nearest column and clamped so the widget's (clamped)
  * width fits. index = the first span member whose vertical centre is below centerY, else the member count.
  */
 export interface DropTarget {
@@ -80,9 +80,9 @@ export interface DropTarget {
   index: number;
 }
 
-/** The dragged block's width as placed (clamped to its range and the grid). */
+/** The dragged widget's width as placed (clamped to its range and the grid). */
 const widthOf = (layout: Layout, placements: readonly Placement[], id: string) =>
-  Math.min(placements.find((p) => p.id === id)?.width ?? layout.blocks[id]?.width ?? 1, layout.columns);
+  Math.min(placements.find((p) => p.id === id)?.width ?? layout.widgets[id]?.width ?? 1, layout.columns);
 
 const spanMembers = (placements: readonly Placement[], id: string, span: { x: number; width: number }) => placements.filter((p) => p.id !== id && overlaps(p, span));
 
@@ -97,29 +97,29 @@ export function dropTarget(layout: Layout, placements: readonly Placement[], id:
 /**
  * The layout with `id` moved to `target` (keeps its width, group and settings). Build the pack-order id list,
  * take `id` out, insert it before span member `index` (or after the last member; at the end if the span is empty),
- * renumber y. `placements` are pack() of `layout` (dragged block included). Doesn't check fit: call fits().
+ * renumber y. `placements` are pack() of `layout` (dragged widget included). Doesn't check fit: call fits().
  */
-export function moveBlock(layout: Layout, placements: readonly Placement[], id: string, target: DropTarget): Layout {
-  const entry = layout.blocks[id];
+export function moveWidget(layout: Layout, placements: readonly Placement[], id: string, target: DropTarget): Layout {
+  const entry = layout.widgets[id];
   if (!entry) return layout;
   const members = spanMembers(placements, id, { x: target.x, width: widthOf(layout, placements, id) });
   const ids = order(layout).filter((k) => k !== id);
   const index = clamp(target.index, 0, members.length);
   const at = members.length === 0 ? ids.length : index < members.length ? ids.indexOf(members[index].id) : ids.indexOf(members[members.length - 1].id) + 1;
   ids.splice(at, 0, id);
-  return renumber(layout, { ...layout.blocks, [id]: { ...entry, x: target.x } }, ids);
+  return renumber(layout, { ...layout.widgets, [id]: { ...entry, x: target.x } }, ids);
 }
 
 /**
  * One column of resize (design answer 5), or null if it's refused. Widening takes the column from the
- * neighbours whose facing edge touches it and that overlap the block vertically: each shrinks if above its
+ * neighbours whose facing edge touches it and that overlap the widget vertically: each shrinks if above its
  * min, else shifts over and passes the column on (a chain), refused at the grid edge. Narrowing hands the
  * column to such neighbours below their max; the others leave a gap.
  */
 function resizeStep(layout: Layout, placed: readonly Placement[], id: string, side: "left" | "right", grow: boolean): Layout | null {
   const columns = layout.columns;
   const self = placed.find((p) => p.id === id)!;
-  const range = (p: Placement) => columnRange(p.block, columns);
+  const range = (p: Placement) => columnRange(p.widget, columns);
   /** Neighbours whose edge touches `p`'s `side` edge and that overlap it vertically (positions before this step). */
   const touching = (p: Placement, s: "left" | "right") =>
     placed.filter((q) => q !== p && (s === "right" ? q.x === p.x + p.width : q.x + q.width === p.x) && overlapsVertically(p, q));
@@ -153,23 +153,23 @@ function resizeStep(layout: Layout, placed: readonly Placement[], id: string, si
     }
   }
 
-  const blocks = { ...layout.blocks };
-  for (const [k, pos] of moved) blocks[k] = { ...blocks[k], ...pos };
-  return renumber(layout, blocks, order(layout));
+  const widgets = { ...layout.widgets };
+  for (const [k, pos] of moved) widgets[k] = { ...widgets[k], ...pos };
+  return renumber(layout, widgets, order(layout));
 }
 
 /**
  * Moves one edge of `id` towards column `edge` one column at a time with neighbours giving way (design answer 5),
- * within the block's column range; returns the layout at the furthest step that fits (the input if none).
+ * within the widget's column range; returns the layout at the furthest step that fits (the input if none).
  * "Fits" is fitsAsWell() against the input, so a layout already cut off by the window can still be resized.
  */
-export function resizeBlock(layout: Layout, ctx: EditContext, id: string, side: "left" | "right", edge: number): Layout {
-  if (!(id in layout.blocks) || !ctx.blocks.has(blockIdOf(id, layout.blocks[id]))) return layout;
+export function resizeWidget(layout: Layout, ctx: EditContext, id: string, side: "left" | "right", edge: number): Layout {
+  if (!(id in layout.widgets) || !ctx.widgets.has(widgetIdOf(id, layout.widgets[id]))) return layout;
   const target = clamp(Math.round(edge), 0, layout.columns);
   const before = overflow(layout, ctx);
   let current = layout;
   for (let steps = 0; steps < layout.columns; steps++) {
-    const placed = pack(current, ctx.blocks, ctx.input, ctx.gridHeight);
+    const placed = pack(current, ctx.widgets, ctx.input, ctx.gridHeight);
     const self = placed.find((p) => p.id === id)!;
     const at = side === "left" ? self.x : self.x + self.width;
     if (at === target) break;
@@ -182,29 +182,29 @@ export function resizeBlock(layout: Layout, ctx: EditContext, id: string, side: 
 
 /** `id` without a height of its own (`undefined`) or at `height` px; nothing else changes. */
 function withHeight(layout: Layout, id: string, height: number | undefined): Layout {
-  const { height: _, ...entry } = layout.blocks[id];
-  return renumber(layout, { ...layout.blocks, [id]: height === undefined ? entry : { ...entry, height } }, order(layout));
+  const { height: _, ...entry } = layout.widgets[id];
+  return renumber(layout, { ...layout.widgets, [id]: height === undefined ? entry : { ...entry, height } }, order(layout));
 }
 
-const placementOf = (layout: Layout, ctx: EditContext, id: string) => pack(layout, ctx.blocks, ctx.input, ctx.gridHeight).find((p) => p.id === id);
+const placementOf = (layout: Layout, ctx: EditContext, id: string) => pack(layout, ctx.widgets, ctx.input, ctx.gridHeight).find((p) => p.id === id);
 
-/** Where a placed block's `side` edge is on screen (a top hairline is inside the box). */
+/** Where a placed widget's `side` edge is on screen (a top hairline is inside the box). */
 const edgeY = (p: Placement, side: HeightEdge["side"]) => (side === "bottom" ? p.top + p.height : boxTop(p));
 
-/** The edge of a block that moves when its height changes, and where it is in grid px. */
+/** The edge of a widget that moves when its height changes, and where it is in grid px. */
 export interface HeightEdge {
   side: "top" | "bottom";
   y: number;
 }
 
 /**
- * Which edge of `id` its height moves: the bottom, or the top for a block resting on the grid's bottom
- * under a stretching block (which gives or takes the room). null if it isn't placed.
+ * Which edge of `id` its height moves: the bottom, or the top for a widget resting on the grid's bottom
+ * under a stretching widget (which gives or takes the room). null if it isn't placed.
  */
 export function heightEdge(layout: Layout, ctx: EditContext, id: string): HeightEdge | null {
-  const p = id in layout.blocks ? placementOf(layout, ctx, id) : undefined;
+  const p = id in layout.widgets ? placementOf(layout, ctx, id) : undefined;
   if (!p) return null;
-  // A step shorter is always placeable: does the block's top come down, or its bottom up?
+  // A step shorter is always placeable: does the widget's top come down, or its bottom up?
   const shorter = placementOf(withHeight(layout, id, Math.max(p.height - ROW, 1)), ctx, id)!;
   const side = Math.abs(shorter.top - p.top) > EPS ? "top" : "bottom";
   return { side, y: edgeY(p, side) };
@@ -219,9 +219,9 @@ function rowLines(gridHeight: number): number[] {
 
 /**
  * Moves the edge heightEdge() names to `y` (grid px), snapped like a width resize snaps to columns: to the
- * nearest row line that leaves the block at least MIN_HEIGHT tall, or to where the block's own height puts
- * it if that's nearer. There it goes back to having no height of its own, so a stretching block fills its
- * column again. What's under the block moves with its bottom; a stretching block next to the edge gives or
+ * nearest row line that leaves the widget at least MIN_HEIGHT tall, or to where the widget's own height puts
+ * it if that's nearer. There it goes back to having no height of its own, so a stretching widget fills its
+ * column again. What's under the widget moves with its bottom; a stretching widget next to the edge gives or
  * takes the room. If that doesn't fit (fitsAsWell() against the input), the nearest line that does; the
  * input if none.
  */
@@ -229,7 +229,7 @@ export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: nu
   const edge = heightEdge(layout, ctx, id);
   if (!edge) return layout;
   const p = placementOf(layout, ctx, id)!;
-  /** The block's height with the edge at `at`. */
+  /** The widget's height with the edge at `at`. */
   const heightAt = (at: number) => (edge.side === "bottom" ? at - p.top : p.top + p.height - at - (p.dividerTop ? DIVIDER : 0));
   const lines = rowLines(ctx.gridHeight).filter((l) => heightAt(l) >= MIN_HEIGHT - EPS);
   if (lines.length === 0) return layout;
@@ -246,7 +246,7 @@ export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: nu
   return layout;
 }
 
-/** Back to the block's own height (or the nearest line to it that fits): what double-clicking its edge does. */
+/** Back to the widget's own height (or the nearest line to it that fits): what double-clicking its edge does. */
 export function fitHeight(layout: Layout, ctx: EditContext, id: string): Layout {
   const edge = heightEdge(layout, ctx, id);
   if (!edge) return layout;
@@ -255,7 +255,7 @@ export function fitHeight(layout: Layout, ctx: EditContext, id: string): Layout 
 
 /**
  * Free space in the grid, as maximal runs of adjacent columns with the same free top: gaps at column bottoms and
- * above multi-column blocks (design answer 3). top/height in px, x/width in columns. A run spans columns whose
+ * above multi-column widgets (design answer 3). top/height in px, x/width in columns. A run spans columns whose
  * gap has the same top and the same bottom, so every slot is a rectangle that's free all over.
  */
 export interface Slot {
@@ -288,48 +288,48 @@ export function freeSlots(placements: readonly Placement[], columns: number, gri
   return slots;
 }
 
-/** The key a new `blockId` gets: the block's id if it's free, else `<block id>:<n>` with the least free n from 2. */
-export function newKey(layout: Layout, blockId: string): string {
-  if (!(blockId in layout.blocks)) return blockId;
+/** The key a new `widgetId` gets: the widget's id if it's free, else `<widget id>:<n>` with the least free n from 2. */
+export function newKey(layout: Layout, widgetId: string): string {
+  if (!(widgetId in layout.widgets)) return widgetId;
   let n = 2;
-  while (`${blockId}:${n}` in layout.blocks) n++;
-  return `${blockId}:${n}`;
+  while (`${widgetId}:${n}` in layout.widgets) n++;
+  return `${widgetId}:${n}`;
 }
 
 /**
- * Places block `blockId`, another one if it's placed already, under newKey(). With `slot`: in that slot (width =
- * the block's default clamped to its range and the slot, left-aligned). Without: at the bottom of the column run
+ * Places widget `widgetId`, another one if it's placed already, under newKey(). With `slot`: in that slot (width =
+ * the widget's default clamped to its range and the slot, left-aligned). Without: at the bottom of the column run
  * with the most free room that fits it, trying widths from default down to min. Returns null if it fits nowhere.
- * Its entry: blockVersion = block.version, settings {}, no group (and `block` if the key isn't the block's id).
+ * Its entry: widgetVersion = widget.version, settings {}, no group (and `widget` if the key isn't the widget's id).
  *
- * "Free room" is first the empty space on screen (e.g. under the blocks of a column without a stretching block);
- * if the block fits in none, the room stretching blocks can give up (pack at height 0). Blocks for the session's
+ * "Free room" is first the empty space on screen (e.g. under the widgets of a column without a stretching widget);
+ * if the widget fits in none, the room stretching widgets can give up (pack at height 0). Widgets for the session's
  * kind (ctx.input.info.kind) only.
  */
-export function addBlock(layout: Layout, ctx: EditContext, blockId: string, slot?: Slot): Layout | null {
-  const block = ctx.blocks.get(blockId);
-  if (!block || !block.sessions.includes(gridKind(ctx.input.info.kind))) return null;
-  const id = newKey(layout, blockId);
+export function addWidget(layout: Layout, ctx: EditContext, widgetId: string, slot?: Slot): Layout | null {
+  const widget = ctx.widgets.get(widgetId);
+  if (!widget || !widget.sessions.includes(gridKind(ctx.input.info.kind))) return null;
+  const id = newKey(layout, widgetId);
   const { columns } = layout;
-  const range = columnRange(block, columns);
-  const initial = clamp(Math.round((block.width.default * columns) / 100), range.min, range.max);
+  const range = columnRange(widget, columns);
+  const initial = clamp(Math.round((widget.width.default * columns) / 100), range.min, range.max);
   const ids = order(layout);
   const place = (x: number, width: number, at: number): Layout => {
-    const entry: LayoutEntry = { ...(id !== blockId && { block: blockId }), blockVersion: block.version, x, y: 0, width, settings: {} };
-    return renumber(layout, { ...layout.blocks, [id]: entry }, [...ids.slice(0, at), id, ...ids.slice(at)]);
+    const entry: LayoutEntry = { ...(id !== widgetId && { widget: widgetId }), widgetVersion: widget.version, x, y: 0, width, settings: {} };
+    return renumber(layout, { ...layout.widgets, [id]: entry }, [...ids.slice(0, at), id, ...ids.slice(at)]);
   };
   const ok = (next: Layout) => fitsAsWell(layout, next, ctx);
 
   if (slot) {
     const width = Math.min(initial, slot.width);
     if (width < range.min || slot.x < 0 || slot.x + width > columns) return null;
-    // The pack position that puts it at the slot's top and moves the other blocks least.
-    const before = new Map(pack(layout, ctx.blocks, ctx.input, ctx.gridHeight).map((p) => [p.id, p.top]));
+    // The pack position that puts it at the slot's top and moves the other widgets least.
+    const before = new Map(pack(layout, ctx.widgets, ctx.input, ctx.gridHeight).map((p) => [p.id, p.top]));
     let best: Layout | null = null;
     let bestMoved = Infinity;
     for (let at = 0; at <= ids.length; at++) {
       const next = place(slot.x, width, at);
-      const placed = pack(next, ctx.blocks, ctx.input, ctx.gridHeight);
+      const placed = pack(next, ctx.widgets, ctx.input, ctx.gridHeight);
       const self = placed.find((p) => p.id === id)!;
       if (Math.abs(boxTop(self) - slot.top) > 0.5) continue;
       const movedBy = placed.reduce((sum, p) => sum + (p.id === id ? 0 : Math.abs(p.top - (before.get(p.id) ?? p.top))), 0);
@@ -341,9 +341,9 @@ export function addBlock(layout: Layout, ctx: EditContext, blockId: string, slot
     return best && ok(best) ? best : null;
   }
 
-  const onScreen = columnBottoms(pack(layout, ctx.blocks, ctx.input, ctx.gridHeight), columns);
-  const atMin = columnBottoms(pack(layout, ctx.blocks, ctx.input, 0), columns);
-  const height = pack(place(0, range.min, ids.length), ctx.blocks, ctx.input, 0).find((p) => p.id === id)!.height;
+  const onScreen = columnBottoms(pack(layout, ctx.widgets, ctx.input, ctx.gridHeight), columns);
+  const atMin = columnBottoms(pack(layout, ctx.widgets, ctx.input, 0), columns);
+  const height = pack(place(0, range.min, ids.length), ctx.widgets, ctx.input, 0).find((p) => p.id === id)!.height;
   /** The leftmost x with the most room under `bottoms` for `width` columns, and that room. */
   const roomiest = (bottoms: number[], width: number) => {
     let best = { x: 0, room: -Infinity };
@@ -365,7 +365,7 @@ export function addBlock(layout: Layout, ctx: EditContext, blockId: string, slot
   return null;
 }
 
-/** Whether addBlock would succeed (for the picker's "No room"). */
-export function canAdd(layout: Layout, ctx: EditContext, blockId: string, slot?: Slot): boolean {
-  return addBlock(layout, ctx, blockId, slot) !== null;
+/** Whether addWidget would succeed (for the picker's "No room"). */
+export function canAdd(layout: Layout, ctx: EditContext, widgetId: string, slot?: Slot): boolean {
+  return addWidget(layout, ctx, widgetId, slot) !== null;
 }

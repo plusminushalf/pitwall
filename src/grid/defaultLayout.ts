@@ -1,8 +1,8 @@
-// The default race screen as blocks (H3.12): the race at a glance on top, the analysis of it underneath, as
+// The default race screen as widgets (H3.12): the race at a glance on top, the analysis of it underneath, as
 // arranged on the user's own screen (2026-10-02). Across the top the timing tower (gaps as intervals) and
 // the track map, both 21 rows tall; under them the gap chart over the stint pace, then battles and pit
-// stops; the race feed down the right, full height. The driver panel's blocks and weather (it's in the top
-// bar) are in the block picker.
+// stops; the race feed down the right, full height. The driver panel's widgets and weather (it's in the top
+// bar) are in the widget picker.
 //
 // Free practice (saved as a layout of its own) is laid out the same way: the session at a glance on top (the tower,
 // its gaps to the fastest lap, and the map), and under them what practice is watched for: long runs (the race
@@ -25,12 +25,12 @@ const FEED = COLUMNS - TOWER - MAP;
 const CHARTS = 16;
 const SIDE = (TOWER + MAP - CHARTS) / 2;
 
-const at = (x: number, y: number, width: number, extra: Partial<LayoutEntry> = {}): LayoutEntry => ({ blockVersion: "1.0.0", x, y, width, settings: {}, ...extra });
+const at = (x: number, y: number, width: number, extra: Partial<LayoutEntry> = {}): LayoutEntry => ({ widgetVersion: "1.0.0", x, y, width, settings: {}, ...extra });
 
 export const DEFAULT_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
-  blocks: {
+  widgets: {
     "timing-tower": at(0, 0, TOWER, { height: TOP, settings: { gapMode: "interval" } }),
     "track-map": at(TOWER, 0, MAP, { height: TOP }),
     "race-feed": at(TOWER + MAP, 0, FEED),
@@ -44,7 +44,7 @@ export const DEFAULT_LAYOUT: Layout = {
 export const PRACTICE_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
-  blocks: {
+  widgets: {
     "timing-tower": at(0, 0, TOWER, { height: TOP }),
     "track-map": at(TOWER, 0, MAP, { height: TOP }),
     "race-feed": at(TOWER + MAP, 0, FEED),

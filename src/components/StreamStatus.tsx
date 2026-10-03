@@ -93,7 +93,7 @@ export function StreamLoading() {
   );
 }
 
-/** Over the blocks while playback waits for the part being watched to come in, and how much of it is in. */
+/** Over the widgets while playback waits for the part being watched to come in, and how much of it is in. */
 export function StreamBuffering() {
   // Where playback waits (ms since t0), while it does.
   const at = useReplay((s) => {
@@ -135,7 +135,7 @@ export function StreamBuffering() {
               : null));
   const bar = here != null && slotS == null ? here.progress : null;
   const row = stopped && key != null ? rowForKey(key, { years: rows, entries: {}, partial: {}, jobs: { [key]: job } }) : null;
-  // Dims the blocks: what they show is from before the part that's coming.
+  // Dims the widgets: what they show is from before the part that's coming.
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/60">
       <div className="flex max-w-md items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-200 shadow-xl">

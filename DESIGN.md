@@ -187,7 +187,7 @@ components:
 
 **Creative North Star: "The Timing Screen"**
 
-Pitwall looks like the timing screens on a real pit wall: a near-black page, panels split by thin hairlines, and dense rows of tabular figures. Nothing is decorative. The replay screen set this look first, a grid of blocks between a 52px top bar and a timeline. The home screen deliberately uses the same look: its sessions are laid out as timing rows, its column headers match the timing tower's, and its one white button plays the same role as the replay screen's white play button. There is one system across both screens. Home is the front page of the same instrument.
+Pitwall looks like the timing screens on a real pit wall: a near-black page, panels split by thin hairlines, and dense rows of tabular figures. Nothing is decorative. The replay screen set this look first, a grid of widgets between a 52px top bar and a timeline. The home screen deliberately uses the same look: its sessions are laid out as timing rows, its column headers match the timing tower's, and its one white button plays the same role as the replay screen's white play button. There is one system across both screens. Home is the front page of the same instrument.
 
 The page is dense but readable. Rows are 44px high and use 14px type for names and 12px for figures. Columns are capped by small uppercase labels. Hierarchy comes from contrast, weight and position, never from colour or containers. Everything is drawn in zinc greys. A short list of signal colours carries meaning, and only that meaning: red for live and delete, fuchsia for fastest, emerald for personal best and confirmed, amber for waiting or needs-attention. Team colours appear only as data, as the driver stripe in the timing tower and the driver panel, and as driver tags in the feed. The interface never borrows them for chrome.
 
@@ -259,7 +259,7 @@ The palette is greyscale (Tailwind v4's zinc, which leans slightly violet and is
 
 ## Layout
 
-There are two spatial modes with one shared header. The replay screen runs edge to edge: a 52px top bar (16px side padding, three columns with the centre auto-sized), a block grid the user arranges, and a timeline bar at the bottom. Home is a centred column, 72rem max width with 24px gutters, under a sticky 52px header that uses the same three-column grid (logo / the moment / storage and Settings). On home the centre column keeps its slot below 768px even when its content is hidden, so the right side stays on the right.
+There are two spatial modes with one shared header. The replay screen runs edge to edge: a 52px top bar (16px side padding, three columns with the centre auto-sized), a widget grid the user arranges, and a timeline bar at the bottom. Home is a centred column, 72rem max width with 24px gutters, under a sticky 52px header that uses the same three-column grid (logo / the moment / storage and Settings). On home the centre column keeps its slot below 768px even when its content is hidden, so the right side stays on the right.
 
 Home's vertical rhythm: 24px from the header to the jump field (48px tall), 40px to Continue, 48px to Season, 64px of bottom padding, then a footer above a hairline. Rows use 12px side padding and a 44px minimum height. Section headings sit 12px above their column headers.
 
@@ -271,7 +271,7 @@ The system is flat. Depth comes from tone (pit-black, then raised-panel, then ha
 
 ### Shadow Vocabulary
 - **Popover** (`box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25)`, Tailwind shadow-2xl): the Settings panel.
-- **Menu** (`box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)`, shadow-xl): the replay help popover and block picker.
+- **Menu** (`box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)`, shadow-xl): the replay help popover and widget picker.
 - **Tooltip** (shadow-lg): the timeline's hover tip.
 
 ### Named Rules
@@ -279,7 +279,7 @@ The system is flat. Depth comes from tone (pit-black, then raised-panel, then ha
 
 ## Shapes
 
-Radius belongs to controls, never to content regions. Buttons, cells, the jump field, segmented tracks and icon buttons use gently rounded 6px corners (md). Badges, kbd keys and segment options use 4px (base). Inline text links get a 2px corner (sm) so their focus outline isn't square. Floating popovers use 8px (lg). Progress tracks, the live dot, toggles and the play button are fully round. Lists, panels, the header and the grid are square-edged and bounded only by hairlines. Icons are 16-unit SVG paths with a 1.5 stroke; the play triangle is solid. The replay screen and blocks draw them with block-kit's `Icon` (`src/blockkit/ui/Icon.tsx`), whose play and check match home's.
+Radius belongs to controls, never to content regions. Buttons, cells, the jump field, segmented tracks and icon buttons use gently rounded 6px corners (md). Badges, kbd keys and segment options use 4px (base). Inline text links get a 2px corner (sm) so their focus outline isn't square. Floating popovers use 8px (lg). Progress tracks, the live dot, toggles and the play button are fully round. Lists, panels, the header and the grid are square-edged and bounded only by hairlines. Icons are 16-unit SVG paths with a 1.5 stroke; the play triangle is solid. The replay screen and widgets draw them with widget-kit's `Icon` (`src/widgetkit/ui/Icon.tsx`), whose play and check match home's.
 
 ## Components
 
@@ -296,8 +296,8 @@ Small grey buttons that read as tools, with one white exception per screen.
 - **Badges:** 11px uppercase label type on a 4px-radius fill. LIVE is live-red with white text. NEXT is a neutral hairline badge. The replay header's flag status (GREEN FLAG and others) is the same filled badge in the flag's colour.
 - **Segmented control:** a raised-panel track (2px padding, 6px radius) holding 12px semibold options. The selected option is control-hover with headline-white text; the others are tertiary-ink. Used for home's year toggle and race filter, and the replay's playback speed (the play button stays the one white button).
 
-### Block kit
-Blocks get the system from block-kit (`src/blockkit/ui/`), not their own copies: `Label` and `LABEL_CLASS` (the label type), `Stat` (a label over its value), `Icon`, `DriverTag` (a driver's acronym badge on the team colour) and `TyreBadge`. Third-party blocks use the same pieces, so they look like they belong.
+### Widget kit
+Widgets get the system from widget-kit (`src/widgetkit/ui/`), not their own copies: `Label` and `LABEL_CLASS` (the label type), `Stat` (a label over its value), `Icon`, `DriverTag` (a driver's acronym badge on the team colour) and `TyreBadge`. Third-party widgets use the same pieces, so they look like they belong.
 
 ### Cards / Containers
 None. The system has no cards. Lists sit inside a hairline frame: a column-header row with a hairline under it, then rows divided by hairline at 70% opacity. Empty and error states are a single bordered strip (hairline above and below, 12px × 16px padding).

@@ -1,4 +1,4 @@
-import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { topSpeed } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { lapTime } from "../../lib/format";

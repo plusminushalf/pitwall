@@ -1,23 +1,23 @@
-// The middle of the race screen: the layout's blocks on the grid, exactly the height between the top bar
-// and the timeline (layout.ts). Block contents are at a fixed type size: a wider block gets more room,
-// not bigger text. The grid doesn't scroll; blocks that have more to show scroll inside themselves, and a
-// block given a height shorter than its contents scrolls as a whole.
+// The middle of the race screen: the layout's widgets on the grid, exactly the height between the top bar
+// and the timeline (layout.ts). Widget contents are at a fixed type size: a wider widget gets more room,
+// not bigger text. The grid doesn't scroll; widgets that have more to show scroll inside themselves, and a
+// widget given a height shorter than its contents scrolls as a whole.
 //
 // Edit mode (H3.10) adds chrome inside each box and a few layers around them; normal mode renders exactly
 // the boxes. A drag moves its box by writing a transform from pointermove, and re-renders only when where
-// it would land changes; the other blocks then glide to their new places (FLIP, transforms only: sizes
+// it would land changes; the other widgets then glide to their new places (FLIP, transforms only: sizes
 // snap, so canvases reallocate once per step rather than every frame).
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { BlockHost } from "../blockkit/BlockHost";
-import type { BlockDefinition, BlockSettings } from "../blockkit/defineBlock";
-import { heightInputOf, orderOf, selectedDriverOf } from "../blockkit/select";
+import { WidgetHost } from "../widgetkit/WidgetHost";
+import type { WidgetDefinition, WidgetSettings } from "../widgetkit/defineWidget";
+import { heightInputOf, orderOf, selectedDriverOf } from "../widgetkit/select";
 import { useReplay } from "../store";
-import { BlockPicker, gridBlocks } from "./BlockPicker";
-import { BUILTIN_BLOCKS } from "./builtins";
-import { BlockChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
+import { WidgetPicker, gridWidgets } from "./WidgetPicker";
+import { BUILTIN_WIDGETS } from "./builtins";
+import { WidgetChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
 import {
-  addBlock,
+  addWidget,
   canAdd,
   cutOff,
   dropTarget,
@@ -25,9 +25,9 @@ import {
   fitsAsWell,
   freeSlots,
   heightEdge,
-  moveBlock,
-  removeBlock,
-  resizeBlock,
+  moveWidget,
+  removeWidget,
+  resizeWidget,
   resizeHeight,
   type DropTarget,
   type EditContext,
@@ -48,7 +48,7 @@ interface Drag {
 
 const GLIDE: KeyframeAnimationOptions = { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" };
 
-/** Who a block following the selection shows right now: who "Pinned" starts with. */
+/** Who a widget following the selection shows right now: who "Pinned" starts with. */
 const showing = () => {
   const { race, selected, focused } = useReplay.getState();
   return race ? selectedDriverOf(orderOf(race), selected, focused, null) : null;
@@ -78,7 +78,7 @@ export const Grid = memo(function Grid() {
   }, []);
 
   const input = useMemo(() => (session ? { ...session, selection: { selected, focused } } : null), [session, selected, focused]);
-  const placements = useMemo(() => (input ? pack(layout, BUILTIN_BLOCKS, input, size.height) : []), [layout, input, size.height]);
+  const placements = useMemo(() => (input ? pack(layout, BUILTIN_WIDGETS, input, size.height) : []), [layout, input, size.height]);
   const boxes = boxesOf(placements, size.width, layout.columns);
 
   // Edit mode.
@@ -86,12 +86,12 @@ export const Grid = memo(function Grid() {
   const [resizing, setResizing] = useState<{ id: string; axis: ResizeAxis; blocked: boolean } | null>(null);
   const [settingsFor, setSettingsFor] = useState<string | null>(null);
   if (!editing && settingsFor) setSettingsFor(null);
-  const ctx = useMemo<EditContext | null>(() => (input ? { blocks: BUILTIN_BLOCKS, input, gridHeight: size.height } : null), [input, size.height]);
+  const ctx = useMemo<EditContext | null>(() => (input ? { widgets: BUILTIN_WIDGETS, input, gridHeight: size.height } : null), [input, size.height]);
   // While dragging, the others sit where the drop would put them (if it fits); the dragged box stays in
   // its old place and size, moved by its transform.
   const shownLayout = drag?.ok ? drag.preview : layout;
   const shown = useMemo(
-    () => (shownLayout === layout ? placements : input ? pack(shownLayout, BUILTIN_BLOCKS, input, size.height) : []),
+    () => (shownLayout === layout ? placements : input ? pack(shownLayout, BUILTIN_WIDGETS, input, size.height) : []),
     [shownLayout, layout, placements, input, size.height],
   );
   const shownBoxes = shown === placements ? boxes : boxesOf(shown, size.width, layout.columns);
@@ -167,7 +167,7 @@ export const Grid = memo(function Grid() {
     };
     const targetAt = (): Drag => {
       const target = dropTarget(start, startPlacements, id, box.left + dx, box.top + dy + box.height / 2, s.width);
-      const preview = moveBlock(start, startPlacements, id, target);
+      const preview = moveWidget(start, startPlacements, id, target);
       return { id, target, preview, ok: fitsAsWell(start, preview, c) };
     };
     const onMove = (ev: PointerEvent) => {
@@ -210,7 +210,7 @@ export const Grid = memo(function Grid() {
 
   const startResize = useCallback((id: string, side: "left" | "right", e: ReactPointerEvent) => {
     const { layout: start, ctx: c, size: s } = live.current;
-    const entry = start.blocks[id];
+    const entry = start.widgets[id];
     if (!c || !entry) return;
     e.preventDefault();
     setSettingsFor(null);
@@ -227,8 +227,8 @@ export const Grid = memo(function Grid() {
       if (edge === lastEdge) return;
       lastEdge = edge;
       // Always from the layout the resize started with, so going back undoes what neighbours gave up.
-      const next = resizeBlock(start, c, id, side, edge);
-      const got = next.blocks[id];
+      const next = resizeWidget(start, c, id, side, edge);
+      const got = next.widgets[id];
       const reached = side === "right" ? got.x + got.width : got.x;
       // Refused (a neighbour can't give way, or it wouldn't fit): the grip turns red.
       if ((reached !== edge) !== blocked) {
@@ -263,14 +263,14 @@ export const Grid = memo(function Grid() {
 
     const onMove = (ev: PointerEvent) => {
       const y = edge.y + ev.clientY - y0;
-      // Always from the layout the resize started with, so going back gives back what the blocks under it gave up.
+      // Always from the layout the resize started with, so going back gives back what the widgets under it gave up.
       const next = resizeHeight(start, c, id, y);
       // Refused (no room, or below the least height): the edge stops more than a snap from the pointer and turns red.
       if ((Math.abs(heightEdge(next, c, id)!.y - y) > ROW / 2 + 0.5) !== blocked) {
         blocked = !blocked;
         setResizing({ id, axis: "height", blocked });
       }
-      if (next.blocks[id].height !== useLayout.getState().layout.blocks[id]?.height) useLayout.getState().setLayout(next);
+      if (next.widgets[id].height !== useLayout.getState().layout.widgets[id]?.height) useLayout.getState().setLayout(next);
     };
     const end = () => {
       window.removeEventListener("pointermove", onMove);
@@ -302,7 +302,7 @@ export const Grid = memo(function Grid() {
       toggleSettings: (id) => setSettingsFor((open) => (open === id ? null : id)),
       remove: (id) => {
         setSettingsFor((open) => (open === id ? null : open));
-        useLayout.getState().setLayout(removeBlock(useLayout.getState().layout, id));
+        useLayout.getState().setLayout(removeWidget(useLayout.getState().layout, id));
       },
     }),
     [startMove, startResize, startHeight],
@@ -322,7 +322,7 @@ export const Grid = memo(function Grid() {
   const slots = useMemo(() => (editing && !drag ? freeSlots(placements, layout.columns, size.height) : []), [editing, drag, placements, layout.columns, size.height]);
   const placeholder = useMemo(() => {
     if (!drag || !input) return null;
-    const preview = drag.ok ? shown : pack(drag.preview, BUILTIN_BLOCKS, input, size.height);
+    const preview = drag.ok ? shown : pack(drag.preview, BUILTIN_WIDGETS, input, size.height);
     const i = preview.findIndex((p) => p.id === drag.id);
     const box = boxesOf(preview, size.width, layout.columns)[i];
     // A refused spot may be below the bottom: keep its outline on screen.
@@ -330,13 +330,13 @@ export const Grid = memo(function Grid() {
     return { ...box, top, height: Math.min(box.height, size.height - top) };
   }, [drag, input, shown, size, layout.columns]);
 
-  const settingsBlock = settingsFor && byId.has(settingsFor) ? shown[byId.get(settingsFor)!].block : undefined;
+  const settingsWidget = settingsFor && byId.has(settingsFor) ? shown[byId.get(settingsFor)!].widget : undefined;
   const settingsBox = settingsFor && byId.has(settingsFor) ? shownBoxes[byId.get(settingsFor)!] : null;
-  /** In edit mode, a block pinned to a driver says who: two of the same block can be told apart. */
-  const labelOf = (block: BlockDefinition, settings: Partial<BlockSettings> | undefined) => {
+  /** In edit mode, a widget pinned to a driver says who: two of the same widget can be told apart. */
+  const labelOf = (widget: WidgetDefinition, settings: Partial<WidgetSettings> | undefined) => {
     const driver = settings?.driver;
-    if (typeof driver !== "number") return block.name;
-    return `${block.name} · ${session?.drivers.find((d) => d.number === driver)?.acronym ?? `#${driver}`}`;
+    if (typeof driver !== "number") return widget.name;
+    return `${widget.name} · ${session?.drivers.find((d) => d.number === driver)?.acronym ?? `#${driver}`}`;
   };
 
   return (
@@ -350,12 +350,12 @@ export const Grid = memo(function Grid() {
           const dragged = drag?.id === id;
           const state: ChromeState = dragged ? (drag.ok ? "dragging" : "refused") : resizing?.id === id ? (resizing.blocked ? "blocked" : "resizing") : "idle";
           const b = dragged ? originalBox(id) : shownBoxes[byId.get(id)!];
-          const settings = layout.blocks[id]?.settings ?? shownLayout.blocks[id].settings;
+          const settings = layout.widgets[id]?.settings ?? shownLayout.widgets[id].settings;
           return (
-            <BlockBox
+            <WidgetBox
               key={id}
               id={id}
-              block={p.block}
+              widget={p.widget}
               dividerTop={p.dividerTop}
               dividerLeft={p.dividerLeft}
               left={b.left}
@@ -363,7 +363,7 @@ export const Grid = memo(function Grid() {
               width={b.width}
               height={b.height}
               contentHeight={p.contentHeight > p.height ? p.contentHeight : null}
-              label={labelOf(p.block, settings)}
+              label={labelOf(p.widget, settings)}
               settings={settings}
               editing={editing}
               state={state}
@@ -378,18 +378,18 @@ export const Grid = memo(function Grid() {
       {editing && size.width > 0 && <ColumnGuides columns={layout.columns} width={size.width} strong={drag != null || resizing?.axis === "width"} />}
       {resizing?.axis === "height" && <RowGuides height={size.height} />}
       {placeholder && <DropPlaceholder box={placeholder} ok={drag!.ok} />}
-      {editing && settingsBlock && settingsBox && session && (
+      {editing && settingsWidget && settingsBox && session && (
         <Popover
           anchor={{ left: settingsBox.left + settingsBox.width - 4, top: settingsBox.top + 28, align: "right" }}
           grid={ref}
           width={240}
-          title={`${labelOf(settingsBlock, layout.blocks[settingsFor!]?.settings)} settings`}
+          title={`${labelOf(settingsWidget, layout.widgets[settingsFor!]?.settings)} settings`}
           ignore="[data-settings-toggle]"
           onClose={() => setSettingsFor(null)}
         >
           <SettingsEditor
-            block={settingsBlock}
-            settings={layout.blocks[settingsFor!]?.settings ?? {}}
+            widget={settingsWidget}
+            settings={layout.widgets[settingsFor!]?.settings ?? {}}
             drivers={session.drivers}
             showing={showing}
             onChange={(s) => setSettings(settingsFor!, s)}
@@ -401,19 +401,19 @@ export const Grid = memo(function Grid() {
           anchor={picker.slot ? { left: slotBox(picker.slot).left + 6, top: picker.slot.top + 6, align: "left" } : { left: size.width - 8, top: 8, align: "right" }}
           grid={ref}
           width={288}
-          title="Add a block"
+          title="Add a widget"
           ignore="[data-picker-toggle]"
           onClose={() => useLayout.getState().closePicker()}
         >
-          <BlockPicker
+          <WidgetPicker
             columns={layout.columns}
-            entries={gridBlocks(BUILTIN_BLOCKS, layout, gridKind(ctx.input.info.kind)).map(({ block, placed }) => ({
-              block,
+            entries={gridWidgets(BUILTIN_WIDGETS, layout, gridKind(ctx.input.info.kind)).map(({ widget, placed }) => ({
+              widget,
               placed,
-              room: canAdd(layout, ctx, block.id, picker.slot),
+              room: canAdd(layout, ctx, widget.id, picker.slot),
             }))}
             onPick={(id) => {
-              const next = addBlock(layout, ctx, id, picker.slot);
+              const next = addWidget(layout, ctx, id, picker.slot);
               if (next) useLayout.getState().setLayout(next);
               useLayout.getState().closePicker();
             }}
@@ -426,20 +426,20 @@ export const Grid = memo(function Grid() {
 
 interface BoxActions {
   register: (id: string, el: HTMLDivElement | null) => void;
-  setSettings: (id: string, settings: Partial<BlockSettings>) => void;
+  setSettings: (id: string, settings: Partial<WidgetSettings>) => void;
   startMove: (id: string, e: ReactPointerEvent) => void;
   startResize: (id: string, side: "left" | "right", e: ReactPointerEvent) => void;
   startHeight: (id: string, e: ReactPointerEvent) => void;
-  /** Back to the block's own height (or the tallest that fits). */
+  /** Back to the widget's own height (or the tallest that fits). */
   fitHeight: (id: string) => void;
   toggleSettings: (id: string) => void;
   remove: (id: string) => void;
 }
 
-/** One block's box (and in edit mode its chrome). Memoised on plain values: moving a box doesn't re-render its block. */
-const BlockBox = memo(function BlockBox({
+/** One widget's box (and in edit mode its chrome). Memoised on plain values: moving a box doesn't re-render its widget. */
+const WidgetBox = memo(function WidgetBox({
   id,
-  block,
+  widget,
   label,
   dividerTop,
   dividerLeft,
@@ -458,7 +458,7 @@ const BlockBox = memo(function BlockBox({
   actions,
 }: {
   id: string;
-  block: BlockDefinition;
+  widget: WidgetDefinition;
   /** Its name in edit mode. */
   label: string;
   dividerTop: boolean;
@@ -469,7 +469,7 @@ const BlockBox = memo(function BlockBox({
   height: number;
   /** When it's taller than the box (a height set in edit mode): what the contents keep, scrolling. */
   contentHeight: number | null;
-  settings: Partial<BlockSettings>;
+  settings: Partial<WidgetSettings>;
   editing: boolean;
   state: ChromeState;
   axis: ResizeAxis | null;
@@ -479,37 +479,37 @@ const BlockBox = memo(function BlockBox({
   actions: BoxActions;
 }) {
   const ref = useCallback((el: HTMLDivElement | null) => actions.register(id, el), [actions, id]);
-  const onSettingsChange = useCallback((s: Partial<BlockSettings>) => actions.setSettings(id, s), [actions, id]);
+  const onSettingsChange = useCallback((s: Partial<WidgetSettings>) => actions.setSettings(id, s), [actions, id]);
   const host = useMemo(
     () => (
-      <BlockHost
-        block={block}
+      <WidgetHost
+        widget={widget}
         settings={settings}
         onSettingsChange={onSettingsChange}
         className="w-full overflow-hidden"
         style={{ height: contentHeight ?? "100%" }}
       />
     ),
-    [block, settings, onSettingsChange, contentHeight],
+    [widget, settings, onSettingsChange, contentHeight],
   );
-  const hasSettings = useMemo(() => shownFields(block).length > 0, [block]);
+  const hasSettings = useMemo(() => shownFields(widget).length > 0, [widget]);
   // Floating: its own compositor layer, so the box and its shadow aren't repainted on every pointer move.
   const floating = state === "dragging" || state === "refused";
   return (
-    // Contained: a block's DOM changes restyle and relayout only inside its own box. The hairlines
-    // between groups are the box's own top and left borders, outside the block.
+    // Contained: a widget's DOM changes restyle and relayout only inside its own box. The hairlines
+    // between groups are the box's own top and left borders, outside the widget.
     <div
       ref={ref}
-      data-block={id}
+      data-widget={id}
       className={`absolute border-zinc-800 [contain:strict] ${dividerTop ? "border-t" : ""} ${dividerLeft ? "border-l" : ""}${
         floating ? " z-20 bg-zinc-950 shadow-2xl will-change-transform" : ""
       }`}
       style={{ left, top, width, height }}
     >
-      {/* Always there, scrolling or not, so a block doesn't remount when its height changes. */}
+      {/* Always there, scrolling or not, so a widget doesn't remount when its height changes. */}
       <div className={contentHeight == null ? "h-full" : "h-full overflow-y-auto overflow-x-hidden"}>{host}</div>
       {editing && (
-        <BlockChrome
+        <WidgetChrome
           name={label}
           hasSettings={hasSettings}
           settingsOpen={settingsOpen}

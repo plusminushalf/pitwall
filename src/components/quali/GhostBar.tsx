@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Icon } from "../../blockkit/ui/Icon";
+import { Icon } from "../../widgetkit/ui/Icon";
 import { deltaAt, distanceAtTime } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { GHOST_SPEEDS, useQuali } from "../../qualiStore";

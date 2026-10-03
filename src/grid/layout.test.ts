@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import type { BlockDefinition, HeightInput } from "../blockkit/defineBlock";
-import type { Track } from "../blockkit/select";
+import type { WidgetDefinition, HeightInput } from "../widgetkit/defineWidget";
+import type { Track } from "../widgetkit/select";
 import type { DriverInfo } from "../types";
-import { BUILTIN_BLOCKS } from "./builtins";
+import { BUILTIN_WIDGETS } from "./builtins";
 import { DEFAULT_LAYOUT, PRACTICE_LAYOUT } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
 
-const block = (id: string, height: BlockDefinition["height"], width = { min: 10, default: 20, max: 50 }) =>
-  ({ id, name: id, version: "1.0.0", height, width, sessions: ["race"], settings: {}, Component: () => null }) as BlockDefinition;
-const at = (x: number, y: number, width: number, group?: string) => ({ blockVersion: "1.0.0", x, y, width, group, settings: {} });
+const widget = (id: string, height: WidgetDefinition["height"], width = { min: 10, default: 20, max: 50 }) =>
+  ({ id, name: id, version: "1.0.0", height, width, sessions: ["race"], settings: {}, Component: () => null }) as WidgetDefinition;
+const at = (x: number, y: number, width: number, group?: string) => ({ widgetVersion: "1.0.0", x, y, width, group, settings: {} });
 
 function input(drivers = 22, selected: number[] = [], focused: number | null = null): GridInput {
   const track = { rotation: 0, outline: { x: [0, 1, 1, 0], y: [0, 0, 1, 1], z: [] }, pitLane: null } as unknown as Track;
@@ -25,80 +25,80 @@ const byId = (placed: Placement[]) => Object.fromEntries(placed.map((p) => [p.id
 const bottom = (p: Placement) => p.top + p.height;
 
 describe("pack", () => {
-  const blocks = new Map(
+  const widgets = new Map(
     [
-      block("a", 100),
-      block("b", 50),
-      block("fill", { min: 80 }),
-      block("fill2", { min: 40 }),
-      block("wide", 30, { min: 50, default: 50, max: 50 }),
-      block("chips", ({ selection }) => (selection.selected.length > 0 ? 60 : 20)),
+      widget("a", 100),
+      widget("b", 50),
+      widget("fill", { min: 80 }),
+      widget("fill2", { min: 40 }),
+      widget("wide", 30, { min: 50, default: 50, max: 50 }),
+      widget("chips", ({ selection }) => (selection.selected.length > 0 ? 60 : 20)),
     ].map((b) => [b.id, b]),
   );
-  const layout = (entries: Layout["blocks"]): Layout => ({ version: 1, columns: 10, blocks: entries });
+  const layout = (entries: Layout["widgets"]): Layout => ({ version: 1, columns: 10, widgets: entries });
 
-  test("fixed blocks stack at their heights, with a hairline between groups and none inside one", () => {
-    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(0, 1, 2, "g"), chips: at(0, 2, 2, "g") }), blocks, input(), 1000));
+  test("fixed widgets stack at their heights, with a hairline between groups and none inside one", () => {
+    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(0, 1, 2, "g"), chips: at(0, 2, 2, "g") }), widgets, input(), 1000));
     expect([p.a.top, p.a.height, p.a.dividerTop]).toEqual([0, 100, false]);
     expect([p.b.top, p.b.dividerTop]).toEqual([100 + DIVIDER, true]);
     expect([p.chips.top, p.chips.dividerTop]).toEqual([bottom(p.b), false]);
   });
 
-  test("blocks settle upwards onto what's above them, in order of y then x", () => {
-    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(0, 30, 2), chips: at(2, 9, 2) }), blocks, input(), 1000));
+  test("widgets settle upwards onto what's above them, in order of y then x", () => {
+    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(0, 30, 2), chips: at(2, 9, 2) }), widgets, input(), 1000));
     expect(p.b.top).toBe(100 + DIVIDER);
     expect(p.chips.top).toBe(0);
   });
 
-  test("the last stretching block in a column fills it to the bottom and pushes what's under it down", () => {
-    const p = byId(pack(layout({ fill: at(0, 0, 2), a: at(0, 1, 2), fill2: at(2, 0, 2) }), blocks, input(), 600));
+  test("the last stretching widget in a column fills it to the bottom and pushes what's under it down", () => {
+    const p = byId(pack(layout({ fill: at(0, 0, 2), a: at(0, 1, 2), fill2: at(2, 0, 2) }), widgets, input(), 600));
     expect(bottom(p.a)).toBe(600);
     expect(p.fill.height).toBe(600 - 100 - DIVIDER);
     expect(bottom(p.fill2)).toBe(600);
   });
 
-  test("only the last stretching block in a column grows; the others keep their minimum", () => {
-    const p = byId(pack(layout({ fill2: at(0, 0, 2), fill: at(0, 1, 2) }), blocks, input(), 600));
+  test("only the last stretching widget in a column grows; the others keep their minimum", () => {
+    const p = byId(pack(layout({ fill2: at(0, 0, 2), fill: at(0, 1, 2) }), widgets, input(), 600));
     expect(p.fill2.height).toBe(40);
     expect(bottom(p.fill)).toBe(600);
   });
 
-  test("a stretching block across columns grows by the least room any of them has", () => {
-    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(2, 0, 2), fill: at(0, 1, 4) }), blocks, input(), 600));
+  test("a stretching widget across columns grows by the least room any of them has", () => {
+    const p = byId(pack(layout({ a: at(0, 0, 2), b: at(2, 0, 2), fill: at(0, 1, 4) }), widgets, input(), 600));
     expect(p.fill.top).toBe(100 + DIVIDER);
     expect(bottom(p.fill)).toBe(600);
   });
 
-  test("when the blocks don't fit, stretching blocks keep their minimum (the bottom is cut off)", () => {
-    const p = byId(pack(layout({ a: at(0, 0, 2), fill: at(0, 1, 2) }), blocks, input(), 120));
+  test("when the widgets don't fit, stretching widgets keep their minimum (the bottom is cut off)", () => {
+    const p = byId(pack(layout({ a: at(0, 0, 2), fill: at(0, 1, 2) }), widgets, input(), 120));
     expect(p.fill.height).toBe(80);
   });
 
-  test("a block with a height of its own is that tall and doesn't stretch; its contents keep what they take", () => {
-    const p = byId(pack(layout({ fill: { ...at(0, 0, 2), height: 300 }, a: { ...at(2, 0, 2), height: 60 }, b: at(2, 1, 2) }), blocks, input(), 600));
+  test("a widget with a height of its own is that tall and doesn't stretch; its contents keep what they take", () => {
+    const p = byId(pack(layout({ fill: { ...at(0, 0, 2), height: 300 }, a: { ...at(2, 0, 2), height: 60 }, b: at(2, 1, 2) }), widgets, input(), 600));
     expect([p.fill.height, p.fill.stretch, p.fill.contentHeight]).toEqual([300, false, 80]);
     // Shorter than its contents: the box scrolls (Grid), and what's under it rests on the box.
     expect([p.a.height, p.a.contentHeight]).toEqual([60, 100]);
     expect(p.b.top).toBe(60 + DIVIDER);
-    // Without one, a block's contents take its own height (a stretching block's minimum).
-    const auto = byId(pack(layout({ fill: at(0, 0, 2), a: at(2, 0, 2) }), blocks, input(), 600));
+    // Without one, a widget's contents take its own height (a stretching widget's minimum).
+    const auto = byId(pack(layout({ fill: at(0, 0, 2), a: at(2, 0, 2) }), widgets, input(), 600));
     expect([auto.fill.height, auto.fill.contentHeight, auto.a.contentHeight]).toEqual([600, 80, 100]);
   });
 
   test("heights can depend on the selection", () => {
     const l = layout({ chips: at(0, 0, 2) });
-    expect(pack(l, blocks, input(), 500)[0].height).toBe(20);
-    expect(pack(l, blocks, input(22, [1]), 500)[0].height).toBe(60);
+    expect(pack(l, widgets, input(), 500)[0].height).toBe(20);
+    expect(pack(l, widgets, input(22, [1]), 500)[0].height).toBe(60);
   });
 
   test("hairlines on the left edge only next to another group", () => {
-    const p = byId(pack(layout({ a: at(0, 0, 2, "g"), b: at(2, 0, 2, "g"), chips: at(4, 0, 2) }), blocks, input(), 500));
+    const p = byId(pack(layout({ a: at(0, 0, 2, "g"), b: at(2, 0, 2, "g"), chips: at(4, 0, 2) }), widgets, input(), 500));
     expect([p.a.dividerLeft, p.b.dividerLeft, p.chips.dividerLeft]).toEqual([false, false, true]);
   });
 
-  test("widths (percent of the grid) snap to whole columns and clamp; unknown blocks are left out", () => {
-    expect(columnRange(blocks.get("wide")!, 10)).toEqual({ min: 5, max: 5 });
-    const placed = pack(layout({ wide: at(9, 0, 1), gone: at(0, 0, 2) }), blocks, input(), 500);
+  test("widths (percent of the grid) snap to whole columns and clamp; unknown widgets are left out", () => {
+    expect(columnRange(widgets.get("wide")!, 10)).toEqual({ min: 5, max: 5 });
+    const placed = pack(layout({ wide: at(9, 0, 1), gone: at(0, 0, 2) }), widgets, input(), 500);
     expect(placed.map((p) => [p.id, p.x, p.width])).toEqual([["wide", 5, 5]]);
   });
 });
@@ -108,20 +108,20 @@ describe("default layout", () => {
   const heights = [767, 776, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
 
-  test("the tower, map and feed, and the analysis blocks, once each and within their width ranges", () => {
-    expect(Object.keys(DEFAULT_LAYOUT.blocks).sort()).toEqual(["battles", "gap-chart", "pit-strategy", "race-feed", "stint-pace", "timing-tower", "track-map"]);
+  test("the tower, map and feed, and the analysis widgets, once each and within their width ranges", () => {
+    expect(Object.keys(DEFAULT_LAYOUT.widgets).sort()).toEqual(["battles", "gap-chart", "pit-strategy", "race-feed", "stint-pace", "timing-tower", "track-map"]);
     expect(DEFAULT_LAYOUT.columns).toBe(COLUMNS);
-    for (const [id, e] of Object.entries(DEFAULT_LAYOUT.blocks)) {
-      const { min, max } = columnRange(BUILTIN_BLOCKS.get(id)!, COLUMNS);
+    for (const [id, e] of Object.entries(DEFAULT_LAYOUT.widgets)) {
+      const { min, max } = columnRange(BUILTIN_WIDGETS.get(id)!, COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
       expect(e.width).toBeLessThanOrEqual(max);
     }
   });
 
-  test("every column ends flush with the bottom, and no blocks overlap", () => {
+  test("every column ends flush with the bottom, and no widgets overlap", () => {
     for (const h of heights) {
       for (const s of states) {
-        const placed = pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, s, h);
+        const placed = pack(DEFAULT_LAYOUT, BUILTIN_WIDGETS, s, h);
         for (let c = 0; c < COLUMNS; c++) {
           const inColumn = placed.filter((p) => p.x <= c && c < p.x + p.width);
           expect(Math.max(...inColumn.map(bottom))).toBeCloseTo(h, 6);
@@ -138,7 +138,7 @@ describe("default layout", () => {
   });
 
   test("as arranged: tower and map 21 rows, the gap chart at its least over the stint pace, the feed full height", () => {
-    const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 776));
+    const p = byId(pack(DEFAULT_LAYOUT, BUILTIN_WIDGETS, input(), 776));
     expect([p["timing-tower"].height, p["track-map"].height]).toEqual([420, 420]);
     // Under them, each below its hairline.
     for (const id of ["gap-chart", "battles", "pit-strategy"]) expect(p[id].top).toBe(421);
@@ -149,7 +149,7 @@ describe("default layout", () => {
   });
 
   test("the bottom row fits from a 738 px grid; below that it's cut off", () => {
-    const fitsIn = (h: number) => pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), h).every((p) => bottom(p) <= h + 1e-6);
+    const fitsIn = (h: number) => pack(DEFAULT_LAYOUT, BUILTIN_WIDGETS, input(), h).every((p) => bottom(p) <= h + 1e-6);
     expect(fitsIn(738)).toBe(true);
     expect(fitsIn(737)).toBe(false);
   });
@@ -160,23 +160,23 @@ describe("driver layout", () => {
   // From about 610 px (the driver panel and the feed's minimum) up.
   const heights = [610, 767, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
-  // Weather is in the top bar; the analysis blocks (and practice's long runs) came after it.
+  // Weather is in the top bar; the analysis widgets (and practice's long runs) came after it.
   const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs"];
 
-  test("places every built-in block but those off its screen once, within its width range", () => {
-    expect(Object.keys(DRIVER_LAYOUT.blocks).sort()).toEqual([...BUILTIN_BLOCKS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
+  test("places every built-in widget but those off its screen once, within its width range", () => {
+    expect(Object.keys(DRIVER_LAYOUT.widgets).sort()).toEqual([...BUILTIN_WIDGETS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
     expect(DRIVER_LAYOUT.columns).toBe(COLUMNS);
-    for (const [id, e] of Object.entries(DRIVER_LAYOUT.blocks)) {
-      const { min, max } = columnRange(BUILTIN_BLOCKS.get(id)!, COLUMNS);
+    for (const [id, e] of Object.entries(DRIVER_LAYOUT.widgets)) {
+      const { min, max } = columnRange(BUILTIN_WIDGETS.get(id)!, COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
       expect(e.width).toBeLessThanOrEqual(max);
     }
   });
 
-  test("every column ends flush with the bottom, and no blocks overlap", () => {
+  test("every column ends flush with the bottom, and no widgets overlap", () => {
     for (const h of heights) {
       for (const s of states) {
-        const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, s, h);
+        const placed = pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, s, h);
         for (let c = 0; c < COLUMNS; c++) {
           const inColumn = placed.filter((p) => p.x <= c && c < p.x + p.width);
           expect(Math.max(...inColumn.map(bottom))).toBeCloseTo(h, 6);
@@ -193,7 +193,7 @@ describe("driver layout", () => {
   });
 
   test("tower, map and feed stretch; the driver panel keeps the old screen's heights", () => {
-    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 1427));
+    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, input(22, [63, 12], 63), 1427));
     expect(p["timing-tower"].height).toBe(1427);
     expect(p["track-map"].height).toBe(1427);
     // Measured on the old screen (07d720a): chips 33 + header 70.2, telemetry 175.28, laps 87.56, tyres 53. Then the
@@ -208,7 +208,7 @@ describe("driver layout", () => {
   });
 
   test("hairlines only where the old screen had them", () => {
-    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), 900));
+    const p = byId(pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, input(22, [63, 12], 63), 900));
     const top = Object.fromEntries(Object.entries(p).map(([id, x]) => [id, x.dividerTop]));
     expect(top).toEqual({
       "timing-tower": false,
@@ -233,22 +233,22 @@ describe("practice's default layout", () => {
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
 
   test("the tower, map and feed, long runs and stint pace, once each and within their width ranges", () => {
-    expect(Object.keys(PRACTICE_LAYOUT.blocks).sort()).toEqual(["long-runs", "race-feed", "stint-pace", "timing-tower", "track-map"]);
+    expect(Object.keys(PRACTICE_LAYOUT.widgets).sort()).toEqual(["long-runs", "race-feed", "stint-pace", "timing-tower", "track-map"]);
     expect(PRACTICE_LAYOUT.columns).toBe(COLUMNS);
-    for (const [id, e] of Object.entries(PRACTICE_LAYOUT.blocks)) {
-      const block = BUILTIN_BLOCKS.get(id)!;
-      expect(block.sessions).toContain("practice");
-      const { min, max } = columnRange(block, COLUMNS);
+    for (const [id, e] of Object.entries(PRACTICE_LAYOUT.widgets)) {
+      const widget = BUILTIN_WIDGETS.get(id)!;
+      expect(widget.sessions).toContain("practice");
+      const { min, max } = columnRange(widget, COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
       expect(e.width).toBeLessThanOrEqual(max);
     }
   });
 
-  test("every column ends flush with the bottom, and no blocks overlap", () => {
+  test("every column ends flush with the bottom, and no widgets overlap", () => {
     for (const h of heights) {
       for (const s of states) {
-        const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, s, h);
-        expect(placed).toHaveLength(Object.keys(PRACTICE_LAYOUT.blocks).length);
+        const placed = pack(PRACTICE_LAYOUT, BUILTIN_WIDGETS, s, h);
+        expect(placed).toHaveLength(Object.keys(PRACTICE_LAYOUT.widgets).length);
         for (let c = 0; c < COLUMNS; c++) {
           const inColumn = placed.filter((p) => p.x <= c && c < p.x + p.width);
           expect(Math.max(...inColumn.map(bottom))).toBeCloseTo(h, 6);
@@ -265,13 +265,13 @@ describe("practice's default layout", () => {
   });
 
   test("the race screen's top (tower, map, feed), with long runs under the tower and the stint pace under the map", () => {
-    const race = byId(pack(DEFAULT_LAYOUT, BUILTIN_BLOCKS, input(), 767));
-    const p = byId(pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(), 767));
+    const race = byId(pack(DEFAULT_LAYOUT, BUILTIN_WIDGETS, input(), 767));
+    const p = byId(pack(PRACTICE_LAYOUT, BUILTIN_WIDGETS, input(), 767));
     for (const id of ["timing-tower", "track-map", "race-feed"]) {
       expect([p[id].x, p[id].width, p[id].top, p[id].height]).toEqual([race[id].x, race[id].width, race[id].top, race[id].height]);
     }
-    // Practice's tower shows the gap to the fastest lap (the block's default), not the race's interval.
-    expect(PRACTICE_LAYOUT.blocks["timing-tower"].settings).toEqual({});
+    // Practice's tower shows the gap to the fastest lap (the widget's default), not the race's interval.
+    expect(PRACTICE_LAYOUT.widgets["timing-tower"].settings).toEqual({});
     expect([p["long-runs"].x, p["long-runs"].width]).toEqual([p["timing-tower"].x, p["timing-tower"].width]);
     expect([p["stint-pace"].x, p["stint-pace"].width]).toEqual([p["track-map"].x, p["track-map"].width]);
     for (const id of ["long-runs", "stint-pace"]) {
@@ -285,7 +285,7 @@ describe("practice's default layout", () => {
       [1440, 767],
       [1720, 867],
     ]) {
-      const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12], 63), h);
+      const placed = pack(PRACTICE_LAYOUT, BUILTIN_WIDGETS, input(22, [63, 12], 63), h);
       const boxes = boxesOf(placed, width, COLUMNS);
       const box = (id: string) => boxes[placed.findIndex((q) => q.id === id)];
       expect(box("long-runs").width).toBeGreaterThanOrEqual(560);
@@ -295,13 +295,13 @@ describe("practice's default layout", () => {
   });
 
   test("the bottom row fits from a 581 px grid; below that it's cut off", () => {
-    const fitsIn = (h: number) => pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(), h).every((q) => bottom(q) <= h + 1e-6);
+    const fitsIn = (h: number) => pack(PRACTICE_LAYOUT, BUILTIN_WIDGETS, input(), h).every((q) => bottom(q) <= h + 1e-6);
     expect(fitsIn(581)).toBe(true);
     expect(fitsIn(580)).toBe(false);
   });
 
   test("neighbours never overlap at any width from 1000 to 2560 px", () => {
-    const placed = pack(PRACTICE_LAYOUT, BUILTIN_BLOCKS, input(22, [63, 12]), 800);
+    const placed = pack(PRACTICE_LAYOUT, BUILTIN_WIDGETS, input(22, [63, 12]), 800);
     for (let width = 1000; width <= 2560; width++) {
       const boxes = boxesOf(placed, width, COLUMNS);
       for (let i = 0; i < boxes.length; i++) {
@@ -320,7 +320,7 @@ describe("practice's default layout", () => {
 describe("boxes", () => {
   test("neighbours never overlap at any width from 1000 to 2560 px", () => {
     for (const s of [input(), input(22, [63, 12])]) {
-      const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, s, 800);
+      const placed = pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, s, 800);
       for (let width = 1000; width <= 2560; width++) {
         const boxes = boxesOf(placed, width, DRIVER_LAYOUT.columns);
         for (let i = 0; i < boxes.length; i++) {
@@ -337,8 +337,8 @@ describe("boxes", () => {
     }
   });
 
-  test("side by side blocks meet exactly; a box includes the hairline above its block", () => {
-    const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(), 800);
+  test("side by side widgets meet exactly; a box includes the hairline above its widget", () => {
+    const placed = pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, input(), 800);
     const boxes = boxesOf(placed, 1720, COLUMNS);
     const box = (id: string) => boxes[placed.findIndex((p) => p.id === id)];
     expect(box("speed-gear").left + box("speed-gear").width).toBe(box("throttle-brake-rpm").left);
@@ -347,7 +347,7 @@ describe("boxes", () => {
   });
 
   test("its widths at 1720 px are the old screen's, to the nearest column", () => {
-    const placed = pack(DRIVER_LAYOUT, BUILTIN_BLOCKS, input(), 800);
+    const placed = pack(DRIVER_LAYOUT, BUILTIN_WIDGETS, input(), 800);
     const boxes = boxesOf(placed, 1720, COLUMNS);
     const box = (id: string) => boxes[placed.findIndex((p) => p.id === id)];
     const column = 1720 / COLUMNS;

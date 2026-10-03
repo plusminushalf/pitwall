@@ -1,12 +1,12 @@
 // The saved layouts (H3.11): one per browser for races and one for free practice, in localStorage (sync, so the first
-// frame already shows it). What's read back is checked and repaired against the blocks the app has: entries of
-// unknown blocks and blocks for other sessions are dropped, widths clamped, heights kept to at least MIN_HEIGHT,
-// settings the block no longer accepts dropped, and a layout saved at another column count rescaled. Anything
+// frame already shows it). What's read back is checked and repaired against the widgets the app has: entries of
+// unknown widgets and widgets for other sessions are dropped, widths clamped, heights kept to at least MIN_HEIGHT,
+// settings the widget no longer accepts dropped, and a layout saved at another column count rescaled. Anything
 // unusable falls back to the default layout.
 
-import { settingField, type BlockDefinition, type BlockSettings, type SettingValue } from "../blockkit/defineBlock";
-import type { SessionKind } from "../blockkit/select";
-import { blockIdOf, COLUMNS, columnRange, MIN_HEIGHT, type Layout, type LayoutEntry } from "./layout";
+import { settingField, type WidgetDefinition, type WidgetSettings, type SettingValue } from "../widgetkit/defineWidget";
+import type { SessionKind } from "../widgetkit/select";
+import { widgetIdOf, COLUMNS, columnRange, MIN_HEIGHT, type Layout, type LayoutEntry } from "./layout";
 
 /** The sessions shown on the grid, each with its own layout (qualifying has its own screen). */
 export type GridKind = Exclude<SessionKind, "qualifying">;
@@ -21,12 +21,20 @@ export const storageKey = (kind: GridKind) => (kind === "race" ? STORAGE_KEY : `
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const major = (version: string) => /^(\d+)\./.exec(version)?.[1] ?? null;
 
-/** Whether `value` is one the block's `key` setting accepts (see settingField()). */
-function accepts(block: BlockDefinition, key: string, value: unknown): value is SettingValue {
-  const field = settingField(block, key);
+/**
+ * Layouts saved before widgets were called widgets (until 2026-10-02) name them `blocks`, `block` and
+ * `blockVersion`, and browsers still hold them. Those are read as `widgets`, `widget` and `widgetVersion`
+ * (the new name wins if a layout has both); saving always writes the new names.
+ */
+const SAVED_AS = { widgets: "blocks", widget: "block", widgetVersion: "blockVersion" } as const;
+const saved = (raw: Record<string, unknown>, name: keyof typeof SAVED_AS) => (raw[name] !== undefined ? raw[name] : raw[SAVED_AS[name]]);
+
+/** Whether `value` is one the widget's `key` setting accepts (see settingField()). */
+function accepts(widget: WidgetDefinition, key: string, value: unknown): value is SettingValue {
+  const field = settingField(widget, key);
   if (field?.kind === "choice") return field.options.some((o) => o.value === value);
   if (field?.kind === "driver") return value === "follow-selection" || (Number.isInteger(value) && (value as number) > 0);
-  const initial = block.settings[key];
+  const initial = widget.settings[key];
   if (typeof initial === "number") {
     if (typeof value !== "number" || !Number.isFinite(value)) return false;
     return field?.kind !== "number" || ((field.min == null || value >= field.min) && (field.max == null || value <= field.max));
@@ -34,72 +42,76 @@ function accepts(block: BlockDefinition, key: string, value: unknown): value is 
   return (typeof initial === "boolean" || typeof initial === "string") && typeof value === typeof initial;
 }
 
-/** The stored settings the block still has and accepts. */
-function cleanSettings(block: BlockDefinition, stored: Record<string, unknown>): Partial<BlockSettings> {
-  return Object.fromEntries(Object.entries(stored).filter(([key, value]) => Object.hasOwn(block.settings, key) && accepts(block, key, value))) as Partial<BlockSettings>;
+/** The stored settings the widget still has and accepts. */
+function cleanSettings(widget: WidgetDefinition, stored: Record<string, unknown>): Partial<WidgetSettings> {
+  return Object.fromEntries(Object.entries(stored).filter(([key, value]) => Object.hasOwn(widget.settings, key) && accepts(widget, key, value))) as Partial<WidgetSettings>;
 }
 
-/** `entry` with its width clamped to the block's range and the grid, and x clamped so it fits. */
-function clampEntry(entry: LayoutEntry, block: BlockDefinition | undefined, columns: number): LayoutEntry {
-  const range = block ? columnRange(block, columns) : { min: 1, max: columns };
+/** `entry` with its width clamped to the widget's range and the grid, and x clamped so it fits. */
+function clampEntry(entry: LayoutEntry, widget: WidgetDefinition | undefined, columns: number): LayoutEntry {
+  const range = widget ? columnRange(widget, columns) : { min: 1, max: columns };
   const width = Math.min(Math.max(entry.width, range.min), range.max, columns);
   return { ...entry, width, x: Math.min(Math.max(entry.x, 0), columns - width) };
 }
 
 /**
- * The layout at `columns` columns, scaled by edges so neighbours stay adjacent: each block's left and right
+ * The layout at `columns` columns, scaled by edges so neighbours stay adjacent: each widget's left and right
  * edges are scaled and rounded, then its width clamped to its range and the grid.
  */
-export function rescaleLayout(layout: Layout, blocks: ReadonlyMap<string, BlockDefinition>, columns: number): Layout {
+export function rescaleLayout(layout: Layout, widgets: ReadonlyMap<string, WidgetDefinition>, columns: number): Layout {
   if (layout.columns === columns) return layout;
   const scale = (c: number) => Math.round((c * columns) / layout.columns);
-  const entries = Object.entries(layout.blocks).map(([id, e]) => {
+  const entries = Object.entries(layout.widgets).map(([id, e]) => {
     const x = scale(e.x);
-    return [id, clampEntry({ ...e, x, width: Math.max(scale(e.x + e.width) - x, 1) }, blocks.get(blockIdOf(id, e)), columns)] as const;
+    return [id, clampEntry({ ...e, x, width: Math.max(scale(e.x + e.width) - x, 1) }, widgets.get(widgetIdOf(id, e)), columns)] as const;
   });
-  return { ...layout, columns, blocks: Object.fromEntries(entries) };
+  return { ...layout, columns, widgets: Object.fromEntries(entries) };
 }
 
-/** A stored entry's shape, or null if it isn't one. */
+/** A stored entry's shape (in the new names), or null if it isn't one. */
 function readEntry(raw: unknown): LayoutEntry | null {
-  if (!isObject(raw) || typeof raw.blockVersion !== "string" || !isObject(raw.settings)) return null;
-  const { block, x, y, width, height, group } = raw;
+  if (!isObject(raw)) return null;
+  const widgetVersion = saved(raw, "widgetVersion");
+  const widget = saved(raw, "widget");
+  if (typeof widgetVersion !== "string" || !isObject(raw.settings)) return null;
+  const { x, y, width, height, group } = raw;
   if (![x, y, width].every((n) => typeof n === "number" && Number.isFinite(n))) return null;
-  if ((group !== undefined && typeof group !== "string") || (block !== undefined && typeof block !== "string")) return null;
-  const entry: LayoutEntry = { blockVersion: raw.blockVersion, x: Math.round(x as number), y: y as number, width: Math.round(width as number), settings: raw.settings as Partial<BlockSettings> };
-  if (block !== undefined) entry.block = block;
-  // A height that isn't one is dropped: the block takes its own.
+  if ((group !== undefined && typeof group !== "string") || (widget !== undefined && typeof widget !== "string")) return null;
+  const entry: LayoutEntry = { widgetVersion, x: Math.round(x as number), y: y as number, width: Math.round(width as number), settings: raw.settings as Partial<WidgetSettings> };
+  if (widget !== undefined) entry.widget = widget;
+  // A height that isn't one is dropped: the widget takes its own.
   if (typeof height === "number" && Number.isFinite(height)) entry.height = Math.max(height, MIN_HEIGHT);
   return group === undefined ? entry : { ...entry, group };
 }
 
 /** Validates and repairs a stored layout of `kind` sessions (see the top of this file). null if it's unusable. */
-export function parseLayout(raw: unknown, blocks: ReadonlyMap<string, BlockDefinition>, columns = COLUMNS, kind: GridKind = "race"): Layout | null {
-  if (!isObject(raw) || raw.version !== 1 || !isObject(raw.blocks)) return null;
+export function parseLayout(raw: unknown, widgets: ReadonlyMap<string, WidgetDefinition>, columns = COLUMNS, kind: GridKind = "race"): Layout | null {
+  if (!isObject(raw) || raw.version !== 1) return null;
+  const entries = saved(raw, "widgets");
   const stored = raw.columns;
-  if (typeof stored !== "number" || !Number.isInteger(stored) || stored < 1) return null;
+  if (!isObject(entries) || typeof stored !== "number" || !Number.isInteger(stored) || stored < 1) return null;
 
   const kept: Record<string, LayoutEntry> = {};
-  for (const [id, value] of Object.entries(raw.blocks)) {
+  for (const [id, value] of Object.entries(entries)) {
     const entry = readEntry(value);
     if (!entry) return null;
-    const block = blocks.get(blockIdOf(id, entry));
-    if (!block || !block.sessions.includes(kind)) continue;
-    // One version of each block is available: the same major keeps the settings, another resets them.
-    const settings = major(entry.blockVersion) === major(block.version) ? cleanSettings(block, entry.settings) : {};
-    kept[id] = { ...entry, blockVersion: block.version, settings };
+    const widget = widgets.get(widgetIdOf(id, entry));
+    if (!widget || !widget.sessions.includes(kind)) continue;
+    // One version of each widget is available: the same major keeps the settings, another resets them.
+    const settings = major(entry.widgetVersion) === major(widget.version) ? cleanSettings(widget, entry.settings) : {};
+    kept[id] = { ...entry, widgetVersion: widget.version, settings };
   }
   if (Object.keys(kept).length === 0) return null;
 
-  const layout = rescaleLayout({ version: 1, columns: stored, blocks: kept }, blocks, columns);
-  return { ...layout, blocks: Object.fromEntries(Object.entries(layout.blocks).map(([id, e]) => [id, clampEntry(e, blocks.get(blockIdOf(id, e)), columns)])) };
+  const layout = rescaleLayout({ version: 1, columns: stored, widgets: kept }, widgets, columns);
+  return { ...layout, widgets: Object.fromEntries(Object.entries(layout.widgets).map(([id, e]) => [id, clampEntry(e, widgets.get(widgetIdOf(id, e)), columns)])) };
 }
 
 /** The saved layout for `kind` sessions, or `fallback`. Never throws (localStorage may be missing or throw). */
-export function loadLayout(blocks: ReadonlyMap<string, BlockDefinition>, fallback: Layout, kind: GridKind = "race"): Layout {
+export function loadLayout(widgets: ReadonlyMap<string, WidgetDefinition>, fallback: Layout, kind: GridKind = "race"): Layout {
   try {
     const saved = globalThis.localStorage?.getItem(storageKey(kind));
-    return (saved != null && parseLayout(JSON.parse(saved), blocks, COLUMNS, kind)) || fallback;
+    return (saved != null && parseLayout(JSON.parse(saved), widgets, COLUMNS, kind)) || fallback;
   } catch {
     return fallback;
   }

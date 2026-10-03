@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-// (Here, not next to it: blocks may only import block-kit, and bun:test isn't that.)
-import { labelOrder, stackOrder } from "../blocks/track-map/stacking";
+// (Here, not next to it: widgets may only import widget-kit, and bun:test isn't that.)
+import { labelOrder, stackOrder } from "../widgets/track-map/stacking";
 
 // Dots 1-4, back to front; `near` lists the pairs that overlap.
 const overlapping = (...near: [number, number][]) => (a: number, b: number) => near.some(([p, q]) => (p === a && q === b) || (p === b && q === a));

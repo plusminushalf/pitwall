@@ -1,5 +1,5 @@
-import { Icon } from "../blockkit/ui/Icon";
-import { Label, Stat } from "../blockkit/ui/Label";
+import { Icon } from "../widgetkit/ui/Icon";
+import { Label, Stat } from "../widgetkit/ui/Label";
 import { canCompare } from "../data/compare";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
@@ -210,7 +210,7 @@ function LayoutControls() {
           useLayout.getState().startEdit();
         }}
         className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
-        title="Move, resize, add and remove blocks"
+        title="Move, resize, add and remove widgets"
       >
         Edit layout
       </button>
@@ -234,7 +234,7 @@ function LayoutControls() {
         }}
         className={`${TOP_BUTTON} ${pickerOpen ? "bg-zinc-700 text-white" : "bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white"}`}
       >
-        + Add block
+        + Add widget
       </button>
       <button
         type="button"

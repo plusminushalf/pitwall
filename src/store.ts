@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { orderOf, selectedDriverOf } from "./blockkit/select";
+import { orderOf, selectedDriverOf } from "./widgetkit/select";
 import { canCompare } from "./data/compare";
 import { LiveEdge } from "./data/liveEdge";
 import { appendTelemetry, buildSession, mergeTelemetry, streamSession, withMeta, type Session } from "./data/session";
@@ -309,7 +309,7 @@ interface ReplayState {
   seekToLap: (lap: number) => void;
   /**
    * [ / ] and the timeline's buttons: the leader's previous / next lap (seekToLap). Practice has no leader: the laps
-   * of the driver the driver blocks show (focused, else the best-placed selected one, else P1).
+   * of the driver the driver widgets show (focused, else the best-placed selected one, else P1).
    */
   stepLap: (dir: -1 | 1) => void;
   setPlaying: (playing: boolean) => void;

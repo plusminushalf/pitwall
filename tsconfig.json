@@ -9,7 +9,7 @@
     "skipLibCheck": true,
     "types": ["vite/client"],
     "noEmit": true,
-    "paths": { "block-kit": ["./src/blockkit/index.ts"] }
+    "paths": { "widget-kit": ["./src/widgetkit/index.ts"] }
   },
   "include": ["src"],
   "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]

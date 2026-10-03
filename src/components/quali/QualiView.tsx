@@ -3,7 +3,7 @@
 // fastest in each mini-sector and the laps as ghosts.
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { TyreBadge } from "../../blockkit/ui/TyreBadge";
+import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { compareModel, type CompareModel } from "../../data/compare";
 import { miniSectors } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";

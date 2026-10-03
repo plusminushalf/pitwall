@@ -1,16 +1,16 @@
-// Edit mode's chrome on the grid (H3.10): column and row guides, each block's frame (name, settings,
+// Edit mode's chrome on the grid (H3.10): column and row guides, each widget's frame (name, settings,
 // remove, and the grips that change its width and height), free slots, the drop placeholder, and the popover shell. Quiet on purpose: thin rings
 // and small controls over the race, which keeps playing underneath.
 
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { Icon } from "../blockkit/ui/Icon";
+import { Icon } from "../widgetkit/ui/Icon";
 import { ROW, type Box } from "./layout";
 
 /** The label type (DESIGN.md) without its colour: these labels sit on fills of their own. */
 const SMALL_LABEL = "text-[11px] font-semibold uppercase tracking-wider";
 
-/** The column edges, over the blocks (most fill their box) but under the dragged one and the popovers. */
+/** The column edges, over the widgets (most fill their box) but under the dragged one and the popovers. */
 export function ColumnGuides({ columns, width, strong }: { columns: number; width: number; strong: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
@@ -61,10 +61,10 @@ export type ChromeState = "idle" | "dragging" | "refused" | "resizing" | "blocke
 export type ResizeAxis = "width" | "height";
 
 /**
- * Over one block in edit mode, inside its box: catches every pointer event so the block's own controls
+ * Over one widget in edit mode, inside its box: catches every pointer event so the widget's own controls
  * (driver rows, the tower's toggle) don't fire, and starts moves and resizes.
  */
-export function BlockChrome({
+export function WidgetChrome({
   name,
   hasSettings,
   settingsOpen,
@@ -115,7 +115,7 @@ export function BlockChrome({
       <div className="absolute inset-x-1 top-1 flex items-start gap-1">
         <span className={`min-w-0 truncate rounded border border-zinc-800 bg-zinc-900 px-1.5 py-px leading-4 text-zinc-400 ${SMALL_LABEL}`}>{name}</span>
         {cutOff && (
-          <span className={`min-w-0 truncate rounded bg-amber-500/15 px-1.5 py-px leading-4 text-amber-300 ${SMALL_LABEL}`} title="The bottom of this block is below the window: make the window taller or move blocks">
+          <span className={`min-w-0 truncate rounded bg-amber-500/15 px-1.5 py-px leading-4 text-amber-300 ${SMALL_LABEL}`} title="The bottom of this widget is below the window: make the window taller or move widgets">
             Cut off at this window height
           </span>
         )}
@@ -182,12 +182,12 @@ export function EmptySlot({ box, onAdd }: { box: Box; onAdd: () => void }) {
       className={`absolute flex items-center justify-center rounded-md border border-dashed border-zinc-800 text-zinc-400 hover:border-zinc-600 hover:bg-zinc-900/60 hover:text-zinc-100 ${SMALL_LABEL}`}
       style={{ left: box.left + 3, top: box.top + 3, width: box.width - 6, height: box.height - 6 }}
     >
-      {box.height >= 30 && box.width >= 70 && "+ Add block"}
+      {box.height >= 30 && box.width >= 70 && "+ Add widget"}
     </button>
   );
 }
 
-/** Where the dragged block would land, or a red outline if it doesn't fit there (the dragged block says so). */
+/** Where the dragged widget would land, or a red outline if it doesn't fit there (the dragged widget says so). */
 export function DropPlaceholder({ box, ok }: { box: Box; ok: boolean }) {
   return (
     <div

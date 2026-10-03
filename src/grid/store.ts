@@ -1,14 +1,14 @@
-// The layout on screen and edit mode (H3.10, H3.11). In normal mode a block's own setting changes (the
+// The layout on screen and edit mode (H3.10, H3.11). In normal mode a widget's own setting changes (the
 // tower's Gap/Int toggle) are saved at once; in edit mode everything is saved on Done. Playback pauses
 // in edit mode (dragging with the race playing janks) and resumes on Done, unless the user pressed play
 // meanwhile, in which case it's left as they set it. Races and free practice each have a layout: opening a
 // session of the other kind shows (and edits) that one.
 
 import { create } from "zustand";
-import type { BlockSettings } from "../blockkit/defineBlock";
+import type { WidgetSettings } from "../widgetkit/defineWidget";
 import type { Session } from "../data/session";
 import { useReplay } from "../store";
-import { BUILTIN_BLOCKS } from "./builtins";
+import { BUILTIN_WIDGETS } from "./builtins";
 import { DEFAULT_LAYOUTS } from "./defaultLayout";
 import type { Slot } from "./edit";
 import type { Layout } from "./layout";
@@ -24,7 +24,7 @@ interface LayoutState {
   editing: boolean;
   /** Edit mode paused the race, and Done will resume it. */
   pausedPlayback: boolean;
-  /** The block picker, open for a free slot or (without one) wherever the block fits. */
+  /** The widget picker, open for a free slot or (without one) wherever the widget fits. */
   picker: { slot?: Slot } | null;
   startEdit: () => void;
   /** Saves the layout and leaves edit mode. */
@@ -32,7 +32,7 @@ interface LayoutState {
   /** The default layout, saved on Done. */
   reset: () => void;
   setLayout: (layout: Layout) => void;
-  setSettings: (id: string, settings: Partial<BlockSettings>) => void;
+  setSettings: (id: string, settings: Partial<WidgetSettings>) => void;
   openPicker: (slot?: Slot) => void;
   closePicker: () => void;
 }
@@ -45,7 +45,7 @@ const initialKind = gridKindOf(useReplay.getState().session) ?? "race";
 
 export const useLayout = create<LayoutState>((set, get) => ({
   kind: initialKind,
-  layout: loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS[initialKind], initialKind),
+  layout: loadLayout(BUILTIN_WIDGETS, DEFAULT_LAYOUTS[initialKind], initialKind),
   editing: false,
   pausedPlayback: false,
   picker: null,
@@ -80,9 +80,9 @@ export const useLayout = create<LayoutState>((set, get) => ({
   setLayout: (layout) => set({ layout }),
   setSettings: (id, settings) => {
     const { layout, editing, kind } = get();
-    const entry = layout.blocks[id];
+    const entry = layout.widgets[id];
     if (!entry) return;
-    const next = { ...layout, blocks: { ...layout.blocks, [id]: { ...entry, settings } } };
+    const next = { ...layout, widgets: { ...layout.widgets, [id]: { ...entry, settings } } };
     set({ layout: next });
     if (!editing) saveLayout(next, kind);
   },
@@ -100,5 +100,5 @@ useReplay.subscribe((s) => {
     stopWatching?.();
     stopWatching = null;
   }
-  useLayout.setState({ kind, layout: loadLayout(BUILTIN_BLOCKS, DEFAULT_LAYOUTS[kind], kind), editing: false, pausedPlayback: false, picker: null });
+  useLayout.setState({ kind, layout: loadLayout(BUILTIN_WIDGETS, DEFAULT_LAYOUTS[kind], kind), editing: false, pausedPlayback: false, picker: null });
 });
