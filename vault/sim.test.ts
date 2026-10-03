@@ -140,18 +140,21 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
     await fetch(`${base}/control/drop`, { method: "POST" });
     expect(await wait(() => live.status().reconnects === 1 && live.status().phase === "connected", 10_000)).toBe(true);
     await Bun.sleep(800);
-    const t1 = Date.now();
+    // Stop once the stream is past `to` (it arrives in date order), not at a fixed time: the broker publishes
+    // every PUMP_MS (2 s sim, the whole margin) on a schedule the reconnect restarted, so 800 ms on is often just
+    // before a pump, and one running a few ms late hadn't yet sent everything up to `to`.
+    const to = simNowOf(cfg, Date.now()) - 2000;
+    expect(await wait(() => Date.parse(live.status().lastSeen.car_data ?? "") > to)).toBe(true);
     live.stop();
     const stats = await (await fetch(`${base}/stats`)).json();
     expect(stats.max).toBeLessThanOrEqual(2);
     expect(stats.rest429).toBe(0);
     expect(live.status().gapFilled).toBeGreaterThan(0);
 
-    // Compare with the source: everything published between (start + 1 s sim) and (end - 1 s sim), once.
+    // Compare with the source: everything published between (start + 2 s sim) and `to`, once.
     const tl = buildTimeline(repo, KEY, 0);
     const off = offsetOf({ anchorWall: cfg.anchorWall, startOrig: tl.startOrig, speed: cfg.speed });
     const from = simNowOf(cfg, t0) + 2000;
-    const to = simNowOf(cfg, t1) - 2000;
     const idOf = (m: Record<string, unknown>) => {
       const { _id, _key, ...rest } = m;
       return hash53(canonical(rest));
