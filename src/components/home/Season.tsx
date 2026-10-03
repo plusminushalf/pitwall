@@ -4,7 +4,10 @@
 // update, retry.
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
+import { isFollowedLive } from "../../../scripts/lib/season";
 import { isLive, type CatalogRow } from "../../ingest/catalog";
+import { liveVia } from "../../live/client";
+import { useReplay } from "../../store";
 import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS, type RaceFilter, type RowState } from "../../library";
 import { LiveDot } from "../LiveControl";
@@ -120,12 +123,30 @@ function Cell({
 
   switch (state.kind) {
     case "upcoming":
-      return isLive(row, now) ? (
-        <span className={`${CELL} font-semibold text-red-400`} title={`${row.sessionName} is live: it can be downloaded about 30 minutes after it ends`}>
-          <LiveDot pulse={false} />
-          Live
-        </span>
-      ) : (
+      if (isLive(row, now)) {
+        // Live mode follows it (when this site can follow anything live): the cell takes you there.
+        const followed = liveVia() != null && isFollowedLive({ session_type: row.sessionType, session_name: row.sessionName });
+        return followed ? (
+          <button
+            onClick={(e) => {
+              e.currentTarget.blur();
+              useReplay.getState().enterLive();
+            }}
+            className={`${CELL} font-semibold text-red-400 hover:bg-zinc-800 hover:text-red-300`}
+            aria-label={`Follow ${name} live`}
+            title={`${row.sessionName} is live: follow it in live mode (downloadable about 30 minutes after it ends)`}
+          >
+            <LiveDot pulse={false} />
+            Live
+          </button>
+        ) : (
+          <span className={`${CELL} font-semibold text-red-400`} title={`${row.sessionName} is live: it can be downloaded about 30 minutes after it ends`}>
+            <LiveDot pulse={false} />
+            Live
+          </span>
+        );
+      }
+      return (
         <span className={`${CELL} text-zinc-400`} title={`${row.sessionName}: ${sessionTime(row.dateStart)}`}>
           <span className="sr-only">{row.sessionName}: </span>
           {dayTime(row.dateStart)}
