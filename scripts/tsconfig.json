@@ -14,6 +14,7 @@
     "../server",
     "../src/types.ts",
     "../src/live/protocol.ts",
+    "../src/live/openf1.test.ts",
     "../src/data",
     "../src/engine",
     "../src/ingest/eta.ts",
