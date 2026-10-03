@@ -353,6 +353,8 @@ export const useLibrary = create<LibraryState>((set, get) => {
       setYear({ catalog: fresh, loading: false, error: null });
     } catch (e) {
       let error = `Couldn't load the ${year} calendar from OpenF1 (${message(e)}).`;
+      // (A browser without an account gets no answer at all during a session: a network error, not a 401.)
+      if (!signedIn()) error += " During a live session OpenF1 blocks browsers without an account, from 30 minutes before it until 30 minutes after: try again then, or connect your OpenF1 account in Settings.";
       if (e instanceof LiveWindowError) {
         const w = liveWindowOf(get());
         set({ blocked: { until: w?.until ?? Date.now() + BLOCKED_RECHECK_MS, label: w?.label ?? "a live session" } });

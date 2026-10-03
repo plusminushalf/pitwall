@@ -18,8 +18,8 @@ The S3 success check runs as `bun run vault:e2e --s3`, the download check as `bu
 
 The app's live mode uses it where there's no relay (the hosted site): the page subscribes to the live topics while a
 session is on and relays the data and its REST reads to a worker that runs the relay's processing (`src/live/vault.ts`,
-docs/development.md, Live mode). `bun run live:check` checks that in a browser against the simulate mode. Not yet
-tried against a real live session with a real account.
+docs/development.md, Live mode). `bun run live:check` checks that in a browser against the simulate mode, including
+OpenF1's lock (below). The REST pass-through was checked against the real lock during qualifying on 2026-10-03.
 
 ## What's here
 
@@ -44,6 +44,7 @@ tried against a real live session with a real account.
 | `src/origins.ts` | The app-origin allowlist: parsing `VAULT_APP_ORIGINS`, matching the parent |
 | `src/rpc.ts` | Request dispatch over a `MessagePort` |
 | `headers.ts` | Every response header (CSP and the rest): one source for dev, `_headers` and `serve.ts` |
+| `proxy.ts`, `worker.ts` | The REST pass-through for requests with a token during live sessions, and the Cloudflare Worker that runs it (only for `/openf1/*`) |
 | `vite.config.ts` | Dev server and build (Vite is a build tool only: no runtime npm dependencies) |
 | `serve.ts` | Serves `dist/` locally with exactly the headers in `dist/_headers` |
 | `e2e.ts` | Browser checks (Playwright, Chromium), including the real login from `.env` |
@@ -63,7 +64,7 @@ The build is unminified, so the deployed JavaScript reads like this source.
 bun run vault           # dev server, http://localhost:5174 (no HMR, no Vite client: reload by hand)
 bun run vault:build     # vault/dist, with dist/_headers for Netlify / Cloudflare Pages
 bun run vault:serve     # dist/ on :5174 with the production headers
-bun run vault:deploy    # build for the app at pitwall.plusminushalf.com, upload to pitwall-auth.garvit.in (Cloudflare; CI does it on every push to main)
+bun run vault:deploy    # build for the app at pitwall.plusminushalf.com, upload it and the Worker to pitwall-auth.garvit.in (Cloudflare; CI does it on every push to main)
 bun run vault:e2e       # browser checks against the built vault (--dev: against the dev server; --quick: skip the 5-min refresh run)
 bun run vault:e2e --s3  # only the S3 success check: a simulated session in two tabs, ~22 min (needs data/raw/11291)
 bun run vault:e2e --downloads  # only the download check, ~6 min (the real login from .env; race 11377 three times)
@@ -199,6 +200,36 @@ account; see "Tabs"). Pure, tested with a fake clock (`budget.test.ts`).
   ahead of it), and fails once the leader has been silent for 35 s (or after 10 minutes in all).
 - `status.budget`: `{auth, perSecond, perMinute, inFlight, queued, usedThisMinute, callers, reserve, started,
   rateLimited, pausedUntil?, shrunkUntil?}`, pushed at most every 500 ms; the debug panel shows it.
+
+## The REST pass-through
+
+During a live session (from about 30 minutes before it until 30 minutes after) OpenF1 answers the CORS preflight of
+every `/v1/*` request with 401 and no `Access-Control-*` headers (measured 2026-10-03, during qualifying):
+
+```sh
+curl -i -X OPTIONS https://api.openf1.org/v1/sessions -H 'Origin: https://pitwall-auth.garvit.in' \
+  -H 'Access-Control-Request-Method: GET' -H 'Access-Control-Request-Headers: authorization'
+```
+
+A request with an `Authorization` header has to be preflighted, and OpenF1 reads the token from nowhere else, so
+during a session no signed-in REST read can leave a browser. `/token` (a simple request) and the MQTT stream (no CORS)
+are unaffected, and the same requests from a server are answered.
+
+So the vault's site has a small pass-through: `GET /openf1/v1/<endpoint>?<query>` on the vault's own origin, forwarded
+to `https://api.openf1.org/v1/<endpoint>?<query>` with the caller's `Authorization` (`proxy.ts`). It runs in a
+Cloudflare Worker in front of the static files (`worker.ts`, `wrangler.jsonc`: `run_worker_first` only for
+`/openf1/*`; everything else is served as before, with `_headers`). The frame calls it same-origin, so nothing is
+preflighted. Its rules: GET only; `Sec-Fetch-Site: same-origin` only (the vault's own pages); only the endpoints and
+parameters `get` accepts (`protocol.ts`); a bearer token required, so it never serves anonymous (free-tier) requests;
+only `Authorization` and `Accept` are forwarded, never cookies; nothing is cached, logged or stored; 110 s timeout;
+OpenF1's status, body and `Retry-After` come back as they are. The token passes through it; the password never does.
+
+`src/rest.ts` goes direct as before. A request with a token that fails with a network error (what the refused
+preflight looks like) is sent again through the pass-through, and authenticated requests go there for the next 10
+minutes (`PROXY_STICKY_MS`) without trying direct first. Requests without a token are never proxied. The dev server
+serves the same handler (to OpenF1, the fake broker or the simulation), so dev matches production. Checked against the
+real lock on 2026-10-03 (qualifying) with the dev vault: the direct requests failed (`net::ERR_FAILED`), the
+pass-through answered every one, and the app's calendar and two practice downloads (14 s each) went through it.
 
 ## Downloads through the vault
 
@@ -421,6 +452,7 @@ the scheduler and the tabs are unchanged.
 | `VAULT_SIMULATE_DROP_EVERY` | 0 | Drop every session every N wall minutes |
 | `VAULT_SIMULATE_REFUSE_AT` | off | One CONNACK 5 at the first CONNECT N wall minutes in |
 | `VAULT_SIMULATE_JITTER` | 0 | Random delivery delay per frame, ms (order kept) |
+| `VAULT_SIMULATE_LOCK` | off | `1`: OpenF1's lock. From 30 min before the session to 30 min after its end, a browser's REST to the simulation fails as a network error (the connection is dropped) while the stream and the pass-through go on |
 
 Controls: `curl -X POST localhost:5174/__sim/control/drop`, `…/refuse?n=1`,
 `…/reset?speed=6&start=-1800&token=120` (restarts the session now; open tabs reconnect), `curl
@@ -508,7 +540,7 @@ the exception's message.
 
 From `headers.ts`, identical in dev, in `dist/_headers` and in `serve.ts`:
 
-- `frame.html`: `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://api.openf1.org wss://mqtt.openf1.org:8084; base-uri 'none'; form-action 'none'; frame-ancestors <VAULT_APP_ORIGINS>`
+- `frame.html`: `Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src https://api.openf1.org wss://mqtt.openf1.org:8084 'self'; base-uri 'none'; form-action 'none'; frame-ancestors <VAULT_APP_ORIGINS>` (`'self'`: the REST pass-through)
 - `popup.html`: the same, but `frame-ancestors 'none'`. The popup makes no requests at all; the frame does.
 - Dev server with `VAULT_FAKE_BROKER` only: the frame's `connect-src` also has that one local origin.
 - Every response: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,

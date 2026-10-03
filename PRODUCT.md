@@ -25,7 +25,7 @@ Success: a fan gets from the home screen to the session they want, and from ther
 
 ## Positioning
 
-- Runs entirely in the user's browser. No server of ours hosts, bundles or relays F1 data. Each browser fetches from OpenF1 with its own rate limit, which is why a central relay (what killed f1-dash) is not needed.
+- Runs in the user's browser. No server of ours hosts, bundles or stores F1 data. Each browser fetches from OpenF1 with its own rate limit, which is why a central relay (what killed f1-dash) is not needed. The one exception: during live sessions OpenF1 refuses browsers, so requests made with the user's token pass through the vault's site (a stateless pass-through that keeps nothing).
 - Bring your own OpenF1 account for faster downloads and live data. The password never reaches Pitwall's code: a separate vault origin (`pitwall-auth.garvit.in`) holds it.
 - The replay screen is a grid of widgets the user arranges: timing tower, track map, telemetry, race feed, tyres, weather and more. No other F1 tool combines user-arranged layouts with a synced replay timeline.
 - Spoiler protection is a feature: the timeline shows only what you've watched.

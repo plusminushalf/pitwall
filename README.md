@@ -37,6 +37,8 @@ Replays need no account. On OpenF1's free tier, a race is fully downloaded in ab
 
 Pitwall's code never sees your password. A small vault on a separate site (`pitwall-auth.garvit.in`) holds it and talks to OpenF1. Pitwall only gets the data. Details: [vault/README.md](vault/README.md).
 
+During a live session OpenF1 refuses requests from browsers. So while one is on, the vault sends the requests made with your OpenF1 token through a small pass-through on its own site (`pitwall-auth.garvit.in/openf1/`), which forwards them to OpenF1. Your token passes through it and isn't stored or logged. Your password only ever goes from your browser to OpenF1.
+
 The sponsor tier is a personal subscription. Use your own account. Don't share it.
 
 ## Run it locally
@@ -115,7 +117,7 @@ Not up for writing one? Missing some data? [Open an issue](https://github.com/pl
 
 ## Not a distribution of OpenF1 data
 
-Pitwall ships code, not data. Your browser downloads each race straight from OpenF1. It's processed and stored in your browser only. No server of ours hosts, bundles or relays F1 data. This repo contains none.
+Pitwall ships code, not data. Your browser downloads each race from OpenF1. It's processed and stored in your browser only. No server of ours hosts, bundles or stores F1 data. This repo contains none. One thing passes through: during live sessions, requests made with your OpenF1 account go through the vault's pass-through (see above), which hands each answer to your browser and keeps nothing.
 
 OpenF1 data is licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only.
 

@@ -379,7 +379,8 @@ export function Attribution({ className = "" }: { className?: string }) {
       >
         CC BY-NC-SA 4.0
       </a>
-      ), downloaded straight into this browser: this site doesn't host or relay any race data. Unofficial, not associated with Formula 1.
+      ), downloaded into this browser: this site doesn't host or keep any race data (during live sessions, signed-in requests pass through its account vault). Unofficial,
+      not associated with Formula 1.
     </p>
   );
 }
