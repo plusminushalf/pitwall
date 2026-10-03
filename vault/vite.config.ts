@@ -22,6 +22,7 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import { COMMON_HEADERS, formatHeaders, headerRules, pageHeaders, pageOf } from "./headers.ts";
+import { handleProxy, type ProxyOpts } from "./proxy.ts";
 import { SimServer, simOptionsFromEnv } from "./simserver.ts";
 import { DEFAULT_APP_ORIGINS, parseOrigins } from "./src/origins.ts";
 
@@ -98,6 +99,9 @@ function vaultConstants(): Plugin {
   };
 }
 
+/** The dev server's simulation, if it runs one (the pass-through answers from it). */
+let simServer: SimServer | null = null;
+
 /** Simulate mode (dev server only): the simulation's endpoints at /__sim/ (simserver.ts). */
 function vaultSimulate(): Plugin {
   return {
@@ -106,9 +110,38 @@ function vaultSimulate(): Plugin {
     configureServer(server) {
       const opts = simOptionsFromEnv(env);
       if (!opts) return;
-      const sim = new SimServer(repo, opts, (s) => server.config.logger.info(s));
+      const sim = (simServer = new SimServer(repo, opts, (s) => server.config.logger.info(s)));
       server.middlewares.use((req, res, next) => {
         if (!sim.handle(req, res)) next();
+      });
+    },
+  };
+}
+
+/**
+ * The REST pass-through at /openf1/v1/ (proxy.ts), as the production Worker runs it: to OpenF1, or to the simulation
+ * (in-process) or the fake broker when the dev server uses one.
+ */
+function vaultProxy(): Plugin {
+  return {
+    name: "vault-proxy",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        if (!req.url?.startsWith("/openf1/")) return next();
+        void (async () => {
+          const pick = (name: string) => (typeof req.headers[name] === "string" ? [[name, req.headers[name] as string] as [string, string]] : []);
+          const request = new Request(new URL(req.url!, `http://${req.headers.host ?? "localhost"}`), {
+            method: req.method,
+            headers: [...pick("sec-fetch-site"), ...pick("authorization"), ...pick("accept")],
+          });
+          const broker = fakeBroker();
+          const opts: ProxyOpts = simServer ? { fetch: simServer.fetchRest as typeof fetch } : broker ? { upstream: `${broker}/v1/` } : {};
+          const response = await handleProxy(request, opts);
+          res.statusCode = response.status;
+          response.headers.forEach((v, k) => res.setHeader(k, v));
+          res.end(Buffer.from(await response.arrayBuffer()));
+        })().catch(next);
       });
     },
   };
@@ -146,7 +179,7 @@ export default defineConfig({
   publicDir: false,
   // Nothing from .env reaches vault code (it reads no import.meta.env): only vaultConstants().
   envPrefix: "VAULT_PUBLIC_",
-  plugins: [vaultConstants(), vaultHeaders(), vaultSimulate()],
+  plugins: [vaultConstants(), vaultHeaders(), vaultSimulate(), vaultProxy()],
   server: {
     port: 5174,
     strictPort: true,

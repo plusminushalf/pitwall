@@ -2,8 +2,11 @@
 // the built _headers file (Netlify / Cloudflare Pages format) and the local static server (serve.ts),
 // so they cannot drift apart.
 
-/** Where the vault may connect: OpenF1's REST API and its MQTT-over-WebSocket broker. Nothing else. */
-export const OPENF1_CONNECT = ["https://api.openf1.org", "wss://mqtt.openf1.org:8084"] as const;
+/**
+ * Where the vault may connect: OpenF1's REST API and its MQTT-over-WebSocket broker, and its own origin for the REST
+ * pass-through (proxy.ts, `/openf1/v1/`: OpenF1 refuses browsers' CORS preflight during live sessions). Nothing else.
+ */
+export const OPENF1_CONNECT = ["https://api.openf1.org", "wss://mqtt.openf1.org:8084", "'self'"] as const;
 
 export type Page = "frame" | "popup";
 
@@ -24,7 +27,7 @@ export function csp(page: Page, appOrigins: readonly string[], devConnect: reado
     "script-src 'self'",
     "style-src 'self'",
     "img-src 'self'",
-    `connect-src ${[...OPENF1_CONNECT, ...devConnect].join(" ")}`,
+    `connect-src ${[...new Set([...OPENF1_CONNECT, ...devConnect])].join(" ")}`,
     "base-uri 'none'",
     "form-action 'none'",
     `frame-ancestors ${page === "frame" ? appOrigins.join(" ") : "'none'"}`,

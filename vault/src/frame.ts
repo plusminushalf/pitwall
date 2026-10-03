@@ -83,7 +83,8 @@ async function boot(parent: string) {
   const restFetch: RestFetch = (url, { timeoutMs, ...init }) => gFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
   const tokens: TokenSource = __VAULT_DEV__ ? knobs!.tokens() : core.scheduler;
   const budget = new Budget({ ...timers, random: Math.random, authenticated: () => tokens.current() !== null, onChange: () => node?.budgetChanged() });
-  const rest = new Rest(restFetch, tokens, sim ? `${simBase}/v1/` : fake ? `${fake}/v1/` : REST_BASE, budget);
+  // The pass-through on the vault's own origin (proxy.ts: the Worker in production, the dev server here).
+  const rest = new Rest(restFetch, tokens, sim ? `${simBase}/v1/` : fake ? `${fake}/v1/` : REST_BASE, budget, `${location.origin}/openf1/v1/`);
   const socket = (url: string, protocols: string[]): SocketLike => {
     const s = sim ? sim.socket(url, protocols) : (new WebSocket(url, protocols) as unknown as SocketLike);
     return gate ? gate.socket(s) : s;

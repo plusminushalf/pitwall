@@ -267,3 +267,55 @@ describe("Rest with the budget", () => {
     expect(seen).toEqual([30_000, 120_000]);
   });
 });
+
+describe("Rest: the pass-through during a live session", () => {
+  const PROXY = "https://vault.example/openf1/v1/";
+  /** OpenF1 refusing browsers (a network error, as a refused preflight looks) unless through the pass-through. */
+  function locked() {
+    const seen: { url: string; auth: string | undefined }[] = [];
+    let lock = true;
+    const fetch: RestFetch = async (url, init) => {
+      seen.push({ url, auth: init.headers.Authorization });
+      if (lock && !url.startsWith(PROXY)) throw new TypeError("Failed to fetch");
+      return { status: 200, arrayBuffer: async () => buf("[{}]") };
+    };
+    return { fetch, seen, open: () => (lock = false) };
+  }
+
+  test("a request with a token that can't reach OpenF1 goes again through the pass-through, and the next ones straight there for a while", async () => {
+    let now = 1_000_000;
+    const api = locked();
+    const rest = new Rest(api.fetch, { current: () => "tok", onUnauthorized: async () => "give_up" }, undefined, null, PROXY, () => now);
+    const r = await rest.get("laps", { session_key: 9 });
+    expect(r).toMatchObject({ status: 200, auth: true });
+    expect(api.seen.map((s) => s.url)).toEqual(["https://api.openf1.org/v1/laps?session_key=9", `${PROXY}laps?session_key=9`]);
+    expect(api.seen[1]!.auth).toBe("Bearer tok");
+    await rest.get("drivers", { session_key: 9 });
+    expect(api.seen.at(-1)!.url).toBe(`${PROXY}drivers?session_key=9`);
+    expect(api.seen).toHaveLength(3);
+    // Later: direct again.
+    now += 11 * 60_000;
+    api.open();
+    await rest.get("drivers", { session_key: 9 });
+    expect(api.seen.at(-1)!.url).toBe("https://api.openf1.org/v1/drivers?session_key=9");
+  });
+
+  test("never without a token; and a real outage (the pass-through out of reach too) is still a network error", async () => {
+    const api = locked();
+    const anon = new Rest(api.fetch, { current: () => null, onUnauthorized: async () => "give_up" }, undefined, null, PROXY);
+    await expect(anon.get("sessions", {})).rejects.toBeInstanceOf(RestError);
+    expect(api.seen).toHaveLength(1);
+    const down: RestFetch = async () => {
+      throw new TypeError("Failed to fetch");
+    };
+    const rest = new Rest(down, { current: () => "tok", onUnauthorized: async () => "give_up" }, undefined, null, PROXY);
+    await expect(rest.get("sessions", {})).rejects.toBeInstanceOf(RestError);
+  });
+
+  test("no pass-through configured: as before", async () => {
+    const api = locked();
+    const rest = new Rest(api.fetch, { current: () => "tok", onUnauthorized: async () => "give_up" });
+    await expect(rest.get("sessions", {})).rejects.toBeInstanceOf(RestError);
+    expect(api.seen).toHaveLength(1);
+  });
+});

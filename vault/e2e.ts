@@ -70,7 +70,7 @@ const REST_PREFIX = "https://api.openf1.org/v1/";
 /** The dev vault's fake token lifetime for the refresh run (seconds): refreshes every 100 s. */
 const FAKE_EXPIRES_IN = 120;
 /** OpenF1's connect-src, exactly: the production CSP must have nothing else. */
-const PROD_CONNECT = "https://api.openf1.org wss://mqtt.openf1.org:8084";
+const PROD_CONNECT = "https://api.openf1.org wss://mqtt.openf1.org:8084 'self'";
 const FAKE_BROKER_PORT = Number(process.env.VAULT_E2E_BROKER_PORT || 5191);
 const FAKE_BROKER = `http://127.0.0.1:${FAKE_BROKER_PORT}`;
 const connectSrc = (csp: string | null) => /connect-src ([^;]*)/.exec(csp ?? "")?.[1] ?? "";
@@ -343,7 +343,7 @@ async function main() {
   await waitUp(`${VAULT}/frame.html`);
   const served = await fetch(`${VAULT}/frame.html`);
   console.log(`vault: ${served.headers.get("content-security-policy")}`);
-  if (vault && !DEV) check("production CSP: connect-src is exactly OpenF1's REST and broker", connectSrc(served.headers.get("content-security-policy")) === PROD_CONNECT, connectSrc(served.headers.get("content-security-policy")));
+  if (vault && !DEV) check("production CSP: connect-src is exactly OpenF1's REST and broker, and the vault's own pass-through", connectSrc(served.headers.get("content-security-policy")) === PROD_CONNECT, connectSrc(served.headers.get("content-security-policy")));
 
   // A persistent profile, so "after a browser restart" is a real restart of the same profile.
   const profile = mkdtempSync(join(tmpdir(), "vault-e2e-"));

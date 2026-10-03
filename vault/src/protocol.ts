@@ -431,7 +431,8 @@ function topics(x: unknown): x is LiveTopic[] {
 /** A known name plus one of the comparison suffixes: `date`, `date>`, `date>=`. */
 const paramKey = (k: string) => PARAM_OPS.some((op) => k.endsWith(op) && oneOf(PARAM_KEYS, k.slice(0, k.length - op.length)));
 
-function params(x: unknown): x is Params {
+/** Query parameters `get` accepts (the REST pass-through checks them too, vault/proxy.ts). */
+export function params(x: unknown): x is Params {
   if (!isRecord(x)) return false;
   const entries = Object.entries(x);
   return (

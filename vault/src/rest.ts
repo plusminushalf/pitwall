@@ -6,6 +6,11 @@
 // token that was used has already been replaced, and the request is retried once with the new token. If
 // there's no valid token the request goes out unauthenticated: historical data needs no login. A 429 is
 // retried (up to RETRIES_429 times) once the budget's pause is over.
+//
+// During a live session OpenF1 refuses browsers' CORS preflight (401, no Access-Control-* headers), so a request with
+// a token can't reach it from here. One that fails that way (a network error) is sent again through the vault's own
+// pass-through (proxy.ts, same-origin: no preflight), and so are the authenticated ones for PROXY_STICKY_MS after,
+// without trying direct first. Requests without a token are never proxied.
 
 import type { Budget, Priority } from "./budget";
 import type { GetResult, Params, RestEndpoint } from "./protocol";
@@ -53,6 +58,8 @@ export const SPACING = 1150;
 export const RETRIES_429 = 3;
 /** Per request (headers and body): live gap-fills must not hang; a download's telemetry can be 5 MB. */
 export const TIMEOUT_MS = 120_000;
+/** After a request with a token couldn't reach OpenF1, authenticated requests go through the pass-through this long. */
+export const PROXY_STICKY_MS = 10 * 60_000;
 
 /** Who is asking (the budget's fairness unit), how urgent it is, and how long the request may take. */
 export type RestOpts = { caller: string; priority?: Priority; timeoutMs?: number };
@@ -74,24 +81,39 @@ export class Rest {
     private base = REST_BASE,
     /** The rate budget (frame.ts always passes one; unit tests may not). */
     private budget: Pick<Budget, "acquire"> | null = null,
+    /** The vault's pass-through (`/openf1/v1/` on its own origin), for authenticated requests OpenF1 refuses to browsers; null: none. */
+    private proxy: string | null = null,
+    private now: () => number = Date.now,
   ) {}
+
+  /** Until then, authenticated requests go through the pass-through. */
+  private proxyUntil = 0;
 
   /** One read, started when the budget allows. Rejects with RestError (the network) or the budget's BudgetError. */
   get(endpoint: RestEndpoint, params: Params, opts: RestOpts = { caller: "default" }): Promise<GetResult> {
-    return this.run(restUrl(endpoint, params, this.base), opts);
+    return this.run(endpoint, params, opts);
   }
 
-  private async run(url: string, opts: RestOpts): Promise<GetResult> {
+  private async run(endpoint: RestEndpoint, params: Params, opts: RestOpts): Promise<GetResult> {
     let retried401 = false;
+    let viaProxy = false;
     for (let tries429 = 0; ; ) {
-      const slot = this.budget ? await this.budget.acquire(opts.caller, opts.priority ?? "normal", { front: tries429 > 0 || retried401 }) : null;
+      const slot = this.budget ? await this.budget.acquire(opts.caller, opts.priority ?? "normal", { front: tries429 > 0 || retried401 || viaProxy }) : null;
       // The token after the wait: the budget admitted it under the limits that apply to it now.
       const token = this.tokens.current();
+      const proxied = token !== null && this.proxy !== null && (viaProxy || this.now() < this.proxyUntil);
       let res: GetResult & { retryAfterMs?: number };
       try {
-        res = await this.once(url, token, opts.timeoutMs ?? TIMEOUT_MS);
+        res = await this.once(restUrl(endpoint, params, proxied ? this.proxy! : this.base), token, opts.timeoutMs ?? TIMEOUT_MS);
       } catch (e) {
         slot?.release({ status: null });
+        // OpenF1 out of reach with a token: what its refused preflight looks like during a live session. Again through
+        // the pass-through, and the next ones for a while.
+        if (token !== null && this.proxy !== null && !proxied) {
+          this.proxyUntil = this.now() + PROXY_STICKY_MS;
+          viaProxy = true;
+          continue;
+        }
         throw e;
       }
       slot?.release({ status: res.status, ...(res.retryAfterMs !== undefined && { retryAfterMs: res.retryAfterMs }) });

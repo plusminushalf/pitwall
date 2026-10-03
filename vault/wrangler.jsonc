@@ -1,10 +1,16 @@
-// Cloudflare Workers, static assets only (no Worker script): vault/dist served at pitwall-auth.garvit.in, a different
-// site from the app (docs/hypotheses.md, H2.4). `bun run vault:deploy` builds with the app's origin baked in
-// and uploads; the custom domain's DNS record and certificate are created on first deploy. dist/_headers sets the CSP.
+// Cloudflare Workers: vault/dist served at pitwall-auth.garvit.in, a different site from the app (docs/hypotheses.md,
+// H2.4), plus a Worker (worker.ts) that runs only for /openf1/*: the REST pass-through for requests with a token
+// that OpenF1 refuses to browsers during live sessions (proxy.ts). Everything else is the static files, as before.
+// `bun run vault:deploy` builds with the app's origin baked in and uploads both; the custom domain's DNS record and
+// certificate are created on first deploy. dist/_headers sets the CSP.
 {
   "name": "pitwall-auth",
+  "main": "worker.ts",
   "compatibility_date": "2026-09-01",
-  // Serve /frame.html and /popup.html as they are (the default redirects them to /frame and /popup).
-  "assets": { "directory": "./dist", "html_handling": "none" },
+  // Serve /frame.html and /popup.html as they are (the default redirects them to /frame and /popup). The Worker
+  // runs first only for /openf1/*.
+  "assets": { "directory": "./dist", "binding": "ASSETS", "html_handling": "none", "run_worker_first": ["/openf1/*"] },
   "routes": [{ "pattern": "pitwall-auth.garvit.in", "custom_domain": true }],
+  // No logs of requests (they'd carry nothing secret, but there's nothing to look at either).
+  "observability": { "enabled": false },
 }

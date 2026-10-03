@@ -40,7 +40,7 @@ beforeAll(async () => {
   put("laps", laps);
   put("position", [1, 44].flatMap((n) => Array.from({ length: 200 }, (_, i) => ({ session_key: KEY, meeting_key: 1, driver_number: n, date: iso(lightsOut + i * 5000 + n), position: n === 1 ? 1 : 2 }))));
   for (const n of [1, 44]) put(`car_data_${n}`, Array.from({ length: 4 * 2400 }, (_, i) => ({ session_key: KEY, meeting_key: 1, driver_number: n, date: iso(T - 60_000 + i * 250 + n), speed: i % 300, rpm: 10000, n_gear: 7, throttle: 90, brake: 0, drs: 0 })));
-  sim = new SimServer(repo, { sessionKey: KEY, speed: 20, startS: 0, tokenS: 60, dropEveryMin: 0, refuseAtMin: null, jitterMs: 5, keepaliveCheck: true });
+  sim = new SimServer(repo, { sessionKey: KEY, speed: 20, startS: 0, tokenS: 60, dropEveryMin: 0, refuseAtMin: null, jitterMs: 5, keepaliveCheck: true, lock: false });
   server = createServer((req, res) => {
     if (!sim.handle(req, res)) (res.statusCode = 404), res.end();
   });
@@ -216,5 +216,39 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
     expect((await fetch(`${base}/v1/sessions?session_key=latest`, { headers: { Authorization: `Bearer ${j.access_token}` } })).status).toBe(200);
     expect((await fetch(`${base}/v1/sessions`, { headers: { Authorization: `Bearer ${j.access_token}x` } })).status).toBe(401);
     expect((await fetch(`${base}/token`, { method: "POST", body: "username=nope&password=x" })).status).toBe(401);
+  });
+});
+
+describe("simserver: OpenF1's lock during a session", () => {
+  test("a browser's REST fails inside the session's window, server-side REST (the pass-through) doesn't; outside it both answer", async () => {
+    // Its own simulation (the one above keeps its clock): from lights out, i.e. inside the window.
+    const locked = new SimServer(repo, { sessionKey: KEY, speed: 1, startS: 0, tokenS: 3600, dropEveryMin: 0, refuseAtMin: null, jitterMs: 0, keepaliveCheck: true, lock: true });
+    const srv = createServer((req, res) => {
+      if (!locked.handle(req, res)) (res.statusCode = 404), res.end();
+    });
+    await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
+    const addr = srv.address();
+    const at = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}/__sim`;
+    try {
+      const token = ((await (await fetch(`${at}/token`, { method: "POST", body: "username=a%40b.c&password=x" })).json()) as { access_token: string }).access_token;
+      const auth = { Authorization: `Bearer ${token}` };
+      const cfg = (await (await fetch(`${at}/config`)).json()) as { start: number; lock: { from: number; to: number } | null };
+      const off = cfg.start - locked.timeline.startOrig;
+      expect(cfg.lock).toEqual({ from: T + off - 30 * 60_000, to: T + 3600_000 + off + 30 * 60_000 });
+      // A browser (Sec-Fetch-*): the connection drops.
+      await expect(fetch(`${at}/v1/sessions?session_key=latest`, { headers: { ...auth, "Sec-Fetch-Mode": "cors" } })).rejects.toThrow();
+      // The pass-through asks as a server does: answered.
+      const viaProxy = await locked.fetchRest("http://vault/openf1/v1/sessions?session_key=latest", { headers: auth });
+      expect(viaProxy.status).toBe(200);
+      expect(((await viaProxy.json()) as { session_key: number }[])[0]!.session_key).toBe(KEY);
+      // (A client may retry a dropped connection once.)
+      expect(locked.stats.restLocked).toBeGreaterThanOrEqual(1);
+      expect(locked.stats.restProxied).toBe(1);
+      // Long after the end: no lock.
+      locked.reset({ startS: 3 * 3600 });
+      expect((await fetch(`${at}/v1/sessions?session_key=latest`, { headers: { ...auth, "Sec-Fetch-Mode": "cors" } })).status).toBe(200);
+    } finally {
+      srv.close();
+    }
   });
 });

@@ -10,11 +10,16 @@
 //                                       liveness (a silent session expires after 1.5 x keepalive, as at OpenF1)
 //   POST /__sim/control/drop            drop every session now          (also: VAULT_SIMULATE_DROP_EVERY minutes)
 //   POST /__sim/control/refuse?n=1      CONNACK 5 for the next n CONNECTs (also: VAULT_SIMULATE_REFUSE_AT minutes)
-//   POST /__sim/control/reset?...       restart the simulation now (session, speed, start, token, dropEvery, jitter, refuseAt)
+//   POST /__sim/control/reset?...       restart the simulation now (session, speed, start, token, dropEvery, jitter, refuseAt, lock)
 //   POST /__sim/control/stats-reset     zero the counters (max sessions = open now)
 //   GET  /__sim/stats                   sessions now / max, connects, refusals, drops, tokens, REST counts
 //
 // The data: data/raw/<VAULT_SIMULATE>/ (gitignored; `bun run ingest <key>`), turned into a timeline by simdata.ts.
+//
+// The lock (VAULT_SIMULATE_LOCK=1, or reset?lock=1): as OpenF1 does during a live session, from 30 min before the
+// session's start until 30 min after its end, REST from a browser fails as a network error (OpenF1 refuses the CORS
+// preflight; here the connection is dropped), while the stream goes on and server-side requests are answered: the
+// vault's pass-through (proxy.ts, on the dev server: fetchRest) still works.
 
 import { createHmac, randomBytes } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -32,7 +37,12 @@ export type SimOptions = {
   jitterMs: number;
   /** Enforce 1.5 x keepalive at the broker (on by default). */
   keepaliveCheck: boolean;
+  /** OpenF1's lock during the session: browsers' REST fails (see above). */
+  lock: boolean;
 };
+
+/** OpenF1's lock: from this long before a session's start until this long after its end. */
+export const LOCK_MARGIN_MS = 30 * 60_000;
 
 const num = (raw: string, name: string, min: number, max: number, int = false) => {
   const n = Number(raw);
@@ -55,6 +65,7 @@ export function simOptionsFromEnv(env: (name: string) => string): SimOptions | n
     refuseAtMin: refuse ? num(refuse, "VAULT_SIMULATE_REFUSE_AT (minutes)", 0, 600) : null,
     jitterMs: num(o("VAULT_SIMULATE_JITTER", "0"), "VAULT_SIMULATE_JITTER (ms)", 0, 5000),
     keepaliveCheck: env("VAULT_SIMULATE_KEEPALIVE") !== "off",
+    lock: env("VAULT_SIMULATE_LOCK") === "1",
   };
 }
 
@@ -79,7 +90,7 @@ export class SimServer {
   private minted = 0;
   private tokenTimes: number[] = [];
   private restTimes = { auth: [] as number[], anon: [] as number[] };
-  stats = { current: 0, max: 0, connects: 0, refused: 0, expired: 0, kicked: 0, drops: 0, tokens: 0, rest: 0, restAuthorized: 0, rest401: 0, rest429: 0 };
+  stats = { current: 0, max: 0, connects: 0, refused: 0, expired: 0, kicked: 0, drops: 0, tokens: 0, rest: 0, restAuthorized: 0, rest401: 0, rest429: 0, restLocked: 0, restProxied: 0 };
 
   constructor(
     private repo: string,
@@ -114,8 +125,37 @@ export class SimServer {
       version: this.version,
       topics: [...SIM_TOPICS],
       keepaliveCheck: this.opts.keepaliveCheck,
+      lock: this.opts.lock ? this.lockSpan() : null,
     };
   }
+
+  /** OpenF1's lock for the simulated session, in sim time. */
+  lockSpan() {
+    const off = offsetOf(this.clock);
+    return { from: Date.parse(this.tl.session.date_start) + off - LOCK_MARGIN_MS, to: Date.parse(this.tl.session.date_end) + off + LOCK_MARGIN_MS };
+  }
+
+  private locked(now: number) {
+    if (!this.opts.lock) return false;
+    const t = simNow(this.clock, now);
+    const { from, to } = this.lockSpan();
+    return t >= from && t <= to;
+  }
+
+  /**
+   * The simulation's REST for the dev server's pass-through (proxy.ts): in-process, as a server asks OpenF1 (no lock).
+   * `url`: <anything>/<endpoint>?<query>.
+   */
+  fetchRest = async (url: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const u = new URL(typeof url === "string" || url instanceof URL ? url : url.url);
+    const auth = new Headers(init?.headers).get("authorization") ?? undefined;
+    this.stats.restProxied++;
+    return new Promise((resolve) =>
+      this.rest(u.pathname.split("/").at(-1)!, u.search, auth, Date.now(), (status, body, type = "application/json") =>
+        resolve(new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "Content-Type": type } })),
+      ),
+    );
+  };
 
   /** The timeline and clock (e2e rebuilds the source from the same data). */
   get timeline() {
@@ -240,7 +280,15 @@ export class SimServer {
           return send(200, { ...this.stats, simNow: simNow(this.clock, now), sessions: [...this.sessions.values()].map((s) => ({ instance: s.instance, session: s.session, clientId: s.clientId, ageS: Math.round((now - s.openedAt) / 1000), silentS: Math.round((now - s.lastSeen) / 1000) })) });
         }
         if (req.method === "POST" && path === "/token") return this.token(body, now, send);
-        if (req.method === "GET" && path.startsWith("/v1/")) return this.rest(path.slice(4), url.search, req.headers.authorization, now, send);
+        if (req.method === "GET" && path.startsWith("/v1/")) {
+          // The lock: a browser's request (it sends Sec-Fetch-*) gets a dropped connection, a network error to it.
+          if (req.headers["sec-fetch-mode"] && this.locked(now)) {
+            this.stats.restLocked++;
+            req.socket.destroy();
+            return;
+          }
+          return this.rest(path.slice(4), url.search, req.headers.authorization, now, send);
+        }
         if (req.method === "POST" && path === "/connect") return send(200, { code: this.connect(json(), now) });
         if (req.method === "POST" && path === "/sync") {
           const m = json() as { instance: string; sessions: string[] };
@@ -289,6 +337,7 @@ export class SimServer {
               if (q.has("dropEvery")) patch.dropEveryMin = num(q.get("dropEvery")!, "dropEvery", 0, 600);
               if (q.has("jitter")) patch.jitterMs = num(q.get("jitter")!, "jitter", 0, 5000);
               if (q.has("refuseAt")) patch.refuseAtMin = q.get("refuseAt") === "" ? null : num(q.get("refuseAt")!, "refuseAt", 0, 600);
+              if (q.has("lock")) patch.lock = q.get("lock") === "1";
               this.reset(patch);
               return send(200, this.config());
             }
