@@ -21,6 +21,14 @@
 //   again carries on with the same session;
 // - OpenF1 refusing the login on a refresh (a dev knob): the reconnect banner shows over the live screen, and live
 //   keeps going.
+// Then OpenF1's lock (the simulation's VAULT_SIMULATE_LOCK: from 30 min before the session until 30 min after, REST
+// from a browser fails as a network error, as OpenF1's refused CORS preflight does; the stream and server-side REST
+// go on), in a new browser profile, 15 min into the race (LIVE_CHECK_LOCK_START):
+// - joining: a full catch-up (every lap REST has, telemetry back to lights out), through the vault's pass-through
+//   (the simulation counts browser requests it refused and pass-through requests it answered);
+// - a reload: the same again;
+// - a signed-in REST read (what the download worker sends through the vault) answers during the lock.
+// LIVE_CHECK_ONLY=lock runs only that part.
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
@@ -39,6 +47,9 @@ const SESSION = Number(process.env.LIVE_CHECK_SESSION || 11377);
 const START_S = Number(process.env.LIVE_CHECK_START || -60);
 const SHOTS = process.env.LIVE_CHECK_SHOTS || `/tmp/pitwall-live-check/${SESSION}`;
 const HEADED = !!process.env.LIVE_CHECK_HEADED;
+const ONLY = process.env.LIVE_CHECK_ONLY ?? "";
+/** The lock part: from this many seconds after lights out. */
+const LOCK_START_S = Number(process.env.LIVE_CHECK_LOCK_START || 900);
 /** As vault/e2e.ts: storage partitioning on and every site in its own process, like the Chrome users run. */
 const CHROME_AS_SHIPPED = ["--disable-features=Translate,MediaRouter,OptimizationHints,HttpsUpgrades", "--site-per-process"];
 
@@ -97,6 +108,8 @@ type Live = {
   edge: number;
   lightsOut: number | null;
   practice: boolean;
+  /** The earliest location sample of any car (ms since t0), null without any. */
+  firstLoc: number | null;
 };
 const live = (page: any): Promise<Live> =>
   page.evaluate(() => {
@@ -117,6 +130,7 @@ const live = (page: any): Promise<Live> =>
       edge: s.liveEdge,
       lightsOut: meta && !meta.lightsOutEstimated ? meta.lightsOut : null,
       practice: meta?.practice != null,
+      firstLoc: s.session ? Math.min(...[...s.session.drivers.values()].map((d: any) => (d.loc.t.length ? d.loc.t[0] : Infinity))) : null,
     };
   });
 const vaultStatus = (page: any) => page.evaluate(() => (window as any).__vault.getState().status);
@@ -158,6 +172,7 @@ async function main() {
 
   // ---------------------------------------------------------------- browser
   const { chromium } = playwright();
+  if (ONLY && ONLY !== "lock") throw new Error(`LIVE_CHECK_ONLY: "lock" or nothing (got ${ONLY})`);
   const dir = mkdtempSync(join(tmpdir(), "live-check-"));
   const ctx = await chromium.launchPersistentContext(dir, { headless: !HEADED, viewport: { width: 1600, height: 1000 }, args: CHROME_AS_SHIPPED });
   // The vault popup closes itself with window.close(): keep it for the check to close.
@@ -191,6 +206,14 @@ async function main() {
   };
 
   try {
+    if (ONLY !== "lock") await basics();
+    if (!ONLY || ONLY === "lock") await lock();
+  } finally {
+    await ctx.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  async function basics() {
     // No account: say so, with the way to connect.
     const A = await open("A");
     let l = await until("the account check", A, (x) => x.account === "connect", 30_000);
@@ -282,10 +305,73 @@ async function main() {
     }
     check("both left: the vault streams nothing (unsubscribed)", topics.length === 0, topics);
     check("no page errors", errors.length === 0, errors.slice(0, 5));
-  } finally {
-    await ctx.close();
-    rmSync(dir, { recursive: true, force: true });
+    await A.close();
+    await B.close();
   }
+
+  /** OpenF1's lock: join mid-race and reload inside it, in a browser profile of its own. */
+  async function lock() {
+    console.log(`OpenF1's lock: ${LOCK_START_S} s after lights out, browsers' REST refused`);
+    const cfg = (await (
+      await fetch(`${SIM}/control/reset?session=${SESSION}&speed=1&start=${LOCK_START_S}&token=3600&jitter=0&dropEvery=0&refuseAt=&lock=1`, { method: "POST" })
+    ).json()) as { start: number; lightsOut: number; lock: { from: number; to: number } | null };
+    check("the simulation is inside OpenF1's lock", cfg.lock != null && cfg.start >= cfg.lock.from && cfg.start <= cfg.lock.to, cfg.lock);
+    const dir2 = mkdtempSync(join(tmpdir(), "live-check-lock-"));
+    const ctx2 = await chromium.launchPersistentContext(dir2, { headless: !HEADED, viewport: { width: 1600, height: 1000 }, args: CHROME_AS_SHIPPED });
+    await ctx2.addInitScript(`(() => { if (location.origin !== ${JSON.stringify(VAULT)} || !location.pathname.startsWith("/popup")) return; window.close = () => { window.__closed = true; }; })();`);
+    const stats = async () => (await (await fetch(`${SIM}/stats`)).json()) as { restLocked: number; restProxied: number };
+    try {
+      const C = await ctx2.newPage();
+      C.on("pageerror", (e: Error) => errors.push(`C: ${e.message}`));
+      await C.goto(`${APP}/live`);
+      await C.waitForFunction(() => !!(window as any).__replay, null, { timeout: 60_000 });
+      await until("the account check", C, (x) => x.account === "connect", 30_000);
+      await login(C, () => C.getByTestId("live-account-action").click());
+      const t0 = Date.now();
+      let l = await until("the live session", C, (x) => x.state === "live" && x.drivers > 0 && x.laps > 0, 180_000);
+      console.log(`        live after ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+      // What REST has now (asked the way the download worker asks: the vault's get, here from the page).
+      const restLaps = await C.evaluate(async (key: number) => {
+        const r = await (window as any).__vault.get("laps", { session_key: key });
+        return { status: r.status, auth: r.auth, n: JSON.parse(new TextDecoder().decode(r.body)).length };
+      }, SESSION);
+      const st = await stats();
+      check("joined mid-race inside the lock: the direct REST was refused...", st.restLocked > 0, st);
+      check("...and the pass-through answered", st.restProxied > 0, st);
+      check("a signed-in REST read (as a download's) answers during the lock", restLaps.status === 200 && restLaps.auth === true, restLaps);
+      l = await until("every lap", C, (x) => x.laps >= restLaps.n * 0.9, 60_000).catch(() => live(C));
+      check("full catch-up: the laps REST has", l.laps >= restLaps.n * 0.9, `${l.laps} of ${restLaps.n}`);
+      check("...and telemetry from lights out", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
+      check("...and the stream on top (the edge moves)", await moving(C), "");
+      await Bun.sleep(3_000);
+      await shot(C, "6-lock-joined");
+
+      // A reload mid-race, still inside the lock: the same full catch-up.
+      const before = l.laps;
+      await C.reload();
+      await C.waitForFunction(() => !!(window as any).__replay, null, { timeout: 60_000 });
+      l = await until("live after the reload", C, (x) => x.state === "live" && x.laps >= before, 180_000);
+      check("reloaded inside the lock: live again, every lap", l.laps >= before, `${l.laps} (before: ${before})`);
+      check("...telemetry from lights out", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
+      check("...and the stream on top", await moving(C), "");
+      const header = (await C.getByTestId("live-status").count()) ? await C.getByTestId("live-status").first().textContent() : "";
+      check("no retrying or error in the header", !/retrying|error|couldn't/i.test(header ?? ""), header);
+      await Bun.sleep(3_000);
+      await shot(C, "7-lock-reloaded");
+      check("no page errors", errors.length === 0, errors.slice(0, 5));
+    } finally {
+      await ctx2.close();
+      rmSync(dir2, { recursive: true, force: true });
+    }
+  }
+}
+
+/** Whether the live edge moves (about 1 s a second) over 5 s. */
+async function moving(page: any): Promise<boolean> {
+  const e0 = (await live(page)).edge;
+  await Bun.sleep(5_000);
+  const e1 = (await live(page)).edge;
+  return e1 - e0 > 2_500 && e1 - e0 < 10_000;
 }
 
 try {
