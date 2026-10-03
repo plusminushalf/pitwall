@@ -141,9 +141,10 @@ describe("LiveSession quick ticks", () => {
 });
 
 describe("OpenF1 live window", () => {
-  test("races, sprints and free practice from 15 min before to 30 min after", () => {
+  test("races, sprints, qualifying and free practice from 15 min before to 30 min after", () => {
     expect(isRaceSession(session)).toBe(true);
-    expect(isRaceSession({ ...session, session_type: "Qualifying" })).toBe(false);
+    expect(isRaceSession({ ...session, session_type: "Qualifying" })).toBe(true);
+    expect(isRaceSession({ ...session, session_type: "Qualifying", session_name: "Sprint Qualifying" })).toBe(true);
     expect(isRaceSession({ ...session, session_type: "Practice", session_name: "Practice 2" })).toBe(true);
     // Pre-season testing is session_type "Practice" too.
     expect(isRaceSession({ ...session, session_type: "Practice", session_name: "Day 1" })).toBe(false);

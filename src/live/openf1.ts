@@ -1,4 +1,4 @@
-// Live data from OpenF1 (sponsor tier): polls for the current session, and while a race, sprint or free practice
+// Live data from OpenF1 (sponsor tier): polls for the current session, and while a race, sprint, qualifying or free practice
 // session is on, backfills it over REST and follows its live feed. Shared by the relay (server/openf1Source.ts: REST with the credentials in
 // .env, its own MQTT connection) and the browser's live worker (./worker.ts: REST and the stream through the
 // credential vault). The transport is injected (LiveDeps): no I/O here.
@@ -36,7 +36,7 @@ export type Endpoint = Topic | "meetings";
 const iso = (t: number) => new Date(t).toISOString();
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
-/** A session live mode follows: a race, sprint or free practice that goes ahead. */
+/** A session live mode follows: a race, sprint, qualifying or free practice that goes ahead. */
 export const isRaceSession = (s: RawSession) => isFollowedLive(s) && !s.is_cancelled;
 
 /** Within [scheduled start - 15 min, scheduled end + 30 min]. */
@@ -233,7 +233,7 @@ export class OpenF1Live {
     }
   }
 
-  /** The next race, sprint or free practice that hasn't started (this year, else next year). */
+  /** The next race, sprint, qualifying or free practice that hasn't started (this year, else next year). */
   private async nextRace(now: number): Promise<LiveStatus["next"]> {
     if (this.next && now - this.next.at < NEXT_REFRESH_MS && (!this.next.value || Date.parse(this.next.value.dateStart) > now)) {
       return this.next.value;

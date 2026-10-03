@@ -63,7 +63,7 @@ function countdownShort(ms: number) {
 // ---------------------------------------------------------------- the moment
 
 /**
- * Live mode can be opened this long before a race, sprint or practice starts: it waits (showing "Next live") and
+ * Live mode can be opened this long before a race, sprint, qualifying or practice starts: it waits (showing "Next live") and
  * follows the session by itself once it streams, from 15 minutes before the start.
  */
 const LIVE_WAIT_MS = 60 * 60_000;
@@ -119,7 +119,7 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
 }
 
 /**
- * Live mode's row, only while it can follow (or wait for) a race, sprint or practice: the page's white button. Through
+ * Live mode's row, only while it can follow (or wait for) a race, sprint, qualifying or practice: the page's white button. Through
  * the vault (no relay) it needs a connected OpenF1 account: until there is one, the row says so and the button gets it.
  */
 function LiveRow({ action }: { action: NonNullable<LiveAction> }) {

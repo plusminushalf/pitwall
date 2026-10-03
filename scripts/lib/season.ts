@@ -21,10 +21,10 @@ export const isIngestible = (s: { session_type: string; session_name: string }) 
   INGESTIBLE_TYPES.includes(s.session_type) && (s.session_type !== "Practice" || isFreePractice(s));
 
 /**
- * Session types live mode follows (src/live/openf1.ts): races, sprints and free practice. Qualifying isn't
- * streamed live; it can be downloaded once it's over.
+ * Session types live mode follows (src/live/openf1.ts): races, sprints, qualifying (sprint qualifying too) and free
+ * practice. Live qualifying is shown on the race screen for now; once it's over it downloads to its own screen.
  */
-export const LIVE_TYPES: readonly string[] = ["Race", "Practice"];
+export const LIVE_TYPES: readonly string[] = ["Race", "Qualifying", "Practice"];
 
 export const isFollowedLive = (s: { session_type: string; session_name: string }) =>
   LIVE_TYPES.includes(s.session_type) && (s.session_type !== "Practice" || isFreePractice(s));

@@ -122,10 +122,11 @@ describe("OpenF1Live", () => {
     expect(made[0].stopped).toBe(true);
   });
 
-  test("free practice is followed too; qualifying and testing aren't", async () => {
+  test("free practice and qualifying are followed too; testing isn't", async () => {
     for (const [s, follows] of [
       [{ ...race, session_type: "Practice", session_name: "Practice 3" }, true],
-      [{ ...race, session_type: "Qualifying", session_name: "Qualifying" }, false],
+      [{ ...race, session_type: "Qualifying", session_name: "Qualifying" }, true],
+      [{ ...race, session_type: "Qualifying", session_name: "Sprint Qualifying" }, true],
       [{ ...race, session_type: "Practice", session_name: "Day 2" }, false],
     ] as const) {
       const hub = sink();

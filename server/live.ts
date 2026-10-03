@@ -1,4 +1,4 @@
-// Live relay: streams a race, sprint or free practice in progress to the app in the replay format (src/live/protocol.ts).
+// Live relay: streams a race, sprint, qualifying or free practice in progress to the app in the replay format (src/live/protocol.ts).
 //
 //   bun run live                              OpenF1 live timing (needs OPENF1_USERNAME/PASSWORD in .env)
 //   LIVE_SIMULATE=11377 bun server/live.ts    replay a cached session as if it were live
