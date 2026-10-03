@@ -226,7 +226,8 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
       ctx.rect(M.left, s.top - 2, plotW, s.height + 4);
       ctx.clip();
       if (s.key === "delta") {
-        ctx.strokeStyle = "#52525b";
+        // Zero is also a tick, so it needs to stand out from the grid.
+        ctx.strokeStyle = INK_MUTED;
         const y = Math.round(yOf(s, 0)) + 0.5;
         ctx.beginPath();
         ctx.moveTo(M.left, y);
