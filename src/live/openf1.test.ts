@@ -186,6 +186,33 @@ describe("OpenF1Live", () => {
     await live2.shutdown();
   });
 
+  test("live, REST failing (OpenF1 refusing a browser during a session): nothing changes on screen, and the end is still told", async () => {
+    const hub = sink();
+    const { rest } = api({ drivers: [{ session_key: 11731, driver_number: 1 }] });
+    let down = false;
+    let clock = now;
+    const live = new OpenF1Live(hub, {
+      rest: async <T,>(e: string, p: Params) => {
+        if (down) throw new Error("couldn't reach OpenF1");
+        return rest<T>(e, p);
+      },
+      circuit: async () => ({}) as never,
+      feed: feeds().feed,
+      now: () => clock,
+      ...quiet,
+    });
+    await live.poll();
+    expect(hub.log.at(-1)).toBe("start");
+    down = true;
+    await live.poll();
+    await live.poll();
+    expect(hub.log.at(-1)).toBe("start"); // no "retrying", no error
+    clock = Date.parse(race.date_end) + 3 * 60 * MIN + 1;
+    await live.poll();
+    expect(hub.log.some((l) => l.startsWith("end"))).toBe(true);
+    await live.shutdown();
+  });
+
   test("a gap reported while backfilling is refilled once the backfill is in, from before the gap", async () => {
     const hub = sink();
     const { rest, calls } = api({ position: [{ session_key: 11731, driver_number: 1, position: 1, date: iso(now - MIN) }] });

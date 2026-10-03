@@ -144,6 +144,8 @@ export class OpenF1Live {
   private timer: ReturnType<typeof setInterval> | null = null;
   private retry: ReturnType<typeof setTimeout> | null = null;
   private next: { at: number; value: LiveStatus["next"] } | null = null;
+  /** REST failed while following a session (said once until it answers again). */
+  private restDown = false;
   private readonly now: () => number;
   private readonly log: (line: string) => void;
   private readonly warn: (line: string) => void;
@@ -172,14 +174,24 @@ export class OpenF1Live {
     if (this.polling || this.stopped) return;
     this.polling = true;
     try {
-      const [latest] = await this.deps.rest<RawSession>("sessions", { session_key: "latest" });
-      const now = this.now();
       if (this.live) {
-        if (latest?.session_key === this.live.store.sessionKey) this.live.store.ingest("sessions", latest);
-        if (finished(this.live.store, now)) await this.endLive();
+        // The session's record when REST answers (the stream carries it too). REST failing while the stream flows
+        // changes nothing on screen, and the end is told without it.
+        const live = this.live;
+        try {
+          const [latest] = await this.deps.rest<RawSession>("sessions", { session_key: "latest" });
+          if (latest?.session_key === live.store.sessionKey) live.store.ingest("sessions", latest);
+          this.restDown = false;
+        } catch (e) {
+          if (!this.restDown) this.warn(`[live] OpenF1 REST unavailable (${errorText(e)}); following the stream alone`);
+          this.restDown = true;
+        }
+        if (finished(live.store, this.now())) await this.endLive();
         else if (this.hub.state === "error") this.hub.setStatus({ state: "live" });
         return;
       }
+      const [latest] = await this.deps.rest<RawSession>("sessions", { session_key: "latest" });
+      const now = this.now();
       if (latest && isRaceSession(latest) && inLiveWindow(latest, now)) {
         await this.goLive(latest);
         return;
