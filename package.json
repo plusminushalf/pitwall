@@ -21,7 +21,8 @@
     "vault:build": "vite build --config vault/vite.config.ts",
     "vault:deploy": "VAULT_APP_ORIGINS=https://pitwall.plusminushalf.com vite build --config vault/vite.config.ts && bunx wrangler@4 deploy --config vault/wrangler.jsonc",
     "vault:serve": "bun vault/serve.ts",
-    "vault:e2e": "bun vault/e2e.ts"
+    "vault:e2e": "bun vault/e2e.ts",
+    "live:check": "bun vault/livecheck.ts"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
