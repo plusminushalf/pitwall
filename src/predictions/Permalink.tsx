@@ -62,15 +62,8 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
   };
   const name = `called-it-${race.short.toLowerCase().replace(/\W+/g, "-")}-${p.id}.png`;
   const text = right ? `Called it: ${d?.last} led lap 1. Locked before lights out.` : `${d?.last} leads lap 1. Locked before lights out.`;
-  const tags = `#F1 #${race.short.replace(/\W/g, "")}`;
-
-  // X's composer takes text and a link, not a file: the card goes on the clipboard first, to paste in.
-  const postOnX = async () => {
-    const copied = await copyImage(image).catch(() => false);
-    const intent = `https://x.com/intent/post?text=${encodeURIComponent(`${text} ${tags}`)}&url=${encodeURIComponent(url)}`;
-    if (!window.open(intent, "_blank")) location.href = intent;
-    if (copied) say("Card copied: paste it into your post");
-  };
+  // The caption to post with the card: the call, the tags, the link.
+  const caption = `${text} #F1 #${race.short.replace(/\W/g, "")}\n${url}`;
 
   return (
     <div className="grid gap-10 lg:grid-cols-[380px_minmax(0,1fr)] lg:gap-14">
@@ -87,11 +80,19 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
         </div>
         {shareable && (
           <div className="mt-5 grid grid-cols-2 gap-2">
-            <button type="button" className="ci-btn col-span-2 gap-2.5 bg-white text-zinc-950 hover:bg-zinc-200" onClick={postOnX}>
-              Post on
-              <svg viewBox="0 0 24 24" className="size-5 fill-current" aria-label="X">
-                <path d="M17.75 3h3.07l-6.7 7.66L22 21h-6.17l-4.83-6.32L5.47 21H2.4l7.17-8.2L2 3h6.33l4.37 5.77L17.75 3Zm-1.08 16.17h1.7L7.4 4.74H5.58l11.09 14.43Z" />
-              </svg>
+            <button
+              type="button"
+              className="ci-btn col-span-2 bg-white text-zinc-950 hover:bg-zinc-200"
+              onClick={async () => {
+                try {
+                  say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images: download it instead.");
+                } catch {
+                  png.current = null;
+                  say("Couldn't copy the card. Try Download.");
+                }
+              }}
+            >
+              Copy image
             </button>
             <button
               type="button"
@@ -126,6 +127,22 @@ function Locked({ p, justLocked, onRevealed, onNew }: { p: Prediction; justLocke
 
       <div className="flex min-w-0 flex-col gap-6 lg:pt-4">
         <Status p={p} owner={owner} justLocked={justLocked} started={started} when={when} />
+        {shareable && (
+          <div className="rounded-lg border border-zinc-800 bg-zinc-900/60 p-4">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-zinc-500">Text to post with it</div>
+            <p className="select-all whitespace-pre-wrap break-words text-zinc-100">{caption}</p>
+            <button
+              type="button"
+              className="ci-btn mt-3 w-full bg-zinc-800 text-white hover:bg-zinc-700"
+              onClick={async () => {
+                await copy(caption);
+                say("Text copied");
+              }}
+            >
+              Copy text
+            </button>
+          </div>
+        )}
         {owner && !p.result && started && <Reveal p={p} onRevealed={onRevealed} />}
         {owner && !p.result && (
           // Only this browser holds the call's token (api.ts); the private link carries it to another device.
