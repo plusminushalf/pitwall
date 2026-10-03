@@ -7,7 +7,7 @@
 
 Replay or follow a live F1 race on a polished timing screen made of widgets you arrange. Each widget is a different kind of analysis. Built on [OpenF1](https://openf1.org) data. Runs in your browser.
 
-**Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**. The hosted site plays replays only. Live works only when you [run Pitwall locally](#run-it-locally), for now.
+**Try it: [pitwall.plusminushalf.com](https://pitwall.plusminushalf.com)**. Replays need nothing. Live needs your own [OpenF1 account](#your-own-openf1-account-optional).
 
 ![A race replay on the default layout: timing tower, track map, race feed, gaps to the leader, stint pace, battles and pit stops](docs/screenshots/race.png)
 
@@ -20,7 +20,7 @@ Replay or follow a live F1 race on a polished timing screen made of widgets you 
 - **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Free practice** has the timing screen by best lap, with the clock counting down. Deleted lap times are struck through. Long runs ranks every race simulation (5+ laps on a set) by compound, with its average and how much slower it gets per lap. Fastest laps compares up to 4 laps as qualifying does, each with its tyre and its age.
-- **Live.** Follow a race, sprint or practice session as it happens. It needs an OpenF1 account. It works only when you run Pitwall locally, not on the hosted site.
+- **Live.** Follow a race, sprint or practice session as it happens. It needs an OpenF1 account, connected in Settings.
 - **Desktop only**, for now.
 
 | Qualifying | Edit the layout |
@@ -29,7 +29,7 @@ Replay or follow a live F1 race on a polished timing screen made of widgets you 
 
 ## Your own OpenF1 account (optional)
 
-Replays need no account. On OpenF1's free tier, a race is fully downloaded in about a minute, and qualifying opens in about 20 seconds. An account makes downloads faster. They also keep working during live sessions, when OpenF1 blocks the free tier. It doesn't add live mode to the hosted site yet.
+Replays need no account. On OpenF1's free tier, a race is fully downloaded in about a minute, and qualifying opens in about 20 seconds. An account makes downloads faster. They also keep working during live sessions, when OpenF1 blocks the free tier. And it's what live mode needs: your browser follows the session with your account.
 
 1. Sponsor OpenF1 at [openf1.org](https://openf1.org) (€9.90/month). You get an OpenF1 login: an email and a password.
 2. In Pitwall, open **Settings** (top right of the home page). Click **Connect** under "OpenF1 account".
@@ -47,12 +47,14 @@ bun run dev      # http://localhost:5173
 bun run build    # static site in dist/
 ```
 
-For live, put your OpenF1 login in `.env` and run a small relay next to the dev server. It's for your own use. Don't host it for others.
+In dev, live comes from a small relay next to the dev server, with your OpenF1 login in `.env`. It's for your own use. Don't host it for others.
 
 ```sh
 cp .env.example .env   # then fill in OPENF1_USERNAME and OPENF1_PASSWORD
 bun run live
 ```
+
+To try live as the hosted site does it, through your account in Settings, run the dev server with `VITE_LIVE_RELAY=0` and the vault next to it (`bun run vault`).
 
 CLI ingest, the live simulator and how it all works: [docs/development.md](docs/development.md).
 

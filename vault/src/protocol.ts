@@ -46,7 +46,7 @@ export const REST_ENDPOINTS = [
 ] as const;
 export type RestEndpoint = (typeof REST_ENDPOINTS)[number];
 
-/** OpenF1 MQTT topics (`v1/<topic>`) `subscribe` accepts: the live relay's set (server/store.ts). */
+/** OpenF1 MQTT topics (`v1/<topic>`) `subscribe` accepts: live mode's set (src/live/topics.ts). */
 export const LIVE_TOPICS = [
   "car_data",
   "drivers",

@@ -21,7 +21,7 @@ export const isIngestible = (s: { session_type: string; session_name: string }) 
   INGESTIBLE_TYPES.includes(s.session_type) && (s.session_type !== "Practice" || isFreePractice(s));
 
 /**
- * Session types the live relay follows (server/openf1Source.ts): races, sprints and free practice. Qualifying isn't
+ * Session types live mode follows (src/live/openf1.ts): races, sprints and free practice. Qualifying isn't
  * streamed live; it can be downloaded once it's over.
  */
 export const LIVE_TYPES: readonly string[] = ["Race", "Practice"];

@@ -43,7 +43,7 @@ Success: a fan gets from the home screen to the session they want, and from ther
 - Chromium only for now. Firefox and Safari are deferred.
 - Desktop and laptop only. Mobile is not designed for.
 - Free OpenF1 tier: about 5 s to start a race, about a minute to finish downloading it, about 20 s to open qualifying. Free users may be blocked during live windows.
-- Live mode (races, sprints and free practice) needs an OpenF1 account and is local-only today (`bun run live`). It is not on the hosted site yet.
+- Live mode (races, sprints and free practice) needs an OpenF1 account. On the hosted site the browser follows the session itself, with the account in the vault; in dev a local relay (`bun run live`) can do it instead.
 - Hosted at `pitwall.plusminushalf.com`, a static site on Cloudflare. Analytics: Cloudflare Web Analytics, no cookies.
 - Stack: React 19, Tailwind CSS v4, Vite, zustand.
 

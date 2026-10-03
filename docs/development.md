@@ -65,9 +65,16 @@ Practice answers two questions: who's faster where on a single lap (the quali si
 - OpenF1 times the laps either side of a garage visit from pit-lane crossings, garage time included (2026 Melbourne FP2: a 15:52 in-lap), so out-laps and the in-laps before them get no lap time, and an in-lap ends at the pit entry. After the flag only the cool-down lap is kept (OpenF1 counts the pit-lane crossing to the garage as one more). The pit lane is drawn from a pass through it, not a garage visit. Results have no finish (cars drive back to the garage).
 - `bun run ingest <key>` checks the timing screen at the flag against the official classification (2026 Melbourne FP2, 2025 Silverstone FP1, 2024 Monaco FP1 with its red flag, 2023 Las Vegas FP2 at 90 minutes: identical).
 
-## Live mode (dev only for now)
+## Live mode
 
-Follow a race, sprint or free practice session while it happens, in the same app: a small relay (`server/live.ts`) turns OpenF1's live feed into the replay format and streams it to the browser over a WebSocket (`/relay`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`). A static build has no relay, so it hides live mode; moving live into the browser is spike S3.
+Follow a race, sprint or free practice session while it happens, in the same app. OpenF1's live feed is turned into the replay format by one piece of code, `src/live/` (`store.ts`: the session state; `hub.ts`: what is sent and when; `openf1.ts`: finding the session, the REST backfill, when it's over), which runs in one of two places:
+
+- **In the browser, through the vault** (the hosted site, and any build without a relay). A worker (`src/live/worker.ts`, `vaultEngine.ts`) runs it, fed by the credential vault with the user's own OpenF1 account: the vault's live stream (one MQTT connection per browser, shared by its tabs, with its own reconnects and gap-fills) and its REST for the backfill. The page relays between the two (`src/live/vault.ts`) and starts the worker only while the account is connected. Without one, the live screen and Home's live row ask for it (Settings → Connect).
+- **In a small relay** (`server/live.ts`) next to the dev server, with the OpenF1 login in `.env`. It streams the same messages to the browser over a WebSocket (`/relay`, proxied by the Vite dev server; protocol in `src/live/protocol.ts`).
+
+The relay is used when the build has one: the dev server, or a build with `VITE_LIVE_RELAY=1`. `VITE_LIVE_RELAY=0` turns it off in dev, so live goes through the vault as on the hosted site. Otherwise the vault, unless `VITE_VAULT_ORIGIN=off`.
+
+The relay:
 
 ```sh
 cp .env.example .env        # then fill in OPENF1_USERNAME / OPENF1_PASSWORD
@@ -77,11 +84,13 @@ curl 127.0.0.1:8787/relay/health
 
 - **Credentials.** Live data needs an OpenF1 sponsor account (€9.90/month at [openf1.org](https://openf1.org)): put its username and password in `.env` (gitignored; Bun loads it automatically). The relay exchanges them for a one-hour token, refreshes it before it expires, and never sends credentials or tokens to the browser. Without credentials the relay still runs and reports `state: "error"` with the reason.
 - **What it does.** It checks OpenF1 for the current session every minute. From 15 min before a race, sprint or free practice until 30 min after its scheduled end (longer if it overruns) it backfills the session over REST, then follows it over MQTT (`wss://mqtt.openf1.org:8084/mqtt`), reconnecting with fresh tokens and re-fetching anything missed. Otherwise it reports `idle` with the next one.
-- **What the app gets.** A snapshot on connect, the whole session meta every ~2 s and new car samples every ~0.5 s. Until the race ends some things are estimates: lights out (until lap 1 starts; `meta.lightsOutEstimated`) and the race distance (`meta.totalLapsEstimated`: 305 km, sprints 100 km, Monaco 260 km over the lap length). Before the first clean lap the track map comes from the circuit's MultiViewer trace.
+- **What the app gets** (either way). A snapshot on connect, the whole session meta every ~2 s and new car samples every ~0.5 s. Until the race ends some things are estimates: lights out (until lap 1 starts; `meta.lightsOutEstimated`) and the race distance (`meta.totalLapsEstimated`: 305 km, sprints 100 km, Monaco 260 km over the lap length). Before the first clean lap the track map comes from the circuit's MultiViewer trace.
 - **Env.** `OPENF1_USERNAME`, `OPENF1_PASSWORD`, `LIVE_PORT` (8787; Vite's proxy reads it too), `LIVE_HOST` (`127.0.0.1`).
 - **For your own use only.** The relay listens on `127.0.0.1` and has no auth: it streams *your* sponsor account's feed to *your* browser. Don't expose it or host it for others; OpenF1's sponsor tier is a personal subscription.
 
-**Simulated live session** (no account needed): replays a cached race through the same pipeline, time-shifted to now, as the MQTT feed would deliver it (laps appear as they start and fill in sector by sector, results after the flag).
+**Through the vault, by hand**: `bun run vault`, then `VITE_LIVE_RELAY=0 bun run dev`, open `http://127.0.0.1:5173/live` and Connect. Outside a live session there's nothing to follow; the vault's simulate mode replays a cached session as live instead (`VAULT_SIMULATE=11377 bun run vault`, any email and password in the popup; see vault/README.md). `bun run live:check` does all of it in a browser (about 6 minutes; `vault/livecheck.ts`): no account, Connect, the session filling in, a second tab, the account going and coming back, leaving live.
+
+**Simulated live session through the relay** (no account needed): replays a cached race through the same pipeline, time-shifted to now, as the MQTT feed would deliver it (laps appear as they start and fill in sector by sector, results after the flag).
 
 ```sh
 bun run live:sim                                                     # 2026 Baku, from 60 s before lights out

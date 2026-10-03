@@ -16,6 +16,11 @@ from a frozen leader), the simulate mode (a cached session replayed as live, dev
 (the download worker talks to the vault over its own port, and falls back to the free tier on its own) work.
 The S3 success check runs as `bun run vault:e2e --s3`, the download check as `bun run vault:e2e --downloads`.
 
+The app's live mode uses it where there's no relay (the hosted site): the page subscribes to the live topics while a
+session is on and relays the data and its REST reads to a worker that runs the relay's processing (`src/live/vault.ts`,
+docs/development.md, Live mode). `bun run live:check` checks that in a browser against the simulate mode. Not yet
+tried against a real live session with a real account.
+
 ## What's here
 
 | File | What it is |
@@ -278,7 +283,8 @@ them: one trust boundary.
 - A browser that refuses Web Locks (third-party storage blocked, e.g. Helium by default: every call is a
   `SecurityError`) gets no election: each frame leads alone. It refuses IndexedDB too, so the vault says
   `unavailable`, and the app asks the user to allow third-party cookies for its site.
-- A login, unlock or disconnect in any tab reaches every frame. The leader shares the login with the other
+- A login, unlock or disconnect in any tab reaches every frame. After a disconnect the leader's stream waits for the
+  next login's token (before, it stayed stopped until a reload). The leader shares the login with the other
   vault frames **in memory** (the decrypted secret and the current token, on every refresh), never to the app
   or to storage. So a new tab is connected at once with no `/token`, and a passkey login is unlocked in every
   open tab with one tap.
@@ -381,7 +387,8 @@ the scheduler and the tabs are unchanged.
   SUBSCRIBE / UNSUBSCRIBE, PINGREQ, a 1.5 x keepalive timeout, clientId kicks, PUBLISH in WebSocket frames cut
   at random (a packet may span frames), optional delivery jitter.
 - **The data**: the vault dev server (`simserver.ts`, at `/__sim/` on the vault's own origin; the dev frame's
-  `connect-src` adds `'self'`) builds the session's timeline from `data/raw/<key>/` with `server/simulate.ts`'s
+  `connect-src` adds `'self'`) builds the session's timeline from `data/raw/<key>/` (telemetry per car or in time
+  slices) with `server/simulate.ts`'s
   rules (`simdata.ts`: same topics and fields; laps at start, after each sector and complete, stints per lap, pit
   stops after the pit lane, telemetry from 10 min before the session, plus the session record at the start), with
   dates shifted onto the sim clock and written OpenF1's way. The broker fetches `/__sim/feed` just ahead of the

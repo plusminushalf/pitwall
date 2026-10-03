@@ -50,7 +50,7 @@ const ms = (iso: unknown) => (typeof iso === "string" ? Date.parse(iso) : NaN);
 /** A date the way OpenF1 writes them. */
 export const openf1Date = (t: number) => new Date(t).toISOString().replace("Z", "000+00:00");
 
-/** Document keys (server/store.ts KEYS): what makes a newer version replace an older one. */
+/** Document keys (src/live/store.ts KEYS): what makes a newer version replace an older one. */
 const KEYS: Record<SimTopic, (r: Rec) => string> = {
   car_data: (r) => `${r.driver_number}:${ms(r.date)}`,
   location: (r) => `${r.driver_number}:${ms(r.date)}`,
