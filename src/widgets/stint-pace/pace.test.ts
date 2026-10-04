@@ -91,10 +91,19 @@ describe("stint pace", () => {
     // Mediums: laps 2-9 (lap 1 and the in lap out).
     expect(fits[0]).toMatchObject({ stint: 1, compound: "MEDIUM", laps: 8, fromLap: 2, toLap: 9, open: false });
     expect(fits[0].slope).toBeCloseTo(0.1, 6);
-    expect(fits[0].intercept).toBeCloseTo(90, 6);
+    expect(fits[0].intercept).toBeCloseTo(89.9, 6); // at lap 0: lap 1 is 90 s
     // Hards: laps 12-20 (the out lap out).
     expect(fits[1]).toMatchObject({ stint: 2, compound: "HARD", laps: 9, fromLap: 12, toLap: 20, fromAge: 1, toAge: 9, open: true });
     expect(fits[1].slope).toBeCloseTo(0.05, 6);
+  });
+
+  test("a set of unknown age still has its trend, by lap", () => {
+    const stints = STINTS.map((s) => (s.stint === 2 ? { ...s, compound: "UNKNOWN", ageAtStart: null } : s));
+    const points = pacePoints(lapsOf(TIMES), stints, []);
+    expect(points.find((p) => p.lap === 15)?.age).toBeNull();
+    const fit = stintFits(points, stints)[1];
+    expect(fit).toMatchObject({ stint: 2, fromLap: 12, toLap: 20, fromAge: null, toAge: null });
+    expect(fit.slope).toBeCloseTo(0.05, 6);
   });
 
   test("a stint with too few clean laps has no trend yet", () => {

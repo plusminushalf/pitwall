@@ -117,7 +117,7 @@ export function driverStateAt(d: DriverData, t: Ms): DriverState {
     lastLap,
     bestLap,
     compound: stint?.compound ?? null,
-    tyreAge: stint ? stint.ageAtStart + Math.max(0, tyreLap - stint.lapStart) : null,
+    tyreAge: stint?.ageAtStart != null ? stint.ageAtStart + Math.max(0, tyreLap - stint.lapStart) : null,
     stint: stint?.stint ?? null,
     pitStops: d.pits.filter((p) => p.entry <= t).length,
   };

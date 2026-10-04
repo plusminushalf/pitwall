@@ -107,9 +107,9 @@ describe("practice laps", () => {
 });
 
 describe("format version", () => {
-  test("per session type: practice's output changing doesn't ask for races and qualifying to be updated", () => {
+  test("per session type: one type's output changing doesn't ask for the others to be updated", () => {
     expect(formatVersion("Practice")).toBe(2);
-    expect(formatVersion("Race")).toBe(1);
+    expect(formatVersion("Race")).toBe(2);
     expect(formatVersion(undefined)).toBe(formatVersion("Race"));
     expect(isCurrentFormat({ format: 1, sessionType: "Practice" })).toBe(false);
     expect(isCurrentFormat({ format: 1, sessionType: "Qualifying" })).toBe(true);

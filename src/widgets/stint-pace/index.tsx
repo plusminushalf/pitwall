@@ -77,7 +77,8 @@ function tickTime(seconds: number, decimals: number): string {
 }
 
 interface View {
-  xOf: (p: { lap: number; age: number }) => number;
+  /** Null by tyre age when the set's age isn't known. */
+  xOf: (p: { lap: number; age: number | null }) => number | null;
   yOf: (time: number) => number;
 }
 
@@ -131,11 +132,11 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   hi += pad;
   const yOf = (t: number) => plotB - ((t - lo) / (hi - lo)) * plotH;
   // x: the race distance by lap (so the chart fills in as the race goes), or tyre age.
-  const maxAge = Math.max(...all.map((p) => p.age));
+  const maxAge = Math.max(0, ...all.flatMap((p) => (p.age == null ? [] : [p.age])));
   const xMax = axis === "lap" ? Math.max(totalLaps, ...all.map((p) => p.lap)) : Math.max(20, Math.ceil((maxAge + 1) / 5) * 5);
   const xMin = axis === "lap" ? 1 : 0;
   const xAt = (v: number) => plotL + ((v - xMin + 0.5) / (xMax - xMin + 1)) * plotW;
-  const view: View = { xOf: (p) => xAt(axis === "lap" ? p.lap : p.age), yOf };
+  const view: View = { xOf: (p) => (axis === "lap" ? xAt(p.lap) : p.age == null ? null : xAt(p.age)), yOf };
 
   ctx.font = FONT;
   ctx.lineWidth = 1;
@@ -192,8 +193,8 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   ctx.fillStyle = EXCLUDED_DOT;
   for (const s of series) {
     for (const p of s.points) {
-      if (p.excluded == null || !inRange(p)) continue;
       const x = view.xOf(p);
+      if (p.excluded == null || !inRange(p) || x == null) continue;
       const y = yOf(p.time);
       ctx.beginPath();
       ctx.arc(x, y, 2, 0, Math.PI * 2);
@@ -206,22 +207,23 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   ctx.lineCap = "round";
   for (const s of series) {
     for (const f of s.fits) {
-      const x0 = axis === "lap" ? xAt(f.fromLap) : xAt(f.fromAge);
-      const x1 = axis === "lap" ? xAt(f.toLap) : xAt(f.toAge);
+      const x0 = view.xOf({ lap: f.fromLap, age: f.fromAge });
+      const x1 = view.xOf({ lap: f.toLap, age: f.toAge });
+      if (x0 == null || x1 == null) continue;
       ctx.strokeStyle = lineColor(s, f.compound);
       ctx.lineWidth = 2;
       ctx.setLineDash(s.hollow ? [5, 3] : []);
       ctx.beginPath();
-      ctx.moveTo(x0, yOf(f.intercept + f.slope * f.fromAge));
-      ctx.lineTo(x1, yOf(f.intercept + f.slope * f.toAge));
+      ctx.moveTo(x0, yOf(f.intercept + f.slope * f.fromLap));
+      ctx.lineTo(x1, yOf(f.intercept + f.slope * f.toLap));
       ctx.stroke();
     }
   }
   ctx.setLineDash([]);
   for (const s of series) {
     for (const p of s.points) {
-      if (p.excluded != null) continue;
       const x = view.xOf(p);
+      if (p.excluded != null || x == null) continue;
       const y = yOf(p.time);
       const color = byTyre ? compoundColor(p.compound) : s.team;
       ctx.fillStyle = SURFACE;
@@ -250,8 +252,10 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   for (const s of series) {
     for (const f of s.fits) {
       const text = `${(COMPOUND[f.compound] ?? COMPOUND.UNKNOWN).letter} ${trendText(f.slope).replace(" s/lap", "")}`;
-      const x = (axis === "lap" ? xAt(f.toLap) : xAt(f.toAge)) + DOT_R + 4;
-      const y = yOf(f.intercept + f.slope * f.toAge);
+      const end = view.xOf({ lap: f.toLap, age: f.toAge });
+      if (end == null) continue;
+      const x = end + DOT_R + 4;
+      const y = yOf(f.intercept + f.slope * f.toLap);
       const box: [number, number, number, number] = [x, y - 6, x + ctx.measureText(text).width, y + 6];
       if (box[2] > w || placed.some((b) => b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3])) continue;
       if (hits.some((hp) => hp.x > box[0] - DOT_R && hp.x < box[2] + DOT_R && Math.abs(hp.y - y) < 6 + DOT_R)) continue;
@@ -299,7 +303,7 @@ function Tooltip({ hit, fit, w }: { hit: Hit; fit: StintFit | undefined; w: numb
       <div className="flex items-center gap-1.5 text-zinc-400">
         <TyreBadge compound={p.compound} size={12} />
         <span className="tabular-nums">
-          {compoundName(p.compound)}, {p.age} {p.age === 1 ? "lap" : "laps"} old
+          {p.age == null ? "Tyre and age not known" : `${compoundName(p.compound)}, ${p.age} ${p.age === 1 ? "lap" : "laps"} old`}
         </span>
       </div>
       {p.excluded ? (

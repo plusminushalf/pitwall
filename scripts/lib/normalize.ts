@@ -29,6 +29,7 @@ import type {
 import { deletedLaps } from "./deletedLaps";
 import { endInLapsAtPitEntry, practiceStandings, practiceStart, preparePracticeLaps, PRACTICE_PRE_MS } from "./practice";
 import { isFreePractice, venueCountry } from "./season";
+import { repairStints } from "./stintRepair";
 import type {
   DriverInfo,
   DriverTelemetry,
@@ -859,7 +860,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const maxLap = new Map<number, number>();
   for (const l of laps) maxLap.set(l.driver, Math.max(maxLap.get(l.driver) ?? 0, l.lap));
 
-  const stints: Stint[] = rawStints
+  const openf1Stints: Stint[] = rawStints
     .map((s) => {
       const n = s.driver_number;
       // Renumbered drivers: the last stint ran to OpenF1's (one too high) final lap.
@@ -977,6 +978,14 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     .sort(byTime);
   // Keep messages after the window too: stewards' post-race decisions (penalties) arrive then.
   const raceControl = allRaceControl.filter((m) => m.t >= 0);
+
+  // Races: a stop OpenF1's stints missed starts a stint on an unknown set.
+  let stints = openf1Stints;
+  if (session.session_type === "Race") {
+    const repaired = repairStints(openf1Stints, pits, laps, allRaceControl);
+    stints = repaired.stints;
+    if (repaired.added > 0) warnings.push(`  added ${repaired.added} stints for pit stops OpenF1's stints miss (compound and age unknown)`);
+  }
 
   // Practice: in-laps end at the pit entry, deleted lap times, and the timing screen's order by best lap.
   let practiceTiming: { positions: PositionEvent[]; intervals: IntervalEvent[] } | null = null;

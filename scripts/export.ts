@@ -146,7 +146,7 @@ for (const n of order) {
       num(l.sectors[1]),
       num(l.sectors[2]),
       stint?.compound ?? "",
-      stint ? stint.ageAtStart + l.lap - stint.lapStart : "",
+      stint?.ageAtStart != null ? stint.ageAtStart + l.lap - stint.lapStart : "",
       stint?.stint ?? "",
       l.pitOut,
       pitIn.has(`${n}:${l.lap}`),

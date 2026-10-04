@@ -18,7 +18,8 @@ export interface PaceStint {
   lapStart: number;
   lapEnd: number;
   compound: string;
-  ageAtStart: number;
+  /** Null when not known (a stop OpenF1's stints missed). */
+  ageAtStart: number | null;
   open: boolean;
 }
 
@@ -33,12 +34,12 @@ export interface PacePoint {
   time: number;
   stint: number;
   compound: string;
-  /** Laps on the set before this one, as the tyre badge counts them (a new set's first lap is 0). */
-  age: number;
+  /** Laps on the set before this one, as the tyre badge counts them (a new set's first lap is 0); null if not known. */
+  age: number | null;
   excluded: Excluded | null;
 }
 
-/** A straight line through a stint's clean laps: time = intercept + slope * age. */
+/** A straight line through a stint's clean laps: time = intercept + slope * lap (per lap of age, as age goes up with the lap). */
 export interface StintFit {
   stint: number;
   compound: string;
@@ -46,8 +47,9 @@ export interface StintFit {
   laps: number;
   fromLap: number;
   toLap: number;
-  fromAge: number;
-  toAge: number;
+  /** Null when the set's age isn't known. */
+  fromAge: number | null;
+  toAge: number | null;
   /** Seconds per lap: positive is getting slower. Fuel burning off is in it too. */
   slope: number;
   intercept: number;
@@ -92,7 +94,7 @@ export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[
             : flag
               ? flag.status
               : null;
-    out.push({ lap: l.lap, start: l.start, time: l.duration, stint: s.stint, compound: s.compound, age: s.ageAtStart + l.lap - s.lapStart, excluded });
+    out.push({ lap: l.lap, start: l.start, time: l.duration, stint: s.stint, compound: s.compound, age: s.ageAtStart == null ? null : s.ageAtStart + l.lap - s.lapStart, excluded });
   }
   const clean = out.filter((p) => p.excluded == null);
   if (clean.length > 0) {
@@ -102,20 +104,20 @@ export function pacePoints(laps: readonly PaceLap[], stints: readonly PaceStint[
   return out;
 }
 
-/** A least-squares line through each stint's clean laps (time against tyre age), for stints with enough of them. */
+/** A least-squares line through each stint's clean laps (time against lap, so against tyre age too), for stints with enough of them. */
 export function stintFits(points: readonly PacePoint[], stints: readonly PaceStint[], minLaps = MIN_FIT_LAPS): StintFit[] {
   const out: StintFit[] = [];
   for (const s of stints) {
     const ps = points.filter((p) => p.stint === s.stint && p.excluded == null);
     if (ps.length < Math.max(minLaps, 2)) continue;
     const n = ps.length;
-    const mx = ps.reduce((a, p) => a + p.age, 0) / n;
+    const mx = ps.reduce((a, p) => a + p.lap, 0) / n;
     const my = ps.reduce((a, p) => a + p.time, 0) / n;
     let sxy = 0;
     let sxx = 0;
     for (const p of ps) {
-      sxy += (p.age - mx) * (p.time - my);
-      sxx += (p.age - mx) ** 2;
+      sxy += (p.lap - mx) * (p.time - my);
+      sxx += (p.lap - mx) ** 2;
     }
     if (sxx === 0) continue;
     const slope = sxy / sxx;

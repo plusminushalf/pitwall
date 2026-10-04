@@ -7,9 +7,10 @@ import type { SessionType } from "../../src/types";
  * stored with another version from their raw cache, with no network needed. Per type, so a change to one kind of
  * session doesn't ask for every other one to be updated too.
  *
+ * Race 2: a stint for each pit stop OpenF1's stints miss (compound UNKNOWN, ageAtStart null).
  * Practice 2: lap traces of the laps at pace, and meta.practice's lapLength / sectorDistances / traced.
  */
-export const FORMAT_VERSIONS: Readonly<Record<SessionType, number>> = { Race: 1, Qualifying: 1, Practice: 2 };
+export const FORMAT_VERSIONS: Readonly<Record<SessionType, number>> = { Race: 2, Qualifying: 1, Practice: 2 };
 
 /** The format a session of this type is processed in today (entries without a type are races). */
 export const formatVersion = (sessionType: SessionType | undefined): number => FORMAT_VERSIONS[sessionType ?? "Race"];

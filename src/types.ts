@@ -51,7 +51,7 @@ export interface Stint {
   lapStart: number;
   lapEnd: number;
   compound: string; // SOFT | MEDIUM | HARD | INTERMEDIATE | WET | UNKNOWN
-  ageAtStart: number;
+  ageAtStart: number | null; // null: not known (a stop OpenF1's stints missed, added from the pit records)
 }
 
 export interface PitStop {

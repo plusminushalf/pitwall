@@ -31,7 +31,7 @@ const COLS = "grid grid-cols-[16px_56px_34px_30px_minmax(0,1fr)_50px_44px] items
 
 const slimLaps = (laps: readonly Lap[]): RunLap[] => laps.map((l) => ({ lap: l.lap, start: l.start, end: l.end, duration: l.duration, pitOut: l.pitOut }));
 const slimStints = (stints: readonly StintView[]): RunStint[] =>
-  stints.map((s) => ({ stint: s.stint, lapStart: s.lapStart, compound: s.compound, ageAtStart: s.ageAtStart, open: s.open }));
+  stints.map((s) => ({ stint: s.stint, lapStart: s.lapStart, compound: s.compound, ageAtStart: s.ageAtStart ?? 0, open: s.open })); // practice: OpenF1's stints as they are, never null
 
 const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase();
 const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;

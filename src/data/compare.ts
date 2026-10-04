@@ -102,7 +102,7 @@ function practiceModel(meta: SessionMeta): CompareModel {
         const tyre = tyreOn(meta, driver, lap);
         // One group per run on a set: the stint the lap is in.
         const stint = meta.stints.filter((s) => s.driver === driver && s.lapStart <= lap).at(-1);
-        const name = stint ? `Run ${stint.stint} · ${compoundName(stint.compound)}${stint.ageAtStart === 0 ? ", new" : `, ${stint.ageAtStart} laps old`}` : "Other";
+        const name = stint ? `Run ${stint.stint} · ${compoundName(stint.compound)}${stint.ageAtStart == null ? "" : stint.ageAtStart === 0 ? ", new" : `, ${stint.ageAtStart} laps old`}` : "Other";
         let group = groups.at(-1);
         if (group?.name !== name) groups.push((group = { name, laps: [] }));
         group.laps.push({ lap, duration: l?.duration ?? null, notes: [lap === best ? "★ best" : "", l?.deleted ? "deleted" : ""].filter(Boolean), tyre });

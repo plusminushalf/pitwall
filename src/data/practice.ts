@@ -42,7 +42,7 @@ function stintOf(stints: readonly Stint[], driver: number, lap: number): Stint |
 /** The tyre a lap was driven on (its stint's compound, the set's age at the start of the lap), if known. */
 export function tyreOn(meta: Pick<SessionMeta, "stints">, driver: number, lap: number): Tyre | null {
   const s = stintOf(meta.stints, driver, lap);
-  return s ? { compound: s.compound, age: s.ageAtStart + lap - s.lapStart } : null;
+  return s && s.ageAtStart != null ? { compound: s.compound, age: s.ageAtStart + lap - s.lapStart } : null;
 }
 
 /** The classification at the flag, from the laps (as the timing tower has it at the end). */
