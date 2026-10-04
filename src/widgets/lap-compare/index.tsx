@@ -3,6 +3,7 @@ import {
   compareStyles,
   defineWidget,
   deltaSeries,
+  distanceAtTime,
   DriverTag,
   Icon,
   lapTime,
@@ -12,6 +13,7 @@ import {
   useAllLaps,
   useAllStints,
   useDrivers,
+  useFeed,
   useLapGeometry,
   useLapTrace,
   usePlayback,
@@ -24,7 +26,7 @@ import {
   type DriverInfo,
   type LapTrace,
 } from "widget-kit";
-import { drawChart, layoutStrips, M, type Series } from "./chart";
+import { drawChart, layoutStrips, M, type Marker, type Series } from "./chart";
 import { FOLLOWING, isFollowing, pick, resolveLaps, stepLap, toggleLink, type Picks } from "./laps";
 
 type Settings = { throttle: boolean; gear: boolean };
@@ -159,6 +161,9 @@ function LapCompare() {
     return out;
   });
 
+  // Overtakes by or on a compared car (the race feed, spoiler-free), to mark on the laps shown.
+  const passes = useFeed((feed) => feed.flatMap((f) => (f.kind === "overtake" && f.driver != null && f.passed != null && (drivers.includes(f.driver) || drivers.includes(f.passed)) ? [{ t: f.t, by: f.driver, on: f.passed }] : [])));
+
   // Which laps: the state is the session's (a new session starts over, following the replay).
   const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: FOLLOWING });
   const picks = picksFor.key === sessionKey ? picksFor.picks : FOLLOWING;
@@ -183,6 +188,26 @@ function LapCompare() {
     return withTrace.map((s, k) => ({ ...s, delta: k > 0 && ref ? deltaSeries(ref, s.trace, step) : null }));
   }, [choices, ...traces, styles, geometry.lapLength]);
   const ref = series[0]?.trace ?? null;
+  const markers = useMemo((): Marker[] => {
+    const out: Marker[] = [];
+    const seen = new Set<string>();
+    const acr = (n: number) => infoOf(n)?.acronym ?? `#${n}`;
+    for (const { trace, style } of series) {
+      const lap = lapsOf[trace.driver]?.find((l) => l.lap === trace.lap);
+      if (!lap) continue;
+      const end = lap.start + lap.duration * 1000;
+      for (const p of passes) {
+        if (p.t < lap.start || p.t > end || (p.by !== trace.driver && p.on !== trace.driver)) continue;
+        // A pass between two compared cars shows once, on the passing car's lap.
+        const key = `${p.t}|${p.by}|${p.on}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const between = drivers.includes(p.by) && drivers.includes(p.on);
+        out.push({ d: distanceAtTime(trace, p.t - lap.start), label: `${acr(p.by)} passes ${acr(p.on)}`, color: style.color, between });
+      }
+    }
+    return out;
+  }, [series, passes, lapsOf, drivers, infos]);
   const minis = useMemo(() => (series.length > 1 ? miniSectors(series.map((s) => s.trace), MINI_SECTORS) : []), [series]);
 
   // The chart.
@@ -212,8 +237,8 @@ function LapCompare() {
   const clampD = (d: number) => Math.min(Math.max(d, 0), lapLength);
 
   const model = useMemo(
-    () => ({ series, lapLength, sectorDistances: geometry.sectorDistances, corners: geometry.corners, x0, x1, hover, throttle: settings.throttle, gear: settings.gear }),
-    [series, lapLength, geometry, x0, x1, hover, settings.throttle, settings.gear],
+    () => ({ series, markers, lapLength, sectorDistances: geometry.sectorDistances, corners: geometry.corners, x0, x1, hover, throttle: settings.throttle, gear: settings.gear }),
+    [series, markers, lapLength, geometry, x0, x1, hover, settings.throttle, settings.gear],
   );
   const strips = useMemo(() => layoutStrips(chart.h, model), [chart.h, model]);
   useEffect(() => {
@@ -221,6 +246,36 @@ function LapCompare() {
     if (!canvas || chart.w <= 0 || chart.h <= 0 || !Number.isFinite(lapLength)) return;
     drawChart(canvas, model, strips, chart.w, chart.h, size.pixelRatio);
   }, [model, strips, chart, size.pixelRatio, lapLength]);
+
+  // Wheel, as the qualifying charts: up/down zooms about the pointer; sideways (a trackpad swipe, or shift + wheel)
+  // pans a zoomed lap. Not passive, so a sideways swipe doesn't also go Back.
+  const wheel = useRef<(e: WheelEvent) => void>(() => {});
+  wheel.current = (e) => {
+    const x = e.clientX - (e.currentTarget as HTMLElement).getBoundingClientRect().left;
+    if (!inPlot(x) || !Number.isFinite(lapLength)) return;
+    e.preventDefault();
+    const dx = e.shiftKey && e.deltaX === 0 ? e.deltaY : e.deltaX;
+    const dy = e.shiftKey ? 0 : e.deltaY;
+    const span = x1 - x0;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (span >= lapLength) return;
+      const a = Math.min(Math.max(x0 + (dx / plotW) * span, 0), lapLength - span);
+      return setZoom([a, a + span]);
+    }
+    const at = dOf(x);
+    const next = Math.min(lapLength, Math.max(60, span * Math.exp(dy * 0.0015)));
+    if (next >= lapLength - 1) return setZoom(null);
+    const a = Math.min(Math.max(at - ((at - x0) / span) * next, 0), lapLength - next);
+    setZoom([a, a + next]);
+  };
+  const hasChart = series.length > 0;
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const onWheel = (e: WheelEvent) => wheel.current(e);
+    canvas.addEventListener("wheel", onWheel, { passive: false });
+    return () => canvas.removeEventListener("wheel", onWheel);
+  }, [hasChart]);
 
   /** Seeks the replay to where the reference car was at distance d on its lap. */
   const seekTo = (d: number) => {
@@ -374,7 +429,7 @@ function LapCompare() {
                   );
                 })}
               </div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">click: seek here · drag: zoom · double-click: whole lap</div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">click: seek here · drag or wheel: zoom · double-click: whole lap</div>
             </div>
           )}
         </div>

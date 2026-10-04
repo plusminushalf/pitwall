@@ -35,8 +35,19 @@ export interface Series {
   delta: DeltaSeries | null;
 }
 
+/** An overtake during one of the laps shown, at the distance the car passing had reached. */
+export interface Marker {
+  d: number;
+  /** "LIN passes ALO". */
+  label: string;
+  color: string;
+  /** Between two of the compared drivers (else one of them and another car: drawn fainter). */
+  between: boolean;
+}
+
 export interface ChartModel {
   series: readonly Series[];
+  markers: readonly Marker[];
   lapLength: number;
   sectorDistances: readonly [number, number];
   corners: readonly { label: string; d: number }[];
@@ -266,6 +277,38 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
     ctx.setLineDash([]);
     ctx.restore();
   }
+
+  // Overtakes: a line down the chart with who passed whom at the top, staggered when two are close.
+  ctx.font = "600 9px ui-sans-serif, system-ui, sans-serif";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+  let lastMarkerX = -Infinity;
+  let row = 0;
+  for (const mk of [...m.markers].sort((a, b) => a.d - b.d)) {
+    if (mk.d < x0 || mk.d > x1) continue;
+    const x = Math.round(xOf(mk.d)) + 0.5;
+    row = x - lastMarkerX < 90 ? (row + 1) % 3 : 0;
+    lastMarkerX = x;
+    ctx.globalAlpha = mk.between ? 1 : 0.55;
+    ctx.strokeStyle = mk.color;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 3]);
+    ctx.beginPath();
+    ctx.moveTo(x, M.top);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    const y = M.top + 3 + row * 12;
+    const tw = ctx.measureText(mk.label).width;
+    const left = x + 3 + tw + 6 > right;
+    const tx = left ? x - 3 - tw - 4 : x + 3;
+    ctx.fillStyle = "#09090b";
+    ctx.fillRect(tx - 2, y - 1, tw + 4, 11);
+    ctx.fillStyle = mk.color;
+    ctx.fillText(mk.label, tx, y);
+    ctx.globalAlpha = 1;
+  }
+  ctx.font = FONT;
 
   // Hover crosshair with a dot per series.
   const { hover } = m;
