@@ -1,10 +1,11 @@
 // The card: 1080×1920 (a 9:16 story), drawn in CSS at full size and scaled down on screen (ScaledCard), so the
-// PNG (image.ts) is the very thing on screen. The question up top, the answer under it (the driver, and the rest of
-// the top five they were picked over), then how long before lights out it was made, the race and where to make one.
+// PNG (image.ts) is the very thing on screen. The question up top (ASK, by the call's kind), the answer under it (the
+// driver, and the rest of the top five they were picked over), then how long before it's decided it was made, the race
+// and where to make one.
 
 import { useLayoutEffect, useRef, useState, type CSSProperties, type Ref } from "react";
-import { dayMonth, lead } from "./format";
-import { driverIn, team, topFive, type Call, type Race } from "./model";
+import { dayMonth } from "./format";
+import { ASK, driverIn, team, timing, topFive, type Call, type Race } from "./model";
 import "./card.css";
 
 export const CARD_W = 1080;
@@ -30,19 +31,21 @@ function inkOn(hex: string): string {
 export function Card({ race, call, at, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
   const leadTeam = call.driver != null ? driverIn(race.id, call.driver)?.team : undefined;
   const p1 = leadTeam ? team(leadTeam).colour : "#e7000b";
+  const ask = ASK[call.kind];
+  const when = timing(race, at);
   return (
     <div ref={ref} className="ci-card" style={{ "--p1": p1 } as CSSProperties}>
       <div className="ci-bg" aria-hidden />
       <div className="ci-ghost" aria-hidden>
-        TURN
+        {ask.ghost[0]}
         <br />
-        ONE
+        {ask.ghost[1]}
       </div>
 
       <header className="ci-top">
         <div className="ci-tag">
           <span className="ci-tag-bar" />
-          Turn 1 call
+          {ask.tag}
         </div>
         <div className="ci-race">
           <div className="ci-race-name">{race.short}</div>
@@ -54,19 +57,19 @@ export function Card({ race, call, at, host, tz, ref }: CardProps & { ref?: Ref<
 
       <div className="ci-headline-wrap">
         <p className="ci-headline" style={{ fontSize: 192 }}>
-          Who leads into Turn 1?
+          {ask.title}
         </p>
       </div>
 
-      <Turn1 race={race} driver={call.driver} />
+      <Pick race={race} driver={call.driver} />
 
       <footer className="ci-strip">
-        <div className="ci-locked-label">Called with</div>
+        <div className="ci-locked-label">{when.unit === "to go" ? "Called with" : "Called"}</div>
         <div className="ci-togo">
-          {lead(race.start - at)} <span>to go</span>
+          {when.n} <span>{when.unit}</span>
         </div>
         <div className="ci-locked-meta">
-          <b>Before lights out</b>
+          <b>Before {ask.deadline}</b>
           <span className="ci-dot">·</span>
           {race.name}
         </div>
@@ -88,7 +91,7 @@ function surnameSize(n: number): number {
 }
 
 /** The pick: the driver big on their team's colour, and the rest of the top five they were picked over. */
-function Turn1({ race, driver }: { race: Race; driver: number | null }) {
+function Pick({ race, driver }: { race: Race; driver: number | null }) {
   const d = driver != null ? driverIn(race.id, driver) : undefined;
   const others = topFive(race.id).filter((o) => o.number !== driver);
   const t = d && team(d.team);

@@ -1,5 +1,5 @@
-// Called It's page (/predictions), in Pitwall's look (DESIGN.md): its header over the one thing it does, a Turn 1
-// call made into a card to post (Compose). The card is the one thing in its own broadcast style: it's the picture
+// Called It's page (/predictions), in Pitwall's look (DESIGN.md): its header over the one thing it does, a call on
+// the race made into a card to post (Compose). The card is the one thing in its own broadcast style: it's the picture
 // people post. A static page like the rest of the site: nothing leaves the browser.
 
 import { useEffect, useState } from "react";
@@ -7,7 +7,7 @@ import { LABEL } from "../components/controls";
 import { Logo } from "../components/Logo";
 import { Compose } from "./Compose";
 import { span } from "./format";
-import { nextRace, topFive } from "./model";
+import { closes, nextRace, topFive } from "./model";
 
 export function useNow(every = 30_000) {
   const [now, setNow] = useState(Date.now);
@@ -43,7 +43,7 @@ export function App() {
   );
 }
 
-/** The header's centre, as on Home: the race calls are open for, over its countdown to lights out. */
+/** The header's centre, as on Home: the race calls are open for, over its countdown to when they close. */
 function Moment() {
   const now = useNow();
   const race = nextRace(now);
@@ -55,7 +55,7 @@ function Moment() {
       <span className="truncate text-sm tabular-nums text-zinc-100">
         {open ? (
           <>
-            Locks in <span className="font-bold text-zinc-50">{span(race.start - now)}</span>
+            Locks in <span className="font-bold text-zinc-50">{span(closes(race) - now)}</span>
           </>
         ) : (
           "Opens after qualifying"

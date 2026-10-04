@@ -1,7 +1,8 @@
-// The page's one job: who leads into Turn 1 at the next race, from the top five on its starting grid, picked from a
-// timing list like Home's rows. The card fills in as you pick; Lock it in keeps the call in this browser (saved.ts),
-// one per race, and the card stops at its time to go. Then post it: a phone shares the card itself, a computer copies
-// it and the text. The post's own time is the proof. Before qualifying and after lights out there's nothing to pick.
+// The page's one job: the next race's question (ASK: who wins, or who leads into Turn 1), answered from the top five
+// on its starting grid, picked from a timing list like Home's rows. The card fills in as you pick; Lock it in keeps
+// the call in this browser (saved.ts), one per race, and the card stops at its time. Then post it: a phone shares the
+// card itself, a computer copies it and the text. The post's own time is the proof. Before qualifying and after the
+// calls close there's nothing to pick.
 
 import { useEffect, useRef, useState } from "react";
 import { countEvent } from "../analytics";
@@ -9,9 +10,9 @@ import { LABEL, PRIMARY, SECONDARY } from "../components/controls";
 import { useNow } from "./App";
 import { ScaledCard } from "./Card";
 import { DriverList } from "./DriverList";
-import { lead, localTz, stamp } from "./format";
+import { localTz, stamp } from "./format";
 import { canShareImage, cardPng, copy, copyImage, shareImage } from "./image";
-import { driverIn, nextRace, openRace } from "./model";
+import { ASK, closes, driverIn, nextRace, openRace, questionOf, timing } from "./model";
 import { readCalls, saveCall } from "./saved";
 
 export function Compose() {
@@ -31,7 +32,10 @@ export function Compose() {
   const pick = saved?.driver ?? chosen;
   const driver = race && pick != null && driverIn(race.id, pick) ? pick : null;
   const at = saved?.at ?? now;
-  const toGo = race ? lead(race.start - at) : "";
+  const ask = ASK[race ? questionOf(race.id) : "turn1-leader"];
+  const when = race ? timing(race, at) : { n: "", unit: "" };
+  // "with 9 hrs to go", or "1 hr into the race" (a race-win call once it's under way).
+  const called = when.unit === "to go" ? `with ${when.n} to go` : `${when.n} ${when.unit}`;
 
   // The locked card's PNG is made ahead, so the tap that shares or copies it still counts.
   const png = useRef<Promise<Blob> | null>(null);
@@ -57,7 +61,7 @@ export function Compose() {
     const next = nextRace(now);
     return (
       <div className="max-w-[75ch]">
-        <Intro />
+        <Intro title={ask.title} />
         <p className="mt-6 border-y border-zinc-800 px-4 py-3 text-sm text-zinc-300">
           {next ? `Calls for the ${next.name} open once qualifying is done.` : "That's the season. Calls open again next year."}
         </p>
@@ -86,7 +90,7 @@ export function Compose() {
   );
   const name = driver != null ? driverIn(race.id, driver)?.last : null;
   // The text to post with the card, a line each: the call, how early, then the tags and where to make one.
-  const caption = [`My call: ${name} leads into Turn 1.`, `Called with ${toGo} to go.`, "", `#F1 #${race.short.replace(/\W/g, "")} #predictions`, `${location.origin}/predictions`].join("\n");
+  const caption = [ask.claim(name ?? "", race), `Called ${called}.`, "", `#F1 #${race.short.replace(/\W/g, "")} #predictions`, `${location.origin}/predictions`].join("\n");
 
   const shareButton = (
     <button
@@ -110,7 +114,7 @@ export function Compose() {
   return (
     <div className={`grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px] lg:gap-12 ${phone ? "pb-28" : ""}`}>
       <div className="min-w-0">
-        <Intro />
+        <Intro title={ask.title} />
 
         <section aria-label="The top five on the grid" className="mt-8">
           <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -119,9 +123,9 @@ export function Compose() {
               Lights out {lights.date.replace(/ \d{4}$/, "")}, {lights.time} {lights.zone}
             </span>
           </div>
-          <DriverList race={race.id} value={driver} onChange={setChosen} label="Who leads into Turn 1" locked={!!saved} />
+          <DriverList race={race.id} value={driver} onChange={setChosen} label={ask.list} locked={!!saved} />
           <p className="mt-3 px-3 text-xs text-zinc-400">
-            {saved ? `Your call: ${name}, locked with ${toGo} to go. One call per race.` : "The top five on the starting grid, after penalties. It's whoever's ahead coming out of Turn 1."}
+            {saved ? `Your call: ${name}, locked ${called}. One call per race.` : `The top five on the starting grid, after penalties. ${ask.rule}`}
           </p>
         </section>
 
@@ -173,7 +177,7 @@ export function Compose() {
       </div>
 
       <div className="lg:sticky lg:top-[76px] lg:self-start">
-        <ScaledCard race={race} call={{ kind: "turn1-leader", driver }} at={at} host={location.host} tz={tz} cardRef={cardRef} className="mx-auto max-w-[280px] rounded-md border border-zinc-800 lg:max-w-none" />
+        <ScaledCard race={race} call={{ kind: questionOf(race.id), driver }} at={at} host={location.host} tz={tz} cardRef={cardRef} className="mx-auto max-w-[280px] rounded-md border border-zinc-800 lg:max-w-none" />
       </div>
 
       {/* A phone locks and shares from a bar at the bottom of the screen. */}
@@ -181,7 +185,7 @@ export function Compose() {
         <div className="fixed inset-x-0 bottom-0 z-20 border-t border-zinc-800 bg-zinc-950 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3">
           {saved ? shareButton : lockButton(true)}
           <p aria-live="polite" className="mt-2 h-4 text-center text-xs text-zinc-400">
-            {toast ?? (saved ? "Post it before lights out: your post's time is the proof." : "One call per race: once it's locked, it stays.")}
+            {toast ?? (saved ? `Post it before ${ask.deadline}: your post's time is the proof.` : "One call per race: once it's locked, it stays.")}
           </p>
         </div>
       )}
@@ -189,11 +193,11 @@ export function Compose() {
   );
 }
 
-function Intro() {
+function Intro({ title }: { title: string }) {
   return (
     <div>
-      <h1 className="text-2xl font-bold tracking-tight text-zinc-50">Who leads into Turn 1?</h1>
-      <p className="mt-2 max-w-[75ch] text-sm leading-relaxed text-zinc-400">Call it before lights out.</p>
+      <h1 className="text-2xl font-bold tracking-tight text-zinc-50">{title}</h1>
+      <p className="mt-2 max-w-[75ch] text-sm leading-relaxed text-zinc-400">Call it before it's decided.</p>
     </div>
   );
 }

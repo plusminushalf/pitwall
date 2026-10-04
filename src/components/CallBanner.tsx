@@ -1,8 +1,8 @@
 // The way to Called It (/predictions) from the replay app: while calls for the next race are open (after its
-// qualifying, until lights out), a strip across the top of Home, or a button on a phone's screen.
+// qualifying, until they close), a strip across the top of Home, or a button on a phone's screen.
 
 import { useEffect, useState } from "react";
-import { openRace, type Race } from "../predictions/model";
+import { ASK, openRace, questionOf, type Race } from "../predictions/model";
 
 /** The race calls are open for now, or null; checked again every minute. */
 function useOpenRace(): Race | null {
@@ -22,7 +22,7 @@ export function CallBanner() {
       <div className="mx-auto flex h-9 max-w-6xl items-center justify-center gap-2 px-6 text-sm">
         <span className="font-semibold uppercase tracking-wider text-white/80">{race.short}</span>
         <span className="text-white/50">·</span>
-        <span className="font-bold">Call your Turn 1 leader here</span>
+        <span className="font-bold">{ASK[questionOf(race.id)].banner}</span>
         <span aria-hidden className="transition-transform group-hover:translate-x-0.5">
           →
         </span>
@@ -36,7 +36,7 @@ export function CallButton() {
   if (!race) return null;
   return (
     <a href="/predictions" className="mt-8 block rounded bg-[#e7000b] px-4 py-3 text-base font-bold text-white transition-colors hover:bg-[#fb2c36]">
-      {race.short}: call your Turn 1 leader here →
+      {race.short}: {ASK[questionOf(race.id)].banner.replace(/^Call/, "call")} →
     </a>
   );
 }

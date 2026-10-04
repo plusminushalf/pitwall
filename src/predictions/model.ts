@@ -1,5 +1,8 @@
-// Called It (/predictions): a fan's call of who leads into Turn 1 at the next race, from the top five on its
-// starting grid, made into a card to post before lights out. All in the browser: the post's own time is the proof.
+// Called It (/predictions): a fan's call on the next race (who wins, or who leads into Turn 1: ASK), from the top
+// five on its starting grid, made into a card to post before it's decided. All in the browser: the post's own time is
+// the proof.
+
+import { lead } from "./format";
 
 export const TEAMS = [
   { id: "mclaren", name: "McLaren", colour: "#F47600" },
@@ -69,8 +72,69 @@ export const RACES: Race[] = [
   race(11436, "Abu Dhabi Grand Prix", "Yas Marina", "2026-12-06T13:00:00Z"),
 ];
 
+/** What a race's calls answer. Turn 1 is the usual; QUESTION lists the races that ask something else. */
+export type Question = "turn1-leader" | "winner";
+export const QUESTION: Record<number, Question> = {
+  11731: "winner",
+};
+export const questionOf = (race: number): Question => QUESTION[race] ?? "turn1-leader";
+
+/** The words of each question: the page's, the card's and the post's. */
+export const ASK: Record<
+  Question,
+  {
+    title: string;
+    /** The card's tag over the race. */
+    tag: string;
+    /** The card's ghosted word, two lines. */
+    ghost: [string, string];
+    /** The list's name, for screen readers. */
+    list: string;
+    /** Under the list: what counts. */
+    rule: string;
+    /** The post's first line. */
+    claim: (name: string, race: Race) => string;
+    /** Home's banner. */
+    banner: string;
+    /** When calls close, in words: "lights out", "the flag". */
+    deadline: string;
+  }
+> = {
+  "turn1-leader": {
+    title: "Who leads into Turn 1?",
+    tag: "Turn 1 call",
+    ghost: ["TURN", "ONE"],
+    list: "Who leads into Turn 1",
+    rule: "It's whoever's ahead coming out of Turn 1.",
+    claim: (name) => `My call: ${name} leads into Turn 1.`,
+    banner: "Call your Turn 1 leader here",
+    deadline: "lights out",
+  },
+  winner: {
+    title: "Who wins?",
+    tag: "Race win call",
+    ghost: ["RACE", "WIN"],
+    list: "Who wins the race",
+    rule: "It's whoever takes the chequered flag first.",
+    claim: (name, race) => `My call: ${name} wins the ${race.short}.`,
+    banner: "Call your race winner here",
+    deadline: "the flag",
+  },
+};
+
+const THREE_HOURS = 3 * 60 * 60_000;
+/** When a race's calls close: lights out for Turn 1; the flag, taken as three hours after lights out, for the win. */
+export const closes = (race: Race): number => (questionOf(race.id) === "winner" ? race.start + THREE_HOURS : race.start);
+
+/**
+ * How long before it's decided a call was made, for the card and the post: "9 hrs" "to go" before lights out, else
+ * (a race-win call during the race) "1 hr" "into the race".
+ */
+export const timing = (race: Race, at: number): { n: string; unit: string } =>
+  at <= race.start ? { n: lead(race.start - at), unit: "to go" } : { n: lead(at - race.start), unit: "into the race" };
+
 /** The next race: the one calls are for (open once its starting grid's top five are in GRID_TOP5). */
-export const nextRace = (now: number): Race | undefined => RACES.find((r) => r.start > now);
+export const nextRace = (now: number): Race | undefined => RACES.find((r) => closes(r) > now);
 
 export interface Driver {
   number: number;
@@ -102,8 +166,8 @@ export const GRID_TOP5: Record<number, Driver[]> = {
 
 export const topFive = (race: number): Driver[] => GRID_TOP5[race] ?? [];
 export const driverIn = (race: number, number: number): Driver | undefined => topFive(race).find((d) => d.number === number);
-/** What's called: who's ahead coming out of Turn 1, by car number (none picked yet: null). */
-export type Call = { kind: "turn1-leader"; driver: number | null };
+/** What's called: the answer to the race's question, by car number (none picked yet: null). */
+export type Call = { kind: Question; driver: number | null };
 
 /** The race calls are for now: the next one, once its grid's top five are in. */
 export function openRace(now: number): Race | null {
