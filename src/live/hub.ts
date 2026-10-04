@@ -33,6 +33,8 @@ export interface LiveSink {
   setStatus(patch: StatusPatch): void;
   /** A (new) live session: everyone gets a snapshot, then the stream starts. */
   startSession(store: LiveStore): void;
+  /** The store gained data the stream doesn't carry (telemetry from before it started): everyone gets a fresh snapshot. */
+  refresh(): void;
   /** The session is over: stream what's left, then keep the data for new consumers. */
   endSession(detail?: string): void;
 }
@@ -116,6 +118,15 @@ export class LiveHub implements LiveSink {
     this.timer = setInterval(() => this.tick(), TEL_INTERVAL_MS);
     this.statsTimer = setInterval(() => this.logStats(), STATS_INTERVAL_MS);
     store.onDocument = () => this.timingChanged();
+  }
+
+  /** (The snapshot holds everything up to each car's sent mark, inserted older samples included; `tel` carries on after it.) */
+  refresh(): void {
+    if (!this.session || !this.clients()) return;
+    this.session.recompute();
+    this.lastFull = performance.now();
+    const snap = this.session.snapshot();
+    if (snap) this.last.snapshotBytes = this.broadcast(snap);
   }
 
   endSession(detail?: string): void {

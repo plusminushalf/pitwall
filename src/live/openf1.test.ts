@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { AuthError } from "../../scripts/lib/openf1Http";
 import type { RawSession } from "../../scripts/lib/openf1Types";
 import type { LiveSink, StatusPatch } from "./hub";
-import { backfill, finished, OpenF1Live, TELEMETRY_PIECE_MS, type FeedHooks, type Params } from "./openf1";
+import { backfill, backfillEarlier, finished, OpenF1Live, QUICK_TELEMETRY_MS, TELEMETRY_PIECE_MS, type FeedHooks, type Params } from "./openf1";
 import type { LiveState } from "./protocol";
 import { LiveStore, type Rec } from "./store";
 
@@ -47,6 +47,9 @@ function sink() {
     endSession(detail?: string) {
       s.state = "ended";
       s.log.push(`end${detail ? `: ${detail}` : ""}`);
+    },
+    refresh() {
+      s.log.push("refresh");
     },
   };
   return s satisfies LiveSink;
@@ -120,6 +123,28 @@ describe("OpenF1Live", () => {
     expect(calls.some(([e, p]) => e === "meetings" && p.meeting_key === 1300)).toBe(true);
     await live.shutdown();
     expect(made[0].stopped).toBe(true);
+  });
+
+  test("joining mid-session: the documents and the last 5 min of telemetry first; the earlier pieces after, newest first, then a fresh snapshot", async () => {
+    const hub = sink();
+    // t0 is 06:50 (10 min before the start), now 07:20: quick from 07:15; earlier pieces 07:10-07:15, 07:00-07:10, 06:50-07:00.
+    const { rest, calls } = api({ car_data: [car(1, now - MIN), car(1, now - 12 * MIN), car(1, now - 28 * MIN)] });
+    const live = new OpenF1Live(hub, { rest, circuit: async () => ({}) as never, feed: feeds().feed, now: () => now, ...quiet });
+    await live.poll();
+    const t0 = Date.parse(race.date_start) - 10 * MIN;
+    const tel = () => calls.filter(([e]) => e === "car_data").map(([, p]) => [p["date>"], p["date<="] ?? null]);
+    // On screen with the quick piece alone (the earlier requests are out, their answers not in yet).
+    expect(hub.log.at(-1)).toBe("start");
+    expect(hub.stores[0].samples.get(1)!.car.t).toEqual([now - MIN - t0]);
+    expect(tel()).toEqual([
+      [iso(now - QUICK_TELEMETRY_MS), null],
+      [iso(t0 + 2 * TELEMETRY_PIECE_MS), iso(now - QUICK_TELEMETRY_MS)],
+      [iso(t0 + TELEMETRY_PIECE_MS), iso(t0 + 2 * TELEMETRY_PIECE_MS)],
+      [iso(t0), iso(t0 + TELEMETRY_PIECE_MS)],
+    ]);
+    while (hub.log.at(-1) !== "refresh") await Bun.sleep(1);
+    expect(hub.stores[0].samples.get(1)!.car.t).toEqual([now - 28 * MIN - t0, now - 12 * MIN - t0, now - MIN - t0]);
+    await live.shutdown();
   });
 
   test("free practice and qualifying are followed too; testing isn't", async () => {
@@ -275,6 +300,18 @@ describe("backfill", () => {
     expect(calls.every(([, p]) => p.session_key === 11731)).toBe(true);
     expect(calls.some(([, p]) => "driver_number" in p)).toBe(false);
     expect(store.samples.get(1)!.car.t).toEqual([MIN, 12 * MIN, 24 * MIN]);
+  });
+
+  test("backfillEarlier: telemetry only, t0 up to `to`, newest piece first", async () => {
+    const t0 = now - 25 * MIN;
+    const store = new LiveStore({ session: race, meeting: null, circuit: null, t0, clock: () => now });
+    const { rest, calls } = api({});
+    await backfillEarlier(store, rest, now - 5 * MIN);
+    expect(calls.map(([e]) => e).every((e) => e === "location" || e === "car_data")).toBe(true);
+    expect(calls.filter(([e]) => e === "location").map(([, p]) => [p["date>"], p["date<="]])).toEqual([
+      [iso(t0 + TELEMETRY_PIECE_MS), iso(now - 5 * MIN)],
+      [iso(t0), iso(t0 + TELEMETRY_PIECE_MS)],
+    ]);
   });
 
   test("a refill: the documents again, time series and telemetry only after `since`", async () => {

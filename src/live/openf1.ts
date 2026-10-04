@@ -23,6 +23,11 @@ const QUIET_MS = 10 * 60_000; // no data for this long (after the scheduled end)
 export const T0_BEFORE_START_MS = 10 * 60_000;
 /** Telemetry is backfilled for every car at once, in pieces this long (one request each per endpoint). */
 export const TELEMETRY_PIECE_MS = 10 * 60_000;
+/**
+ * Going live mid-session: the documents and only this much telemetry before the screen comes up; the earlier telemetry
+ * follows in the background (fillEarlier), so a late join doesn't wait on an hour of car data.
+ */
+export const QUICK_TELEMETRY_MS = 5 * 60_000;
 /** A refill after a gap in the feed starts this long before the last sample received before it. */
 export const REFILL_OVERLAP_MS = 30_000;
 /** The status says how the backfill is going at most this often. */
@@ -100,39 +105,31 @@ export interface LiveDeps {
 }
 
 /**
- * Fetch a session over REST into `store`: everything, or (`since`, absolute ms) the documents again and only what is
- * newer of the time series and telemetry. Requests go out together (`rest` paces them); telemetry is ingested in time
- * order. Returns the number of records.
+ * Telemetry requests for [from, to) in TELEMETRY_PIECE_MS pieces, both endpoints per piece. `to` null: open-ended,
+ * the pieces cut up to `now` (the session clock).
  */
-export async function backfill(
-  store: LiveStore,
-  rest: LiveDeps["rest"],
-  opts: { since?: number; alive?: () => boolean; progress?: (done: number, total: number) => void } = {},
-): Promise<number> {
-  const { since, alive = () => true } = opts;
-  const key = store.sessionKey;
-  // Telemetry from t0 on (the replay window never starts earlier), every car at once, the last piece open-ended.
-  const from = since ?? store.t0;
-  const end = store.clock();
+function telemetryRequests(key: number, from: number, to: number | null, now: number): { topic: Topic; params: Params }[] {
   const pieces: { from: number; to: number | null }[] = [];
   for (let t = from; ; t += TELEMETRY_PIECE_MS) {
-    const last = t + TELEMETRY_PIECE_MS >= end;
-    pieces.push({ from: t, to: last ? null : t + TELEMETRY_PIECE_MS });
+    const last = t + TELEMETRY_PIECE_MS >= (to ?? now);
+    pieces.push({ from: t, to: last ? to : t + TELEMETRY_PIECE_MS });
     if (last) break;
   }
-  const requests: { topic: Topic; params: Params }[] = [
-    ...DOCS.map((topic) => ({ topic, params: { session_key: key, ...(since != null && TIME_SERIES.has(topic) ? { "date>": iso(since) } : {}) } })),
-    ...pieces.flatMap((p) =>
-      (["location", "car_data"] as const).map((topic) => ({ topic, params: { session_key: key, "date>": iso(p.from), ...(p.to != null ? { "date<=": iso(p.to) } : {}) } })),
-    ),
-  ];
+  return pieces.flatMap((p) =>
+    (["location", "car_data"] as const).map((topic) => ({ topic, params: { session_key: key, "date>": iso(p.from), ...(p.to != null ? { "date<=": iso(p.to) } : {}) } })),
+  );
+}
+
+/** Fire every request at once (`rest` paces them) and ingest them in the given order. Returns the number of records. */
+async function fetchInto(store: LiveStore, rest: LiveDeps["rest"], requests: { topic: Topic; params: Params }[], opts: { alive?: () => boolean; progress?: (done: number, total: number) => void }): Promise<number> {
+  const { alive = () => true } = opts;
   let done = 0;
   const pending = requests.map(({ topic, params }) => {
     const p = rest<Rec>(topic, params).then((recs) => {
       opts.progress?.(++done, requests.length);
       return recs;
     });
-    p.catch(() => {}); // awaited below, in order; a failure there stops the backfill
+    p.catch(() => {}); // awaited below, in order; a failure there stops the fetch
     return p;
   });
   let count = 0;
@@ -145,6 +142,40 @@ export async function backfill(
   return count;
 }
 
+/**
+ * Fetch a session over REST into `store`: everything, or (`since`, absolute ms) the documents again and only what is
+ * newer of the time series and telemetry; `telemetryFrom` fetches the documents whole but telemetry only from then
+ * (a quick start; see fillEarlier). Requests go out together (`rest` paces them); telemetry is ingested in time order.
+ * Returns the number of records.
+ */
+export async function backfill(
+  store: LiveStore,
+  rest: LiveDeps["rest"],
+  opts: { since?: number; telemetryFrom?: number; alive?: () => boolean; progress?: (done: number, total: number) => void } = {},
+): Promise<number> {
+  const { since } = opts;
+  const key = store.sessionKey;
+  // Telemetry from t0 on (the replay window never starts earlier), every car at once, the last piece open-ended.
+  const from = opts.telemetryFrom ?? since ?? store.t0;
+  const requests: { topic: Topic; params: Params }[] = [
+    ...DOCS.map((topic) => ({ topic, params: { session_key: key, ...(since != null && TIME_SERIES.has(topic) ? { "date>": iso(since) } : {}) } })),
+    ...telemetryRequests(key, from, null, store.clock()),
+  ];
+  return fetchInto(store, rest, requests, opts);
+}
+
+/**
+ * The telemetry from t0 up to `to` (what a quick backfill left out), newest piece first, so watching back from the
+ * live edge fills in first. The store takes samples in any order; the stream only carries new ones, so the caller
+ * refreshes the consumers' snapshot after.
+ */
+export function backfillEarlier(store: LiveStore, rest: LiveDeps["rest"], to: number, opts: { alive?: () => boolean } = {}): Promise<number> {
+  const requests = telemetryRequests(store.sessionKey, store.t0, to, store.clock());
+  // Newest piece first (each piece's two endpoints stay together).
+  const byPiece: { topic: Topic; params: Params }[][] = [];
+  for (let i = 0; i < requests.length; i += 2) byPiece.push(requests.slice(i, i + 2));
+  return fetchInto(store, rest, byPiece.reverse().flat(), opts);
+}
 /** The session being followed. */
 interface Following {
   store: LiveStore;
@@ -303,6 +334,8 @@ export class OpenF1Live {
     });
     const started = Date.now();
     let shown = 0;
+    // Joining mid-session: the last few minutes of telemetry now, the rest once on screen.
+    const quickFrom = Math.max(store.t0, this.now() - QUICK_TELEMETRY_MS);
     try {
       try {
         await feed.start();
@@ -311,6 +344,7 @@ export class OpenF1Live {
       }
       const count = await backfill(store, this.deps.rest, {
         alive: () => !this.stopped,
+        telemetryFrom: quickFrom,
         progress: (done, total) => {
           if (done < total && Date.now() - shown < PROGRESS_EVERY_MS) return;
           shown = Date.now();
@@ -328,6 +362,20 @@ export class OpenF1Live {
     this.live = { store, feed };
     this.hub.startSession(store);
     if (gap.since != null) void this.refillStore(store, gap.since);
+    if (quickFrom > store.t0) void this.fillEarlier(store, quickFrom);
+  }
+
+  /** The telemetry before what the quick backfill fetched, then a fresh snapshot for everyone. */
+  private async fillEarlier(store: LiveStore, to: number): Promise<void> {
+    const started = Date.now();
+    try {
+      const n = await backfillEarlier(store, this.deps.rest, to, { alive: () => this.live?.store === store });
+      if (this.live?.store !== store) return;
+      this.hub.refresh();
+      this.log(`[live] earlier telemetry (before ${iso(to)}): ${n} records in ${((Date.now() - started) / 1000).toFixed(0)}s`);
+    } catch (e) {
+      this.warn(`[live] earlier telemetry failed (${errorText(e)}): no cars on the map before ${iso(to)} when watching back`);
+    }
   }
 
   private async endLive(): Promise<void> {
