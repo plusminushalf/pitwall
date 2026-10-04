@@ -125,7 +125,7 @@ Pitwall is an unofficial fan project. It is not associated with the Formula 1 co
 
 ## Analytics
 
-The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. No cookies. Builds you run yourself have none.
+The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. On Called It it also counts a call being locked (which driver), shared and copied, as page views of paths of their own. No cookies, no accounts: nothing says who. Builds you run yourself have none.
 
 ## License
 

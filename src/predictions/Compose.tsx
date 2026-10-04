@@ -4,6 +4,7 @@
 // it and the text. The post's own time is the proof. Before qualifying and after lights out there's nothing to pick.
 
 import { useEffect, useRef, useState } from "react";
+import { countEvent } from "../analytics";
 import { LABEL, PRIMARY, SECONDARY } from "../components/controls";
 import { useNow } from "./App";
 import { ScaledCard } from "./Card";
@@ -69,9 +70,14 @@ export function Compose() {
     setTimeout(() => setToast((t) => (t === s ? null : t)), 2400);
   };
   const lights = stamp(race.start, tz);
+  // "bahrain-gp": the card's file name, and the counted paths' (analytics.ts).
+  const slug = race.short.toLowerCase().replace(/\W+/g, "-");
   const lock = () => {
     if (driver == null || saved) return;
+    const d = driverIn(race.id, driver)!;
     setCalls(saveCall(race.id, { driver, at: Date.now() }));
+    // How many calls, and for whom: a path per driver, with where they start.
+    countEvent(`/predictions/lock/${slug}/p${d.grid}-${d.code.toLowerCase()}`);
   };
   const lockButton = (wide: boolean) => (
     <button type="button" disabled={driver == null} onClick={lock} className={`${PRIMARY} ${wide ? "h-11 w-full text-sm" : "px-4 py-2 text-sm"}`}>
@@ -89,7 +95,9 @@ export function Compose() {
       className={`${PRIMARY} flex h-11 w-full items-center justify-center gap-2 text-sm`}
       onClick={async () => {
         if (!blob) return;
-        if ((await shareImage(blob, caption, `called-it-${race.short.toLowerCase().replace(/\W+/g, "-")}.png`)) === "failed") say("Couldn't share it. Try again.");
+        const r = await shareImage(blob, caption, `called-it-${slug}.png`);
+        if (r === "shared") countEvent(`/predictions/share/${slug}`);
+        if (r === "failed") say("Couldn't share it. Try again.");
       }}
     >
       <svg viewBox="0 0 24 24" className="size-4 fill-none stroke-current stroke-2" aria-hidden>
@@ -134,7 +142,9 @@ export function Compose() {
                 className={PRIMARY}
                 onClick={async () => {
                   try {
-                    say((await copyImage(image)) ? "Card copied. Paste it into your post." : "This browser can't copy images.");
+                    const ok = await copyImage(image);
+                    if (ok) countEvent(`/predictions/copy-image/${slug}`);
+                    say(ok ? "Card copied. Paste it into your post." : "This browser can't copy images.");
                   } catch {
                     png.current = null;
                     say("Couldn't copy the card. Try again.");
@@ -148,6 +158,7 @@ export function Compose() {
                 className={SECONDARY}
                 onClick={async () => {
                   await copy(caption);
+                  countEvent(`/predictions/copy-text/${slug}`);
                   say("Text copied");
                 }}
               >
