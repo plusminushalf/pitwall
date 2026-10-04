@@ -74,6 +74,11 @@ export class LiveStore {
   /** When the last record was received (any topic), on the session's clock. */
   lastMessageAt: number | null = null;
   records = 0;
+  /**
+   * A document arrived (a lap, a position, an interval, a pit stop, race control...): timing changed. Telemetry
+   * doesn't count (it streams by itself). The hub recomputes promptly on these.
+   */
+  onDocument: ((topic: DocTopic) => void) | null = null;
 
   constructor(opts: StoreOptions) {
     this.session = opts.session;
@@ -118,6 +123,7 @@ export class LiveStore {
     let docs = this.docs.get(topic);
     if (!docs) this.docs.set(topic, (docs = new Map()));
     docs.set(KEYS[topic](rec), rec);
+    this.onDocument?.(topic);
     return true;
   }
 

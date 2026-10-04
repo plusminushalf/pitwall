@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { FOLLOW_BUFFER_MS, followStep, LiveEdge } from "./liveEdge";
+import { FOLLOW_BUFFER_MS, followStep, LiveEdge, timingEdgeOf } from "./liveEdge";
 
 describe("LiveEdge", () => {
   test("measures how fast the edge moves and extrapolates between updates", () => {
@@ -65,5 +65,23 @@ describe("followStep", () => {
     expect(ahead).toBeLessThan(10_016);
     expect(followStep(10_000, 8_000, 16, 1, Infinity)).toBe(10_000); // well ahead: waits
     expect(followStep(10_000, 10_500, 16, 1, 10_005)).toBe(10_005);
+  });
+});
+
+describe("timingEdgeOf", () => {
+  const base = { positions: [], intervals: [], laps: [], pits: [], trackStatus: [] };
+  const meta = (m: Partial<typeof base> & Record<string, unknown>) => ({ ...base, ...m }) as never;
+
+  test("the newest position, interval, completed lap, pit exit or track status", () => {
+    expect(timingEdgeOf(meta({}))).toBe(0);
+    expect(timingEdgeOf(meta({ positions: [{ t: 1_000, driver: 1, position: 1 }], intervals: [{ t: 2_500, driver: 1, gapToLeader: 0, interval: 0 }] }))).toBe(2_500);
+    expect(timingEdgeOf(meta({ pits: [{ driver: 1, lap: 3, entry: 3_000, exit: 3_900, laneDuration: null, stopDuration: null }] }))).toBe(3_900);
+    expect(timingEdgeOf(meta({ trackStatus: [{ t: 100, status: "GREEN" }, { t: 4_200, status: "SC" }] }))).toBe(4_200);
+  });
+
+  test("a lap counts once it's complete (it has a duration), not while it runs", () => {
+    const running = { driver: 1, lap: 2, start: 5_000, end: 9_000, duration: null };
+    const done = { driver: 1, lap: 1, start: 0, end: 5_000, duration: 5 };
+    expect(timingEdgeOf(meta({ laps: [running, done] }))).toBe(5_000);
   });
 });

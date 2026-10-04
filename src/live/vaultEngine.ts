@@ -1,6 +1,6 @@
 // Live mode without a relay: the relay's own processing (./openf1.ts, ./hub.ts, ./store.ts) run in the browser, fed
 // by the credential vault (vault/: OpenF1's live stream and REST with the user's own account). It runs in a worker
-// (./worker.ts), so normalizing a whole race every 2 s never stalls the page; the page relays between it and the
+// (./worker.ts), so normalizing a whole race whenever timing changes never stalls the page; the page relays between it and the
 // vault (./vault.ts), so this side never talks to the vault itself. Out come the relay's LiveMessages.
 //
 // The vault already reconnects, gap-fills and dedupes its stream. What's added here is what the relay adds on top of

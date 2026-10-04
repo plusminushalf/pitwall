@@ -4,7 +4,9 @@
 // Live sessions use the same processed format as replays (src/types.ts), so the app can
 // build a normal `Session` from a snapshot and keep it growing:
 //   - `snapshot` on connect and whenever the live session changes: full state so far.
-//   - `meta` every ~2 s: the whole SessionMeta recomputed (laps, positions, gaps, race control...).
+//   - `meta`: the whole SessionMeta recomputed (laps, positions, gaps, race control...), as soon as timing
+//     changes (within ~0.1 s of a lap, position, interval, pit or race control record, at most every 0.25 s),
+//     else every ~2 s.
 //   - `tel` every ~0.5 s: only the new car/location samples since the previous `tel`.
 // Times are ms since `meta.t0`, which stays fixed for the whole live session.
 // In live metas, `duration` equals `now` (the live edge) and grows; `chequered` is null until shown;

@@ -1,4 +1,8 @@
-// Live mode's clock: the relay's live edge as it moves, which the replay clock follows a few seconds behind.
+// Live mode's clocks: the relay's live edge as it moves, which the replay clock (the cars) follows a few seconds
+// behind, and the timing edge (the latest lap, position, interval, pit stop or flag in the data), which timing shows
+// at once.
+
+import type { SessionMeta } from "../types";
 
 /** How far behind the live edge the replay follows (wall time), so cars always have samples ahead. */
 export const FOLLOW_BUFFER_MS = 3_000;
@@ -77,4 +81,19 @@ export function followStep(t: number, target: number, dt: number, rate: number, 
   const err = target - t;
   const next = Math.abs(err) > 5_000 * scale ? target : t + dt * scale * Math.min(Math.max(1 + err / (2_000 * scale), 0), 2);
   return Math.max(0, Math.min(next, limit));
+}
+
+/**
+ * The latest moment the timing in `meta` speaks of (ms since t0): the newest position, interval, completed lap, pit
+ * exit or track status. Following live, timing is shown as of here, not as of the replay clock (a few seconds behind
+ * the live edge so the cars have samples to move towards): a lap time or a gap is on screen as soon as it's in.
+ */
+export function timingEdgeOf(meta: SessionMeta): number {
+  let edge = 0;
+  for (const p of meta.positions) if (p.t > edge) edge = p.t;
+  for (const i of meta.intervals) if (i.t > edge) edge = i.t;
+  for (const l of meta.laps) if (l.duration != null && l.end != null && l.end > edge) edge = l.end;
+  for (const p of meta.pits) if (p.exit > edge) edge = p.exit;
+  for (const s of meta.trackStatus) if (s.t > edge) edge = s.t;
+  return edge;
 }

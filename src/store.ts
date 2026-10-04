@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { orderOf, selectedDriverOf } from "./widgetkit/select";
 import { canCompare } from "./data/compare";
-import { LiveEdge } from "./data/liveEdge";
+import { LiveEdge, timingEdgeOf } from "./data/liveEdge";
 import { appendTelemetry, buildSession, mergeTelemetry, streamSession, withMeta, type Session } from "./data/session";
 import type { StreamUpdate } from "./ingest/protocol";
 import { raceStateAt, timeForLap, type RaceState } from "./engine/raceState";
@@ -137,6 +137,18 @@ const NO_LIVE: LiveInfo = { via: null, state: null, source: null, sessionKey: nu
 
 /** The relay's live edge (per-message, extrapolated per frame); the replay clock follows it while `followLive`. */
 export const liveEdge = new LiveEdge();
+
+/**
+ * Live mode's timing edge: the newest timing in the session so far (ms since t0, see timingEdgeOf). Following live,
+ * the race state (the timing tower, gaps, lap times, the feed...) is as of here, while the cars (`clock.t`) run a
+ * few seconds behind the live edge, where every car has samples ahead to move towards. Timing is as live as the data.
+ */
+let timingEdge = 0;
+
+/** The time the race state shows: the timing edge while following live (never behind the cars), else the clock. */
+function shownTime(s: { mode: Mode; followLive: boolean }): number {
+  return s.mode === "live" && s.followLive ? Math.max(clock.t, timingEdge) : clock.t;
+}
 
 /** Where the clock sits while following live right now (the very end once the live session has ended). */
 export function liveTarget(wall = performance.now()): number {
@@ -409,6 +421,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       case "snapshot": {
         const session = buildSession(msg.meta, msg.telemetry, { live: true });
         liveEdge.update(msg.now, wall, true);
+        timingEdge = timingEdgeOf(session.meta);
         if (s.session?.meta.sessionKey === session.meta.sessionKey) {
           // Reconnected to the same session: carry on (following or watching back) with the fresh data.
           clock.t = Math.min(clock.t, endOf({ mode: "live", session }));
@@ -430,7 +443,9 @@ export const useReplay = create<ReplayState>((set, get) => {
       case "meta": {
         if (!s.session || s.session.meta.sessionKey !== msg.meta.sessionKey) return; // a snapshot comes first
         liveEdge.update(msg.now, wall);
-        set({ session: withMeta(s.session, msg.meta), liveEdge: msg.now });
+        const session = withMeta(s.session, msg.meta);
+        timingEdge = timingEdgeOf(session.meta);
+        set({ session, liveEdge: msg.now });
         get().publish();
         return;
       }
@@ -545,8 +560,12 @@ export const useReplay = create<ReplayState>((set, get) => {
     },
 
     publish: () => {
-      const { session, watchedTo, stream } = get();
-      if (session) set({ t: clock.t, race: raceStateAt(session, clock.t), watchedTo: Math.max(watchedTo, clock.t) });
+      const s = get();
+      const { session, watchedTo, stream } = s;
+      if (session) {
+        const t = shownTime(s);
+        set({ t, race: raceStateAt(session, t), watchedTo: Math.max(watchedTo, t) });
+      }
       if (stream) reportPlayhead();
     },
 
@@ -604,9 +623,11 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     togglePlay: () => {
       const s = get();
-      // Following live: P freezes the picture (and stops following).
+      // Following live: P freezes the picture (and stops following), at the time the timing showed: the cars catch
+      // up to it (their latest samples) rather than the timing going back a few seconds.
       if (s.mode === "live" && s.followLive) {
         if (!s.session) return;
+        clock.t = Math.min(shownTime(s), endOf(s));
         set({ followLive: false, playing: false, latched: false });
         return get().publish();
       }
@@ -650,6 +671,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       replayStash = s.session && !streaming ? { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused } : null;
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
+      timingEdge = 0;
       const via = liveVia();
       set({
         mode: "live",
