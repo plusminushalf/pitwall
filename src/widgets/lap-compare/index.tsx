@@ -162,7 +162,13 @@ function LapCompare() {
   });
 
   // Overtakes by or on a compared car (the race feed, spoiler-free), to mark on the laps shown.
-  const passes = useFeed((feed) => feed.flatMap((f) => (f.kind === "overtake" && f.driver != null && f.passed != null && (drivers.includes(f.driver) || drivers.includes(f.passed)) ? [{ t: f.t, by: f.driver, on: f.passed }] : [])));
+  const passes = useFeed((feed) =>
+    feed.flatMap((f) => {
+      if (f.kind !== "overtake" || f.driver == null || f.passed == null || !(drivers.includes(f.driver) || drivers.includes(f.passed))) return [];
+      const position = /for (P\d+)/.exec(f.text)?.[1] ?? null;
+      return [{ t: f.t, by: f.driver, on: f.passed, position }];
+    }),
+  );
 
   // Which laps: the state is the session's (a new session starts over, following the replay).
   const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: FOLLOWING });
@@ -192,7 +198,7 @@ function LapCompare() {
     const out: Marker[] = [];
     const seen = new Set<string>();
     const acr = (n: number) => infoOf(n)?.acronym ?? `#${n}`;
-    for (const { trace, style } of series) {
+    for (const { trace } of series) {
       const lap = lapsOf[trace.driver]?.find((l) => l.lap === trace.lap);
       if (!lap) continue;
       const end = lap.start + lap.duration * 1000;
@@ -203,11 +209,15 @@ function LapCompare() {
         if (seen.has(key)) continue;
         seen.add(key);
         const between = drivers.includes(p.by) && drivers.includes(p.on);
-        out.push({ d: distanceAtTime(trace, p.t - lap.start), label: `${acr(p.by)} passes ${acr(p.on)}`, color: style.color, between });
+        const d = distanceAtTime(trace, p.t - lap.start);
+        // The nearest corner before or at the pass (within 300 m), to say where it was.
+        const corner = geometry.corners.filter((c) => c.d <= d + 50 && d - c.d < 300).at(-1);
+        const detail = [p.position ? `for ${p.position}` : "", corner ? `T${corner.label}` : ""].filter(Boolean).join(" · ");
+        out.push({ d, label: `${acr(p.by)} passes ${acr(p.on)}`, detail, speed: p.by === trace.driver ? valueAtDistance(trace, "speed", d) : null, between });
       }
     }
     return out;
-  }, [series, passes, lapsOf, drivers, infos]);
+  }, [series, passes, lapsOf, drivers, infos, geometry]);
   const minis = useMemo(() => (series.length > 1 ? miniSectors(series.map((s) => s.trace), MINI_SECTORS) : []), [series]);
 
   // The chart.

@@ -40,10 +40,16 @@ export interface Marker {
   d: number;
   /** "LIN passes ALO". */
   label: string;
-  color: string;
+  /** "for P10 · T2". */
+  detail: string;
+  /** The passing car's speed at d (where the ring goes), or null when the lap shown is the car passed. */
+  speed: number | null;
   /** Between two of the compared drivers (else one of them and another car: drawn fainter). */
   between: boolean;
 }
+
+/** The callout colour: the app's caution amber, so it reads as an annotation, not a third driver. */
+const CALLOUT = "#ffd230";
 
 export interface ChartModel {
   series: readonly Series[];
@@ -278,34 +284,78 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
     ctx.restore();
   }
 
-  // Overtakes: a line down the chart with who passed whom at the top, staggered when two are close.
-  ctx.font = "600 9px ui-sans-serif, system-ui, sans-serif";
-  ctx.textAlign = "left";
-  ctx.textBaseline = "top";
+  // Overtakes: a ring on the passing car's speed trace, a line down the chart, and a callout box joined to the
+  // ring by a curved arrow, as the qualifying mock-up. Boxes stagger when passes are close.
+  const speedStrip = strips.find((s) => s.key === "speed");
   let lastMarkerX = -Infinity;
   let row = 0;
   for (const mk of [...m.markers].sort((a, b) => a.d - b.d)) {
-    if (mk.d < x0 || mk.d > x1) continue;
+    if (mk.d < x0 || mk.d > x1 || !speedStrip) continue;
     const x = Math.round(xOf(mk.d)) + 0.5;
-    row = x - lastMarkerX < 90 ? (row + 1) % 3 : 0;
+    row = x - lastMarkerX < 180 ? (row + 1) % 3 : 0;
     lastMarkerX = x;
-    ctx.globalAlpha = mk.between ? 1 : 0.55;
-    ctx.strokeStyle = mk.color;
+    ctx.globalAlpha = mk.between ? 1 : 0.6;
+    ctx.strokeStyle = CALLOUT;
     ctx.lineWidth = 1;
-    ctx.setLineDash([2, 3]);
+    ctx.setLineDash([3, 3]);
     ctx.beginPath();
     ctx.moveTo(x, M.top);
     ctx.lineTo(x, plotBottom);
     ctx.stroke();
     ctx.setLineDash([]);
-    const y = M.top + 3 + row * 12;
-    const tw = ctx.measureText(mk.label).width;
-    const left = x + 3 + tw + 6 > right;
-    const tx = left ? x - 3 - tw - 4 : x + 3;
+    // The ring: on the speed trace, or at the top of the strip when the lap shown is the car passed.
+    const ry = mk.speed != null ? yOf(speedStrip, mk.speed) : speedStrip.top + 8;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.arc(x, ry, 7, 0, Math.PI * 2);
+    ctx.stroke();
+    // The box: to the right of the ring, flipped left near the edge, staggered down when passes are close.
+    ctx.font = "700 11px ui-sans-serif, system-ui, sans-serif";
+    const w1 = ctx.measureText(mk.label).width;
+    ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+    const w2 = ctx.measureText(mk.detail).width;
+    const bw = Math.max(w1, w2) + 16;
+    const bh = mk.detail ? 36 : 22;
+    const flip = x + 60 + bw > right;
+    const bx = flip ? x - 60 - bw : x + 60;
+    const by = Math.max(M.top + 2, Math.min(ry - 46 - row * 42, plotBottom - bh - 2));
+    // The arrow: from the box's near edge, curving to the ring.
+    const ax0 = flip ? bx + bw : bx;
+    const ay0 = by + bh / 2;
+    const ax1 = x + (flip ? -9 : 9) * Math.SQRT1_2;
+    const ay1 = ry - 9 * Math.SQRT1_2;
+    const cx = ax0 + (ax1 - ax0) * 0.1;
+    const cy = ay1 + (ay0 - ay1) * 0.1;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(ax0, ay0);
+    ctx.quadraticCurveTo(cx, cy, ax1, ay1);
+    ctx.stroke();
+    const ang = Math.atan2(ay1 - cy, ax1 - cx);
+    ctx.fillStyle = CALLOUT;
+    ctx.beginPath();
+    ctx.moveTo(ax1, ay1);
+    ctx.lineTo(ax1 - 8 * Math.cos(ang - 0.45), ay1 - 8 * Math.sin(ang - 0.45));
+    ctx.lineTo(ax1 - 8 * Math.cos(ang + 0.45), ay1 - 8 * Math.sin(ang + 0.45));
+    ctx.closePath();
+    ctx.fill();
     ctx.fillStyle = "#09090b";
-    ctx.fillRect(tx - 2, y - 1, tw + 4, 11);
-    ctx.fillStyle = mk.color;
-    ctx.fillText(mk.label, tx, y);
+    ctx.strokeStyle = CALLOUT;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(bx + 0.5, by + 0.5, bw, bh, 4);
+    ctx.fill();
+    ctx.stroke();
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillStyle = CALLOUT;
+    ctx.font = "700 11px ui-sans-serif, system-ui, sans-serif";
+    ctx.fillText(mk.label, bx + 8, by + 5);
+    if (mk.detail) {
+      ctx.fillStyle = "#d4d4d8";
+      ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+      ctx.fillText(mk.detail, bx + 8, by + 20);
+    }
     ctx.globalAlpha = 1;
   }
   ctx.font = FONT;
