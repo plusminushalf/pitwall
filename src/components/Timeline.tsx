@@ -249,7 +249,8 @@ export function Timeline() {
   };
 
   return (
-    <div className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
+    // A panel of its own in a screenshot: shift-click it with a widget to share both.
+    <div data-shot="" className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
       <div className="flex items-center gap-1">
         <button
           onClick={() => stepLap(-1)}
