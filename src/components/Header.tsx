@@ -20,7 +20,7 @@ const SHORTCUTS: [string, string][] = [
   ["[ / ]", "Previous / next lap"],
   ["− / +", "Slower / faster"],
   ["1 – 7", "Speed 1× · 2× · 4× … 64×"],
-  ["Esc", "Clear selection"],
+  ["Esc", "Shrink a full-screen widget, or clear selection"],
   ["S", "Share a screenshot and a link"],
 ];
 

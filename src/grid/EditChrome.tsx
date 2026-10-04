@@ -36,7 +36,8 @@ export function RowGuides({ height }: { height: number }) {
   );
 }
 
-function IconButton({ label, onClick, children, ...rest }: { label: string; onClick: () => void; children: ReactNode; [data: `data-${string}`]: string }) {
+/** A 20px bordered icon button that sits over a widget's contents (edit mode's, and the full-screen toggle). */
+export function IconButton({ label, onClick, children, ...rest }: { label: string; onClick: () => void; children: ReactNode; [data: `data-${string}`]: string }) {
   return (
     <button
       {...rest}

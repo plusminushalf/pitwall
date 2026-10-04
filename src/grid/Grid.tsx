@@ -7,15 +7,19 @@
 // the boxes. A drag moves its box by writing a transform from pointermove, and re-renders only when where
 // it would land changes; the other widgets then glide to their new places (FLIP, transforms only: sizes
 // snap, so canvases reallocate once per step rather than every frame).
+//
+// In normal mode, hovering a widget shows a button that fills the grid with it (the same widget, so it
+// doesn't remount); a button in the same place, or Esc, puts it back. Not a layout change: nothing is saved.
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { Icon } from "../widgetkit/ui/Icon";
 import { WidgetHost } from "../widgetkit/WidgetHost";
 import type { WidgetDefinition, WidgetSettings } from "../widgetkit/defineWidget";
 import { heightInputOf, orderOf, selectedDriverOf } from "../widgetkit/select";
 import { useReplay } from "../store";
 import { WidgetPicker, gridWidgets } from "./WidgetPicker";
 import { BUILTIN_WIDGETS } from "./builtins";
-import { WidgetChrome, ColumnGuides, DropPlaceholder, EmptySlot, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
+import { WidgetChrome, ColumnGuides, DropPlaceholder, EmptySlot, IconButton, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
 import {
   addWidget,
   canAdd,
@@ -102,6 +106,24 @@ export const Grid = memo(function Grid() {
   order.current = [...order.current.filter((id) => ids.has(id)), ...shown.map((p) => p.id).filter((id) => !order.current.includes(id))];
   const byId = new Map(shown.map((p, i) => [p.id, i]));
   const originalBox = (id: string) => boxes[placements.findIndex((p) => p.id === id)];
+
+  // Full screen (normal mode only): one widget over the whole grid. Edit mode, or the widget leaving the
+  // layout (another session's layout, a shared link), puts it back.
+  const [fullId, setFullId] = useState<string | null>(null);
+  const full = fullId && !editing && byId.has(fullId) ? fullId : null;
+  if (fullId && !full) setFullId(null);
+  useEffect(() => {
+    if (!full) return;
+    // Before the replay's own Esc (clear selection), which the user didn't mean.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      e.preventDefault();
+      setFullId(null);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [full]);
 
   // FLIP: each box glides from where it was drawn to its new place.
   const els = useRef(new Map<string, HTMLDivElement>());
@@ -300,6 +322,7 @@ export const Grid = memo(function Grid() {
         if (c) useLayout.getState().setLayout(fitHeight(l, c, id));
       },
       toggleSettings: (id) => setSettingsFor((open) => (open === id ? null : id)),
+      toggleFull: (id) => setFullId((open) => (open === id ? null : id)),
       remove: (id) => {
         setSettingsFor((open) => (open === id ? null : open));
         useLayout.getState().setLayout(removeWidget(useLayout.getState().layout, id));
@@ -349,20 +372,22 @@ export const Grid = memo(function Grid() {
           const p = shown[byId.get(id)!];
           const dragged = drag?.id === id;
           const state: ChromeState = dragged ? (drag.ok ? "dragging" : "refused") : resizing?.id === id ? (resizing.blocked ? "blocked" : "resizing") : "idle";
-          const b = dragged ? originalBox(id) : shownBoxes[byId.get(id)!];
+          const isFull = full === id;
+          const b = isFull ? { left: 0, top: 0, width: size.width, height: size.height } : dragged ? originalBox(id) : shownBoxes[byId.get(id)!];
           const settings = layout.widgets[id]?.settings ?? shownLayout.widgets[id].settings;
           return (
             <WidgetBox
               key={id}
               id={id}
               widget={p.widget}
-              dividerTop={p.dividerTop}
-              dividerLeft={p.dividerLeft}
+              dividerTop={p.dividerTop && !isFull}
+              dividerLeft={p.dividerLeft && !isFull}
               left={b.left}
               top={b.top}
               width={b.width}
               height={b.height}
-              contentHeight={p.contentHeight > p.height ? p.contentHeight : null}
+              contentHeight={p.contentHeight > b.height ? p.contentHeight : null}
+              full={isFull}
               label={labelOf(p.widget, settings)}
               settings={settings}
               editing={editing}
@@ -433,6 +458,8 @@ interface BoxActions {
   /** Back to the widget's own height (or the tallest that fits). */
   fitHeight: (id: string) => void;
   toggleSettings: (id: string) => void;
+  /** Fills the grid with this widget, or puts it back. */
+  toggleFull: (id: string) => void;
   remove: (id: string) => void;
 }
 
@@ -448,6 +475,7 @@ const WidgetBox = memo(function WidgetBox({
   width,
   height,
   contentHeight,
+  full,
   settings,
   editing,
   state,
@@ -469,6 +497,8 @@ const WidgetBox = memo(function WidgetBox({
   height: number;
   /** When it's taller than the box (a height set in edit mode): what the contents keep, scrolling. */
   contentHeight: number | null;
+  /** Over the whole grid, on top of the others. */
+  full: boolean;
   settings: Partial<WidgetSettings>;
   editing: boolean;
   state: ChromeState;
@@ -501,13 +531,26 @@ const WidgetBox = memo(function WidgetBox({
     <div
       ref={ref}
       data-widget={id}
-      className={`absolute border-zinc-800 [contain:strict] ${dividerTop ? "border-t" : ""} ${dividerLeft ? "border-l" : ""}${
-        floating ? " z-20 bg-zinc-950 shadow-2xl will-change-transform" : ""
+      className={`group/box absolute border-zinc-800 [contain:strict] ${dividerTop ? "border-t" : ""} ${dividerLeft ? "border-l" : ""}${
+        floating ? " z-20 bg-zinc-950 shadow-2xl will-change-transform" : full ? " z-30 bg-zinc-950" : ""
       }`}
       style={{ left, top, width, height }}
     >
       {/* Always there, scrolling or not, so a widget doesn't remount when its height changes. */}
       <div className={contentHeight == null ? "h-full" : "h-full overflow-y-auto overflow-x-hidden"}>{host}</div>
+      {!editing && (
+        // Bottom right, like a video player's, where no widget keeps its controls. Shown on hover (or focus)
+        // until the widget is full screen, when it stays to put it back.
+        <span
+          className={`absolute bottom-1 right-1 z-10 transition-opacity ${
+            full ? "" : "opacity-0 focus-within:opacity-100 group-hover/box:opacity-100"
+          }`}
+        >
+          <IconButton label={full ? `Shrink ${label} (Esc)` : `Fill the screen with ${label}`} onClick={() => actions.toggleFull(id)}>
+            <Icon name={full ? "shrink" : "expand"} size={12} />
+          </IconButton>
+        </span>
+      )}
       {editing && (
         <WidgetChrome
           name={label}

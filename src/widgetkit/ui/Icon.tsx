@@ -56,6 +56,10 @@ const PATHS = {
       <path {...SOLID} fillRule="evenodd" d="M3.5 2.5h10v7h-10zM6 2.5v2.33h2.5V2.5zm5 0v2.33h2.5V2.5zM3.5 4.83v2.34H6V4.83zm5 0v2.34H11V4.83zM6 7.17V9.5h2.5V7.17zm5 0V9.5h2.5V7.17z" />
     </>
   ),
+  /** Arrows out to two corners: fill the screen with this widget. */
+  expand: <path {...STROKE} d="M9.5 2.5h4v4M13.5 2.5 9 7M6.5 13.5h-4v-4M2.5 13.5 7 9" />,
+  /** Arrows in from two corners: back to the widget's place on the grid. */
+  shrink: <path {...STROKE} d="M13.5 6.5h-4v-4M9.5 6.5 14 2M2.5 9.5h4v4M6.5 9.5 2 14" />,
   rain: (
     <>
       <path {...STROKE} d="M4.5 9.5a2.75 2.75 0 0 1-.2-5.5 3.75 3.75 0 0 1 7.2 1 2.25 2.25 0 0 1 0 4.5z" />
