@@ -13,7 +13,7 @@ import { DriverList } from "./DriverList";
 import { localTz, stamp } from "./format";
 import { canShareImage, cardPng, copy, copyImage, shareImage } from "./image";
 import { ASK, closes, driverIn, nextRace, openRace, questionOf, timing } from "./model";
-import { readCalls, saveCall } from "./saved";
+import { callKey, readCalls, saveCall } from "./saved";
 
 export function Compose() {
   const now = useNow();
@@ -25,9 +25,9 @@ export function Compose() {
   const cardRef = useRef<HTMLDivElement>(null);
   const tz = localTz();
 
-  // This browser's call for the race, once locked: it can't change, and the card keeps its time.
+  // This browser's call for the race's question, once locked: it can't change, and the card keeps its time.
   // One for a driver a grid penalty has since moved out of the five doesn't count: pick again.
-  const stored = race ? calls[race.id] : undefined;
+  const stored = race ? calls[callKey(questionOf(race.id), race.id)] : undefined;
   const saved = race && stored && driverIn(race.id, stored.driver) ? stored : undefined;
   const pick = saved?.driver ?? chosen;
   const driver = race && pick != null && driverIn(race.id, pick) ? pick : null;
@@ -79,7 +79,7 @@ export function Compose() {
   const lock = () => {
     if (driver == null || saved) return;
     const d = driverIn(race.id, driver)!;
-    setCalls(saveCall(race.id, { driver, at: Date.now() }));
+    setCalls(saveCall(callKey(questionOf(race.id), race.id), { driver, at: Date.now() }));
     // How many calls, and for whom: a path per driver, with where they start.
     countEvent(`/predictions/lock/${slug}/p${d.grid}-${d.code.toLowerCase()}`);
   };
