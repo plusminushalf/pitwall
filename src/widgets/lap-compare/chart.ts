@@ -285,48 +285,63 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
   }
 
   // Overtakes: a ring on the passing car's speed trace, a line down the chart, and a callout box joined to the
-  // ring by a curved arrow, as the qualifying mock-up. Boxes stagger when passes are close.
+  // ring by a curved arrow, as the qualifying mock-up. Passes at the same point share one box, a line per pass;
+  // boxes step down past any box already placed, so none overlap.
   const speedStrip = strips.find((s) => s.key === "speed");
-  let lastMarkerX = -Infinity;
-  let row = 0;
-  for (const mk of [...m.markers].sort((a, b) => a.d - b.d)) {
-    if (mk.d < x0 || mk.d > x1 || !speedStrip) continue;
-    const x = Math.round(xOf(mk.d)) + 0.5;
-    row = x - lastMarkerX < 180 ? (row + 1) % 3 : 0;
-    lastMarkerX = x;
-    ctx.globalAlpha = mk.between ? 1 : 0.6;
+  interface Group {
+    x: number;
+    ry: number;
+    lines: string[];
+    between: boolean;
+  }
+  const groups: Group[] = [];
+  if (speedStrip) {
+    for (const mk of [...m.markers].sort((a, b) => a.d - b.d)) {
+      if (mk.d < x0 || mk.d > x1) continue;
+      const x = Math.round(xOf(mk.d)) + 0.5;
+      const line = mk.detail ? `${mk.label} · ${mk.detail}` : mk.label;
+      const g = groups[groups.length - 1];
+      if (g && x - g.x <= 14) {
+        g.lines.push(line);
+        g.between ||= mk.between;
+        continue;
+      }
+      const ry = mk.speed != null ? yOf(speedStrip, mk.speed) : speedStrip.top + 8;
+      groups.push({ x, ry, lines: [line], between: mk.between });
+    }
+  }
+  const placed: { x: number; y: number; w: number; h: number }[] = [];
+  const overlaps = (r: { x: number; y: number; w: number; h: number }) => placed.some((p) => r.x < p.x + p.w + 6 && r.x + r.w + 6 > p.x && r.y < p.y + p.h + 6 && r.y + r.h + 6 > p.y);
+  for (const g of groups) {
+    ctx.globalAlpha = g.between ? 1 : 0.6;
     ctx.strokeStyle = CALLOUT;
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
-    ctx.moveTo(x, M.top);
-    ctx.lineTo(x, plotBottom);
+    ctx.moveTo(g.x, M.top);
+    ctx.lineTo(g.x, plotBottom);
     ctx.stroke();
     ctx.setLineDash([]);
-    // The ring: on the speed trace, or at the top of the strip when the lap shown is the car passed.
-    const ry = mk.speed != null ? yOf(speedStrip, mk.speed) : speedStrip.top + 8;
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.arc(x, ry, 7, 0, Math.PI * 2);
+    ctx.arc(g.x, g.ry, 7, 0, Math.PI * 2);
     ctx.stroke();
-    // The box: to the right of the ring, flipped left near the edge, staggered down when passes are close.
+    // The box: to the right of the ring (left near the edge), above it, moved down until it's clear of the others.
     ctx.font = "700 11px ui-sans-serif, system-ui, sans-serif";
-    const w1 = ctx.measureText(mk.label).width;
-    ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
-    const w2 = ctx.measureText(mk.detail).width;
-    const bw = Math.max(w1, w2) + 16;
-    const bh = mk.detail ? 36 : 22;
-    const flip = x + 60 + bw > right;
-    const bx = flip ? x - 60 - bw : x + 60;
-    const by = Math.max(M.top + 2, Math.min(ry - 46 - row * 42, plotBottom - bh - 2));
+    const bw = Math.max(...g.lines.map((l) => ctx.measureText(l).width)) + 16;
+    const bh = 8 + g.lines.length * 15;
+    const flip = g.x + 60 + bw > right;
+    const bx = flip ? g.x - 60 - bw : g.x + 60;
+    let by = Math.max(M.top + 2, Math.min(g.ry - 46, plotBottom - bh - 2));
+    while (overlaps({ x: bx, y: by, w: bw, h: bh }) && by + bh < plotBottom - 2) by += 4;
+    placed.push({ x: bx, y: by, w: bw, h: bh });
     // The arrow: from the box's near edge, curving to the ring.
     const ax0 = flip ? bx + bw : bx;
     const ay0 = by + bh / 2;
-    const ax1 = x + (flip ? -9 : 9) * Math.SQRT1_2;
-    const ay1 = ry - 9 * Math.SQRT1_2;
+    const ax1 = g.x + (flip ? -9 : 9) * Math.SQRT1_2;
+    const ay1 = g.ry + (ay0 < g.ry ? -9 : 9) * Math.SQRT1_2;
     const cx = ax0 + (ax1 - ax0) * 0.1;
     const cy = ay1 + (ay0 - ay1) * 0.1;
-    ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(ax0, ay0);
     ctx.quadraticCurveTo(cx, cy, ax1, ay1);
@@ -349,13 +364,7 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillStyle = CALLOUT;
-    ctx.font = "700 11px ui-sans-serif, system-ui, sans-serif";
-    ctx.fillText(mk.label, bx + 8, by + 5);
-    if (mk.detail) {
-      ctx.fillStyle = "#d4d4d8";
-      ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
-      ctx.fillText(mk.detail, bx + 8, by + 20);
-    }
+    g.lines.forEach((line, i) => ctx.fillText(line, bx + 8, by + 5 + i * 15));
     ctx.globalAlpha = 1;
   }
   ctx.font = FONT;

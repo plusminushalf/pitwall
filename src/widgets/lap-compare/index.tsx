@@ -169,6 +169,19 @@ function LapCompare() {
       return [{ t: f.t, by: f.driver, on: f.passed, position }];
     }),
   );
+  // OpenF1 sometimes reports one pass twice, seconds apart: the same pair within 30 s is one pass (the first).
+  const uniquePasses = useMemo(() => {
+    const last = new Map<string, number>();
+    return [...passes]
+      .sort((a, b) => a.t - b.t)
+      .filter((p) => {
+        const key = `${p.by}|${p.on}`;
+        const prev = last.get(key);
+        if (prev != null && p.t - prev < 30_000) return false;
+        last.set(key, p.t);
+        return true;
+      });
+  }, [passes]);
 
   // Which laps: the state is the session's (a new session starts over, following the replay).
   const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: FOLLOWING });
@@ -202,7 +215,7 @@ function LapCompare() {
       const lap = lapsOf[trace.driver]?.find((l) => l.lap === trace.lap);
       if (!lap) continue;
       const end = lap.start + lap.duration * 1000;
-      for (const p of passes) {
+      for (const p of uniquePasses) {
         if (p.t < lap.start || p.t > end || (p.by !== trace.driver && p.on !== trace.driver)) continue;
         // A pass between two compared cars shows once, on the passing car's lap.
         const key = `${p.t}|${p.by}|${p.on}`;
@@ -217,7 +230,7 @@ function LapCompare() {
       }
     }
     return out;
-  }, [series, passes, lapsOf, drivers, infos, geometry]);
+  }, [series, uniquePasses, lapsOf, drivers, infos, geometry]);
   const minis = useMemo(() => (series.length > 1 ? miniSectors(series.map((s) => s.trace), MINI_SECTORS) : []), [series]);
 
   // The chart.
