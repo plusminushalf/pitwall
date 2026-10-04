@@ -106,7 +106,7 @@ To match the app's look, use widget-kit's UI pieces: `Label`, `Stat`, `Icon`, `D
 
 - **Timing:** `useRunningOrder`, `usePositions`, `useDriver` (position, gaps, tyres, lap, status), `useFastestLap`, `useBestSectors`.
 - **Laps and strategy:** `useLaps` (sector times, mini-sectors, speed traps), `useStints`, `usePitStops` (pit lane and stationary time). `useAllLaps`, `useAllStints` and `useAllPitStops` cover the whole field.
-- **Telemetry:** `useCar` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory` (recent samples), `useFrame` (car positions every animation frame, for canvas drawing).
+- **Telemetry:** `useCar` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory` (recent samples), `useFrame` (car positions every animation frame, for canvas drawing), `useLapTrace` (one completed lap as a distance-aligned trace, with `useLapGeometry` for the lap length, sector boundaries and corners; `deltaSeries`, `miniSectors` and friends read them).
 - **The race:** `useTrackStatus`, `useNeutralPeriods` (SC, VSC and red flag periods), `useSectorFlags`, `useWeather`, `useFeed` (race control, overtakes, pit stops, team radio).
 - **Session:** `useDrivers` (names, teams, colours), `useTrack` (outline, pit lane, corners, sectors), `useSessionInfo`.
 - **Playback and the widget:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useWidgetSize`.

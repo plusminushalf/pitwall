@@ -4,6 +4,7 @@ import type { WidgetDefinition } from "../widgetkit/defineWidget";
 import battles from "../widgets/battles";
 import driverHeader from "../widgets/driver-header";
 import gapChart from "../widgets/gap-chart";
+import lapCompare from "../widgets/lap-compare";
 import lapTimes from "../widgets/lap-times";
 import longRuns from "../widgets/long-runs";
 import pitStrategy from "../widgets/pit-strategy";
@@ -18,6 +19,6 @@ import trackMap from "../widgets/track-map";
 import tyreStrip from "../widgets/tyre-strip";
 import weather from "../widgets/weather";
 
-const ALL: WidgetDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns];
+const ALL: WidgetDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns, lapCompare];
 
 export const BUILTIN_WIDGETS: ReadonlyMap<string, WidgetDefinition> = new Map(ALL.map((b) => [b.id, b as WidgetDefinition]));

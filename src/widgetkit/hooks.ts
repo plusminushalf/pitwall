@@ -5,6 +5,8 @@
 
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Session } from "../data/session";
+import type { DecodedLap } from "../engine/compare";
+import { lapGeometryOf, lapTraceOf, type LapGeometry } from "../engine/lapTrace";
 import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
@@ -306,6 +308,34 @@ export function useStints<R = readonly StintView[]>(n: number | null, select?: S
     [n],
     select,
   );
+}
+
+/**
+ * Car n's lap `lap` as a distance-aligned trace (time, speed, throttle, brake, gear and track position at each
+ * distance from the timing line), once the lap is over at t; null before that, when the lap has no time, or when
+ * too much of its car data is missing. Built from the car's telemetry on first use and shared by every widget.
+ * engine/compare's helpers (deltaSeries, timeAtDistance, valueAtDistance, miniSectors) read it.
+ */
+export function useLapTrace<R = DecodedLap>(n: number | null, lap: number | null, select?: Select<DecodedLap, R>): R | null {
+  return useKit(
+    (s) => {
+      if (n == null || lap == null) return null;
+      const d = s.session.drivers.get(n);
+      const l = d?.laps.find((x) => x.lap === lap);
+      if (!l || l.end == null || l.end > s.t) return null;
+      return lapTraceOf(s.session, n, lap);
+    },
+    [n, lap],
+    orNull(select),
+  ) as R | null;
+}
+
+/**
+ * The lap as a distance: its length, the sector 2 and 3 boundaries and the corners, in metres from the timing line.
+ * Measured on the session's clean laps (NaN lengths while there are none to measure, early in a live session).
+ */
+export function useLapGeometry<R = LapGeometry>(select?: Select<LapGeometry, R>): R {
+  return useKit((s) => lapGeometryOf(s.session), [], select);
 }
 
 const NO_PITS: readonly PitStop[] = [];

@@ -40,6 +40,9 @@
 //     useCar(n, select?)         speed, gear, RPM, throttle, brake, DRS
 //     useCarHistory(n, windowMs, select?)  telemetry samples in [t - windowMs, t]
 //     useLaps(n, select?)        completed laps
+//     useLapTrace(n, lap, select?)  one completed lap as a distance-aligned trace, to overlay laps (race laps
+//                                are built from the telemetry; see lapDelta and the other compare helpers)
+//     useLapGeometry(select?)    lap length, sector boundaries and corners as distances along the lap
 //     useStints(n, select?)      stints started so far (the current one open)
 //     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
@@ -101,6 +104,8 @@ export {
   useFastestLap,
   useFeed,
   useFrame,
+  useLapGeometry,
+  useLapTrace,
   useLaps,
   useLeaderLap,
   useNeutralPeriods,
@@ -125,6 +130,12 @@ export {
 export type { Playback, Radio, Select, Selection } from "./hooks";
 
 export type { WidgetSize } from "./context";
+export type { LapGeometry } from "../engine/lapTrace";
+/** Lap traces (useLapTrace) and what to read off them: values and times at a distance, deltas between laps, mini-sectors. */
+export { deltaAt, deltaSeries, distanceAtTime, miniSectors, positionAtDistance, timeAtDistance, topSpeed, valueAtDistance } from "../engine/compare";
+export type { Channel, DecodedLap as LapTrace, DeltaSeries, MiniSector } from "../engine/compare";
+/** Colours for compared drivers: team colours, told apart when two are alike (a lighter shade and a dashed line). */
+export { compareStyles, dashArray, type CompareStyle } from "../lib/compareColors";
 export type { DrawFn, Frame } from "./frame";
 export type { CarHistory, CarPosition, FeedEntry, NeutralPeriod, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
 export type { FeedItem, FeedKind } from "../data/session";
