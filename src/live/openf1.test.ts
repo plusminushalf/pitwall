@@ -151,6 +151,33 @@ describe("OpenF1Live", () => {
     await live.shutdown();
   });
 
+  test("past the window, still running (a delayed start): OpenF1's recent laps say so, and it goes live", async () => {
+    const hub = sink();
+    const late = now + 3 * 60 * MIN; // 10:20: the scheduled end was 09:00, the window's 30 min margin long past
+    const { rest, calls } = api({
+      race_control: [{ session_key: 11731, date: iso(now + 30 * MIN), flag: "GREEN", category: "Flag", message: "GREEN LIGHT" }],
+      laps: [{ session_key: 11731, driver_number: 1, lap_number: 40, date: iso(late - MIN), date_start: iso(late - MIN) }],
+    });
+    const { made, feed } = feeds();
+    const live = new OpenF1Live(hub, { rest, circuit: async () => ({}) as never, feed, now: () => late, ...quiet });
+    await live.poll();
+    expect(hub.state).toBe("live");
+    expect(hub.stores[0]?.sessionKey).toBe(11731);
+    expect(calls.some(([e, p]) => e === "laps" && typeof p["date_start>"] === "string")).toBe(true);
+    expect(made[0].started).toBe(true);
+    await live.shutdown();
+  });
+
+  test("past the window with nothing new from OpenF1: idle", async () => {
+    const hub = sink();
+    const late = now + 3 * 60 * MIN;
+    const { rest } = api({ sessions: [race], race_control: [{ session_key: 11731, date: iso(now + 30 * MIN), flag: "CHEQUERED", category: "Flag", message: "CHEQUERED FLAG" }] });
+    const live = new OpenF1Live(hub, { rest, circuit: async () => ({}) as never, feed: feeds().feed, now: () => late, ...quiet });
+    await live.poll();
+    expect(hub.state).toBe("idle");
+    await live.shutdown();
+  });
+
   test("a refused login is an error; other failures say they retry", async () => {
     const hub = sink();
     const live = new OpenF1Live(hub, {

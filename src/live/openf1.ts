@@ -5,6 +5,7 @@
 
 import { AuthError } from "../../scripts/lib/openf1Http";
 import type { RawCircuit, RawMeeting, RawSession } from "../../scripts/lib/openf1Types";
+import { endBy, fetchEvidence, shouldProbe } from "../../scripts/lib/liveness";
 import { endingFlag } from "../../scripts/lib/normalize";
 import { isFollowedLive } from "../../scripts/lib/season";
 import type { LiveSink } from "./hub";
@@ -43,6 +44,17 @@ export const isRaceSession = (s: RawSession) => isFollowedLive(s) && !s.is_cance
 /** Within [scheduled start - 15 min, scheduled end + 30 min]. */
 export function inLiveWindow(s: RawSession, now: number): boolean {
   return now >= Date.parse(s.date_start) - BEFORE_START_MS && now <= Date.parse(s.date_end) + AFTER_END_MS;
+}
+
+/**
+ * Past the scheduled window: is the session still running (a delayed start, red flags)? The calendar's times can't
+ * say; OpenF1's race control messages and laps can (scripts/lib/liveness.ts).
+ */
+export async function stillRunning(s: RawSession, now: number, rest: LiveDeps["rest"]): Promise<boolean> {
+  const end = Date.parse(s.date_end);
+  if (!shouldProbe(end, now)) return false;
+  const evidence = await fetchEvidence(s.session_key, s.session_type, now, (endpoint, params) => rest(endpoint as Endpoint, params));
+  return endBy(end, evidence, now) > now;
 }
 
 /** Over after the scheduled end once the data dries up (or long after the flag). */
@@ -194,7 +206,7 @@ export class OpenF1Live {
       }
       const [latest] = await this.deps.rest<RawSession>("sessions", { session_key: "latest" });
       const now = this.now();
-      if (latest && isRaceSession(latest) && inLiveWindow(latest, now)) {
+      if (latest && isRaceSession(latest) && (inLiveWindow(latest, now) || (await stillRunning(latest, now, (e, p) => this.deps.rest(e, p))))) {
         await this.goLive(latest);
         return;
       }

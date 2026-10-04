@@ -8,6 +8,7 @@
 
 import { create } from "zustand";
 import { isCurrentFormat } from "../scripts/lib/formatVersion";
+import { endBy, fetchEvidence, shouldProbe } from "../scripts/lib/liveness";
 import { fetchEndpoint, LiveWindowError, seedRequestStarts, setRequestObserver } from "../scripts/lib/openf1Http";
 import { FIRST_YEAR, isIngestible, LIVE_WINDOW_MARGIN_MS } from "../scripts/lib/season";
 import type { RawMeeting, RawSession } from "../scripts/lib/openf1Types";
@@ -94,6 +95,11 @@ interface LibraryState {
   remote: Record<number, RemoteJob>;
   /** Waiting for another tab to finish its downloads (Web Lock held elsewhere). */
   otherTab: boolean;
+  /**
+   * Sessions OpenF1 shows running past their scheduled end (a delayed start, red flags): when they really end, ms
+   * epoch. The calendars in `years` have it applied (extendCatalog).
+   */
+  overruns: Record<number, number>;
   /** OpenF1 refused us with its live-window lockout, until about then. */
   blocked: { until: number; label: string } | null;
   usage: StorageUsage | null;
@@ -209,6 +215,26 @@ async function signedInSoon(): Promise<boolean> {
   };
   while (unsettled() && Date.now() < end) await sleep(100);
   return signedIn();
+}
+
+/** Catalogs as OpenF1 published them; the state's have `overruns` applied (extendCatalog). */
+const rawCatalogs = new Map<number, Catalog>();
+
+/** How often to ask OpenF1 whether a session is running past its scheduled end. */
+const PROBE_MS = 60_000;
+
+/** The catalog with sessions running late ending when they really do (the rows and the free tier's sessions alike). */
+export function extendCatalog(c: Catalog, overruns: Record<number, number>): Catalog {
+  const endOf = (key: number, scheduled: string) => {
+    const end = overruns[key];
+    return end != null && end > Date.parse(scheduled) ? new Date(end).toISOString() : scheduled;
+  };
+  if (!c.rows.some((r) => endOf(r.sessionKey, r.dateEnd) !== r.dateEnd)) return c;
+  return {
+    ...c,
+    rows: c.rows.map((r) => ({ ...r, dateEnd: endOf(r.sessionKey, r.dateEnd) })),
+    sessions: Array.isArray(c.sessions) ? c.sessions.map((s) => ({ ...s, date_end: endOf(s.session_key, s.date_end) })) : c.sessions,
+  };
 }
 
 /** The live window we're in (from the calendar, or from OpenF1 refusing us), or null. */
@@ -333,17 +359,58 @@ let persistAsked = false;
 const loadingYears = new Map<number, Promise<void>>();
 
 export const useLibrary = create<LibraryState>((set, get) => {
+  /** A season into the state: kept as published, shown with sessions running late ending when they do. */
+  const putYear = (year: number, y: YearState) => {
+    if (y.catalog) rawCatalogs.set(year, y.catalog);
+    else rawCatalogs.delete(year);
+    set({ years: { ...get().years, [year]: { ...y, catalog: y.catalog && extendCatalog(y.catalog, get().overruns) } } });
+  };
+
+  let probing = false;
+  /**
+   * A session at or past its scheduled end: ask OpenF1 whether it's still running (a delayed start, red flags) and
+   * keep `overruns`, and the calendars, saying when it really ends. One session at a time: the latest to have started.
+   */
+  const probeOverrun = async () => {
+    if (probing) return;
+    probing = true;
+    try {
+      const now = Date.now();
+      const row = [...rawCatalogs.values()]
+        .flatMap((c) => c.rows)
+        .filter((r) => !r.cancelled && Date.parse(r.dateStart) <= now && shouldProbe(Date.parse(r.dateEnd), now))
+        .sort((a, b) => b.dateStart.localeCompare(a.dateStart))[0];
+      let overruns: Record<number, number> = {};
+      if (row) {
+        const evidence = await fetchEvidence(row.sessionKey, row.sessionType, now, await openf1Get());
+        const end = endBy(Date.parse(row.dateEnd), evidence, now);
+        if (end > Date.parse(row.dateEnd)) overruns = { [row.sessionKey]: end };
+      }
+      if (JSON.stringify(overruns) === JSON.stringify(get().overruns)) return;
+      set({ overruns });
+      const years = { ...get().years };
+      for (const [year, c] of rawCatalogs) if (years[year]) years[year] = { ...years[year], catalog: extendCatalog(c, overruns) };
+      set({ years });
+    } catch (e) {
+      // (The free tier refused: a session is on by the calendar anyway. Anything else: the next ask.)
+      if (!(e instanceof LiveWindowError)) console.warn("asking OpenF1 whether the session is still running", e);
+    } finally {
+      probing = false;
+    }
+  };
+
   /** One season's calendar: from this browser when it's fresh enough, else from OpenF1 (and kept). */
   const loadYearOnce = async (year: number, force: boolean) => {
     const prev = get().years[year];
-    const setYear = (y: YearState) => set({ years: { ...get().years, [year]: y } });
-    let catalog = prev?.catalog ?? null;
+    const setYear = (y: YearState) => putYear(year, y);
+    let catalog = rawCatalogs.get(year) ?? prev?.catalog ?? null;
     if (!catalog && get().supported) {
       const cached = await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined);
       catalog = cached ? withCurrentRows(cached) : null;
     }
     if (catalog && catalogFresh(catalog) && !force) {
       setYear({ catalog, loading: false, error: null });
+      void probeOverrun();
       return;
     }
     setYear({ catalog, loading: true, error: null });
@@ -351,6 +418,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       const fresh = await fetchCatalog(year, await openf1Get());
       if (get().supported) await store().writeDoc(`catalog-${year}`, fresh).catch(() => {});
       setYear({ catalog: fresh, loading: false, error: null });
+      void probeOverrun();
     } catch (e) {
       let error = `Couldn't load the ${year} calendar from OpenF1 (${message(e)}).`;
       // (A browser without an account gets no answer at all during a session: a network error, not a 401.)
@@ -675,6 +743,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     remote: {},
     otherTab: false,
     blocked: null,
+    overruns: {},
     usage: null,
     calendarYear: currentYear(),
     filter: "all",
@@ -711,6 +780,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       // This page's own OpenF1 requests (the calendar, link lookups) pace around the downloads' and count for them.
       seedRequestStarts(recentRequests());
       setRequestObserver((e) => noteRequest(Date.now() - e.ms));
+      setInterval(() => void probeOverrun(), PROBE_MS);
       if (!storageSupported()) {
         set({ supported: false, ready: true });
         return;
@@ -798,7 +868,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
           if (get().years[year]?.catalog) continue;
           const cached = await store().readDoc<Catalog>(`catalog-${year}`).catch(() => undefined);
           if (cached) {
-            set({ years: { ...get().years, [year]: { catalog: withCurrentRows(cached), loading: false, error: null } } });
+            putYear(year, { catalog: withCurrentRows(cached), loading: false, error: null });
             row = find();
           }
         }
