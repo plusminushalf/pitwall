@@ -11,6 +11,7 @@ import {
   useRadio,
   useSelection,
   useSessionInfo,
+  useSettings,
   type DriverInfo,
   type FeedEntry,
   type FeedKind,
@@ -19,6 +20,8 @@ import {
 const LIMIT = 150;
 
 type Group = "control" | "overtake" | "pit" | "radio";
+type Show = "all" | "selected";
+type Settings = { show: Show };
 
 const GROUPS: { id: Group; label: string }[] = [
   { id: "control", label: "Race control" },
@@ -93,6 +96,9 @@ function RadioButton({ url }: { url: string }) {
 /** The car a row is about: the one race control named, else the first inferred from telemetry. */
 const driverOf = (item: FeedEntry) => item.driver ?? item.inferred?.[0] ?? null;
 
+/** Every car a row is about: race control's, the car passed, and those inferred from telemetry. */
+const carsOf = (item: FeedEntry) => [item.driver, item.passed, ...(item.inferred ?? [])];
+
 /** Items Pitwall words itself, each starting with its driver's acronym ("VER passes HAD for P3"). */
 const OWN_WORDS = new Set<FeedKind>(["overtake", "radio", "pit", "retired"]);
 
@@ -142,8 +148,19 @@ const FeedRow = memo(function FeedRow({
 
 function RaceFeed() {
   const [groups, setGroups] = useState(ALL_ON);
-  // The newest LIMIT items of the groups shown: a new item re-renders the list, nothing else does.
-  const items = useFeed((feed) => feed.slice(0, LIMIT).filter((item) => groups[GROUP_OF[item.kind]]));
+  const [{ show }, update] = useSettings<Settings>();
+  const selected = useSelection((s) => s.selected);
+  const filtered = show === "selected";
+  // The newest LIMIT items shown (by kind, and by selected driver when filtered): a new item re-renders the list, nothing else does.
+  const items = useFeed((feed) => {
+    const shown: FeedEntry[] = [];
+    for (const item of feed) {
+      if (!groups[GROUP_OF[item.kind]]) continue;
+      if (filtered && !carsOf(item).some((n) => n != null && selected.includes(n))) continue;
+      if (shown.push(item) === LIMIT) break;
+    }
+    return shown;
+  });
   const drivers = useDrivers();
   const lightsOut = useSessionInfo((i) => i.lightsOut);
   const practice = useSessionInfo((i) => i.kind === "practice");
@@ -164,7 +181,22 @@ function RaceFeed() {
   return (
     <section className="flex h-full flex-col text-sm">
       <div className="border-b border-zinc-800 px-3 py-1.5">
-        <Label as="h2">{practice ? "Session feed" : "Race feed"}</Label>
+        <div className="flex items-center gap-2">
+          <Label as="h2">{practice ? "Session feed" : "Race feed"}</Label>
+          <div className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
+            {(["all", "selected"] as const).map((v) => (
+              <button
+                key={v}
+                onClick={() => update({ show: v })}
+                aria-pressed={show === v}
+                className={`rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+                title={v === "all" ? "Every driver" : "Only the selected drivers"}
+              >
+                {v === "all" ? "All" : "Selected"}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="mt-1 flex flex-wrap gap-1">
           {GROUPS.filter((g) => !practice || g.id !== "overtake").map((g) => {
             const on = groups[g.id];
@@ -187,7 +219,13 @@ function RaceFeed() {
       <ol className="min-h-0 flex-1 overflow-y-auto">
         {items.length === 0 && (
           <li className="px-3 py-6 text-center text-xs text-zinc-400">
-            {Object.values(groups).some(Boolean) ? "No events yet" : "Every kind of event is switched off: pick one above"}
+            {!Object.values(groups).some(Boolean)
+              ? "Every kind of event is switched off: pick one above"
+              : filtered && selected.length === 0
+                ? "No drivers selected"
+                : filtered
+                  ? "No events for the selected drivers yet"
+                  : "No events yet"}
           </li>
         )}
         {items.map((item) => (
@@ -207,6 +245,16 @@ export default defineWidget({
   height: { min: 150 },
   width: { min: 15, default: 21, max: 40 },
   sessions: ["race", "practice"],
-  settings: {},
+  settings: { show: "all" as Show },
+  fields: {
+    show: {
+      kind: "choice",
+      label: "Show",
+      options: [
+        { value: "all", label: "Every driver" },
+        { value: "selected", label: "Selected drivers" },
+      ],
+    },
+  },
   Component: RaceFeed,
 });
