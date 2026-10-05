@@ -5,6 +5,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
+import posthog, { isPostHogEnabled } from "../posthog";
 import { useReplay } from "../store";
 import { Icon } from "../widgetkit/ui/Icon";
 import { brandedImage, captureApp, clampArea, IGNORE, type Rect, type Shot } from "./capture";
@@ -81,6 +82,7 @@ export const useShare = create<ShareState>((set, get) => {
       const phase = get().phase;
       if (phase.kind !== "picking") return;
       const image = brandedImage(phase.shot, clampArea(phase.shot, area), new URL(siteOrigin()).host);
+      if (isPostHogEnabled()) posthog.capture("screenshot_created", { selection: area ? "area" : "full_screen" });
       // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
       let copied: Promise<boolean>;
       try {
@@ -294,7 +296,10 @@ function ShareToast({ result }: { result: Result }) {
   const copyLink = (e: { currentTarget: HTMLButtonElement }) => {
     e.currentTarget.blur();
     if (!result.link) return;
-    void navigator.clipboard.writeText(result.link).then(() => setLinkCopied(true));
+    void navigator.clipboard.writeText(result.link).then(() => {
+      setLinkCopied(true);
+      if (isPostHogEnabled()) posthog.capture("screenshot_link_copied");
+    });
   };
   const save = (e: { currentTarget: HTMLButtonElement }) => {
     e.currentTarget.blur();
