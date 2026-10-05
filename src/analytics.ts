@@ -15,7 +15,6 @@ let counting = false;
 
 export function startAnalytics() {
   startPostHog();
-
   const token = import.meta.env.VITE_CF_BEACON_TOKEN;
   if (!token) return;
   on = true;

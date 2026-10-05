@@ -20,7 +20,7 @@ import { loadLearned, noteRequest, recentRequests, runJob, type JobInfo, type Pr
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
 import { clock, onStreamWatch, useReplay, type OpenOpts } from "./store";
-import posthog, { isPostHogEnabled, logPostHog } from "./posthog";
+import { track } from "./posthog";
 import { getVault, type RestEndpoint } from "./vault/client";
 
 export { FIRST_YEAR };
@@ -635,10 +635,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
   }
 
   async function finished(key: number, entry: LibraryEntry) {
-    if (isPostHogEnabled()) {
-      posthog.capture("replay_download_completed", { session_type: entry.sessionType, season: entry.year });
-      logPostHog("replay download completed", { session_type: entry.sessionType, season: entry.year });
-    }
+    track("replay_download_completed", { session_type: entry.sessionType, season: entry.year });
     setJob(key, { phase: "done", progress: null, finishedAt: Date.now() });
     dequeue(key);
     forgetSession(key);
@@ -904,10 +901,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
       if (get().watch?.key === key) set({ watch: null });
       useReplay.getState().openStream(key, opts);
-      if (isPostHogEnabled()) {
-        posthog.capture("replay_stream_started", { session_type: row.sessionType, season: row.year });
-        logPostHog("replay stream started", { session_type: row.sessionType, season: row.year });
-      }
+      track("replay_stream_started", { session_type: row.sessionType, season: row.year });
       askPersist();
       enqueue(jobInfo(row, "download"), undefined, true);
       // Waiting to retry: now (a live window pauses it again).
@@ -954,9 +948,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     watchNow: (key, opts) => {
       const entry = get().entries[key];
       set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
-      if (entry && isPostHogEnabled()) {
-        posthog.capture("replay_session_opened", { session_type: entry.sessionType, season: entry.year });
-      }
+      if (entry) track("replay_session_opened", { session_type: entry.sessionType, season: entry.year });
       useReplay.getState().openSession(key, opts);
     },
 

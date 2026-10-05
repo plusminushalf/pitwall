@@ -16,7 +16,7 @@ import { Icon } from "../widgetkit/ui/Icon";
 import { WidgetHost } from "../widgetkit/WidgetHost";
 import type { WidgetDefinition, WidgetSettings } from "../widgetkit/defineWidget";
 import { heightInputOf, orderOf, selectedDriverOf } from "../widgetkit/select";
-import posthog, { isPostHogEnabled } from "../posthog";
+import { track } from "../posthog";
 import { useReplay } from "../store";
 import { WidgetPicker, gridWidgets } from "./WidgetPicker";
 import { BUILTIN_WIDGETS } from "./builtins";
@@ -442,7 +442,7 @@ export const Grid = memo(function Grid() {
               const next = addWidget(layout, ctx, id, picker.slot);
               if (next) {
                 useLayout.getState().setLayout(next);
-                if (isPostHogEnabled()) posthog.capture("widget_added", { widget_id: id, session_kind: gridKind(ctx.input.info.kind) });
+                track("widget_added", { widget_id: id, session_kind: gridKind(ctx.input.info.kind) });
               }
               useLayout.getState().closePicker();
             }}

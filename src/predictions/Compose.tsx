@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { countEvent } from "../analytics";
 import { LABEL, PRIMARY, SECONDARY } from "../components/controls";
-import posthog, { isPostHogEnabled } from "../posthog";
+import { track } from "../posthog";
 import { useNow } from "./App";
 import { ScaledCard } from "./Card";
 import { DriverList } from "./DriverList";
@@ -83,9 +83,7 @@ export function Compose() {
     setCalls(saveCall(callKey(questionOf(race.id), race.id), { driver, at: Date.now() }));
     // How many calls, and for whom: a path per driver, with where they start.
     countEvent(`/predictions/lock/${slug}/p${d.grid}-${d.code.toLowerCase()}`);
-    if (isPostHogEnabled()) {
-      posthog.capture("prediction_locked", { question: questionOf(race.id), grid_position: d.grid });
-    }
+    track("prediction_locked", { race: slug, question: questionOf(race.id), grid_position: d.grid, driver: d.code });
   };
   const lockButton = (wide: boolean) => (
     <button type="button" disabled={driver == null} onClick={lock} className={`${PRIMARY} ${wide ? "h-11 w-full text-sm" : "px-4 py-2 text-sm"}`}>
@@ -106,7 +104,7 @@ export function Compose() {
         const r = await shareImage(blob, caption, `called-it-${slug}.png`);
         if (r === "shared") {
           countEvent(`/predictions/share/${slug}`);
-          if (isPostHogEnabled()) posthog.capture("prediction_shared", { question: questionOf(race.id) });
+          track("prediction_shared", { race: slug, question: questionOf(race.id) });
         }
         if (r === "failed") say("Couldn't share it. Try again.");
       }}
@@ -156,7 +154,7 @@ export function Compose() {
                     const ok = await copyImage(image);
                     if (ok) {
                       countEvent(`/predictions/copy-image/${slug}`);
-                      if (isPostHogEnabled()) posthog.capture("prediction_image_copied", { question: questionOf(race.id) });
+                      track("prediction_image_copied", { race: slug, question: questionOf(race.id) });
                     }
                     say(ok ? "Card copied. Paste it into your post." : "This browser can't copy images.");
                   } catch {
@@ -173,7 +171,7 @@ export function Compose() {
                 onClick={async () => {
                   await copy(caption);
                   countEvent(`/predictions/copy-text/${slug}`);
-                  if (isPostHogEnabled()) posthog.capture("prediction_text_copied", { question: questionOf(race.id) });
+                  track("prediction_text_copied", { race: slug, question: questionOf(race.id) });
                   say("Text copied");
                 }}
               >
