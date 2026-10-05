@@ -47,6 +47,14 @@ describe("readUrl", () => {
     expect(readUrl("/live", "?zoom=1-2&layout=abc").compare).toBeUndefined();
   });
 
+  test("the lap charts' lap window", () => {
+    expect(readUrl("/session/11731", "?t=60&range=12-30").range).toEqual([12, 30]);
+    // Backwards, from lap 0, or on live mode's path: left out.
+    expect(readUrl("/session/11731", "?range=30-12").range).toBeUndefined();
+    expect(readUrl("/session/11731", "?range=0-12").range).toBeUndefined();
+    expect(readUrl("/live", "?range=12-30").range).toBeUndefined();
+  });
+
   test("a path the app doesn't have is Home", () => {
     expect(readUrl("/session/abc", "")).toMatchObject({ live: false, session: null });
     expect(readUrl("/races", "")).toMatchObject({ live: false, session: null });
@@ -68,7 +76,7 @@ describe("urlFor", () => {
       "/session/11377?t=3725&drivers=1,63,55&focus=63",
       "/session/11228?view=laps&t=600&drivers=1,63",
       "/session/11730?drivers=1,44&zoom=120-560&preset=2&laps=1:14,44:12&mini=50&names=1",
-      "/session/11731?t=60&layout=abc_-9", "/live?session=11377&t=90&drivers=4", "/live"]) {
+      "/session/11731?t=60&layout=abc_-9", "/session/11731?t=60&drivers=1,44&range=12-30", "/live?session=11377&t=90&drivers=4", "/live"]) {
       const [path, search = ""] = url.split("?");
       expect(urlFor(readUrl(path!, search ? `?${search}` : ""))).toBe(url);
     }

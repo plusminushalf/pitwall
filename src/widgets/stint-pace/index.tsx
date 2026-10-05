@@ -11,6 +11,7 @@ import {
   useWidgetSize,
   useDrivers,
   useFrame,
+  useLapWindow,
   useLeaderLap,
   useNeutralPeriods,
   usePlayback,
@@ -21,6 +22,7 @@ import {
   type DriverInfo,
   type DriverSetting,
   type Lap,
+  type LapWindow,
   type StintView,
 } from "widget-kit";
 import { EXCLUDED_TEXT, MIN_FIT_LAPS, pacePoints, stintFits, trendText, type PaceLap, type PacePoint, type PaceStint, type StintFit } from "./pace";
@@ -95,6 +97,8 @@ interface DrawInput {
   byTyre: boolean;
   totalLaps: number;
   leaderLap: number;
+  /** The timeline's lap window: by lap, the axis spans it (the series are cut to it already). */
+  lapWindow: LapWindow;
   hover: Hit | null;
 }
 
@@ -111,7 +115,7 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
-  const { series, axis, byTyre, totalLaps, leaderLap, hover } = input;
+  const { series, axis, byTyre, totalLaps, leaderLap, lapWindow, hover } = input;
   const all = series.flatMap((s) => s.points);
   const clean = all.filter((p) => p.excluded == null);
   if (clean.length === 0) return [];
@@ -133,8 +137,8 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   const yOf = (t: number) => plotB - ((t - lo) / (hi - lo)) * plotH;
   // x: the race distance by lap (so the chart fills in as the race goes), or tyre age.
   const maxAge = Math.max(0, ...all.flatMap((p) => (p.age == null ? [] : [p.age])));
-  const xMax = axis === "lap" ? Math.max(totalLaps, ...all.map((p) => p.lap)) : Math.max(20, Math.ceil((maxAge + 1) / 5) * 5);
-  const xMin = axis === "lap" ? 1 : 0;
+  const xMax = axis !== "lap" ? Math.max(20, Math.ceil((maxAge + 1) / 5) * 5) : lapWindow.zoomed ? lapWindow.to : Math.max(totalLaps, ...all.map((p) => p.lap));
+  const xMin = axis === "lap" ? lapWindow.from : 0;
   const xAt = (v: number) => plotL + ((v - xMin + 0.5) / (xMax - xMin + 1)) * plotW;
   const view: View = { xOf: (p) => (axis === "lap" ? xAt(p.lap) : p.age == null ? null : xAt(p.age)), yOf };
 
@@ -171,7 +175,7 @@ function draw(canvas: HTMLCanvasElement, input: DrawInput, w: number, h: number,
   if (axis === "age") ctx.fillText("0", xAt(0), plotB + 3);
 
   // Now: the lap the leader is on.
-  if (axis === "lap" && leaderLap >= 1) {
+  if (axis === "lap" && leaderLap >= xMin) {
     const x = Math.round(xAt(Math.min(leaderLap, xMax))) + 0.5;
     ctx.strokeStyle = NOW_LINE;
     ctx.beginPath();
@@ -352,6 +356,26 @@ function StintPace() {
     // `laps` and `stints` keep their identity until a shown driver completes a lap (or a stint starts).
   }, [drivers, shown.join(), laps, stints, neutral]);
 
+  // The timeline's lap window: only its laps are drawn (by tyre age too), each stint's trend cut to them.
+  const lapWindow = useLapWindow(Math.max(totalLaps, leaderLap));
+  const drawnSeries = useMemo(
+    (): Series[] =>
+      !lapWindow.zoomed
+        ? series
+        : series.map((s) => ({
+            ...s,
+            points: s.points.filter((p) => p.lap >= lapWindow.from && p.lap <= lapWindow.to),
+            fits: s.fits.flatMap((f) => {
+              const fromLap = Math.max(f.fromLap, lapWindow.from);
+              const toLap = Math.min(f.toLap, lapWindow.to);
+              if (fromLap > toLap) return [];
+              const age = (lap: number) => (f.fromAge == null ? null : f.fromAge + lap - f.fromLap);
+              return [{ ...f, fromLap, toLap, fromAge: age(fromLap), toAge: age(toLap) }];
+            }),
+          })),
+    [series, lapWindow],
+  );
+
   const byTyre = colour === "tyre" || (colour === "auto" && series.length === 1);
   const [hover, setHover] = useState<Hit | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -363,10 +387,10 @@ function StintPace() {
   const drawn = useRef<unknown[]>([]);
   useFrame(() => {
     const canvas = canvasRef.current;
-    const now = [series, axis, byTyre, totalLaps, leaderLap, hover, w, h, size.pixelRatio];
+    const now = [drawnSeries, axis, byTyre, totalLaps, leaderLap, lapWindow, hover, w, h, size.pixelRatio];
     if (!canvas || w <= 0 || h <= 0 || now.every((v, i) => v === drawn.current[i])) return;
     drawn.current = now;
-    hits.current = draw(canvas, { series, axis, byTyre, totalLaps, leaderLap, hover }, w, h, size.pixelRatio);
+    hits.current = draw(canvas, { series: drawnSeries, axis, byTyre, totalLaps, leaderLap, lapWindow, hover }, w, h, size.pixelRatio);
   });
 
   const nearest = (e: PointerEvent<HTMLCanvasElement>): Hit | null => {
@@ -399,13 +423,17 @@ function StintPace() {
   };
 
   const hoverFit = hover?.series.fits.find((f) => f.stint === hover.point.stint);
-  const empty = series.every((s) => s.points.every((p) => p.excluded != null));
+  const empty = drawnSeries.every((s) => s.points.every((p) => p.excluded != null));
 
   return (
     <div className="relative h-full px-3 pb-2 text-sm">
       <div className="flex items-center justify-between gap-3 overflow-hidden" style={{ height: HEAD_H }}>
         <span className={`${LABEL_CLASS} shrink-0`}>
-          Stint pace <span className="font-normal normal-case tracking-normal text-zinc-400">· {axis === "lap" ? "by lap" : "by tyre age"}</span>
+          Stint pace{" "}
+          <span className="font-normal normal-case tracking-normal text-zinc-400">
+            · {axis === "lap" ? "by lap" : "by tyre age"}
+            {lapWindow.zoomed && ` · laps ${lapWindow.from}–${lapWindow.to}`}
+          </span>
         </span>
         <span className="flex min-w-0 items-center gap-3 text-[11px] text-zinc-400">
           {series.map((s) => {
@@ -435,7 +463,7 @@ function StintPace() {
       />
       {empty && (
         <div className="pointer-events-none absolute inset-x-0 flex items-center justify-center text-xs text-zinc-400" style={{ top: HEAD_H, height: h }}>
-          No clean laps yet
+          {lapWindow.zoomed ? `No clean laps in laps ${lapWindow.from}–${lapWindow.to} yet` : "No clean laps yet"}
         </div>
       )}
       {hover && <Tooltip hit={hover} fit={hoverFit} w={size.width} />}

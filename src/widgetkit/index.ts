@@ -52,6 +52,9 @@
 //     useAllStints(select?)      every car's stints so far
 //     useAllPitStops(select?)    every car's pit stops finished so far
 //     useNeutralPeriods(select?) safety car, VSC and red flag periods so far (the top bar's track status)
+//   The lap window
+//     useLapWindow(totalLaps)    the laps picked on the timeline's zoom rail (the whole race if none), for
+//                                charts by lap: the user zooms every lap chart at once
 //   Selection
 //     useSelection(select?)      selected and focused drivers, with setters
 //     useSelectedDriver()        pinned by settings, else focused, else best-placed selected, else leader
@@ -106,6 +109,7 @@ export {
   useFrame,
   useLapGeometry,
   useLapTrace,
+  useLapWindow,
   useLaps,
   useLeaderLap,
   useNeutralPeriods,
@@ -128,6 +132,7 @@ export {
   useWholeSession,
 } from "./hooks";
 export type { Playback, Radio, Select, Selection } from "./hooks";
+export type { LapWindow } from "../engine/lapWindow";
 
 export type { WidgetSize } from "./context";
 export type { LapGeometry } from "../engine/lapTrace";

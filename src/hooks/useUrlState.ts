@@ -25,7 +25,7 @@ export function applyUrl() {
   }
   // Off Home already, so opening doesn't push an entry.
   useReplay.setState({ view: "replay" });
-  const opts = { t: url.t, drivers: url.drivers, focus: url.focus, view: url.view };
+  const opts = { t: url.t, drivers: url.drivers, focus: url.focus, view: url.view, range: url.range };
   if (url.live) {
     library.setLink(null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
@@ -63,6 +63,7 @@ export function useUrlSync() {
   const focused = useReplay((s) => s.focused);
   // Practice's Fastest laps (qualifying is always the comparison: nothing to say).
   const laps = useReplay((s) => comparing(s) && s.session?.meta.practice != null);
+  const lapWindow = useReplay((s) => s.lapWindow);
   const lastWrite = useRef(0);
 
   useEffect(() => {
@@ -80,7 +81,7 @@ export function useUrlSync() {
           watchedTo: s.watchedTo,
         });
       }
-      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined });
+      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined, range: lapWindow ? [lapWindow[0], lapWindow[1]] : undefined });
       if (url === location.pathname + location.search) return;
       lastWrite.current = performance.now();
       // Keeps the entry's state (whether it was opened from Home).
@@ -94,5 +95,5 @@ export function useUrlSync() {
     }
     const id = setTimeout(write, wait);
     return () => clearTimeout(id);
-  }, [view, session, live, second, selected, focused, laps]);
+  }, [view, session, live, second, selected, focused, laps, lapWindow]);
 }

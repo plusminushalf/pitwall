@@ -12,6 +12,7 @@ import {
   usePlayback,
   useSelection,
   useSessionInfo,
+  useLapWindow,
   useSettings,
   useTotalLaps,
   type DriverInfo,
@@ -76,16 +77,19 @@ interface Layout {
   h: number;
   plotW: number;
   plotBottom: number;
-  /** Laps across the chart: the race distance. */
+  /** The lap at the left edge (0: the start) and laps across the chart: the race distance, or the timeline's lap window. */
+  from: number;
   laps: number;
   max: number;
   step: number;
   capped: boolean;
 }
 
-const xOf = (L: Layout, lap: number) => (lap / L.laps) * L.plotW;
+const xOf = (L: Layout, lap: number) => ((lap - L.from) / L.laps) * L.plotW;
 const yOf = (L: Layout, g: number) => TOP + (Math.min(g, L.max) / L.max) * (L.plotBottom - TOP);
-const lapAt = (L: Layout, x: number) => Math.round((x / L.plotW) * L.laps);
+const lapAt = (L: Layout, x: number) => L.from + Math.round((x / L.plotW) * L.laps);
+/** The laps with a gap that the chart shows: gaps are at the end of a lap, from lap 1. */
+const shownLaps = (L: Layout): [number, number] => [Math.max(L.from, 1), L.from + L.laps];
 const seconds = (g: Gap): g is number => typeof g === "number";
 
 function draw(canvas: HTMLCanvasElement, L: Layout, lines: Line[], sc: (Neutralised | null)[], hover: number | null, dpr: number) {
@@ -107,8 +111,9 @@ function draw(canvas: HTMLCanvasElement, L: Layout, lines: Line[], sc: (Neutrali
     if (!kind || sc[n - 1] === kind) continue;
     let end = n;
     while (sc[end + 1] === kind) end++;
-    const x0 = xOf(L, n - 1);
+    const x0 = Math.max(xOf(L, n - 1), 0);
     const x1 = Math.min(xOf(L, end), L.plotW);
+    if (x1 <= x0) continue;
     ctx.fillStyle = NEUTRALISED[kind].fill;
     ctx.fillRect(x0, TOP, x1 - x0, L.plotBottom - TOP);
     ctx.fillStyle = "#fee685";
@@ -138,9 +143,10 @@ function draw(canvas: HTMLCanvasElement, L: Layout, lines: Line[], sc: (Neutrali
   const every = LAP_STEPS.find((s) => (s / L.laps) * L.plotW >= LAP_PX) ?? L.laps;
   ctx.textAlign = "center";
   ctx.textBaseline = "top";
-  for (let n = every; n <= L.laps; n += every) ctx.fillText(String(n), xOf(L, n), L.plotBottom + 3);
+  for (let n = (Math.floor(L.from / every) + 1) * every; n <= L.from + L.laps; n += every) ctx.fillText(String(n), xOf(L, n), L.plotBottom + 3);
 
   // The lines: 2 px, broken where a car has no gap (lapped, retired, missing lap).
+  const [lo, hi] = shownLaps(L);
   ctx.save();
   ctx.beginPath();
   ctx.rect(0, 0, L.plotW + RIGHT, L.plotBottom + 1);
@@ -154,13 +160,13 @@ function draw(canvas: HTMLCanvasElement, L: Layout, lines: Line[], sc: (Neutrali
     ctx.fillStyle = line.color;
     ctx.setLineDash(line.dashed ? DASH : []);
     ctx.beginPath();
-    for (let n = 1; n < gaps.length; n++) {
+    for (let n = lo; n < gaps.length && n <= hi; n++) {
       const g = gaps[n];
       if (!seconds(g)) continue;
       const x = xOf(L, n);
       const y = yOf(L, g);
-      if (seconds(gaps[n - 1])) ctx.lineTo(x, y);
-      else if (!seconds(gaps[n + 1])) ctx.fillRect(x - 1.5, y - 1.5, 3, 3); // a lap on its own: a dot
+      if (n > lo && seconds(gaps[n - 1])) ctx.lineTo(x, y);
+      else if (n === hi || !seconds(gaps[n + 1])) ctx.fillRect(x - 1.5, y - 1.5, 3, 3); // a lap on its own: a dot
       else ctx.moveTo(x, y);
     }
     ctx.stroke();
@@ -175,9 +181,9 @@ function draw(canvas: HTMLCanvasElement, L: Layout, lines: Line[], sc: (Neutrali
   ctx.textBaseline = "middle";
   for (const line of lines) {
     const { gaps } = line.series;
-    let n = gaps.length - 1;
-    while (n > 0 && !seconds(gaps[n])) n--;
-    if (n === 0) continue;
+    let n = Math.min(gaps.length - 1, hi);
+    while (n >= lo && !seconds(gaps[n])) n--;
+    if (n < lo) continue;
     const x = xOf(L, n);
     const y = yOf(L, gaps[n] as number);
     dot(ctx, x, y, 3, line.color);
@@ -287,15 +293,25 @@ function GapChart() {
   }, [all, shown, gapMode, drivers]);
 
   const completed = leader.length - 1;
+  const win = useLapWindow(Math.max(totalLaps, completed, 1));
   const w = size.width - PAD_X;
   const h = size.height - PAD_Y - HEAD_H;
   const layout = useMemo((): Layout => {
     const plotBottom = h - BOTTOM;
+    // Scaled to the gaps in the window: zoomed in past lap 1's spread, the gaps that matter fill the chart.
+    const from = win.from - 1;
     let largest = 0;
-    for (const l of lines) for (const g of l.series.gaps) if (seconds(g) && g > largest) largest = g;
+    for (const l of lines) {
+      for (let n = Math.max(from, 1); n <= win.to && n < l.series.gaps.length; n++) {
+        const g = l.series.gaps[n];
+        if (seconds(g) && g > largest) largest = g;
+      }
+    }
     const scale = gapScale(largest, gapMode, Math.min(Math.floor((plotBottom - TOP) / ROW_PX), MAX_ROWS));
-    return { w, h, plotW: Math.max(w - RIGHT, 1), plotBottom, laps: Math.max(totalLaps, completed, 1), ...scale };
-  }, [w, h, lines, gapMode, totalLaps, completed]);
+    return { w, h, plotW: Math.max(w - RIGHT, 1), plotBottom, from, laps: win.to - from, ...scale };
+  }, [w, h, lines, gapMode, win]);
+  const [firstLap, lastLap] = shownLaps(layout);
+  const lastHover = Math.min(lastLap, completed);
 
   // The chart is redrawn on the next animation frame when something changed; the marker for where the
   // leader is now moves every frame (estimated from their last lap, as the tyre strip does).
@@ -307,9 +323,9 @@ function GapChart() {
       const from = completed > 1 ? leader[completed - 1] : lightsOut;
       const lapMs = lastEnd != null && from != null ? lastEnd - from : 0;
       const frac = lastEnd != null && lapMs > 0 ? Math.min(Math.max((t - lastEnd) / lapMs, 0), 0.99) : 0;
-      const at = Math.min(completed + frac, layout.laps);
-      marker.style.transform = `translateX(${xOf(layout, at)}px)`;
-      marker.style.visibility = t >= lightsOut ? "visible" : "hidden";
+      const at = completed + frac;
+      marker.style.transform = `translateX(${xOf(layout, Math.min(at, layout.from + layout.laps))}px)`;
+      marker.style.visibility = t >= lightsOut && at >= layout.from && at <= layout.from + layout.laps ? "visible" : "hidden";
     }
     const canvas = canvasRef.current;
     const now = [layout, lines, sc, hover, size.pixelRatio];
@@ -320,14 +336,14 @@ function GapChart() {
 
   const lapFrom = (e: MouseEvent<HTMLCanvasElement>) => {
     const x = e.clientX - e.currentTarget.getBoundingClientRect().left;
-    return completed > 0 ? Math.min(Math.max(lapAt(layout, x), 1), completed) : null;
+    return lastHover >= firstLap ? Math.min(Math.max(lapAt(layout, x), firstLap), lastHover) : null;
   };
   const onKeyDown = (e: KeyboardEvent<HTMLCanvasElement>) => {
-    if (completed === 0) return;
+    if (lastHover < firstLap) return;
     const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
     if (step) {
       e.preventDefault();
-      setHover((l) => Math.min(Math.max((l ?? completed + (step < 0 ? 1 : 0)) + step, 1), completed));
+      setHover((l) => Math.min(Math.max((l ?? lastHover + (step < 0 ? 1 : 0)) + step, firstLap), lastHover));
     } else if (e.key === "Enter" && hover != null) seekToLap(hover);
     else if (e.key === "Escape") setHover(null);
   };
@@ -348,6 +364,12 @@ function GapChart() {
             {title}
           </button>
           {selected.length === 0 && lines.length > 0 && <span className="font-normal normal-case tracking-normal text-zinc-400"> · top {lines.length}</span>}
+          {win.zoomed && (
+            <span className="font-normal normal-case tracking-normal text-zinc-400">
+              {" "}
+              · laps {win.from}–{win.to}
+            </span>
+          )}
         </span>
         <span className="flex min-w-0 items-center gap-2.5 overflow-hidden whitespace-nowrap text-[11px] text-zinc-400">
           {lines.map((l) => (
@@ -379,6 +401,11 @@ function GapChart() {
         {completed === 0 && (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-zinc-400">
             Gaps show from the end of lap 1.
+          </div>
+        )}
+        {completed > 0 && lastHover < firstLap && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-zinc-400">
+            Laps {win.from}–{win.to} haven't been run yet.
           </div>
         )}
         {hover != null && (

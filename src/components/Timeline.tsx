@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../widgetkit/ui/Icon";
 import { stepAt } from "../engine/lookup";
+import { lapEdges, lapWindowIn } from "../engine/lapWindow";
 import { spoilerFreeEnd } from "../engine/noSpoilers";
-import { scheduledDistance } from "../engine/raceDistance";
+import { raceDistanceAt, scheduledDistance } from "../engine/raceDistance";
 import { leaderLapAt } from "../engine/raceState";
 import { clusterEvents, EVENT_PRIORITY, timelineEvents, type EventCluster, type TimelineEventKind } from "../engine/timelineEvents";
 import { raceClock, teamColor, TRACK_STATUS } from "../lib/format";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, PitStop, TrackStatus } from "../types";
+import { LapZoom } from "./LapZoom";
 import { GoLiveButton } from "./LiveControl";
 import { StreamBadge } from "./StreamStatus";
 
@@ -55,7 +57,8 @@ const TICK_MS = 5 * 60_000;
 type Target =
   | { type: "events"; cluster: EventCluster }
   | { type: "pit"; info: DriverInfo; pit: PitStop }
-  | { type: "chequered"; t: number };
+  | { type: "chequered"; t: number }
+  | { type: "zoom" };
 
 function MarkerGlyph({ kind, color }: { kind: TimelineEventKind; color?: string }) {
   const pill = "rounded-sm px-1 text-[9px] font-bold leading-[13px]";
@@ -105,7 +108,8 @@ export function Timeline() {
   const watchedTo = useReplay((s) => s.watchedTo);
   // A race watched while it downloads: what's in so far.
   const spans = useReplay((s) => (s.stream && s.session?.meta.sessionKey === s.stream.key ? s.stream.spans : null));
-  const { setSpeed, seek, stepLap, togglePlay, setNoSpoilers } = useReplay.getState();
+  const picked = useReplay((s) => s.lapWindow);
+  const { setSpeed, seek, stepLap, togglePlay, setNoSpoilers, setLapWindow } = useReplay.getState();
   const barRef = useRef<HTMLDivElement>(null);
   const [barWidth, setBarWidth] = useState(0);
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
@@ -144,6 +148,13 @@ export function Timeline() {
     return clusters.sort((a, b) => EVENT_PRIORITY[a.kind] - EVENT_PRIORITY[b.kind]);
   }, [events, shownEvents, duration, barWidth]);
 
+  // The zoom rail's laps: the race distance as the lap charts know it at t, placed where each lap is on the bar.
+  const zoomLaps = !session || session.meta.practice ? 0 : Math.max(raceDistanceAt(session.meta, t).totalLaps, leaderLapAt(session, Math.min(t, shownTo)));
+  const edges = useMemo(
+    () => (session && zoomLaps > 0 ? lapEdges(session.lapStartTimes, zoomLaps, session.meta.lightsOut, session.meta.chequered ?? null, shownTo) : []),
+    [session, zoomLaps, shownTo],
+  );
+
   if (!session) return null;
   const { meta } = session;
   // Following live, the play button pauses (freezes the picture), like when playback is latched.
@@ -170,6 +181,7 @@ export function Timeline() {
   const lapAt = (ms: number) => (practice ? 0 : Math.max(leaderLapAt(session, ms), 0));
   const clockAt = (ms: number) => raceClock(ms - meta.lightsOut);
   // Practice: a tick every 5 minutes of session time, labelled every 10.
+  const lapWindow = lapWindowIn(picked, zoomLaps);
   const minuteTicks = practice ? Array.from({ length: Math.max(0, Math.floor((duration - meta.lightsOut) / TICK_MS)) + 1 }, (_, i) => meta.lightsOut + i * TICK_MS) : [];
 
   // One tooltip: details of the marker / pit stop under the pointer, else lap, time and track status on the bar.
@@ -208,6 +220,19 @@ export function Timeline() {
           <span>
             {practice ? `${info.acronym} in the pits${pit.exit > pit.entry ? ` · ${raceClock(pit.exit - pit.entry)}` : ""}` : `${info.acronym} pit stop · lap ${pit.lap}`}
           </span>
+        </span>
+      ),
+    };
+  } else if (target?.type === "zoom") {
+    tip = {
+      t: hover?.t ?? 0,
+      content: lapWindow.zoomed ? (
+        <span>
+          Lap charts: laps {lapWindow.from}–{lapWindow.to} <span className="text-zinc-400">· drag to change · double-click for the whole race</span>
+        </span>
+      ) : (
+        <span>
+          Zoom the lap charts <span className="text-zinc-400">· drag an end, or across, to pick laps</span>
         </span>
       ),
     };
@@ -302,7 +327,7 @@ export function Timeline() {
 
       <div
         ref={barRef}
-        className="relative h-14 flex-1 cursor-pointer select-none"
+        className={`relative flex-1 cursor-pointer select-none ${practice ? "h-14" : "h-[68px]"}`}
         onPointerDown={(e) => {
           dragging.current = true;
           e.currentTarget.setPointerCapture(e.pointerId);
@@ -419,6 +444,24 @@ export function Timeline() {
           />
         ))}
 
+        {/* the lap charts' window: laps outside it dimmed, and the zoom rail under the lap numbers */}
+        {lapWindow.zoomed && edges.length > 0 && (
+          <>
+            <div className="pointer-events-none absolute left-0 top-0 h-[58px] bg-zinc-950/60" style={{ width: pct(edges[lapWindow.from - 1]) }} />
+            <div className="pointer-events-none absolute right-0 top-0 h-[58px] bg-zinc-950/60" style={{ left: pct(edges[lapWindow.to]) }} />
+          </>
+        )}
+        {edges.length > 2 && (
+          <LapZoom
+            edges={edges}
+            value={lapWindow}
+            pct={pct}
+            timeAt={(x) => timeAt(x).t}
+            onChange={(w) => setLapWindow(w)}
+            onHover={(over) => setTarget(over ? { type: "zoom" } : null)}
+          />
+        )}
+
         {/* live edge: the newest data, at the right end */}
         {live && <div className="pointer-events-none absolute right-0 top-6 h-6 w-0.5 translate-x-1/2 rounded bg-red-500" title="Live edge" />}
 
@@ -438,6 +481,16 @@ export function Timeline() {
       <div className="flex w-20 flex-col items-end leading-tight">
         <span className="text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</span>
         <StreamBadge />
+        {lapWindow.zoomed && (
+          <button
+            onClick={() => setLapWindow(null)}
+            className="flex items-center gap-0.5 whitespace-nowrap rounded text-[11px] tabular-nums text-zinc-400 transition-colors hover:text-white"
+            title="The lap charts show these laps: back to the whole race"
+          >
+            L{lapWindow.from}–{lapWindow.to}
+            <Icon name="close" size={10} />
+          </button>
+        )}
       </div>
       {live ? (
         <GoLiveButton className="-ml-1 shrink-0" />

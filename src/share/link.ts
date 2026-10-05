@@ -40,6 +40,7 @@ export async function shareLink(): Promise<string | null> {
     state.compare = useQuali.getState().link();
   } else {
     state.t = s.t;
+    if (s.lapWindow) state.range = [s.lapWindow[0], s.lapWindow[1]];
     const { layout, kind } = useLayout.getState();
     if (!sameLayout(layout, DEFAULT_LAYOUTS[kind], kind)) state.layout = await encodeLayout(kind, layout);
   }

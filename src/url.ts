@@ -2,6 +2,7 @@
 //   /                                                Home
 //   /session/11377?t=3725&drivers=1,63,55&focus=63   a session: its replay, or the offer to download it
 //   /session/11228?view=laps&drivers=1,63            finished practice's Fastest laps (the lap comparison)
+//   /session/11731?t=3725&range=12-30                the lap charts zoomed to laps 12 to 30 (the timeline's zoom rail)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
 //   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't the default
@@ -18,6 +19,8 @@ export interface UrlState {
   focus: number | null;
   /** Practice: the Fastest laps instead of the replay. Absent: the replay. */
   view?: "laps";
+  /** The lap charts' lap window: first and last lap. Absent: the whole race. */
+  range?: [number, number];
   /** A shared link's lap comparison set-up. Absent: the comparison's own defaults. */
   compare?: CompareLink;
   /** A shared link's widget layout, encoded (share/layoutCode.ts). Absent: the browser's own. */
@@ -41,7 +44,7 @@ export interface CompareLink {
 const SESSION_PATH = /^\/session\/(\d+)\/?$/;
 const LIVE_PATH = /^\/live\/?$/;
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
-const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view", "zoom", "preset", "laps", "mini", "names", "layout"]);
+const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view", "zoom", "preset", "laps", "mini", "names", "layout", "range"]);
 const LAYOUT_CODE = /^[A-Za-z0-9_-]+$/;
 
 export const sessionPath = (key: number) => `/session/${key}`;
@@ -53,6 +56,7 @@ export function readUrl(pathname: string, search: string): UrlState {
   const path = SESSION_PATH.exec(pathname);
   const t = num("t");
   const legacy = num("driver");
+  const range = /^(\d+)-(\d+)$/.exec(q.get("range") ?? "");
   const drivers = q.has("drivers")
     ? (q.get("drivers") ?? "")
         .split(",")
@@ -69,6 +73,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     drivers,
     focus: num("focus") ?? legacy,
     ...(path && q.get("view") === "laps" ? { view: "laps" as const } : {}),
+    ...(path && range && Number(range[1]) >= 1 && Number(range[1]) < Number(range[2]) ? { range: [Number(range[1]), Number(range[2])] as [number, number] } : {}),
     ...(path ? readShared(q) : {}),
   };
 }
@@ -104,6 +109,7 @@ export function urlFor(v: UrlState): string {
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
   if (v.drivers.length > 0) q.push(`drivers=${v.drivers.join(",")}`);
   if (v.focus != null) q.push(`focus=${v.focus}`);
+  if (!v.live && v.range) q.push(`range=${v.range[0]}-${v.range[1]}`);
   if (!v.live) {
     const c = v.compare ?? {};
     if (c.zoom) q.push(`zoom=${Math.round(c.zoom[0])}-${Math.round(c.zoom[1])}`);

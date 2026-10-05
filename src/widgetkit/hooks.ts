@@ -7,6 +7,7 @@ import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, u
 import type { Session } from "../data/session";
 import type { DecodedLap } from "../engine/compare";
 import { lapGeometryOf, lapTraceOf, type LapGeometry } from "../engine/lapTrace";
+import { lapWindowIn, type LapWindow } from "../engine/lapWindow";
 import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
@@ -379,6 +380,17 @@ export function useNeutralPeriods<R = readonly NeutralPeriod[]>(select?: Select<
 export function useFeed<R = readonly FeedEntry[]>(select?: Select<readonly FeedEntry[], R>): R {
   // Entries keep their identity across live rebuilds, so an unchanged feed compares equal cheaply.
   return useKit((s) => feedUpTo(s.session, feedEndAt(s.session, s.t)), [], select);
+}
+
+// ---------------------------------------------------------------- the lap window
+
+/**
+ * The laps picked on the timeline's zoom rail, within a chart of `totalLaps` laps (laps 1 to totalLaps): one
+ * window for every lap chart on screen. The whole race when nothing is picked.
+ */
+export function useLapWindow(totalLaps: number): LapWindow {
+  const picked = useKit((s) => (s.session.meta.practice ? null : s.lapWindow), []);
+  return useMemo(() => lapWindowIn(picked, totalLaps), [picked, totalLaps]);
 }
 
 // ---------------------------------------------------------------- selection

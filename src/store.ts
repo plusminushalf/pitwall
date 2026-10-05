@@ -36,7 +36,19 @@ export interface OpenOpts {
   drivers?: number[];
   focus?: number | null;
   view?: PracticeView;
+  /** The lap charts' lap window (lapWindow). */
+  range?: LapWindow;
 }
+
+/** First and last lap the lap charts show (whole laps, inclusive). */
+export type LapWindow = readonly [number, number];
+
+/** A lap window as kept: whole laps, at least two, from lap 1 on. */
+const lapWindowOf = (w: LapWindow | null | undefined): LapWindow | null => {
+  if (!w) return null;
+  const from = Math.max(1, Math.round(Math.min(w[0], w[1])));
+  return [from, Math.max(from + 1, Math.round(Math.max(w[0], w[1])))];
+};
 
 /**
  * The lap comparison is on screen instead of the replay: qualifying (it has nothing else), or finished practice's
@@ -252,7 +264,7 @@ function mergeStep(): void {
 
 let live: LiveConnection | null = null;
 /** The replay being watched when live mode was entered, brought back by exitLive(). */
-let replayStash: { session: Session; t: number; watchedTo: number; noSpoilers: boolean | null; selected: number[]; focused: number | null } | null = null;
+let replayStash: { session: Session; t: number; watchedTo: number; noSpoilers: boolean | null; selected: number[]; focused: number | null; lapWindow: LapWindow | null } | null = null;
 /** Live mode was entered from Home: leaving it goes back there. */
 let liveFromHome = false;
 /** From a shared live link: applied to the first live snapshot (`t` only if it's the same session). */
@@ -309,6 +321,11 @@ interface ReplayState {
   stream: StreamState | null;
   /** A finished practice session: the replay or the Fastest laps (shown once it can compare laps, see comparing()). */
   practiceView: PracticeView;
+  /**
+   * The laps the lap charts (gaps, stint pace, tyres) show, picked on the timeline's zoom rail; null: the whole race.
+   * Kept per session: opening another one shows it whole.
+   */
+  lapWindow: LapWindow | null;
 
   loadIndex: () => Promise<void>;
   loadSession: (key: number, opts?: OpenOpts) => Promise<void>;
@@ -358,6 +375,8 @@ interface ReplayState {
   streamDone: (key: number) => Promise<void>;
   /** Practice: the replay or the Fastest laps. Pauses: each plays on its own (the replay, or the ghost laps). */
   setPracticeView: (view: PracticeView) => void;
+  /** Zoom the lap charts to these laps; null: the whole race. */
+  setLapWindow: (w: LapWindow | null) => void;
 }
 
 export const useReplay = create<ReplayState>((set, get) => {
@@ -392,11 +411,11 @@ export const useReplay = create<ReplayState>((set, get) => {
     replayStash = null;
     loadToken++;
     if (!stash) {
-      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0 });
+      set({ session: null, race: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0, lapWindow: null });
       return false;
     }
     clock.t = stash.t;
-    set({ session: stash.session, watchedTo: stash.watchedTo, noSpoilers: stash.noSpoilers, selected: stash.selected, focused: stash.focused, playing: false, latched: false, error: null });
+    set({ session: stash.session, watchedTo: stash.watchedTo, noSpoilers: stash.noSpoilers, selected: stash.selected, focused: stash.focused, lapWindow: stash.lapWindow, playing: false, latched: false, error: null });
     get().publish();
     return true;
   };
@@ -435,7 +454,7 @@ export const useReplay = create<ReplayState>((set, get) => {
           const target = liveTarget(wall);
           const dvr = opts?.t != null && opts.session === session.meta.sessionKey && opts.t < target - followSnap();
           clock.t = dvr ? Math.max(0, opts!.t!) : target;
-          set({ session, liveEdge: msg.now, followLive: !dvr, playing: false, latched: false, selected, focused, watchedTo: 0 });
+          set({ session, liveEdge: msg.now, followLive: !dvr, playing: false, latched: false, selected, focused, watchedTo: 0, lapWindow: null });
         }
         get().publish();
         return;
@@ -482,6 +501,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     watchedTo: 0,
     stream: null,
     practiceView: "replay",
+    lapWindow: null,
 
     loadIndex: async () => {
       try {
@@ -518,7 +538,9 @@ export const useReplay = create<ReplayState>((set, get) => {
         const noSpoilers = session.meta.quali ? false : prev.session?.meta.sessionKey === key ? prev.noSpoilers : spoilerChoice(prev.spoilerPref);
         // Practice: the screen asked for (a link), else the one it was on (reloaded), else the replay.
         const practiceView = opts.view ?? (prev.session?.meta.sessionKey === key ? prev.practiceView : "replay");
-        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers, practiceView });
+        // The lap window: a link's, else the one it had (reloaded), else the whole race.
+        const lapWindow = opts.range ? lapWindowOf(opts.range) : prev.session?.meta.sessionKey === key ? prev.lapWindow : null;
+        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers, practiceView, lapWindow });
         get().publish();
         // (Not when the race on screen is reloaded where it was: an update.)
         if (prev.session?.meta.sessionKey !== key) autoplay();
@@ -529,7 +551,7 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     closeSession: () => {
       loadToken++;
-      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0, stream: null });
+      set({ session: null, race: null, loading: null, selected: [], focused: null, playing: false, latched: false, watchedTo: 0, stream: null, lapWindow: null });
       reportPlayhead(true);
       get().goHome();
     },
@@ -668,7 +690,7 @@ export const useReplay = create<ReplayState>((set, get) => {
       if (liveFromHome) pushFromHome(livePath);
       loadToken++; // a replay still loading is no longer wanted
       // (A race watched while it downloads isn't kept: its replay is provisional.)
-      replayStash = s.session && !streaming ? { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused } : null;
+      replayStash = s.session && !streaming ? { session: s.session, t: clock.t, watchedTo: s.watchedTo, noSpoilers: s.noSpoilers, selected: s.selected, focused: s.focused, lapWindow: s.lapWindow } : null;
       liveOpts = opts;
       liveEdge.update(0, performance.now(), true);
       timingEdge = 0;
@@ -689,6 +711,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         focused: null,
         watchedTo: 0,
         noSpoilers: false,
+        lapWindow: null,
       });
       const handlers = {
         onOpen: () => set({ live: { ...get().live, connected: true, offline: false } }),
@@ -757,6 +780,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         selected: [],
         focused: null,
         watchedTo: last?.watchedTo ?? 0,
+        lapWindow: lapWindowOf(opts.range),
         stream: { key, spans: [], opts: opts.t == null && last ? { ...opts, t: last.t } : opts, finishing: false },
         // The Fastest laps open once the download is done (it compares every lap); until then the replay plays.
         practiceView: opts.view ?? "replay",
@@ -803,7 +827,7 @@ export const useReplay = create<ReplayState>((set, get) => {
           const selected = [...new Set(opts.drivers ?? [])].filter((n) => stored.drivers.has(n));
           const focused = opts.focus != null && stored.drivers.has(opts.focus) ? opts.focus : null;
           const noSpoilers = stored.meta.quali ? false : spoilerChoice(s.spoilerPref);
-          set({ session: stored, stream: null, selected, focused, noSpoilers });
+          set({ session: stored, stream: null, selected, focused, noSpoilers, lapWindow: lapWindowOf(opts.range) });
           autoplay();
         } else {
           // The same race, as stored: carry on where it is. (Practice asked for its Fastest laps: they open now, paused.)
@@ -826,6 +850,8 @@ export const useReplay = create<ReplayState>((set, get) => {
       set({ practiceView, playing: false, latched: false });
       get().publish();
     },
+
+    setLapWindow: (w) => set({ lapWindow: lapWindowOf(w) }),
   };
 });
 
