@@ -21,7 +21,15 @@ const LIMIT = 150;
 
 type Group = "control" | "overtake" | "pit" | "radio";
 type Show = "all" | "selected";
-type Settings = { show: Show };
+/** With the selected drivers shown: every pass they're in, only the ones they made, or only the ones made on them. */
+type Passes = "both" | "made" | "lost";
+type Settings = { show: Show; passes: Passes };
+
+const PASSES: { id: Passes; label: string; title: string }[] = [
+  { id: "both", label: "Both", title: "Passes the selected drivers made, and passes made on them" },
+  { id: "made", label: "Made", title: "Only passes the selected drivers made" },
+  { id: "lost", label: "Lost", title: "Only passes made on the selected drivers" },
+];
 
 const GROUPS: { id: Group; label: string }[] = [
   { id: "control", label: "Race control" },
@@ -99,6 +107,13 @@ const driverOf = (item: FeedEntry) => item.driver ?? item.inferred?.[0] ?? null;
 /** Every car a row is about: race control's, the car passed, and those inferred from telemetry. */
 const carsOf = (item: FeedEntry) => [item.driver, item.passed, ...(item.inferred ?? [])];
 
+/** Whether a row is about the selected drivers; an overtake can be narrowed to the passer (made) or the car passed (lost). */
+function aboutSelected(item: FeedEntry, selected: readonly number[], passes: Passes): boolean {
+  const isSelected = (n: number | null | undefined) => n != null && selected.includes(n);
+  if (item.kind === "overtake" && passes !== "both") return isSelected(passes === "made" ? item.driver : item.passed);
+  return carsOf(item).some(isSelected);
+}
+
 /** Items Pitwall words itself, each starting with its driver's acronym ("VER passes HAD for P3"). */
 const OWN_WORDS = new Set<FeedKind>(["overtake", "radio", "pit", "retired"]);
 
@@ -148,7 +163,7 @@ const FeedRow = memo(function FeedRow({
 
 function RaceFeed() {
   const [groups, setGroups] = useState(ALL_ON);
-  const [{ show }, update] = useSettings<Settings>();
+  const [{ show, passes }, update] = useSettings<Settings>();
   const selected = useSelection((s) => s.selected);
   const filtered = show === "selected";
   // The newest LIMIT items shown (by kind, and by selected driver when filtered): a new item re-renders the list, nothing else does.
@@ -156,7 +171,7 @@ function RaceFeed() {
     const shown: FeedEntry[] = [];
     for (const item of feed) {
       if (!groups[GROUP_OF[item.kind]]) continue;
-      if (filtered && !carsOf(item).some((n) => n != null && selected.includes(n))) continue;
+      if (filtered && !aboutSelected(item, selected, passes)) continue;
       if (shown.push(item) === LIMIT) break;
     }
     return shown;
@@ -213,6 +228,24 @@ function RaceFeed() {
               </button>
             );
           })}
+          {filtered && groups.overtake && !practice && (
+            <div className="ml-auto flex shrink-0 items-center gap-1.5">
+              <span className="text-[11px] text-zinc-400">Passes</span>
+              <div className="flex rounded-md bg-zinc-900 p-0.5">
+                {PASSES.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => update({ passes: p.id })}
+                    aria-pressed={passes === p.id}
+                    className={`rounded px-2 text-[11px] leading-5 ${passes === p.id ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+                    title={p.title}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -245,7 +278,7 @@ export default defineWidget({
   height: { min: 150 },
   width: { min: 15, default: 21, max: 40 },
   sessions: ["race", "practice"],
-  settings: { show: "all" as Show },
+  settings: { show: "all" as Show, passes: "both" as Passes },
   fields: {
     show: {
       kind: "choice",
@@ -253,6 +286,15 @@ export default defineWidget({
       options: [
         { value: "all", label: "Every driver" },
         { value: "selected", label: "Selected drivers" },
+      ],
+    },
+    passes: {
+      kind: "choice",
+      label: "Overtakes, selected drivers",
+      options: [
+        { value: "both", label: "Made and lost" },
+        { value: "made", label: "Only passes they made" },
+        { value: "lost", label: "Only passes made on them" },
       ],
     },
   },
