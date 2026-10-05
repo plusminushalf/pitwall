@@ -29,7 +29,7 @@ import {
 import { drawChart, layoutStrips, M, type Marker, type Series } from "./chart";
 import { FOLLOWING, isFollowing, pick, resolveLaps, stepLap, toggleLink, type Picks } from "./laps";
 
-type Settings = { throttle: boolean; gear: boolean };
+type Settings = { throttle: boolean; gear: boolean; overtakes: boolean };
 
 /** Compared at once (the selection's first four, as the qualifying view). */
 const MAX = 4;
@@ -143,7 +143,7 @@ function Hint({ children }: { children: string }) {
 
 /** Compared drivers' laps overlaid against distance, as the qualifying view does, for any lap of the race. */
 function LapCompare() {
-  const [settings] = useSettings<Settings>();
+  const [settings, update] = useSettings<Settings>();
   const sessionKey = useSessionInfo((i) => i.sessionKey);
   const drivers = useSelection((s) => s.selected.slice(0, MAX));
   const infos = useDrivers();
@@ -260,8 +260,19 @@ function LapCompare() {
   const clampD = (d: number) => Math.min(Math.max(d, 0), lapLength);
 
   const model = useMemo(
-    () => ({ series, markers, lapLength, sectorDistances: geometry.sectorDistances, corners: geometry.corners, x0, x1, hover, throttle: settings.throttle, gear: settings.gear }),
-    [series, markers, lapLength, geometry, x0, x1, hover, settings.throttle, settings.gear],
+    () => ({
+      series,
+      markers: settings.overtakes ? markers : [],
+      lapLength,
+      sectorDistances: geometry.sectorDistances,
+      corners: geometry.corners,
+      x0,
+      x1,
+      hover,
+      throttle: settings.throttle,
+      gear: settings.gear,
+    }),
+    [series, markers, lapLength, geometry, x0, x1, hover, settings.throttle, settings.gear, settings.overtakes],
   );
   const strips = useMemo(() => layoutStrips(chart.h, model), [chart.h, model]);
   useEffect(() => {
@@ -349,6 +360,17 @@ function LapCompare() {
             >
               Same lap
             </button>
+            {markers.length > 0 && (
+              <button
+                type="button"
+                className={`rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider ${settings.overtakes ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"}`}
+                aria-pressed={settings.overtakes}
+                title={settings.overtakes ? "Overtakes on these laps are marked on the chart. Click to hide them." : "Click to mark the overtakes on these laps on the chart."}
+                onClick={() => update({ overtakes: !settings.overtakes })}
+              >
+                Overtakes <span className="tabular-nums">{markers.length}</span>
+              </button>
+            )}
             {following ? (
               <span className="px-1.5 text-zinc-500" title="Showing the latest lap everyone has completed; it moves on as the replay plays">
                 Following
@@ -470,10 +492,11 @@ export default defineWidget({
   height: { min: 300 },
   width: { min: 18, default: 32, max: 100 },
   sessions: ["race", "practice"],
-  settings: { throttle: true, gear: false } satisfies Settings,
+  settings: { throttle: true, gear: false, overtakes: true } satisfies Settings,
   fields: {
     throttle: { kind: "toggle", label: "Throttle strip" },
     gear: { kind: "toggle", label: "Gear strip" },
+    overtakes: { kind: "toggle", label: "Overtakes" },
   },
   Component: LapCompare,
 });
