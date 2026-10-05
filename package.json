@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "VITE_VAULT_ORIGIN=https://pitwall-auth.garvit.in VITE_CF_BEACON_TOKEN=6bdce605bfa94f82b30ab2cec4d08fa5 vite build && bunx wrangler@4 deploy",
+    "deploy": "VITE_VAULT_ORIGIN=https://pitwall-auth.garvit.in VITE_CF_BEACON_TOKEN=6bdce605bfa94f82b30ab2cec4d08fa5 VITE_POSTHOG_KEY=phc_qosvcXSBRKprBFgedSNp2Lx9PUegnZsqspyWoTDCPdm2 VITE_POSTHOG_HOST=https://eu.i.posthog.com vite build && bunx wrangler@4 deploy",
     "test": "bun test",
     "races": "bun scripts/list-races.ts",
     "ingest": "bun scripts/ingest.ts",
@@ -40,6 +40,7 @@
     "@fontsource/jetbrains-mono": "^5.3.0",
     "modern-screenshot": "^4.7.0",
     "mqtt": "^5.16.0",
+    "posthog-js": "^1.436.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "zustand": "^5.0.15"

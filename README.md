@@ -125,7 +125,7 @@ Pitwall is an unofficial fan project. It is not associated with the Formula 1 co
 
 ## Analytics
 
-The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. On Called It it also counts a call being locked (which driver), shared and copied, as page views of paths of their own. No cookies, no accounts: nothing says who. Builds you run yourself have none.
+The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. On Called It it also counts a call being locked (which driver), shared and copied, as page views of paths of their own. It also sends [PostHog](https://posthog.com) (EU cloud) the same page views, clicks, errors, and what's used: widgets added, sessions opened and downloaded, screenshots, calls. PostHog keeps a random visitor ID in the browser's local storage so a return visit counts as the same visitor. No cookies, no accounts, no names or emails. Builds you run yourself have none.
 
 ## License
 

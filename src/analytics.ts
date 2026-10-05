@@ -1,3 +1,5 @@
+import { startPostHog } from "./posthog";
+
 // Cloudflare Web Analytics on the hosted site: visits and page views per path (/, /session/<key>, /live), no cookies.
 // Only in builds made with VITE_CF_BEACON_TOKEN (`bun run deploy`); the token is public, every page view sends it.
 //
@@ -12,6 +14,7 @@ let on = false;
 let counting = false;
 
 export function startAnalytics() {
+  startPostHog();
   const token = import.meta.env.VITE_CF_BEACON_TOKEN;
   if (!token) return;
   on = true;

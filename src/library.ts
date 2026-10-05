@@ -20,6 +20,7 @@ import { loadLearned, noteRequest, recentRequests, runJob, type JobInfo, type Pr
 import { sessionStore, storageSupported, type LibraryEntry, type StorageUsage } from "./storage";
 import { forgetSession } from "./storage/load";
 import { clock, onStreamWatch, useReplay, type OpenOpts } from "./store";
+import { track } from "./posthog";
 import { getVault, type RestEndpoint } from "./vault/client";
 
 export { FIRST_YEAR };
@@ -634,6 +635,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
   }
 
   async function finished(key: number, entry: LibraryEntry) {
+    track("replay_download_completed", { session_type: entry.sessionType, season: entry.year });
     setJob(key, { phase: "done", progress: null, finishedAt: Date.now() });
     dequeue(key);
     forgetSession(key);
@@ -899,6 +901,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
       set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
       if (get().watch?.key === key) set({ watch: null });
       useReplay.getState().openStream(key, opts);
+      track("replay_stream_started", { session_type: row.sessionType, season: row.year });
       askPersist();
       enqueue(jobInfo(row, "download"), undefined, true);
       // Waiting to retry: now (a live window pauses it again).
@@ -943,7 +946,9 @@ export const useLibrary = create<LibraryState>((set, get) => {
     setWatch: (key) => set({ watch: key == null ? null : { key, opts: {} } }),
 
     watchNow: (key, opts) => {
+      const entry = get().entries[key];
       set({ link: null, confirmDelete: null, toast: get().toast?.key === key ? null : get().toast });
+      if (entry) track("replay_session_opened", { session_type: entry.sessionType, season: entry.year });
       useReplay.getState().openSession(key, opts);
     },
 
