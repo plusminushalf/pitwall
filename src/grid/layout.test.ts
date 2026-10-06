@@ -5,7 +5,7 @@ import type { DriverInfo } from "../types";
 import { BUILTIN_WIDGETS } from "./builtins";
 import { DEFAULT_LAYOUT, PRACTICE_LAYOUT } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
-import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, type GridInput, type Layout, type Placement } from "./layout";
+import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, phoneColumn, phoneHeight, type GridInput, type Layout, type Placement } from "./layout";
 
 const widget = (id: string, height: WidgetDefinition["height"], width = { min: 10, default: 20, max: 50 }) =>
   ({ id, name: id, version: "1.0.0", height, width, sessions: ["race"], settings: {}, Component: () => null }) as WidgetDefinition;
@@ -160,8 +160,8 @@ describe("driver layout", () => {
   // From about 610 px (the driver panel and the feed's minimum) up.
   const heights = [610, 767, 947, 1427];
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
-  // Weather is in the top bar; the analysis widgets (and practice's long runs) came after it.
-  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs"];
+  // Weather is in the top bar; the analysis widgets (practice's long runs and the lap comparison too) came after it.
+  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs", "lap-compare"];
 
   test("places every built-in widget but those off its screen once, within its width range", () => {
     expect(Object.keys(DRIVER_LAYOUT.widgets).sort()).toEqual([...BUILTIN_WIDGETS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
@@ -356,5 +356,52 @@ describe("boxes", () => {
     // The speed column fits its contents (109 px) down to 1440 px wide.
     const at1440 = boxesOf(placed, 1440, COLUMNS)[placed.findIndex((p) => p.id === "speed-gear")];
     expect(at1440.width).toBeGreaterThanOrEqual(109);
+  });
+});
+
+describe("phone column", () => {
+  const widgets = new Map(
+    [widget("a", 100), widget("fill", { min: 80 }), widget("tall", { min: 400 }), widget("chips", ({ selection }) => (selection.selected.length > 0 ? 60 : 20))].map((b) => [b.id, b]),
+  );
+  const heightInput = (): HeightInput => ({ ...input(), settings: {} });
+
+  test("fixed widgets are their own height; stretching ones a chart's worth, or their minimum if that's more", () => {
+    expect(phoneHeight(widgets.get("a")!, heightInput())).toBe("100px");
+    expect(phoneHeight(widgets.get("fill")!, heightInput())).toBe("260px");
+    expect(phoneHeight(widgets.get("tall")!, heightInput())).toBe("400px");
+    expect(phoneHeight(BUILTIN_WIDGETS.get("timing-tower")!, heightInput())).toBe("clamp(240px, 55dvh, 520px)");
+    expect(phoneHeight(BUILTIN_WIDGETS.get("track-map")!, heightInput())).toBe("clamp(240px, 55dvh, 520px)");
+  });
+
+  test("heights follow the selection, and the entry's settings sit on the widget's defaults", () => {
+    const layout: Layout = { version: 1, columns: 10, widgets: { chips: at(0, 0, 5) } };
+    expect(phoneColumn(layout, widgets, input())[0].height).toBe("20px");
+    expect(phoneColumn(layout, widgets, input(22, [1]))[0].height).toBe("60px");
+    const settings = { gapMode: "interval" };
+    const tower: Layout = { version: 1, columns: COLUMNS, widgets: { "timing-tower": { ...at(0, 0, 15), settings } } };
+    expect(phoneColumn(tower, BUILTIN_WIDGETS, input())[0].settings).toBe(settings);
+  });
+
+  test("the default layout reads tower, map, then the rest top to bottom and left to right, ignoring heights set in edit mode", () => {
+    const column = phoneColumn(DEFAULT_LAYOUT, BUILTIN_WIDGETS, input());
+    expect(column.map((e) => e.id)).toEqual(["timing-tower", "track-map", "race-feed", "gap-chart", "battles", "pit-strategy", "stint-pace"]);
+    // The tower's 21 rows are the desktop's; on a phone it's the phone height.
+    expect(column[0].height).toBe("clamp(240px, 55dvh, 520px)");
+    expect(column[2].height).toBe("320px");
+  });
+
+  test("the driver layout and practice's read the same way, every widget once", () => {
+    const driver = phoneColumn(DRIVER_LAYOUT, BUILTIN_WIDGETS, input()).map((e) => e.id);
+    expect(driver.slice(0, 2)).toEqual(["timing-tower", "track-map"]);
+    expect(driver).toHaveLength(Object.keys(DRIVER_LAYOUT.widgets).length);
+    expect(new Set(driver).size).toBe(driver.length);
+    expect(driver.indexOf("driver-header")).toBeLessThan(driver.indexOf("race-feed"));
+    const practice = phoneColumn(PRACTICE_LAYOUT, BUILTIN_WIDGETS, input()).map((e) => e.id);
+    expect(practice).toEqual(["timing-tower", "track-map", "race-feed", "long-runs", "stint-pace"]);
+  });
+
+  test("a layout without the tower starts with whatever it has, and unknown widgets are left out", () => {
+    const layout: Layout = { version: 1, columns: 10, widgets: { fill: at(0, 1, 5), a: at(5, 0, 5), ghost: at(0, 2, 5) } };
+    expect(phoneColumn(layout, widgets, input()).map((e) => e.id)).toEqual(["a", "fill"]);
   });
 });

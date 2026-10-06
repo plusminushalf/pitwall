@@ -8,10 +8,12 @@ import {
   Icon,
   lapTime,
   miniSectors,
+  TAP_CLASS,
   timeAtDistance,
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCoarsePointer,
   useDrivers,
   useFeed,
   useLapGeometry,
@@ -36,6 +38,8 @@ const MAX = 4;
 const MINI_SECTORS = 25;
 /** A click on the chart without moving this far seeks; further is a zoom brush. */
 const DRAG_PX = 4;
+/** Two taps this close together are a double tap (touch screens fire no dblclick we can count on). */
+const DOUBLE_TAP_MS = 350;
 
 interface LapInfo {
   lap: number;
@@ -63,7 +67,7 @@ function Step({ dir, disabled, onClick }: { dir: 1 | -1; disabled: boolean; onCl
   return (
     <button
       type="button"
-      className="rounded p-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-30 disabled:hover:bg-transparent"
+      className={`${TAP_CLASS} rounded p-0.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 disabled:opacity-30 disabled:hover:bg-transparent`}
       aria-label={dir > 0 ? "Next lap" : "Previous lap"}
       disabled={disabled}
       onClick={onClick}
@@ -251,6 +255,10 @@ function LapCompare() {
   const [zoom, setZoom] = useState<[number, number] | null>(null);
   const [brush, setBrush] = useState<[number, number] | null>(null);
   const drag = useRef<{ x: number; moved: boolean } | null>(null);
+  // When the last tap lifted, to tell a double tap: on a touch screen the brush is a sideways drag, and a
+  // double tap stands in for the double-click that shows the whole lap again.
+  const lastTap = useRef(0);
+  const coarse = useCoarsePointer();
   const { lapLength } = geometry;
   const [x0, x1] = zoom ?? [0, lapLength];
   const plotW = Math.max(1, chart.w - M.left - M.right);
@@ -353,7 +361,7 @@ function LapCompare() {
           <div className="ml-auto flex items-center gap-1 text-[11px]">
             <button
               type="button"
-              className={`rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider ${picks.linked ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"}`}
+              className={`${TAP_CLASS} rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider ${picks.linked ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"}`}
               aria-pressed={picks.linked}
               title={picks.linked ? "Everyone on the same lap number. Click to pick each driver's lap on its own." : "Each driver on their own lap. Click to put everyone on the same lap."}
               onClick={() => setPicks(toggleLink(picks, choices))}
@@ -376,12 +384,12 @@ function LapCompare() {
                 Following
               </span>
             ) : (
-              <button type="button" className="rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" title="Back to the latest lap, moving on as the replay plays" onClick={() => setPicks(FOLLOWING)}>
+              <button type="button" className={`${TAP_CLASS} rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`} title="Back to the latest lap, moving on as the replay plays" onClick={() => setPicks(FOLLOWING)}>
                 Follow
               </button>
             )}
             {ref && (
-              <button type="button" className="flex items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" title="Seek the replay to the start of the reference lap" onClick={() => seekTo(0)}>
+              <button type="button" className={`${TAP_CLASS} flex items-center gap-0.5 rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`} title="Seek the replay to the start of the reference lap" onClick={() => seekTo(0)}>
                 <Icon name="play" size={12} />
                 Watch
               </button>
@@ -409,9 +417,10 @@ function LapCompare() {
         <Hint>{choices.some((c) => c.lap != null) ? "No telemetry for this lap." : "Nothing to compare yet: the lap shown is the latest everyone has completed."}</Hint>
       ) : (
         <div ref={wrapRef} className="relative min-h-0 flex-1 select-none">
+          {/* touch-pan-y: a sideways drag is the zoom brush (pointer events keep coming), an up-and-down one scrolls the page. */}
           <canvas
             ref={canvasRef}
-            className="absolute inset-0 cursor-crosshair"
+            className="absolute inset-0 cursor-crosshair touch-pan-y"
             style={{ width: chart.w, height: chart.h }}
             role="img"
             aria-label="Speed, delta, throttle, brake and gear against distance for the compared laps"
@@ -437,17 +446,39 @@ function LapCompare() {
               if (d.moved && brush) {
                 const [a, b] = [clampD(dOf(Math.min(...brush))), clampD(dOf(Math.max(...brush)))];
                 if (b - a > 20) setZoom([a, b]);
+              } else if (e.pointerType === "touch") {
+                // A second tap soon after the first is a double tap: the whole lap, as a double-click. The first
+                // tap has already sought, as the first click of a double-click does.
+                const now = e.timeStamp;
+                if (now - lastTap.current < DOUBLE_TAP_MS) {
+                  lastTap.current = 0;
+                  setZoom(null);
+                } else {
+                  lastTap.current = now;
+                  seekTo(clampD(dOf(localX(e))));
+                }
               } else if (e.detail < 2) seekTo(clampD(dOf(localX(e))));
             }}
             onPointerCancel={() => {
               drag.current = null;
               setBrush(null);
             }}
-            onPointerLeave={() => {
-              if (!drag.current) setHover(null);
+            onPointerLeave={(e) => {
+              // A finger leaves as soon as it lifts: the readout it stopped on stays until the next touch.
+              if (!drag.current && e.pointerType !== "touch") setHover(null);
             }}
             onDoubleClick={() => setZoom(null)}
           />
+          {zoom && (
+            // Touch screens: the way back to the whole lap is a double tap, which nothing says, so a button says it.
+            <button
+              type="button"
+              className="absolute right-1 top-1 z-10 hidden rounded border border-zinc-700 bg-zinc-900/90 px-3 py-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-300 pointer-coarse:inline-flex"
+              onClick={() => setZoom(null)}
+            >
+              Whole lap
+            </button>
+          )}
           {brush && <div className="pointer-events-none absolute bg-zinc-200/10 ring-1 ring-zinc-400/40" style={{ left: Math.min(...brush), width: Math.abs(brush[1] - brush[0]), top: M.top, bottom: M.bottom }} />}
           {hover != null && (
             <div className="pointer-events-none absolute top-4 z-10 rounded border border-zinc-700 bg-zinc-900/95 px-2 py-1 text-[11px] shadow-xl" style={tipFlip ? { right: chart.w - xOf(hover) + 8 } : { left: xOf(hover) + 8 }}>
@@ -474,7 +505,7 @@ function LapCompare() {
                   );
                 })}
               </div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">click: seek here · drag or wheel: zoom · double-click: whole lap</div>
+              <div className="mt-0.5 text-[10px] text-zinc-600">{coarse ? "tap: seek here · drag sideways: zoom · double-tap: whole lap" : "click: seek here · drag or wheel: zoom · double-click: whole lap"}</div>
             </div>
           )}
         </div>

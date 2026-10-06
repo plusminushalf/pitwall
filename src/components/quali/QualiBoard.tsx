@@ -7,6 +7,7 @@ import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { compareModel } from "../../data/compare";
 import type { Tyre } from "../../data/practice";
 import type { Session } from "../../data/session";
+import { useCoarsePointer } from "../../hooks/usePhone";
 import { compareStyles } from "../../lib/compareColors";
 import { lapTime, shortTeam, teamColor } from "../../lib/format";
 import { MAX_COMPARE, useQuali, type BoardTab } from "../../qualiStore";
@@ -22,12 +23,12 @@ function Tabs({ session }: { session: Session }) {
   const setBoard = useQuali((s) => s.setBoard);
   const tabs: { id: BoardTab; label: string }[] = [{ id: "result", label: "Result" }, ...q.segments.map((s) => ({ id: s.number, label: s.name }))];
   return (
-    <div className="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-800 px-2">
+    <div className="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-800 px-2 pointer-coarse:h-11">
       {tabs.map((t) => (
         <button
           key={t.id}
           onClick={() => setBoard(t.id)}
-          className={`rounded px-2 py-0.5 text-xs font-semibold ${board === t.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"}`}
+          className={`rounded px-2 py-0.5 text-xs font-semibold pointer-coarse:px-3 pointer-coarse:py-2 ${board === t.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"}`}
         >
           {t.label}
         </button>
@@ -69,6 +70,7 @@ export function QualiBoard() {
   const session = useReplay((s) => s.session)!;
   const selected = useReplay((s) => s.selected);
   const board = useQuali((s) => s.board);
+  const coarse = useCoarsePointer();
   const meta = session.meta;
   const q = meta.quali;
   const styles = useMemo(() => {
@@ -115,7 +117,7 @@ export function QualiBoard() {
     const style = styles.get(n);
     return (
       <span aria-hidden className="absolute left-1 top-1/2 flex -translate-y-1/2 items-center">
-        {style ? <Swatch color={style.color} dashed={style.dash.length > 0} width={12} /> : <span className="ml-0.5 h-3 w-3 rounded-full border border-zinc-600 opacity-0 group-hover:opacity-100" />}
+        {style ? <Swatch color={style.color} dashed={style.dash.length > 0} width={12} /> : <span className="ml-0.5 h-3 w-3 rounded-full border border-zinc-600 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100" />}
       </span>
     );
   };
@@ -146,7 +148,7 @@ export function QualiBoard() {
                 tabIndex={0}
                 onClick={() => (t != null && !selected.includes(r.driver) ? pick(r.driver, r.lap) : toggle(r.driver))}
                 onKeyDown={(e) => e.key === "Enter" && toggle(r.driver)}
-                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm`}
+                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm pointer-coarse:h-10`}
                 title={
                   selected.includes(r.driver)
                     ? "Remove from the comparison"
@@ -205,7 +207,7 @@ export function QualiBoard() {
                 tabIndex={0}
                 onClick={() => toggle(r.driver)}
                 onKeyDown={(e) => e.key === "Enter" && toggle(r.driver)}
-                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm`}
+                className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm pointer-coarse:h-10`}
                 title={selected.includes(r.driver) ? "Remove from the comparison" : full ? `Up to ${MAX_COMPARE} drivers` : "Add to the comparison"}
               >
                 {check(r.driver)}
@@ -222,7 +224,7 @@ export function QualiBoard() {
                         pick(r.driver, r.laps[k]);
                       }}
                       disabled={t == null}
-                      className={`rounded px-0.5 text-right text-xs tabular-nums ${t == null ? "text-zinc-700" : fastest ? "text-fuchsia-400 hover:bg-zinc-700" : "text-zinc-300 hover:bg-zinc-700"}`}
+                      className={`rounded px-0.5 text-right text-xs tabular-nums pointer-coarse:py-2 ${t == null ? "text-zinc-700" : fastest ? "text-fuchsia-400 hover:bg-zinc-700" : "text-zinc-300 hover:bg-zinc-700"}`}
                       title={t != null ? `Compare ${session.drivers.get(r.driver)!.info.acronym}'s ${s.name} lap (lap ${r.laps[k]})` : undefined}
                     >
                       {t != null ? lapTime(t) : "—"}
@@ -260,10 +262,12 @@ export function QualiBoard() {
       <div className="flex h-7 shrink-0 items-center border-b border-zinc-800 px-2 text-[11px] text-zinc-500">
         {selected.length > 0 ? (
           <span>
-            Comparing <span className="font-semibold tabular-nums text-zinc-200">{selected.length}</span>/{MAX_COMPARE} · click a time to compare that lap
+            Comparing <span className="font-semibold tabular-nums text-zinc-200">{selected.length}</span>/{MAX_COMPARE} · {coarse ? "tap" : "click"} a time to compare that lap
           </span>
         ) : (
-          <span>Click drivers to compare (up to {MAX_COMPARE}), or a time for that lap</span>
+          <span>
+            {coarse ? "Tap" : "Click"} drivers to compare (up to {MAX_COMPARE}), or a time for that lap
+          </span>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto pb-2">{body}</div>

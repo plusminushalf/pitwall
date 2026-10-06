@@ -11,14 +11,17 @@ import { approx, clockTime, DANGER, day, Glyph, LABEL, left, mb, openAction, PRI
 /**
  * Every row's columns, the column headers' too, by the width the list has (a container query, so a narrow window
  * drops Size and Status, then Date, then Season and Session, and the action always fits): Season · Grand Prix ·
- * Session · Date · Status · Size · actions.
+ * Session · Date · Status · Size · actions. Narrowest (a phone), the actions take only the width they need, so the
+ * Grand Prix keeps what's left, and the status and size go under the name.
  */
 export const ROW_GRID =
-  "grid grid-cols-[minmax(0,1fr)_12.5rem] items-center gap-x-3 @[40rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_12.5rem] @[52rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_6.5rem_12.5rem] @[66rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_6.5rem_minmax(0,10rem)_4.5rem_12.5rem]";
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 @[40rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_12.5rem] @[52rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_6.5rem_12.5rem] @[66rem]:grid-cols-[4.75rem_minmax(0,1fr)_8.5rem_6.5rem_minmax(0,10rem)_4.5rem_12.5rem]";
 /** Columns that only show once the list is this wide. */
 const AT_40 = "hidden @[40rem]:block";
 const AT_52 = "hidden @[52rem]:block";
 const AT_66 = "hidden @[66rem]:block";
+/** Buttons: taller for a finger (BUTTON's py-1 is for the mouse), the same on a desktop. */
+const TOUCH = "pointer-coarse:min-h-11 pointer-coarse:px-3.5";
 
 /**
  * What's stored, downloading or wrong, in a few words (the size has its own column). `waitUntil`: OpenF1 blocks this
@@ -89,10 +92,10 @@ function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; sta
     return (
       <div className="flex items-center justify-end gap-1.5">
         <span className="whitespace-nowrap text-xs text-zinc-200">Delete{stored ? ` ${size(stored)}` : ""}?</span>
-        <button onClick={() => void remove(row.sessionKey)} className={DANGER}>
+        <button onClick={() => void remove(row.sessionKey)} className={`${DANGER} ${TOUCH}`}>
           Delete
         </button>
-        <button onClick={() => askDelete(null)} className={SECONDARY}>
+        <button onClick={() => askDelete(null)} className={`${SECONDARY} ${TOUCH}`}>
           Keep
         </button>
       </div>
@@ -105,13 +108,13 @@ function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; sta
   return (
     <div className="flex flex-row-reverse items-center justify-start gap-1.5" aria-hidden={option || undefined}>
       {open && (
-        <button tabIndex={tab} onClick={open} className={`${lead ? PRIMARY : SECONDARY} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
+        <button tabIndex={tab} onClick={open} className={`${lead ? PRIMARY : SECONDARY} ${TOUCH} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
           <Glyph name={state.kind === "stale" || label === "Retry" ? "retry" : "play"} />
           {label}
         </button>
       )}
       {state.kind === "job" && isActive(state.job.phase) && (
-        <button tabIndex={tab} onClick={() => cancel(row.sessionKey)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
+        <button tabIndex={tab} onClick={() => cancel(row.sessionKey)} className={`${SECONDARY} ${TOUCH}`} title="Stop; what's downloaded so far is kept">
           Cancel
         </button>
       )}
@@ -120,7 +123,7 @@ function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; sta
           tabIndex={tab}
           sessionKey={row.sessionKey}
           title={state.kind === "ready" || state.kind === "stale" ? `Delete ${name} from this browser` : `Discard the partial download of ${name}`}
-          className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+          className="opacity-0 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:opacity-100"
         />
       )}
     </div>
@@ -196,6 +199,11 @@ export function SessionRow({
             {row.sessionName} · <span className="tabular-nums">{row.year}{row.round != null ? ` R${row.round}` : ""}</span>
           </span>
           <span className="hidden min-w-0 truncate text-xs text-zinc-400 @[40rem]:inline">{place}</span>
+          {/* Narrowest, with no Status or Size column: what's stored, downloading or wrong, and its size, under the name. */}
+          <span className={`truncate text-xs tabular-nums @[40rem]:hidden ${st.tone ?? "text-zinc-400"}`}>
+            {st.text}
+            {sz && <span className="text-zinc-400"> · {sz}</span>}
+          </span>
         </span>
         <span className={`${AT_40} truncate text-zinc-200`}>{row.sessionName}</span>
         <span className={`${AT_52} text-xs tabular-nums text-zinc-400`}>{day(row.dateStart)}</span>

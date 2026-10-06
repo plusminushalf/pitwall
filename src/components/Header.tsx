@@ -6,6 +6,7 @@ import type { RaceState } from "../engine/raceState";
 import { useLayout } from "../grid/store";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useQuali } from "../qualiStore";
+import { usePhone } from "../hooks/usePhone";
 import { comparing, useReplay, type PracticeView } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
 import { ShareButton } from "../share/ShareShot";
@@ -27,7 +28,8 @@ const SHORTCUTS: [string, string][] = [
 const sessionLabel = (s: { year: number; meetingName: string; sessionName: string }) =>
   `${s.year} ${s.meetingName} · ${s.sessionName}`;
 
-export function SessionPicker({ meta }: { meta: SessionMeta }) {
+/** `compact`: a phone's header row, where the select fills what's left and the circuit line is dropped. */
+export function SessionPicker({ meta, compact = false }: { meta: SessionMeta; compact?: boolean }) {
   const index = useReplay((s) => s.index);
   const loadingKey = useReplay((s) => s.loading?.key);
   const loadSession = useReplay((s) => s.loadSession);
@@ -35,7 +37,7 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
   const inIndex = index.some((e) => e.sessionKey === meta.sessionKey);
 
   return (
-    <div className="flex min-w-0 flex-col justify-center">
+    <div className={`flex min-w-0 flex-col justify-center ${compact ? "flex-1" : ""}`}>
       <select
         value={current}
         onChange={(e) => {
@@ -45,7 +47,7 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
           const s = useReplay.getState();
           loadSession(Number(e.target.value), { view: comparing(s) && s.session?.meta.practice ? "laps" : undefined });
         }}
-        className="max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent py-0.5 pr-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-900"
+        className={`max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent pr-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 ${compact ? "h-11" : "py-0.5"}`}
         title="Choose a session"
       >
         {!inIndex && (
@@ -59,10 +61,12 @@ export function SessionPicker({ meta }: { meta: SessionMeta }) {
           </option>
         ))}
       </select>
-      <span className="truncate text-[11px] text-zinc-400">
-        {meta.circuit}
-        {meta.country ? ` · ${meta.country}` : ""}
-      </span>
+      {!compact && (
+        <span className="truncate text-[11px] text-zinc-400">
+          {meta.circuit}
+          {meta.country ? ` · ${meta.country}` : ""}
+        </span>
+      )}
     </div>
   );
 }
@@ -170,8 +174,9 @@ function Weather({ w }: { w: WeatherSample | null }) {
 }
 
 function ShortcutsHelp() {
+  // Keyboard shortcuts mean nothing on a touch screen, and the popover opens on hover: not shown there.
   return (
-    <div className="group relative">
+    <div className="group relative hidden pointer-fine:block">
       <button
         className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 text-xs font-bold text-zinc-400 hover:border-zinc-500 hover:text-zinc-100"
         aria-label="Keyboard shortcuts"
@@ -300,12 +305,38 @@ export function Header() {
   const session = useReplay((s) => s.session);
   const race = useReplay((s) => s.race);
   const t = useReplay((s) => s.t);
+  const phone = usePhone();
   if (!session) return null;
   const { meta } = session;
   const status = race ? TRACK_STATUS[race.trackStatus] : null;
+  const statusPill = status && <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${status.className}`}>{status.label}</span>;
+
+  if (phone) {
+    // Two rows: the way around (Races, the session, live mode's controls), then the race's state. Weather, the
+    // layout controls (editing is for desktops), the keyboard help, the local clock and Share (ShareShot.tsx) are
+    // left out.
+    return (
+      <header className="border-b border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)]">
+        <div className="flex h-11 items-center gap-2 px-3">
+          <RacesButton />
+          <SessionPicker meta={meta} compact />
+          <LiveControl />
+        </div>
+        <div className="flex h-9 items-center gap-3 px-3 pb-1">
+          {race && (meta.practice ? <SessionClock race={race} meta={meta} /> : <LapCounter race={race} meta={meta} />)}
+          <Stat label={meta.practice ? "Session" : "Race"} className="leading-tight" title={meta.practice ? "Time since the green light" : undefined}>
+            <span className="text-sm tabular-nums text-zinc-100">{race ? raceClock(race.raceTime) : "—"}</span>
+          </Stat>
+          {statusPill}
+          <span className="flex-1" />
+          <PracticeViewSwitch />
+        </div>
+      </header>
+    );
+  }
 
   return (
-    <header className="grid h-[52px] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4">
+    <header className="grid h-[calc(52px_+_env(safe-area-inset-top))] grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-4 border-b border-zinc-800 bg-zinc-950 px-4 pt-[env(safe-area-inset-top)]">
       <div className="flex min-w-0 items-center gap-3">
         <RacesButton />
         <SessionPicker meta={meta} />
@@ -323,7 +354,7 @@ export function Header() {
             <span className="text-sm tabular-nums text-zinc-300">{localTime(meta.t0, t, meta.gmtOffset)}</span>
           </Stat>
         </div>
-        {status && <span className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${status.className}`}>{status.label}</span>}
+        {statusPill}
       </div>
 
       <div className="flex items-center justify-end gap-4">

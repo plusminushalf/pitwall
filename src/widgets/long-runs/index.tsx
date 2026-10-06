@@ -4,6 +4,7 @@ import {
   Label,
   LABEL_CLASS,
   lapTime,
+  TAP_CLASS,
   teamColor,
   textOn,
   TyreBadge,
@@ -17,6 +18,7 @@ import {
   useSettings,
   useTime,
   useTrackStatus,
+  useWidgetSize,
   type DriverInfo,
   type Lap,
   type StintView,
@@ -28,6 +30,10 @@ type Settings = { minLaps: number; show: Show };
 
 /** Rank, driver, laps, tyre age, average, gap, trend. */
 const COLS = "grid grid-cols-[16px_56px_34px_30px_minmax(0,1fr)_50px_44px] items-center gap-x-1.5";
+/** Under NARROW px (a phone's full width is about 360) the gap column goes: the averages it comes from stay. */
+const NARROW_COLS = "grid grid-cols-[16px_56px_34px_30px_minmax(0,1fr)_44px] items-center gap-x-1.5";
+const NARROW = 340;
+const colsOf = (narrow: boolean) => (narrow ? NARROW_COLS : COLS);
 
 const slimLaps = (laps: readonly Lap[]): RunLap[] => laps.map((l) => ({ lap: l.lap, start: l.start, end: l.end, duration: l.duration, pitOut: l.pitOut }));
 const slimStints = (stints: readonly StintView[]): RunStint[] =>
@@ -51,7 +57,7 @@ function DriverChip({ n, d }: { n: number; d: DriverInfo | undefined }) {
   );
 }
 
-function RunRow({ row, info, live, onPick }: { row: ListRow; info: DriverInfo | undefined; live: boolean; onPick: (r: ListRow) => void }) {
+function RunRow({ row, info, live, narrow, onPick }: { row: ListRow; info: DriverInfo | undefined; live: boolean; narrow: boolean; onPick: (r: ListRow) => void }) {
   const { run, rank, gap, pinned } = row;
   const name = info?.acronym ?? `#${run.driver}`;
   const from = run.laps[0];
@@ -65,7 +71,7 @@ function RunRow({ row, info, live, onPick }: { row: ListRow; info: DriverInfo | 
     : `${what} Click to watch it from lap ${from}.`;
   return (
     <li className={pinned ? "relative bg-zinc-800/80" : undefined}>
-      <button onClick={() => onPick(row)} className={`${COLS} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
+      <button onClick={() => onPick(row)} className={`${colsOf(narrow)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
         {pinned ? (
           <span className="rounded-sm bg-zinc-100 text-center text-[10px] font-bold leading-4 tabular-nums text-zinc-900">{rank}</span>
         ) : (
@@ -87,7 +93,7 @@ function RunRow({ row, info, live, onPick }: { row: ListRow; info: DriverInfo | 
         </span>
         <span className="text-right text-xs tabular-nums text-zinc-400">{run.age}</span>
         <span className={`text-right text-xs tabular-nums ${rank === 1 || pinned ? "font-semibold text-zinc-50" : "text-zinc-200"}`}>{lapTime(run.average)}</span>
-        <span className="text-right text-xs tabular-nums text-zinc-400">{gap != null ? `+${gap.toFixed(3)}` : ""}</span>
+        {!narrow && <span className="text-right text-xs tabular-nums text-zinc-400">{gap != null ? `+${gap.toFixed(3)}` : ""}</span>}
         <span className="text-right text-xs tabular-nums text-zinc-400">{degText(run.deg)}</span>
       </button>
       {/* How far the replay is into the run. */}
@@ -114,6 +120,7 @@ function LongRuns() {
   const [{ minLaps, show }, update] = useSettings<Settings>();
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
   const sessionKey = useSessionInfo((i) => i.sessionKey);
+  const narrow = useWidgetSize().width < NARROW;
 
   // The run clicked, kept in the list while it's watched (runs.ts); it goes once the replay leaves it.
   const [pin, setPin] = useState<PinnedRun | null>(null);
@@ -152,7 +159,7 @@ function LongRuns() {
               key={v}
               onClick={() => update({ show: v })}
               aria-pressed={show === v}
-              className={`rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+              className={`${TAP_CLASS} rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
               title={v === "all" ? "Every driver's runs" : "The selected drivers' runs"}
             >
               {v === "all" ? "All" : "Selected"}
@@ -160,7 +167,7 @@ function LongRuns() {
           ))}
         </div>
       </div>
-      <div className={`${COLS} border-b border-zinc-800 px-3 py-1 ${LABEL_CLASS}`}>
+      <div className={`${colsOf(narrow)} border-b border-zinc-800 px-3 py-1 ${LABEL_CLASS}`}>
         <span />
         <span>Driver</span>
         <span className="text-right" title="Laps counted">
@@ -172,9 +179,11 @@ function LongRuns() {
         <span className="text-right" title="Average of the laps counted">
           Avg
         </span>
-        <span className="text-right" title="Behind the quickest run on the compound">
-          Gap
-        </span>
+        {!narrow && (
+          <span className="text-right" title="Behind the quickest run on the compound">
+            Gap
+          </span>
+        )}
         <span className="text-right" title="Seconds per lap slower as the tyres age (fuel burning off is in it too)">
           s/lap
         </span>
@@ -193,7 +202,7 @@ function LongRuns() {
             </div>
             <ol>
               {g.rows.map((row) => (
-                <RunRow key={`${row.run.driver}:${row.run.stint}:${row.run.laps[0]}`} row={row} info={info.get(row.run.driver)} live={row.run.ongoing && !finished} onPick={onPick} />
+                <RunRow key={`${row.run.driver}:${row.run.stint}:${row.run.laps[0]}`} row={row} info={info.get(row.run.driver)} live={row.run.ongoing && !finished} narrow={narrow} onPick={onPick} />
               ))}
             </ol>
           </div>

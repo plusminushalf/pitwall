@@ -21,7 +21,7 @@ Replay or follow a live F1 race on a polished timing screen made of widgets you 
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Free practice** has the timing screen by best lap, with the clock counting down. Deleted lap times are struck through. Long runs ranks every race simulation (5+ laps on a set) by compound, with its average and how much slower it gets per lap. Fastest laps compares up to 4 laps as qualifying does, each with its tyre and its age.
 - **Live.** Follow a race, sprint, qualifying or practice session as it happens. Live qualifying uses the race screen for now. It needs an OpenF1 account, connected in Settings.
-- **Desktop only**, for now.
+- **Phones** get the same widgets in one scrolling column, with the timeline pinned at the bottom. Arranging the layout is for desktops.
 
 | Qualifying | Edit the layout |
 | --- | --- |

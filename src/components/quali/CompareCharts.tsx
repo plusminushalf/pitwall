@@ -69,7 +69,9 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
   const ghostT = useQuali((s) => s.ghostT);
   const { setHover, setZoom } = useQuali.getState();
   const [brush, setBrush] = useState<[number, number] | null>(null);
-  const drag = useRef<{ x: number; moved: boolean } | null>(null);
+  const drag = useRef<{ x: number; moved: boolean; touch: boolean } | null>(null);
+  // The last touch tap, for the double-tap that resets the zoom (touch has no double-click to rely on).
+  const lastTap = useRef<{ t: number; x: number } | null>(null);
 
   useEffect(() => {
     const el = wrapRef.current!;
@@ -330,7 +332,8 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
     }
   }, [size, strips, withTrace, deltas, hover, ghostT, x0, x1, sectorDistances, corners, ref, plotW]);
 
-  // Pointer: hover, drag to zoom, wheel to zoom, double-click to reset.
+  // Pointer: hover, drag to zoom, wheel to zoom, double-click (or double-tap) to reset. A finger follows the readout
+  // like the mouse does, and its drag has to travel further than the mouse's before it is a zoom and not a tap.
   const inPlot = (x: number) => x >= M.left && x <= size.w - M.right;
 
   // Wheel: up/down zooms about the pointer; sideways (a trackpad swipe, or shift + wheel) pans a zoomed lap. Not
@@ -374,7 +377,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
       <div ref={wrapRef} className="relative min-h-0 flex-1 select-none">
         <canvas
           ref={canvasRef}
-          className="absolute inset-0 cursor-crosshair"
+          className="absolute inset-0 cursor-crosshair touch-none"
           style={{ width: size.w, height: size.h }}
           role="img"
           aria-label="Speed, delta, throttle, brake and gear against distance for the compared laps"
@@ -382,21 +385,29 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
             const x = localX(e);
             if (!inPlot(x) || e.button !== 0) return;
             e.currentTarget.setPointerCapture(e.pointerId);
-            drag.current = { x, moved: false };
+            drag.current = { x, moved: false, touch: e.pointerType === "touch" };
+            if (drag.current.touch) setHover(clampD(dOf(x)));
           }}
           onPointerMove={(e) => {
             const x = localX(e);
             const d = clampD(dOf(x));
             if (drag.current) {
-              if (Math.abs(x - drag.current.x) > 4) drag.current.moved = true;
+              if (Math.abs(x - drag.current.x) > (drag.current.touch ? 12 : 4)) drag.current.moved = true;
               if (drag.current.moved) setBrush([drag.current.x, Math.min(Math.max(x, M.left), size.w - M.right)]);
             }
             setHover(inPlot(x) ? d : null);
           }}
-          onPointerUp={() => {
+          onPointerUp={(e) => {
             if (drag.current?.moved && brush) {
               const [a, b] = [clampD(dOf(Math.min(...brush))), clampD(dOf(Math.max(...brush)))];
               if (b - a > 20) setZoom([a, b]);
+            } else if (drag.current?.touch) {
+              const x = localX(e);
+              const now = performance.now();
+              if (lastTap.current && now - lastTap.current.t < 350 && Math.abs(x - lastTap.current.x) < 30) {
+                setZoom(null);
+                lastTap.current = null;
+              } else lastTap.current = { t: now, x };
             }
             drag.current = null;
             setBrush(null);
@@ -405,11 +416,22 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
             drag.current = null;
             setBrush(null);
           }}
-          onPointerLeave={() => {
-            if (!drag.current) setHover(null);
+          onPointerLeave={(e) => {
+            // A finger "leaves" when it lifts; its readout stays until the next touch.
+            if (!drag.current && e.pointerType !== "touch") setHover(null);
           }}
           onDoubleClick={() => setZoom(null)}
         />
+        {zoom && (
+          <button
+            type="button"
+            onClick={() => setZoom(null)}
+            // Bottom right, clear of the readout (top, by the finger) that stays up after a touch.
+            className="absolute right-3 bottom-10 z-10 hidden h-11 items-center rounded-md border border-zinc-700 bg-zinc-900/95 px-4 text-xs font-semibold text-zinc-200 shadow-xl pointer-coarse:flex"
+          >
+            Reset zoom
+          </button>
+        )}
         {brush && (
           <div
             className="pointer-events-none absolute bg-zinc-200/10 ring-1 ring-zinc-400/40"

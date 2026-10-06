@@ -15,7 +15,7 @@ Two primary users, confirmed 2026-10-01:
 
 Not the primary user: the catch-up viewer who only wants to press play on the race they missed. They are still served (spoiler protection, "continue from"), but the home screen is not built around them alone.
 
-Both use it on a desktop or laptop, in Chromium, often on a second monitor next to the TV or stream. Mobile is not a target.
+Both mostly use it on a desktop or laptop, in Chromium, often on a second monitor next to the TV or stream. On a phone the same widgets stack in one scrolling column, with the header and timeline pinned; it's for following along and checking something, not for arranging a screen.
 
 ## Product Purpose
 
@@ -41,7 +41,7 @@ Success: a fan gets from the home screen to the session they want, and from ther
 
 - Sessions: race, sprint, qualifying, free practice, 2023 onward (not pre-season testing).
 - Chromium only for now. Firefox and Safari are deferred.
-- Desktop and laptop only. Mobile is not designed for.
+- Phones get a single-column, scrolling layout of the same widgets; qualifying is tabbed (Board / Charts / Map). Editing the layout is desktop-only, as are keyboard shortcuts and the screenshot share.
 - Free OpenF1 tier: about 5 s to start a race, about a minute to finish downloading it, about 20 s to open qualifying. Free users may be blocked during live windows.
 - Live mode (races, sprints, qualifying and free practice; qualifying on the race screen for now) needs an OpenF1 account. On the hosted site the browser follows the session itself, with the account in the vault; in dev a local relay (`bun run live`) can do it instead.
 - Hosted at `pitwall.plusminushalf.com`, a static site on Cloudflare. Analytics: Cloudflare Web Analytics and PostHog (EU), no cookies; PostHog keeps a random visitor ID in localStorage.

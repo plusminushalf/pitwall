@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Icon } from "../widgetkit/ui/Icon";
 import { stepAt } from "../engine/lookup";
 import { lapEdges, lapWindowIn } from "../engine/lapWindow";
@@ -6,6 +6,7 @@ import { spoilerFreeEnd } from "../engine/noSpoilers";
 import { raceDistanceAt, scheduledDistance } from "../engine/raceDistance";
 import { leaderLapAt } from "../engine/raceState";
 import { clusterEvents, EVENT_PRIORITY, timelineEvents, type EventCluster, type TimelineEventKind } from "../engine/timelineEvents";
+import { useCoarsePointer, usePhone } from "../hooks/usePhone";
 import { raceClock, teamColor, TRACK_STATUS } from "../lib/format";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, PitStop, TrackStatus } from "../types";
@@ -47,6 +48,9 @@ const MARKER_PX: Record<TimelineEventKind, number> = {
   "double-yellow": 0,
   yellow: 0,
 };
+
+/** What `touch-hit` (index.css) adds to a marker's hit area on each side: neighbours closer than that must cluster. */
+const TOUCH_HIT_PX = 10;
 
 const MAX_TIP_LINES = 8;
 
@@ -114,7 +118,13 @@ export function Timeline() {
   const [barWidth, setBarWidth] = useState(0);
   const [hover, setHover] = useState<{ x: number; t: number } | null>(null);
   const [target, setTarget] = useState<Target | null>(null);
+  const tipRef = useRef<HTMLDivElement>(null);
+  const [tipWidth, setTipWidth] = useState(0);
+  // On a touch screen a marker's details stay up after the tap (there's no hover): until the next tap anywhere.
+  const [pinned, setPinned] = useState(false);
   const dragging = useRef(false);
+  const coarse = useCoarsePointer();
+  const phone = usePhone();
 
   const hasSession = session != null;
   // Live, the bar grows with the live edge (its right end). No spoilers: it shows nothing past what has been
@@ -128,6 +138,24 @@ export function Timeline() {
     ro.observe(el);
     return () => ro.disconnect();
   }, [hasSession]);
+
+  // Measured after every render: the tooltip's content changes with what's under the pointer.
+  useLayoutEffect(() => {
+    const w = tipRef.current?.offsetWidth ?? 0;
+    if (w !== tipWidth) setTipWidth(w);
+  });
+
+  useEffect(() => {
+    if (!pinned) return;
+    // A tap anywhere but on a marker takes the pinned details down (a marker's own tap decides for itself).
+    const unpin = (e: PointerEvent) => {
+      if ((e.target as Element | null)?.closest?.("[data-marker]")) return;
+      setPinned(false);
+      setTarget(null);
+    };
+    document.addEventListener("pointerdown", unpin, true);
+    return () => document.removeEventListener("pointerdown", unpin, true);
+  }, [pinned]);
 
   const bands = useMemo(() => {
     if (!session) return [];
@@ -143,10 +171,13 @@ export function Timeline() {
   const ahead = events.findIndex((e) => e.t > shownTo);
   const shownEvents = ahead < 0 ? events.length : ahead;
   const markers = useMemo(() => {
-    const clusters = clusterEvents(events.slice(0, shownEvents), duration, barWidth, (kind) => MARKER_PX[kind]);
+    // On a touch screen a marker's hit area is wider than its glyph; two whose hit areas would overlap cluster, so
+    // the one drawn on top never takes the other's taps.
+    const pad = coarse ? 2 * TOUCH_HIT_PX : 0;
+    const clusters = clusterEvents(events.slice(0, shownEvents), duration, barWidth, (kind) => MARKER_PX[kind] + pad);
     // Lowest priority first, so the most important markers are drawn on top.
     return clusters.sort((a, b) => EVENT_PRIORITY[a.kind] - EVENT_PRIORITY[b.kind]);
-  }, [events, shownEvents, duration, barWidth]);
+  }, [events, shownEvents, duration, barWidth, coarse]);
 
   // The zoom rail's laps: the race distance as the lap charts know it at t, placed where each lap is on the bar.
   const zoomLaps = !session || session.meta.practice ? 0 : Math.max(raceDistanceAt(session.meta, t).totalLaps, leaderLapAt(session, Math.min(t, shownTo)));
@@ -160,6 +191,27 @@ export function Timeline() {
   // Following live, the play button pauses (freezes the picture), like when playback is latched.
   const pauses = latched || (live && followLive);
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), duration) / duration) * 100}%`;
+  // Hovering a marker shows its details; on a touch screen the first tap does, and the next tap acts.
+  const show = (next: Target) => {
+    if (!pinned) setTarget(next);
+  };
+  const hide = () => {
+    if (!pinned) setTarget(null);
+  };
+  const keyOf = (x: Target) => (x.type === "events" ? `e${x.cluster.t}` : x.type === "pit" ? `p${x.info.acronym}${x.pit.entry}` : x.type === "chequered" ? `c${x.t}` : "zoom");
+  const same = (a: Target | null, b: Target) => a != null && keyOf(a) === keyOf(b);
+  // A touch marker's tap: pin its details, or with them already up, do what a click does.
+  const tap = (next: Target, act?: () => void) => {
+    if (!coarse) return act?.();
+    if (pinned && same(target, next)) {
+      setPinned(false);
+      setTarget(null);
+      act?.();
+    } else {
+      setTarget(next);
+      setPinned(true);
+    }
+  };
 
   const timeAt = (clientX: number) => {
     const rect = barRef.current!.getBoundingClientRect();
@@ -205,7 +257,7 @@ export function Timeline() {
             ))}
           </div>
           {list.length > MAX_TIP_LINES && <div className="text-zinc-400">+{list.length - MAX_TIP_LINES} more</div>}
-          <div className="mt-0.5 text-zinc-400">Click to jump to 5 s before</div>
+          <div className="mt-0.5 text-zinc-400">{coarse ? "Tap again to jump to 5 s before" : "Click to jump to 5 s before"}</div>
         </>
       ),
     };
@@ -267,246 +319,298 @@ export function Timeline() {
       ),
     };
   }
-  // Keep wide tooltips inside the bar near its ends.
-  const tipAlign = (ms: number) => {
-    const f = ms / duration;
-    return f < 0.15 ? "-translate-x-3" : f > 0.85 ? "-translate-x-[calc(100%_-_12px)]" : "-translate-x-1/2";
+  // Centred on its moment, but kept inside the bar: a wide tooltip (a cluster's lines) near either end on a phone
+  // would otherwise run off the screen. Its width is measured once drawn; until then it's centred.
+  const tipLeft = (ms: number) => {
+    const x = (Math.min(Math.max(ms, 0), duration) / duration) * barWidth;
+    if (!tipWidth) return { left: x, transform: "translateX(-50%)" };
+    return { left: Math.min(Math.max(x - tipWidth / 2, 0), Math.max(barWidth - tipWidth, 0)) };
   };
+
+  const transport = (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => stepLap(-1)}
+        className="touch-hit flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+        title={practice ? "Previous lap of the driver shown ([)" : "Previous lap ([)"}
+        aria-label="Previous lap"
+      >
+        <Icon name="previous" size={14} />
+      </button>
+      {/* A click plays and pauses, like P; holding to play is the space bar's. */}
+      <button
+        onClick={(e) => {
+          e.currentTarget.blur();
+          togglePlay();
+        }}
+        className={`touch-hit flex h-9 w-9 select-none items-center justify-center rounded-full text-lg transition ${
+          playing ? "scale-95 bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"
+        }`}
+        title="Play / pause (P) · hold space to play"
+        aria-label={pauses ? "Pause" : "Play"}
+      >
+        {pauses ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className={`translate-x-px ${playing ? "animate-pulse" : ""}`} />}
+      </button>
+      <button
+        onClick={() => stepLap(1)}
+        className="touch-hit flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
+        title={practice ? "Next lap of the driver shown (])" : "Next lap (])"}
+        aria-label="Next lap"
+      >
+        <Icon name="next" size={14} />
+      </button>
+    </div>
+  );
+
+  // The segmented control (DESIGN.md): the play button stays the screen's one white button. A phone's row has no
+  // room for seven options: one button there, showing the speed, and each tap goes to the next (64× wraps to 1×).
+  const speedControl = phone ? (
+    <button
+      onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed as (typeof SPEEDS)[number]) + 1) % SPEEDS.length])}
+      className="h-9 min-w-11 rounded-md bg-zinc-900 px-2 text-xs font-semibold tabular-nums text-zinc-200 transition-colors active:bg-zinc-800"
+      title="Playback speed: tap for the next"
+      aria-label={`Playback speed ${speed}×: tap for the next`}
+    >
+      {speed}×
+    </button>
+  ) : (
+    <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Playback speed">
+      {SPEEDS.map((s) => (
+        <button
+          key={s}
+          onClick={() => setSpeed(s)}
+          aria-pressed={s === speed}
+          className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors pointer-coarse:px-2.5 pointer-coarse:py-2 ${
+            s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"
+          }`}
+        >
+          {s}×
+        </button>
+      ))}
+    </div>
+  );
+
+  const bar = (
+    <div
+      ref={barRef}
+      // touch-none: a finger on the bar scrubs; it mustn't scroll or zoom the page.
+      className={`relative cursor-pointer touch-none select-none ${practice ? "h-14" : "h-[68px]"} ${phone ? "" : "flex-1"}`}
+      onPointerDown={(e) => {
+        dragging.current = true;
+        e.currentTarget.setPointerCapture(e.pointerId);
+        seek(timeAt(e.clientX).t);
+      }}
+      onPointerMove={(e) => {
+        const h = timeAt(e.clientX);
+        setHover(h);
+        if (dragging.current) seek(h.t);
+      }}
+      onPointerUp={() => (dragging.current = false)}
+      onPointerCancel={() => (dragging.current = false)}
+      onPointerLeave={() => {
+        setHover(null);
+        hide();
+      }}
+    >
+      {/* track */}
+      <div className="absolute inset-x-0 top-8 h-2 overflow-hidden rounded bg-zinc-800">
+        {/* downloaded so far (a race watched while it downloads) */}
+        {spans?.map(([from, to]) =>
+          from < duration ? (
+            <div key={from} className="absolute inset-y-0 bg-zinc-700" style={{ left: pct(from), width: `calc(${pct(to)} - ${pct(from)})` }} />
+          ) : null,
+        )}
+        <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
+        {bands.map((b, i) =>
+          b.from < shownTo ? (
+            <div
+              key={i}
+              className={`absolute inset-y-0 ${BAND[b.status]}`}
+              style={{ left: pct(b.from), width: `calc(${pct(Math.min(b.to, shownTo))} - ${pct(b.from)})` }}
+            />
+          ) : null,
+        )}
+        {/* not watched yet */}
+        {noSpoilers && watchedTo < duration && (
+          <div
+            className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(-45deg,var(--color-zinc-700)_0_2px,transparent_2px_6px)]"
+            style={{ left: pct(watchedTo) }}
+          />
+        )}
+      </div>
+
+      {/* practice: minute ticks */}
+      {minuteTicks.map((mt, i) =>
+        mt > shownTo ? null : (
+          <div key={mt} className="absolute top-7 h-4" style={{ left: pct(mt) }}>
+            <div className={`w-px ${i % 2 === 0 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
+            {i % 2 === 0 && <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{`${(i * TICK_MS) / 60_000}'`}</span>}
+          </div>
+        ),
+      )}
+
+      {/* lap ticks */}
+      {!practice && session.lapStartTimes.map((lt, lap) =>
+        lap === 0 || lt === undefined || lt > shownTo ? null : (
+          <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
+            <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
+            {(lap % labelEvery === 0 || lap === 1) && (
+              <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{lap === 1 ? "L1" : lap}</span>
+            )}
+          </div>
+        ),
+      )}
+
+      {/* race events: stems from period starts down to the bar, then the markers */}
+      {markers.map((c) =>
+        STEM[c.kind] ? (
+          <div key={`stem-${c.primary.t}`} className={`pointer-events-none absolute top-4 h-4 w-px -translate-x-1/2 ${STEM[c.kind]}`} style={{ left: pct(c.t) }} />
+        ) : null,
+      )}
+      {markers.map((c) => (
+        <button
+          key={`${c.events[0].t}-${c.kind}`}
+          data-marker=""
+          className="touch-hit absolute top-0 flex h-4 -translate-x-1/2 items-end justify-center px-0.5 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
+          style={{ left: pct(c.t) }}
+          // Not a scrub: the click seeks to the event instead.
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={() => tap({ type: "events", cluster: c }, () => seek(c.events[0].t - 5_000))}
+          onPointerEnter={() => show({ type: "events", cluster: c })}
+          onPointerLeave={hide}
+          aria-label={`${c.primary.text}${c.events.length > 1 ? ` and ${c.events.length - 1} more` : ""}: jump to 5 s before`}
+        >
+          <MarkerGlyph kind={c.kind} color={colorOf(c.primary.driver)} />
+          {c.events.length > 1 && (
+            <span className="absolute -right-1.5 -top-1 min-w-3 rounded-full bg-zinc-700 px-0.5 text-center text-[8px] font-bold leading-3 tabular-nums text-zinc-100">
+              {c.events.length}
+            </span>
+          )}
+        </button>
+      ))}
+
+      {/* chequered flag */}
+      {meta.chequered != null && meta.chequered <= shownTo && (
+        <div
+          data-marker=""
+          className="touch-hit absolute top-3.5 -translate-x-[3px] text-zinc-100"
+          style={{ left: pct(meta.chequered) }}
+          onPointerDown={(e) => coarse && e.stopPropagation()}
+          onClick={() => tap({ type: "chequered", t: meta.chequered! })}
+          onPointerEnter={() => show({ type: "chequered", t: meta.chequered! })}
+          onPointerLeave={hide}
+        >
+          <Icon name="chequered" size={14} label="Chequered flag" />
+        </div>
+      )}
+
+      {/* selected (or focused) drivers' pit stops */}
+      {pitMarkers.map(({ driver, info, p }) => (
+        <div
+          key={`${driver}-${p.entry}`}
+          data-marker=""
+          className="touch-hit absolute top-4 h-0 w-0 -translate-x-1/2 border-x-[5px] border-t-[7px] border-x-transparent"
+          style={{ left: pct(p.entry), borderTopColor: teamColor(info.teamColour) }}
+          onPointerDown={(e) => coarse && e.stopPropagation()}
+          onClick={() => tap({ type: "pit", info, pit: p })}
+          onPointerEnter={() => show({ type: "pit", info, pit: p })}
+          onPointerLeave={hide}
+        />
+      ))}
+
+      {/* the lap charts' window: laps outside it dimmed, and the zoom rail under the lap numbers */}
+      {lapWindow.zoomed && edges.length > 0 && (
+        <>
+          <div className="pointer-events-none absolute left-0 top-0 h-[58px] bg-zinc-950/60" style={{ width: pct(edges[lapWindow.from - 1]) }} />
+          <div className="pointer-events-none absolute right-0 top-0 h-[58px] bg-zinc-950/60" style={{ left: pct(edges[lapWindow.to]) }} />
+        </>
+      )}
+      {edges.length > 2 && (
+        <LapZoom
+          edges={edges}
+          value={lapWindow}
+          pct={pct}
+          timeAt={(x) => timeAt(x).t}
+          onChange={(w) => setLapWindow(w)}
+          onHover={(over) => setTarget(over ? { type: "zoom" } : null)}
+        />
+      )}
+
+      {/* live edge: the newest data, at the right end */}
+      {live && <div className="pointer-events-none absolute right-0 top-6 h-6 w-0.5 translate-x-1/2 rounded bg-red-500" title="Live edge" />}
+
+      {/* playhead */}
+      <div className="pointer-events-none absolute top-[26px] h-5 w-1 -translate-x-1/2 rounded bg-white shadow" style={{ left: pct(t) }} />
+
+      {tip && (
+        <div
+          ref={tipRef}
+          className="pointer-events-none absolute bottom-full z-20 mb-1 whitespace-nowrap rounded bg-zinc-800 px-2 py-0.5 text-[11px] tabular-nums text-zinc-200 shadow-lg"
+          style={tipLeft(tip.t)}
+        >
+          {tip.content}
+        </div>
+      )}
+    </div>
+  );
+
+  const clock = (
+    <div className={`flex flex-col items-end leading-tight ${phone ? "" : "w-20"}`}>
+      <span className="text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</span>
+      <StreamBadge />
+      {lapWindow.zoomed && (
+        <button
+          onClick={() => setLapWindow(null)}
+          className="touch-hit flex items-center gap-0.5 whitespace-nowrap rounded text-[11px] tabular-nums text-zinc-400 transition-colors hover:text-white"
+          title="The lap charts show these laps: back to the whole race"
+        >
+          L{lapWindow.from}–{lapWindow.to}
+          <Icon name="close" size={10} />
+        </button>
+      )}
+    </div>
+  );
+
+  const tail = live ? (
+    <GoLiveButton className={phone ? "shrink-0" : "-ml-1 shrink-0"} />
+  ) : (
+    <button
+      onClick={() => setNoSpoilers(!noSpoilers)}
+      className={`touch-hit flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
+        noSpoilers ? "bg-zinc-700 text-zinc-50 hover:bg-zinc-600" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
+      }`}
+      title={noSpoilers ? "No spoilers: the timeline shows only what you've watched (this race)" : "Show only what you've watched on the timeline (this race)"}
+      aria-pressed={noSpoilers}
+    >
+      {noSpoilers && <Icon name="check" size={12} />}
+      No spoilers
+    </button>
+  );
+
+  if (phone) {
+    // Pinned to the bottom, clear of the home indicator: the bar across the top, the controls in a row under it.
+    return (
+      <div data-shot="" className="border-t border-zinc-800 bg-zinc-950 px-3 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))]">
+        {bar}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {transport}
+          {speedControl}
+          <span className="flex-1" />
+          {clock}
+          {tail}
+        </div>
+      </div>
+    );
+  }
 
   return (
     // A panel of its own in a screenshot: shift-click it with a widget to share both.
-    <div data-shot="" className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3">
-      <div className="flex items-center gap-1">
-        <button
-          onClick={() => stepLap(-1)}
-          className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-          title={practice ? "Previous lap of the driver shown ([)" : "Previous lap ([)"}
-          aria-label="Previous lap"
-        >
-          <Icon name="previous" size={14} />
-        </button>
-        {/* A click plays and pauses, like P; holding to play is the space bar's. */}
-        <button
-          onClick={(e) => {
-            e.currentTarget.blur();
-            togglePlay();
-          }}
-          className={`flex h-9 w-9 select-none items-center justify-center rounded-full text-lg transition ${
-            playing ? "scale-95 bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"
-          }`}
-          title="Play / pause (P) · hold space to play"
-          aria-label={pauses ? "Pause" : "Play"}
-        >
-          {pauses ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className={`translate-x-px ${playing ? "animate-pulse" : ""}`} />}
-        </button>
-        <button
-          onClick={() => stepLap(1)}
-          className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
-          title={practice ? "Next lap of the driver shown (])" : "Next lap (])"}
-          aria-label="Next lap"
-        >
-          <Icon name="next" size={14} />
-        </button>
-      </div>
-
-      {/* The segmented control (DESIGN.md): the play button stays the screen's one white button. */}
-      <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Playback speed">
-        {SPEEDS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setSpeed(s)}
-            aria-pressed={s === speed}
-            className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors ${
-              s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"
-            }`}
-          >
-            {s}×
-          </button>
-        ))}
-      </div>
-
-      <div
-        ref={barRef}
-        className={`relative flex-1 cursor-pointer select-none ${practice ? "h-14" : "h-[68px]"}`}
-        onPointerDown={(e) => {
-          dragging.current = true;
-          e.currentTarget.setPointerCapture(e.pointerId);
-          seek(timeAt(e.clientX).t);
-        }}
-        onPointerMove={(e) => {
-          const h = timeAt(e.clientX);
-          setHover(h);
-          if (dragging.current) seek(h.t);
-        }}
-        onPointerUp={() => (dragging.current = false)}
-        onPointerCancel={() => (dragging.current = false)}
-        onPointerLeave={() => {
-          setHover(null);
-          setTarget(null);
-        }}
-      >
-        {/* track */}
-        <div className="absolute inset-x-0 top-8 h-2 overflow-hidden rounded bg-zinc-800">
-          {/* downloaded so far (a race watched while it downloads) */}
-          {spans?.map(([from, to]) =>
-            from < duration ? (
-              <div key={from} className="absolute inset-y-0 bg-zinc-700" style={{ left: pct(from), width: `calc(${pct(to)} - ${pct(from)})` }} />
-            ) : null,
-          )}
-          <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
-          {bands.map((b, i) =>
-            b.from < shownTo ? (
-              <div
-                key={i}
-                className={`absolute inset-y-0 ${BAND[b.status]}`}
-                style={{ left: pct(b.from), width: `calc(${pct(Math.min(b.to, shownTo))} - ${pct(b.from)})` }}
-              />
-            ) : null,
-          )}
-          {/* not watched yet */}
-          {noSpoilers && watchedTo < duration && (
-            <div
-              className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(-45deg,var(--color-zinc-700)_0_2px,transparent_2px_6px)]"
-              style={{ left: pct(watchedTo) }}
-            />
-          )}
-        </div>
-
-        {/* practice: minute ticks */}
-        {minuteTicks.map((mt, i) =>
-          mt > shownTo ? null : (
-            <div key={mt} className="absolute top-7 h-4" style={{ left: pct(mt) }}>
-              <div className={`w-px ${i % 2 === 0 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
-              {i % 2 === 0 && <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{`${(i * TICK_MS) / 60_000}'`}</span>}
-            </div>
-          ),
-        )}
-
-        {/* lap ticks */}
-        {!practice && session.lapStartTimes.map((lt, lap) =>
-          lap === 0 || lt === undefined || lt > shownTo ? null : (
-            <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
-              <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
-              {(lap % labelEvery === 0 || lap === 1) && (
-                <span className="absolute left-0 top-4 -translate-x-1/2 text-[10px] tabular-nums text-zinc-400">{lap === 1 ? "L1" : lap}</span>
-              )}
-            </div>
-          ),
-        )}
-
-        {/* race events: stems from period starts down to the bar, then the markers */}
-        {markers.map((c) =>
-          STEM[c.kind] ? (
-            <div key={`stem-${c.primary.t}`} className={`pointer-events-none absolute top-4 h-4 w-px -translate-x-1/2 ${STEM[c.kind]}`} style={{ left: pct(c.t) }} />
-          ) : null,
-        )}
-        {markers.map((c) => (
-          <button
-            key={`${c.events[0].t}-${c.kind}`}
-            className="absolute top-0 flex h-4 -translate-x-1/2 items-end justify-center px-0.5 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
-            style={{ left: pct(c.t) }}
-            // Not a scrub: the click seeks to the event instead.
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={() => seek(c.events[0].t - 5_000)}
-            onPointerEnter={() => setTarget({ type: "events", cluster: c })}
-            onPointerLeave={() => setTarget(null)}
-            aria-label={`${c.primary.text}${c.events.length > 1 ? ` and ${c.events.length - 1} more` : ""}: jump to 5 s before`}
-          >
-            <MarkerGlyph kind={c.kind} color={colorOf(c.primary.driver)} />
-            {c.events.length > 1 && (
-              <span className="absolute -right-1.5 -top-1 min-w-3 rounded-full bg-zinc-700 px-0.5 text-center text-[8px] font-bold leading-3 tabular-nums text-zinc-100">
-                {c.events.length}
-              </span>
-            )}
-          </button>
-        ))}
-
-        {/* chequered flag */}
-        {meta.chequered != null && meta.chequered <= shownTo && (
-          <div
-            className="absolute top-3.5 -translate-x-[3px] text-zinc-100"
-            style={{ left: pct(meta.chequered) }}
-            onPointerEnter={() => setTarget({ type: "chequered", t: meta.chequered! })}
-            onPointerLeave={() => setTarget(null)}
-          >
-            <Icon name="chequered" size={14} label="Chequered flag" />
-          </div>
-        )}
-
-        {/* selected (or focused) drivers' pit stops */}
-        {pitMarkers.map(({ driver, info, p }) => (
-          <div
-            key={`${driver}-${p.entry}`}
-            className="absolute top-4 h-0 w-0 -translate-x-1/2 border-x-[5px] border-t-[7px] border-x-transparent"
-            style={{ left: pct(p.entry), borderTopColor: teamColor(info.teamColour) }}
-            onPointerEnter={() => setTarget({ type: "pit", info, pit: p })}
-            onPointerLeave={() => setTarget(null)}
-          />
-        ))}
-
-        {/* the lap charts' window: laps outside it dimmed, and the zoom rail under the lap numbers */}
-        {lapWindow.zoomed && edges.length > 0 && (
-          <>
-            <div className="pointer-events-none absolute left-0 top-0 h-[58px] bg-zinc-950/60" style={{ width: pct(edges[lapWindow.from - 1]) }} />
-            <div className="pointer-events-none absolute right-0 top-0 h-[58px] bg-zinc-950/60" style={{ left: pct(edges[lapWindow.to]) }} />
-          </>
-        )}
-        {edges.length > 2 && (
-          <LapZoom
-            edges={edges}
-            value={lapWindow}
-            pct={pct}
-            timeAt={(x) => timeAt(x).t}
-            onChange={(w) => setLapWindow(w)}
-            onHover={(over) => setTarget(over ? { type: "zoom" } : null)}
-          />
-        )}
-
-        {/* live edge: the newest data, at the right end */}
-        {live && <div className="pointer-events-none absolute right-0 top-6 h-6 w-0.5 translate-x-1/2 rounded bg-red-500" title="Live edge" />}
-
-        {/* playhead */}
-        <div className="pointer-events-none absolute top-[26px] h-5 w-1 -translate-x-1/2 rounded bg-white shadow" style={{ left: pct(t) }} />
-
-        {tip && (
-          <div
-            className={`pointer-events-none absolute bottom-full z-20 mb-1 whitespace-nowrap rounded bg-zinc-800 px-2 py-0.5 text-[11px] tabular-nums text-zinc-200 shadow-lg ${tipAlign(tip.t)}`}
-            style={{ left: pct(tip.t) }}
-          >
-            {tip.content}
-          </div>
-        )}
-      </div>
-
-      <div className="flex w-20 flex-col items-end leading-tight">
-        <span className="text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</span>
-        <StreamBadge />
-        {lapWindow.zoomed && (
-          <button
-            onClick={() => setLapWindow(null)}
-            className="flex items-center gap-0.5 whitespace-nowrap rounded text-[11px] tabular-nums text-zinc-400 transition-colors hover:text-white"
-            title="The lap charts show these laps: back to the whole race"
-          >
-            L{lapWindow.from}–{lapWindow.to}
-            <Icon name="close" size={10} />
-          </button>
-        )}
-      </div>
-      {live ? (
-        <GoLiveButton className="-ml-1 shrink-0" />
-      ) : (
-        <button
-          onClick={() => setNoSpoilers(!noSpoilers)}
-          className={`flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
-            noSpoilers ? "bg-zinc-700 text-zinc-50 hover:bg-zinc-600" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
-          }`}
-          title={noSpoilers ? "No spoilers: the timeline shows only what you've watched (this race)" : "Show only what you've watched on the timeline (this race)"}
-          aria-pressed={noSpoilers}
-        >
-          {noSpoilers && <Icon name="check" size={12} />}
-          No spoilers
-        </button>
-      )}
+    <div data-shot="" className="flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))]">
+      {transport}
+      {speedControl}
+      {bar}
+      {clock}
+      {tail}
     </div>
   );
 }

@@ -3,6 +3,7 @@ import {
   defineWidget,
   gap,
   LABEL_CLASS,
+  TAP_CLASS,
   teamColor,
   useAllLaps,
   useWidgetSize,
@@ -358,7 +359,7 @@ function GapChart() {
         <span className={`${LABEL_CLASS} shrink-0`}>
           <button
             onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
-            className="rounded-sm uppercase hover:text-zinc-100"
+            className={`${TAP_CLASS} rounded-sm uppercase hover:text-zinc-100`}
             title={gapMode === "leader" ? "Show the interval to the car ahead" : "Show the gap to the leader"}
           >
             {title}
@@ -386,10 +387,12 @@ function GapChart() {
           role="img"
           tabIndex={0}
           aria-label={`${title}, lap by lap${names ? `, for ${names}` : ""}. Arrow keys pick a lap, Enter watches it.`}
-          className="block cursor-crosshair rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-300"
+          // touch-pan-y: a finger dragged along the chart scrubs the readout, while an up-and-down drag scrolls the page.
+          className="block cursor-crosshair touch-pan-y rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-300"
           style={{ width: w, height: h }}
           onPointerMove={(e) => setHover(lapFrom(e))}
-          onPointerLeave={() => setHover(null)}
+          // A finger leaves as soon as it lifts: the readout it stopped on stays until the next touch or a tap elsewhere.
+          onPointerLeave={(e) => e.pointerType !== "touch" && setHover(null)}
           onBlur={() => setHover(null)}
           onKeyDown={onKeyDown}
           onClick={(e) => {

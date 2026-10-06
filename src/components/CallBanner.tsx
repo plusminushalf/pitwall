@@ -19,7 +19,7 @@ export function CallBanner() {
   if (!race) return null;
   return (
     <a href="/predictions" className="group block bg-[#e7000b] text-white transition-colors hover:bg-[#fb2c36]">
-      <div className="mx-auto flex h-9 max-w-6xl items-center justify-center gap-2 px-6 text-sm">
+      <div className="mx-auto flex min-h-9 max-w-6xl flex-wrap items-center justify-center gap-x-2 gap-y-0 px-6 py-1.5 text-sm max-md:px-4 max-md:text-[13px]">
         <span className="font-semibold uppercase tracking-wider text-white/80">{race.short}</span>
         <span className="text-white/50">·</span>
         <span className="font-bold">{ASK[questionOf(race.id)].banner}</span>

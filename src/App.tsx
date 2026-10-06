@@ -21,9 +21,9 @@ function LoadingScreen() {
   const loading = useReplay((s) => s.loading);
   const error = useReplay((s) => s.error);
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex h-full items-center justify-center px-4">
       {error ? (
-        <div className="max-w-lg text-center">
+        <div className="max-w-lg text-center [overflow-wrap:anywhere]">
           <p className="text-red-400">{error}</p>
           <button
             onClick={() => useReplay.getState().goHome()}
@@ -33,7 +33,7 @@ function LoadingScreen() {
           </button>
         </div>
       ) : (
-        <div className="w-72">
+        <div className="w-full max-w-72">
           <p className="mb-2 text-sm text-zinc-400">Loading race data…</p>
           <div className="h-1.5 overflow-hidden rounded bg-zinc-800">
             <div className="h-full bg-zinc-200 transition-all" style={{ width: `${(loading?.progress ?? 0) * 100}%` }} />
@@ -107,9 +107,11 @@ export function App() {
   return (
     <>
       {/* Behind the spoiler prompt: blurred, and out of reach of focus and clicks. */}
-      <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]" inert={spoilerPrompt}>
+      {/* The middle row takes what the header and timeline leave; on a phone the grid scrolls inside it (Grid.tsx). */}
+      {/* One column clamped to the viewport: a long session name truncates instead of widening the page (a phone). */}
+      <div className="relative grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]" inert={spoilerPrompt}>
         <Header />
-        <div className="relative grid min-h-0 grid-rows-[minmax(0,1fr)]">
+        <div className="relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)]">
           <Grid />
           <StreamBuffering />
         </div>

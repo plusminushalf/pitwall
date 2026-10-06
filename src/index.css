@@ -9,12 +9,17 @@ body,
 html {
   color-scheme: dark;
   scrollbar-color: var(--color-zinc-700) transparent;
+  /* The page never scrolls: pull-to-refresh and rubber-banding would fight the timeline's scrubber. */
+  overscroll-behavior: none;
 }
 
 body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
   caret-color: var(--color-zinc-100);
+  overscroll-behavior: none;
+  /* Touch browsers flash a grey box over anything tapped; the controls show their own pressed state. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
@@ -27,5 +32,33 @@ body {
   :focus-visible {
     outline: 2px solid var(--color-zinc-300);
     outline-offset: 2px;
+  }
+
+  /* Controls act on the first tap: no double-tap zoom, and no 300 ms wait to rule one out. Mouse input is unaffected. */
+  button,
+  [role="button"],
+  a,
+  label,
+  select,
+  input {
+    touch-action: manipulation;
+  }
+}
+
+/*
+ * A 44 px hit area for a control drawn smaller than that, on touch screens only: an invisible ring around it, so
+ * nothing changes on screen (on any pointer) and nothing changes at all with a mouse. The ring needs a positioned
+ * control; :where() keeps that at zero specificity, so a control that is already absolute or fixed stays so.
+ */
+@utility touch-hit {
+  @media (hover: none) and (pointer: coarse) {
+    :where(&) {
+      position: relative;
+    }
+    &::before {
+      content: "";
+      position: absolute;
+      inset: -0.625rem;
+    }
   }
 }

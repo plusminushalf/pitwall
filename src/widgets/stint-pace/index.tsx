@@ -49,6 +49,8 @@ const PAD_B = 8;
 const M = { left: 40, right: 44, top: 6, bottom: 16 };
 const DOT_R = 3;
 const HIT_R = 12;
+/** A fingertip's reach on a touch screen. */
+const TOUCH_HIT_R = 22;
 
 /** One driver as drawn: who, in what colour, and their points and stint trends. */
 interface Series {
@@ -397,12 +399,13 @@ function StintPace() {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+    const reach = e.pointerType === "touch" ? TOUCH_HIT_R : HIT_R;
     let best: Hit | null = null;
-    let bestD = HIT_R;
+    let bestD = reach;
     for (const hp of hits.current) {
       const d = Math.hypot(hp.x - mx, hp.y - my);
       // Clean laps win a tie with the grey ones under them.
-      if (d < bestD || (best?.point.excluded && !hp.point.excluded && d <= HIT_R)) {
+      if (d < bestD || (best?.point.excluded && !hp.point.excluded && d <= reach)) {
         best = hp;
         bestD = d;
       }
@@ -416,7 +419,7 @@ function StintPace() {
   // Watch the lap: to its start, with its driver focused (so the driver widgets show them).
   const onClick = (e: PointerEvent<HTMLCanvasElement>) => {
     const hit = nearest(e);
-    if (!hit) return;
+    if (!hit) return setHover(null);
     seek(hit.point.start);
     focus(hit.series.n);
     setHover(null);
@@ -455,10 +458,12 @@ function StintPace() {
         ref={canvasRef}
         role="img"
         aria-label="Lap times by stint for the drivers shown, with each stint's trend"
-        className={`block ${hover ? "cursor-pointer" : ""}`}
+        // touch-pan-y: a finger dragged along the chart reads the points, while an up-and-down drag scrolls the page.
+        className={`block touch-pan-y ${hover ? "cursor-pointer" : ""}`}
         style={{ width: w, height: h }}
         onPointerMove={onMove}
-        onPointerLeave={() => setHover(null)}
+        // A finger leaves as soon as it lifts: the point it stopped on stays until the next touch or a tap on empty chart.
+        onPointerLeave={(e) => e.pointerType !== "touch" && setHover(null)}
         onClick={onClick}
       />
       {empty && (

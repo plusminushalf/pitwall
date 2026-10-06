@@ -3,7 +3,8 @@
 // come from the widgets: fixed ones take what their contents need, and the last stretching widget in each
 // column fills it to the bottom, so every column ends flush with the bottom edge. The user can give a
 // widget a height of its own instead (edit mode): it then neither stretches nor follows its contents, and
-// scrolls if its contents need more. The grid itself never scrolls.
+// scrolls if its contents need more. The grid itself never scrolls (on a phone it's one scrolling column
+// instead: phoneColumn(), at the end).
 
 import { stretches, type WidgetDefinition, type WidgetSettings, type HeightInput, type Px } from "../widgetkit/defineWidget";
 
@@ -172,4 +173,56 @@ export function boxesOf(placements: readonly Placement[], gridWidth: number, col
     const divider = p.dividerTop ? DIVIDER : 0;
     return { left, width: colEdge(p.x + p.width) - left, top: p.top - divider, height: p.height + divider };
   });
+}
+
+// Phones (Grid.tsx's phone mode): the same layout as one column, every widget full width, scrolling. The
+// desktop packing's geometry (columns, heights set in edit mode, stretching) means nothing on a screen a
+// column wide, so each widget is as tall as it says it is: fixed widgets their own px, stretching widgets a
+// phone height in their place. Nothing here touches the saved layout.
+
+/** The tower and the map: enough to read, never the whole screen (room to see there's more below). */
+const PHONE_TALL = "clamp(240px, 55dvh, 520px)";
+/** A stretching widget without a height of its own: a chart's worth, or its minimum if that's more. */
+const PHONE_STRETCH = 260;
+/** Phone heights by widget id, for the stretching widgets a chart's worth isn't right for. */
+const PHONE_HEIGHTS: Record<string, string> = {
+  "timing-tower": PHONE_TALL,
+  "track-map": PHONE_TALL,
+  "race-feed": "320px",
+};
+/** Shown first on a phone, in this order; the rest follow in the layout's reading order. */
+const PHONE_FIRST = ["timing-tower", "track-map"];
+
+/** A widget's CSS height in the phone column. */
+export function phoneHeight(widget: WidgetDefinition, input: HeightInput): string {
+  if (!stretches(widget)) return `${px(widget.height as Px, input)}px`;
+  return PHONE_HEIGHTS[widget.id] ?? `${Math.max(PHONE_STRETCH, px(widget.height.min, input))}px`;
+}
+
+/** One entry of the phone column: the layout key, its widget, the settings on top of the defaults, and its height. */
+export interface PhoneEntry {
+  id: string;
+  widget: WidgetDefinition;
+  settings: Partial<WidgetSettings>;
+  height: string;
+}
+
+/**
+ * The layout's widgets as a phone column: the tower, then the map (whichever the layout has), then the rest
+ * in the order the desktop grid reads them (top to bottom, left to right: the order pack() settles them
+ * in). Widgets the app doesn't have are left out, as in pack().
+ */
+export function phoneColumn(layout: Layout, widgets: ReadonlyMap<string, WidgetDefinition>, input: GridInput): PhoneEntry[] {
+  const rank = (id: string, entry: LayoutEntry) => {
+    const first = PHONE_FIRST.indexOf(widgetIdOf(id, entry));
+    return first === -1 ? PHONE_FIRST.length : first;
+  };
+  return Object.entries(layout.widgets)
+    .filter(([id, entry]) => widgets.has(widgetIdOf(id, entry)))
+    .sort(([ia, a], [ib, b]) => rank(ia, a) - rank(ib, b) || a.y - b.y || a.x - b.x)
+    .map(([id, entry]) => {
+      const widget = widgets.get(widgetIdOf(id, entry))!;
+      const at: HeightInput = { ...input, settings: { ...widget.settings, ...entry.settings } as WidgetSettings };
+      return { id, widget, settings: entry.settings, height: phoneHeight(widget, at) };
+    });
 }

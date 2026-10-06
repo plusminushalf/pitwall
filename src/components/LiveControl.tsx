@@ -3,6 +3,7 @@
 // (dev), or through the credential vault with the user's own OpenF1 account (the hosted site): src/live/client.ts.
 
 import { createPortal } from "react-dom";
+import { usePhone } from "../hooks/usePhone";
 import { liveTarget, useReplay, type LiveInfo } from "../store";
 import { raceClock } from "../lib/format";
 import type { LiveAccount, LiveStall } from "../live/vault";
@@ -133,7 +134,7 @@ export function StatusLine({ status, short = false, className = "" }: { status: 
             e.currentTarget.blur();
             status.action!.run();
           }}
-          className="shrink-0 rounded bg-zinc-100 px-1.5 py-px text-[11px] font-semibold text-zinc-900 hover:bg-white"
+          className="touch-hit shrink-0 rounded bg-zinc-100 px-1.5 py-px text-[11px] font-semibold text-zinc-900 hover:bg-white"
         >
           {status.action.label}
         </button>
@@ -232,21 +233,23 @@ export function LiveControl() {
   const live = useReplay((s) => s.live);
   const hasSession = useReplay((s) => s.session != null);
   const exitLive = useReplay((s) => s.exitLive);
+  const phone = usePhone();
 
   if (mode === "replay") return null;
 
   const status = statusText(live, hasSession);
+  // A phone's header has room for the way back and a problem, not for Go live (the timeline has it) or the rest.
   return (
     <div className="flex min-w-0 shrink-0 items-center gap-2">
       {live.via === "vault" && <VaultBits />}
-      <GoLiveButton className="shrink-0" />
-      {status && <StatusLine status={status} short className="max-w-[16rem] truncate text-[11px]" />}
+      {!phone && <GoLiveButton className="shrink-0" />}
+      {status && (!phone || status.tone === "error") && <StatusLine status={status} short className={`truncate text-[11px] ${phone ? "max-w-[9rem]" : "max-w-[16rem]"}`} />}
       <button
         onClick={(e) => {
           e.currentTarget.blur();
           exitLive();
         }}
-        className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+        className="touch-hit shrink-0 rounded px-1.5 py-0.5 text-[11px] text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
         title="Leave live mode and go back to replays"
       >
         Replays
@@ -261,8 +264,8 @@ export function LiveScreen() {
   const exitLive = useReplay((s) => s.exitLive);
   const status = statusText(live, false);
   return (
-    <div className="flex h-full items-center justify-center">
-      <div className="flex max-w-lg flex-col items-center gap-3 text-center">
+    <div className="flex h-full items-center justify-center px-4">
+      <div className="flex max-w-lg flex-col items-center gap-3 text-center [overflow-wrap:anywhere]">
         <span className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-zinc-200">
           <LiveDot pulse={live.connected && live.state !== "error"} />
           Live
@@ -278,7 +281,7 @@ export function LiveScreen() {
             Or try a simulated race: <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">bun run live:sim</code>. Retrying automatically.
           </p>
         )}
-        <button onClick={exitLive} className="mt-1 rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white">
+        <button onClick={exitLive} className="mt-1 rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white pointer-coarse:min-h-11 pointer-coarse:px-4">
           Back to replays
         </button>
       </div>

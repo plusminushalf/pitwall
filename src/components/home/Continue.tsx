@@ -41,7 +41,7 @@ function StorageNote() {
       <button
         onClick={() => void persist()}
         disabled={asking}
-        className={`rounded-sm font-semibold text-zinc-100 underline decoration-zinc-500 underline-offset-2 hover:decoration-zinc-200 ${FOCUS}`}
+        className={`rounded-sm font-semibold text-zinc-100 underline decoration-zinc-500 underline-offset-2 hover:decoration-zinc-200 pointer-coarse:min-h-11 ${FOCUS}`}
       >
         Keep them
       </button>
@@ -119,7 +119,7 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
             <StorageNote />
             <span className="flex-1" />
             {rows.length > SHOWN && (
-              <button onClick={() => setAll(!all)} className={`rounded-sm text-xs font-semibold text-zinc-200 hover:text-white ${FOCUS}`} aria-expanded={all}>
+              <button onClick={() => setAll(!all)} className={`rounded-sm text-xs font-semibold text-zinc-200 hover:text-white pointer-coarse:min-h-11 ${FOCUS}`} aria-expanded={all}>
                 {all ? "Show fewer" : `Show all ${rows.length}`}
               </button>
             )}

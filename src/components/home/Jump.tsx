@@ -3,9 +3,10 @@
 // season's calendar (cached in this browser; two OpenF1 requests for each season not seen yet).
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useCoarsePointer, usePhone } from "../../hooks/usePhone";
 import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS } from "../../library";
-import { Glyph, openAction, useDownloadBlock, useNow } from "./common";
+import { FOCUS, Glyph, openAction, useDownloadBlock, useNow } from "./common";
 import { resumeClocks } from "./resume";
 import { searchSessions } from "./search";
 import { RowHeader, RowTable, SessionRow } from "./SessionRow";
@@ -26,6 +27,9 @@ export function Jump({ children }: { children: ReactNode }) {
   const [resume] = useState(resumeClocks);
   const waitUntil = useDownloadBlock();
   const searching = query.trim() !== "";
+  // Touch has no "/" or Esc: a Clear button instead of the key hints. A phone's field is too short for the long examples.
+  const coarse = useCoarsePointer();
+  const phone = usePhone();
 
   // "/" anywhere on Home (not while typing elsewhere) goes to the field.
   useEffect(() => {
@@ -99,18 +103,33 @@ export function Jump({ children }: { children: ReactNode }) {
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder="Jump to a session: monza 24 quali, spa race, japan fp2, r15"
+          placeholder={phone ? "Jump: monza 24 quali, spa race, r15" : "Jump to a session: monza 24 quali, spa race, japan fp2, r15"}
           className={`peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-2 focus:outline-zinc-400`}
         />
-        <span className={`pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-xs text-zinc-400 ${searching ? "" : "peer-focus:hidden"}`}>
-          {searching ? (
-            <>
-              <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-sans text-[11px] text-zinc-200">Esc</kbd> clear
-            </>
-          ) : (
-            <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-sans text-[11px] text-zinc-200">/</kbd>
-          )}
-        </span>
+        {coarse ? (
+          searching && (
+            <button
+              type="button"
+              onClick={() => {
+                setQuery("");
+                input.current?.focus();
+              }}
+              className={`absolute right-1 top-1/2 flex h-10 -translate-y-1/2 items-center rounded-md px-3 text-xs font-semibold text-zinc-300 hover:text-white ${FOCUS}`}
+            >
+              Clear
+            </button>
+          )
+        ) : (
+          <span className={`pointer-events-none absolute right-3 top-1/2 flex -translate-y-1/2 items-center gap-1.5 text-xs text-zinc-400 ${searching ? "" : "peer-focus:hidden"}`}>
+            {searching ? (
+              <>
+                <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-sans text-[11px] text-zinc-200">Esc</kbd> clear
+              </>
+            ) : (
+              <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-sans text-[11px] text-zinc-200">/</kbd>
+            )}
+          </span>
+        )}
       </div>
 
       {searching ? (
@@ -119,7 +138,7 @@ export function Jump({ children }: { children: ReactNode }) {
             {results.length === 25 ? "The 25 newest matches" : results.length ? `${results.length} ${results.length === 1 ? "session" : "sessions"}` : "No session matches"}
             {loading.length > 0 && <span className="text-zinc-400"> · loading the {loading.join(", ")} calendar{loading.length > 1 ? "s" : ""}…</span>}
             {results.length === 25 && <span className="text-zinc-400"> · add a year or a session to narrow it</span>}
-            {results.length > 0 && <span className="text-zinc-400"> · ↑↓ to pick, Enter to open</span>}
+            {results.length > 0 && !coarse && <span className="text-zinc-400"> · ↑↓ to pick, Enter to open</span>}
           </p>
           {results.length ? (
             <RowTable>

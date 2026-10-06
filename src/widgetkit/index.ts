@@ -61,6 +61,9 @@
 //   The widget itself
 //     useSettings()              [settings, update]
 //     useWidgetSize()             { width, height } in CSS px, and the display's pixelRatio
+//     usePhone()                 the app is in its phone layout (narrow viewport, or a short touch screen)
+//     useCoarsePointer()         a touch screen with no hover: wording ("tap", not "click") and hover-only
+//                                controls shown; sizes come from the widget's width, not from this
 //   Media
 //     useRadio(select?)          playing, unavailable, play(url), stop()
 //   Opt-out
@@ -86,6 +89,7 @@
 //
 //   UI kit (H3.7, build step 4, started): the pieces widgets share so they look like the app (DESIGN.md).
 //     Label, LABEL_CLASS, Stat    the 11 px uppercase label, alone or over a value
+//     TAP_CLASS                   a finger-sized hit area for a small inline control, on touch screens only
 //     Icon                        the app's icons (16-unit SVG, 1.5 stroke): never Unicode or emoji
 //     DriverTag                   a driver's acronym on their team colour
 //     TyreBadge                   compound circle and tyre age
@@ -133,6 +137,7 @@ export {
 } from "./hooks";
 export type { Playback, Radio, Select, Selection } from "./hooks";
 export type { LapWindow } from "../engine/lapWindow";
+export { isPhone, useCoarsePointer, usePhone } from "../hooks/usePhone";
 
 export type { WidgetSize } from "./context";
 export type { LapGeometry } from "../engine/lapTrace";
@@ -157,5 +162,5 @@ export { makeTrackTransform as trackTransform, type TrackTransform } from "../li
 export { drawCornerLabels, type CornerLabelStyle } from "../lib/cornerLabels";
 export { DriverTag } from "./ui/DriverTag";
 export { Icon, type IconName } from "./ui/Icon";
-export { Label, LABEL_CLASS, Stat } from "./ui/Label";
+export { Label, LABEL_CLASS, Stat, TAP_CLASS } from "./ui/Label";
 export { TyreBadge } from "./ui/TyreBadge";

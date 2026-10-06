@@ -263,7 +263,9 @@ There are two spatial modes with one shared header. The replay screen runs edge 
 
 Home's vertical rhythm: 24px from the header to the jump field (48px tall), 40px to Continue, 48px to Season, 64px of bottom padding, then a footer above a hairline. Rows use 12px side padding and a 44px minimum height. Section headings sit 12px above their column headers.
 
-Row columns respond to the row's container width, not the viewport (container queries at 40rem, 52rem and 66rem; the season sheet also uses 64rem). A narrow list drops Size and Status first, then Date, then Season and Session, and the action column (12.5rem) always fits. The season sheet scrolls sideways below 45rem, with the round and Grand Prix pinned. Mobile is not a target. Phones get a desktop-only message instead of the app.
+Row columns respond to the row's container width, not the viewport (container queries at 40rem, 52rem and 66rem; the season sheet also uses 64rem). A narrow list drops Size and Status first, then Date, then Season and Session, and the action column (12.5rem) always fits. The season sheet scrolls sideways below 45rem, with the round and Grand Prix pinned.
+
+On a phone (under 768px, `usePhone()`) the replay screen keeps its shape and loses its grid: a two-row header (the way around, then the race's state), one column of the same widgets that scrolls between them, and the timeline pinned at the bottom with the scrub bar across the top of it and the transport under. Qualifying is tabbed (Board / Charts / Map). Layout editing, the keyboard help, weather and the local clock are desktop-only. Touch targets are 44px: a control drawn smaller gets an invisible ring (`touch-hit`), nothing changes on screen. Anything hover reveals, a tap reveals too.
 
 ## Elevation & Depth
 

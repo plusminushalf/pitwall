@@ -7,6 +7,14 @@ import type { ReactNode } from "react";
 export const LABEL_CLASS = "text-[11px] font-semibold uppercase tracking-wider text-zinc-400";
 
 /**
+ * A bigger hit area on touch screens for a small inline control (a 20 px toggle, a chip, an icon button): a
+ * pseudo-element reaches 10 px above and below and 4 px to the sides, so a 20 px control is 40 px tall to a
+ * finger. Only on coarse pointers, and it draws nothing, so desktop is unchanged. The sides stay narrow so two
+ * controls side by side don't take each other's taps.
+ */
+export const TAP_CLASS = "relative pointer-coarse:after:absolute pointer-coarse:after:-inset-x-1 pointer-coarse:after:-inset-y-2.5";
+
+/**
  * The small uppercase label over or beside a value (LAP, S1, TYRES). It sets no line height: it takes the
  * widget's, which widgets with a fixed height count on (a line of it in a text-sm widget is 11 × 20/14 px).
  */

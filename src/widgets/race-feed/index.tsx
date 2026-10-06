@@ -5,6 +5,7 @@ import {
   Icon,
   Label,
   raceClock,
+  TAP_CLASS,
   useDrivers,
   useFeed,
   usePlayback,
@@ -90,7 +91,7 @@ function RadioButton({ url }: { url: string }) {
   return (
     <button
       onClick={() => (playing ? stop() : play(url))}
-      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
+      className={`${TAP_CLASS} flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
         playing ? "bg-zinc-100 text-zinc-900" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
       }`}
       title={playing ? "Stop team radio" : "Play team radio"}
@@ -204,7 +205,7 @@ function RaceFeed() {
                 key={v}
                 onClick={() => update({ show: v })}
                 aria-pressed={show === v}
-                className={`rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+                className={`${TAP_CLASS} rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
                 title={v === "all" ? "Every driver" : "Only the selected drivers"}
               >
                 {v === "all" ? "All" : "Selected"}
@@ -220,7 +221,7 @@ function RaceFeed() {
                 key={g.id}
                 onClick={() => setGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
                 aria-pressed={on}
-                className={`rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
+                className={`${TAP_CLASS} rounded-full border px-2 py-0.5 text-[11px] transition-colors ${
                   on ? "border-zinc-600 bg-zinc-800 text-zinc-100" : "border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                 }`}
               >

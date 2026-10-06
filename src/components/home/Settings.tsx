@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type Ref } from "react";
 import { createPortal } from "react-dom";
+import { isPhone } from "../../hooks/usePhone";
 import { useReplay, type SpoilerPref } from "../../store";
 import { useVaultAttention, VaultAccount } from "../vault/VaultStatus";
 import { LABEL, SECONDARY } from "./common";
@@ -10,11 +11,12 @@ const SPOILER_OPTIONS: { value: SpoilerPref; label: string; hint: string }[] = [
   { value: "show", label: "Always show everything", hint: "The whole race on the timeline from the start." },
 ];
 
-type Position = { top: number; right: number };
+/** Where the open panel goes: below the button, right-aligned to it; on a phone, across the viewport with an 8 px margin. */
+type Position = { top: number; right: number; left?: number };
 
 /** Home's Settings button (top right) and its panel: spoilers when opening a race, and the OpenF1 account. */
 export function Settings() {
-  // Where the open panel goes (below the button, right-aligned to it); null while closed.
+  // Where the open panel goes; null while closed.
   const [at, setAt] = useState<Position | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -22,7 +24,8 @@ export function Settings() {
 
   const toggle = () => {
     const r = button.current?.getBoundingClientRect();
-    setAt(at || !r ? null : { top: r.bottom + 8, right: window.innerWidth - r.right });
+    if (at || !r) return setAt(null);
+    setAt(isPhone() ? { top: r.bottom + 8, right: 8, left: 8 } : { top: r.bottom + 8, right: window.innerWidth - r.right });
   };
 
   // Open: focus goes into the panel (its chosen spoiler option), so the keyboard doesn't have to travel the page to
@@ -62,7 +65,7 @@ export function Settings() {
         ref={button}
         type="button"
         onClick={toggle}
-        className={`${SECONDARY} flex shrink-0 items-center gap-1.5 px-3 py-1.5 ${at ? "bg-zinc-700 text-white" : ""}`}
+        className={`${SECONDARY} flex shrink-0 items-center gap-1.5 px-3 py-1.5 pointer-coarse:min-h-11 ${at ? "bg-zinc-700 text-white" : ""}`}
         aria-expanded={at != null}
         aria-haspopup="dialog"
       >
@@ -83,14 +86,15 @@ function SettingsPanel({ ref, at }: { ref: Ref<HTMLDivElement>; at: Position }) 
       role="dialog"
       aria-label="Settings"
       data-testid="settings-panel"
-      className="fixed z-[60] w-80 space-y-4 rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl"
-      style={at}
+      className={`fixed z-[60] space-y-4 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-4 shadow-2xl ${at.left != null ? "" : "w-80"}`}
+      // Never taller than what's left of the screen below the button (a phone in landscape): it scrolls instead.
+      style={{ ...at, maxHeight: `calc(100dvh - ${at.top + 8}px)` }}
     >
       <fieldset>
         <legend className={LABEL}>Spoilers · when you open a race</legend>
         <div className="mt-2 space-y-1">
           {SPOILER_OPTIONS.map((o) => (
-            <label key={o.value} className="flex cursor-pointer gap-2 rounded px-1.5 py-1 hover:bg-zinc-800/60">
+            <label key={o.value} className="flex cursor-pointer gap-2 rounded px-1.5 py-1 hover:bg-zinc-800/60 pointer-coarse:py-2.5">
               <input
                 type="radio"
                 name="spoiler-pref"

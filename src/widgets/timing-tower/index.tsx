@@ -7,9 +7,11 @@ import {
   lapTime,
   sectorTime,
   shortTeam,
+  TAP_CLASS,
   teamColor,
   TyreBadge,
   useBestSectors,
+  useCoarsePointer,
   useWidgetSize,
   useDriver,
   useDrivers,
@@ -216,7 +218,8 @@ const Row = memo(function Row({
       <span
         aria-hidden
         className={`absolute left-1.5 top-1/2 flex h-3 w-3 -translate-y-1/2 items-center justify-center rounded-full ${
-          isSelected ? "bg-zinc-100 text-zinc-900" : "border border-zinc-600 opacity-0 group-hover:opacity-100"
+          // Touch screens have no hover: the empty check shows on every row, so a tap has a visible target.
+          isSelected ? "bg-zinc-100 text-zinc-900" : "border border-zinc-600 opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100"
         } ${isSelected && isFocused ? "ring-2 ring-zinc-100/40" : ""}`}
       >
         {isSelected && <Icon name="check" size={9} className="[&_path]:[stroke-width:2.5]" />}
@@ -262,6 +265,7 @@ function TimingTower() {
   const rowIndex = useMemo(() => new Map(order.map((n, i) => [n, i])), [order]);
   const { width } = useWidgetSize();
   const wide = width >= WIDE;
+  const coarse = useCoarsePointer();
   // Practice: ordered by best lap, gaps by best lap, and laps run instead of pit stops.
   const practice = useSessionInfo((i) => i.kind === "practice");
   const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers]);
@@ -273,12 +277,12 @@ function TimingTower() {
         {selected.length > 0 ? (
           <span className="text-zinc-400">
             Showing <span className="font-semibold tabular-nums text-zinc-100">{selected.length}</span> on track ·{" "}
-            <button onClick={clear} className="rounded px-1 font-semibold text-zinc-200 underline-offset-2 hover:bg-zinc-800 hover:text-white hover:underline" title="Show every car on the track map (esc)">
+            <button onClick={clear} className={`${TAP_CLASS} rounded px-1 font-semibold text-zinc-200 underline-offset-2 hover:bg-zinc-800 hover:text-white hover:underline`} title="Show every car on the track map (esc)">
               Show all
             </button>
           </span>
         ) : (
-          <span className="text-zinc-400">Click drivers to show only them on the track map</span>
+          <span className="text-zinc-400">{coarse ? "Tap" : "Click"} drivers to show only them on the track map</span>
         )}
       </div>
       <div className={`grid shrink-0 ${colsOf(wide, practice)} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
@@ -287,7 +291,7 @@ function TimingTower() {
         <span>Driver</span>
         <button
           onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
-          className="flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100"
+          className={`${TAP_CLASS} flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100`}
           title={
             practice
               ? gapMode === "leader"

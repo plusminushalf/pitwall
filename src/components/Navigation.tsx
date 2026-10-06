@@ -20,7 +20,7 @@ export function RacesButton() {
         e.currentTarget.blur();
         goHome();
       }}
-      className="flex shrink-0 items-center gap-1.5 rounded-md bg-zinc-800 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
+      className="touch-hit flex shrink-0 items-center gap-1.5 rounded-md bg-zinc-800 py-1 pl-1.5 pr-2.5 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
       title={job ? `All races · downloading ${job.info.label}${waiting > 1 ? ` (+${waiting - 1} queued)` : ""}` : "All races: your library and every season's calendar"}
     >
       <Icon name="chevron-left" size={14} className="[&_path]:[stroke-width:2]" />
@@ -47,9 +47,13 @@ export function ReadyToast() {
 
   if (!toast) return null;
   return (
-    <div role="status" className="fixed right-4 top-16 z-40 flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/95 py-2 pl-3 pr-2 text-xs shadow-2xl backdrop-blur">
-      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-      <span className="text-zinc-200">
+    // On a phone: across the screen, under its two-row header.
+    <div
+      role="status"
+      className="fixed right-4 top-16 z-40 flex items-center gap-3 rounded-lg border border-zinc-700 bg-zinc-900/95 py-2 pl-3 pr-2 text-xs shadow-2xl backdrop-blur max-md:left-3 max-md:right-3 max-md:top-[calc(5.5rem_+_env(safe-area-inset-top))]"
+    >
+      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-400" />
+      <span className="min-w-0 flex-1 text-zinc-200">
         <span className="font-semibold">{toast.label}</span> is ready
       </span>
       <button
@@ -57,11 +61,11 @@ export function ReadyToast() {
           e.currentTarget.blur();
           watchNow(toast.key);
         }}
-        className="rounded bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-900 hover:bg-white"
+        className="touch-hit shrink-0 rounded bg-zinc-100 px-2 py-0.5 font-semibold text-zinc-900 hover:bg-white"
       >
         Watch
       </button>
-      <button onClick={dismiss} className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
+      <button onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
         <Icon name="close" size={12} />
       </button>
     </div>

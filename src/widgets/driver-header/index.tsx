@@ -2,6 +2,7 @@ import { useState } from "react";
 import {
   defineWidget,
   Icon,
+  TAP_CLASS,
   teamColor,
   textOn,
   useDriver,
@@ -82,7 +83,7 @@ function FocusChips({ drivers, selected, focused, onFocus }: { drivers: readonly
             key={n}
             onClick={() => onFocus(active ? null : n)}
             aria-pressed={active}
-            className={`shrink-0 rounded border px-1.5 text-[11px] font-bold leading-[18px] tracking-wide ${active ? "" : "text-zinc-300 hover:bg-zinc-800 hover:text-white"}`}
+            className={`${TAP_CLASS} shrink-0 rounded border px-1.5 text-[11px] font-bold leading-[18px] tracking-wide ${active ? "" : "text-zinc-300 hover:bg-zinc-800 hover:text-white"}`}
             style={active ? { background: color, borderColor: color, color: textOn(info.teamColour) } : { borderColor: `${color}99` }}
             title={active ? `Stop highlighting ${info.fullName}` : `Highlight ${info.fullName} on the map`}
           >
@@ -132,7 +133,7 @@ function DriverHeader() {
           {canClear && (
             <button
               onClick={clear}
-              className="-mr-1 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+              className={`${TAP_CLASS} -mr-1 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`}
               title="Clear selection (show everyone on the map and the leader here)"
               aria-label="Clear driver selection"
             >

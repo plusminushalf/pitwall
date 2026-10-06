@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
 import { track } from "../posthog";
+import { useCoarsePointer, usePhone } from "../hooks/usePhone";
 import { useReplay } from "../store";
 import { Icon } from "../widgetkit/ui/Icon";
 import { brandedImage, captureApp, clampArea, IGNORE, type Rect, type Shot } from "./capture";
@@ -147,6 +148,8 @@ const adding = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) =>
 function Picker({ shot, image }: { shot: Shot; image: string }) {
   const { pick, cancel } = useShare.getState();
   const { bounds } = shot;
+  // A touch screen has no Enter or Esc: those are buttons in the bar instead, and "click" reads "tap".
+  const coarse = useCoarsePointer();
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<Rect | null>(null);
   const [hover, setHover] = useState<Rect | null>(null);
@@ -246,7 +249,24 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
           style={{ left: bounds.left + hover.left, top: bounds.top + hover.top, width: hover.width, height: hover.height }}
         />
       )}
-      {!drag && (
+      {!drag && coarse && (
+        <div
+          className="absolute left-1/2 top-3 flex max-w-[calc(100vw-1.5rem)] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-xl"
+          // The bar's taps are its own, not picks on what's under it.
+          onPointerDown={(e) => e.stopPropagation()}
+          onPointerUp={(e) => e.stopPropagation()}
+        >
+          <Icon name="camera" size={14} className="text-zinc-400" />
+          <span>{picked.length > 0 ? `${picked.length} ${picked.length === 1 ? "widget" : "widgets"} picked` : "Drag out an area or tap a widget"}</span>
+          <button type="button" onClick={() => pick(union(pickedRef.current))} className={`${BUTTON} min-h-11`}>
+            {picked.length > 0 ? "Share these" : "Whole screen"}
+          </button>
+          <button type="button" onClick={cancel} className={`${BUTTON} min-h-11 bg-transparent`}>
+            Cancel
+          </button>
+        </div>
+      )}
+      {!drag && !coarse && (
         <div className="pointer-events-none absolute left-1/2 top-3 flex -translate-x-1/2 items-center gap-2 whitespace-nowrap rounded-lg border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-300 shadow-xl">
           <Icon name="camera" size={14} className="text-zinc-400" />
           {picked.length > 0 ? (
@@ -319,7 +339,7 @@ function ShareToast({ result }: { result: Result }) {
       onPointerEnter={() => setHeld(true)}
       onPointerLeave={() => setHeld(false)}
       onFocus={() => setHeld(true)}
-      className="fixed right-4 top-16 z-40 w-96 rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs shadow-2xl backdrop-blur"
+      className="fixed right-4 top-16 z-40 w-96 rounded-lg border border-zinc-700 bg-zinc-900/95 p-3 text-xs shadow-2xl backdrop-blur max-md:left-3 max-md:right-3 max-md:w-auto"
     >
       <div className="flex items-start gap-3">
         {result.image && <img src={result.image} alt="The screenshot" className="max-h-20 max-w-32 shrink-0 rounded border border-zinc-800 object-contain" />}
@@ -330,7 +350,7 @@ function ShareToast({ result }: { result: Result }) {
           </p>
           <p className="mt-0.5 text-zinc-400">{note}</p>
         </div>
-        <button onClick={dismiss} className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
+        <button onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
           <Icon name="close" size={12} />
         </button>
       </div>
@@ -343,7 +363,7 @@ function ShareToast({ result }: { result: Result }) {
             aria-label="Link to this moment"
             className="min-w-0 flex-1 rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300"
           />
-          <button onClick={copyLink} className={BUTTON}>
+          <button onClick={copyLink} className={`touch-hit ${BUTTON}`}>
             <Icon name={linkCopied ? "check" : "link"} size={12} />
             {linkCopied ? "Copied" : "Copy link"}
           </button>
@@ -351,7 +371,7 @@ function ShareToast({ result }: { result: Result }) {
       )}
       {result.image && (
         <div className="mt-2 flex justify-end">
-          <button onClick={save} className={BUTTON}>
+          <button onClick={save} className={`touch-hit ${BUTTON}`}>
             <Icon name="download" size={12} />
             Save image
           </button>
@@ -374,8 +394,13 @@ export function ShareShot() {
   );
 }
 
-/** The top bar's Share button. */
+/**
+ * The top bar's Share button. Not on a phone: the screenshot is of the whole grid, which there is a column
+ * scrolled to one part, so the frozen picture wouldn't be the screen; the link to the moment is in the URL anyway.
+ */
 export function ShareButton() {
+  const phone = usePhone();
+  if (phone) return null;
   return (
     <button
       type="button"
@@ -383,7 +408,7 @@ export function ShareButton() {
         e.currentTarget.blur();
         useShare.getState().start();
       }}
-      className="flex items-center gap-1.5 whitespace-nowrap rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
+      className="touch-hit flex items-center gap-1.5 whitespace-nowrap rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
       title="Copy a screenshot of an area, with a link to this moment (S)"
     >
       <Icon name="camera" size={14} />

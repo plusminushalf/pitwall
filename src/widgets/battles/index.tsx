@@ -3,6 +3,7 @@ import {
   defineWidget,
   DriverTag,
   Label,
+  TAP_CLASS,
   useAllLaps,
   useAllStints,
   useDrivers,
@@ -110,7 +111,7 @@ function BattleRow({
             <button
               key={`${p.lap}-${p.by}`}
               onClick={() => onPass(p)}
-              className="rounded bg-zinc-800 px-1.5 text-[11px] leading-5 text-zinc-200 hover:bg-zinc-700 hover:text-white"
+              className={`${TAP_CLASS} rounded bg-zinc-800 px-1.5 text-[11px] leading-5 text-zinc-200 hover:bg-zinc-700 hover:text-white`}
               title={
                 p.exact
                   ? `${name(p.by)} passes ${name(p.on)} on lap ${p.lap}: jump to 5 s before`
@@ -193,7 +194,7 @@ function Battles() {
               key={v}
               onClick={() => update({ show: v })}
               aria-pressed={show === v}
-              className={`rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+              className={`${TAP_CLASS} rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
               title={v === "all" ? "Every battle" : "Battles with a selected driver"}
             >
               {v === "all" ? "All" : "Selected"}

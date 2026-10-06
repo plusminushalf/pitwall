@@ -54,7 +54,10 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
           <div className="mt-4">
             <div className="flex flex-wrap items-center gap-2">
               {state.kind === "available" || state.kind === "partial" ? (
-                <button onClick={() => useLibrary.getState().stream(row, link?.opts ?? {})} className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white">
+                <button
+                  onClick={() => useLibrary.getState().stream(row, link?.opts ?? {})}
+                  className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white pointer-coarse:min-h-11 pointer-coarse:px-4"
+                >
                   Watch now
                 </button>
               ) : (
@@ -75,7 +78,7 @@ export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
       <div className="w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
         {body}
         <div className="mt-5 flex items-center gap-3 border-t border-zinc-800 pt-3">
-          <button onClick={goHome} className={SECONDARY}>
+          <button onClick={goHome} className={`touch-hit ${SECONDARY}`}>
             ← All races
           </button>
           <span className="flex-1" />

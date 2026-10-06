@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { usePhone } from "../../hooks/usePhone";
 import { getVault, type BudgetStatus, type LiveTopic, type SimStatus, type StreamStatus, type VaultStatus } from "../../vault/client";
 import { COVERAGE_SECONDS, simTime, useCoverage } from "./useCoverage";
 import { STRIP_SECONDS, useLiveStats } from "./useLiveStats";
@@ -59,6 +60,7 @@ function useCountdown(at: number | undefined): string | null {
 /** Spike S3 debug panel (?vault=debug): handshake, vault status (never a token), `status` round-trip latency. */
 export function VaultPanel() {
   const state = useVault();
+  const phone = usePhone();
   const [ping, setPing] = useState<Ping | null>(null);
   const [busy, setBusy] = useState(false);
   const status = state.status;
@@ -118,7 +120,15 @@ export function VaultPanel() {
   );
 
   return (
-    <aside data-testid="vault-panel" className="fixed bottom-4 right-4 z-50 max-h-[calc(100vh-5rem)] w-80 overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-900 p-3 text-xs shadow-lg">
+    // On a phone, a sheet across the bottom (there's no corner to tuck a 20 rem panel into).
+    <aside
+      data-testid="vault-panel"
+      className={`fixed z-50 overflow-y-auto border border-zinc-800 bg-zinc-900 p-3 text-xs shadow-lg ${
+        phone
+          ? "inset-x-0 bottom-0 max-h-[60vh] rounded-t-lg border-b-0 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))] [overflow-wrap:anywhere]"
+          : "bottom-4 right-4 max-h-[calc(100vh-5rem)] w-80 rounded-lg"
+      }`}
+    >
       <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Vault (debug)</h2>
       <dl className="space-y-1">
         {row("Handshake", <span data-testid="vault-phase">{state.phase}</span>)}

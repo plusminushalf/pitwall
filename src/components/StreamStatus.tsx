@@ -79,11 +79,11 @@ export function StreamLoading() {
           </>
         )}
         <div className="mt-5 flex items-center gap-2">
-          <button onClick={goHome} className={SECONDARY}>
+          <button onClick={goHome} className={`touch-hit ${SECONDARY}`}>
             ← All races
           </button>
           {failed && row && (
-            <button onClick={() => retry(row)} className={SECONDARY}>
+            <button onClick={() => retry(row)} className={`touch-hit ${SECONDARY}`}>
               Try again
             </button>
           )}
@@ -138,9 +138,9 @@ export function StreamBuffering() {
   // Dims the widgets: what they show is from before the part that's coming.
   return (
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-zinc-950/60">
-      <div className="flex max-w-md items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-200 shadow-xl">
+      <div className="mx-4 flex max-w-md items-center gap-2 rounded-full border border-zinc-700 bg-zinc-900/95 px-3 py-1.5 text-xs text-zinc-200 shadow-xl max-md:rounded-2xl">
         {stopped ? <span className="text-red-400">!</span> : <Spinner />}
-        <span className="truncate">{note ?? "Loading this part of the race…"}</span>
+        <span className="truncate max-md:whitespace-normal">{note ?? "Loading this part of the race…"}</span>
         {bar != null && (
           <>
             <span
@@ -157,7 +157,7 @@ export function StreamBuffering() {
           </>
         )}
         {row && (
-          <button onClick={() => resume(row)} className="pointer-events-auto shrink-0 rounded px-1.5 font-semibold text-zinc-100 hover:bg-zinc-800">
+          <button onClick={() => resume(row)} className="touch-hit pointer-events-auto shrink-0 rounded px-1.5 font-semibold text-zinc-100 hover:bg-zinc-800">
             Resume
           </button>
         )}

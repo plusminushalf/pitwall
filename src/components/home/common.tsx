@@ -12,7 +12,8 @@ import { BUTTON, FOCUS, LABEL, PRIMARY, SECONDARY } from "../controls";
 
 export { FOCUS, LABEL, PRIMARY, SECONDARY };
 const DANGER = `${BUTTON} bg-red-600 text-white hover:bg-red-500`;
-const ICON = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`;
+// (44 px on touch screens: a finger's target.)
+const ICON = `flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 pointer-coarse:h-11 pointer-coarse:w-11 ${FOCUS}`;
 
 /** Up-front estimate: "~45s", "~1.5 min", "~12 min". */
 export const approx = (s: number) =>
@@ -145,7 +146,7 @@ export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) 
           <button
             onClick={() => setWatch(watching ? null : key)}
             aria-pressed={watching}
-            className={`flex shrink-0 items-center gap-1 rounded px-1 hover:bg-zinc-800 ${FOCUS} ${watching ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
+            className={`flex shrink-0 items-center gap-1 rounded px-1 hover:bg-zinc-800 pointer-coarse:min-h-11 pointer-coarse:px-2 ${FOCUS} ${watching ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
             title={watching ? "Don't switch to this session when it's ready" : "Switch to this session when it's ready"}
           >
             {watching && <Glyph name="check" />}

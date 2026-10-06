@@ -259,12 +259,15 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
     <div ref={wrapRef} className="relative min-h-0 flex-1">
       <canvas
         ref={canvasRef}
-        className="absolute inset-0 cursor-crosshair"
+        className="absolute inset-0 cursor-crosshair touch-none"
         style={{ width: size.w, height: size.h }}
         role="img"
         aria-label="Track map coloured by the fastest compared driver in each mini-sector"
+        // A finger drives the readout as the mouse does: a touch places it, and lifting (which the browser reports
+        // as leaving) keeps it there.
+        onPointerDown={(e) => e.pointerType === "touch" && useQuali.getState().setHover(at(e))}
         onPointerMove={(e) => useQuali.getState().setHover(at(e))}
-        onPointerLeave={() => useQuali.getState().setHover(null)}
+        onPointerLeave={(e) => e.pointerType !== "touch" && useQuali.getState().setHover(null)}
         onClick={(e) => {
           const d = at(e);
           const s = d != null ? sectors.find((x) => d >= x.from && d <= x.to) : null;

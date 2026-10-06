@@ -10,6 +10,11 @@
 //
 // In normal mode, hovering a widget shows a button that fills the grid with it (the same widget, so it
 // doesn't remount); a button in the same place, or Esc, puts it back. Not a layout change: nothing is saved.
+//
+// On a phone (usePhone) none of that: the same layout's widgets as one full-width column that scrolls
+// (PhoneGrid), the tower first, each widget at its own height (layout.ts: phoneColumn). Edit mode is for
+// desktops: the phone column ignores the store's editing flag and never saves, so the layout a user made
+// on their desktop is exactly as they left it when they next open it there.
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { Icon } from "../widgetkit/ui/Icon";
@@ -18,6 +23,7 @@ import type { WidgetDefinition, WidgetSettings } from "../widgetkit/defineWidget
 import { heightInputOf, orderOf, selectedDriverOf } from "../widgetkit/select";
 import { track } from "../posthog";
 import { useReplay } from "../store";
+import { usePhone } from "../hooks/usePhone";
 import { WidgetPicker, gridWidgets } from "./WidgetPicker";
 import { BUILTIN_WIDGETS } from "./builtins";
 import { WidgetChrome, ColumnGuides, DropPlaceholder, EmptySlot, IconButton, Popover, RowGuides, type ChromeState, type ResizeAxis } from "./EditChrome";
@@ -37,7 +43,7 @@ import {
   type DropTarget,
   type EditContext,
 } from "./edit";
-import { boxesOf, pack, ROW, type Box, type Layout } from "./layout";
+import { boxesOf, pack, phoneColumn, ROW, type Box, type Layout } from "./layout";
 import { SettingsEditor, shownFields } from "./SettingsEditor";
 import { gridKind } from "./storage";
 import { useLayout } from "./store";
@@ -60,7 +66,51 @@ const showing = () => {
 };
 
 // Memoised (no props): it re-renders only on its own state, not on every 10 Hz commit of the app above it.
+// The phone and desktop grids are separate components, so crossing the breakpoint (a window resized, a
+// tablet turned) unmounts one and mounts the other: its observers and listeners go with it.
 export const Grid = memo(function Grid() {
+  return usePhone() ? <PhoneGrid /> : <DesktopGrid />;
+});
+
+/** The phone column: the layout's widgets full width, one under the other, scrolling as a whole. */
+function PhoneGrid() {
+  const layout = useLayout((s) => s.layout);
+  const session = useReplay((s) => (s.session ? heightInputOf(s.session) : null));
+  const selected = useReplay((s) => s.selected);
+  const focused = useReplay((s) => s.focused);
+  const input = useMemo(() => (session ? { ...session, selection: { selected, focused } } : null), [session, selected, focused]);
+  const column = useMemo(() => (input ? phoneColumn(layout, BUILTIN_WIDGETS, input) : []), [layout, input]);
+  return (
+    <div className="min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+      {column.map(({ id, widget, settings, height }) => (
+        <PhoneBox key={id} id={id} widget={widget} settings={settings} height={height} />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * A widget's own setting changes (the tower's Gap/Int toggle) on a phone: kept while the app is open, not
+ * saved (the saved layout is the desktop's; the phone writes nothing to it).
+ */
+const setPhoneSettings = (id: string, settings: Partial<WidgetSettings>) => {
+  const { layout, setLayout } = useLayout.getState();
+  const entry = layout.widgets[id];
+  if (entry) setLayout({ ...layout, widgets: { ...layout.widgets, [id]: { ...entry, settings } } });
+};
+
+/** One widget of the phone column, in the same host as on the desktop so it measures itself the same way. */
+const PhoneBox = memo(function PhoneBox({ id, widget, settings, height }: { id: string; widget: WidgetDefinition; settings: Partial<WidgetSettings>; height: string }) {
+  const onSettingsChange = useCallback((s: Partial<WidgetSettings>) => setPhoneSettings(id, s), [id]);
+  return (
+    // A hairline between neighbours, as between groups on the desktop; contained like a desktop box.
+    <div data-widget={id} className="relative w-full border-zinc-800 [contain:layout_paint] not-first:border-t" style={{ height }}>
+      <WidgetHost widget={widget} settings={settings} onSettingsChange={onSettingsChange} className="h-full w-full overflow-hidden" />
+    </div>
+  );
+});
+
+const DesktopGrid = memo(function DesktopGrid() {
   const layout = useLayout((s) => s.layout);
   const editing = useLayout((s) => s.editing);
   const picker = useLayout((s) => s.picker);
@@ -168,6 +218,11 @@ export const Grid = memo(function Grid() {
   // The latest values for the pointer handlers, which live across renders.
   const live = useRef({ layout, placements, boxes, ctx, size });
   live.current = { layout, placements, boxes, ctx, size };
+  // The drag or resize in progress, ended (as a cancel) if the grid unmounts under it: the window
+  // listeners and the body cursor go with it, instead of outliving the grid (a tablet turned to the
+  // phone layout mid-drag).
+  const pending = useRef<(() => void) | null>(null);
+  useEffect(() => () => pending.current?.(), []);
 
   const startMove = useCallback((id: string, e: ReactPointerEvent) => {
     const { layout: start, placements: startPlacements, boxes: startBoxes, ctx: c, size: s } = live.current;
@@ -205,6 +260,7 @@ export const Grid = memo(function Grid() {
       land(targetAt());
     };
     const end = (drop: boolean) => {
+      pending.current = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onCancel);
@@ -229,6 +285,7 @@ export const Grid = memo(function Grid() {
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onCancel);
     window.addEventListener("keydown", onKey, true);
+    pending.current = () => end(false);
   }, []);
 
   const startResize = useCallback((id: string, side: "left" | "right", e: ReactPointerEvent) => {
@@ -261,6 +318,7 @@ export const Grid = memo(function Grid() {
       if (next !== useLayout.getState().layout) useLayout.getState().setLayout(next);
     };
     const end = () => {
+      pending.current = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
@@ -270,6 +328,7 @@ export const Grid = memo(function Grid() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
+    pending.current = end;
   }, []);
 
   const startHeight = useCallback((id: string, e: ReactPointerEvent) => {
@@ -296,6 +355,7 @@ export const Grid = memo(function Grid() {
       if (next.widgets[id].height !== useLayout.getState().layout.widgets[id]?.height) useLayout.getState().setLayout(next);
     };
     const end = () => {
+      pending.current = null;
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
@@ -305,6 +365,7 @@ export const Grid = memo(function Grid() {
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", end);
     window.addEventListener("pointercancel", end);
+    pending.current = end;
   }, []);
 
   // Stable, so a Grid render (a new drop target) re-renders only the boxes whose props changed.
@@ -544,10 +605,11 @@ const WidgetBox = memo(function WidgetBox({
       <div className={contentHeight == null ? "h-full" : "h-full overflow-y-auto overflow-x-hidden"}>{host}</div>
       {!editing && (
         // Bottom right, like a video player's, where no widget keeps its controls. Shown on hover (or focus)
-        // until the widget is full screen, when it stays to put it back.
+        // until the widget is full screen, when it stays to put it back; a touch screen (a tablet) has no
+        // hover, so there it's always shown.
         <span
           className={`absolute bottom-1 right-1 z-10 transition-opacity ${
-            full ? "" : "opacity-0 focus-within:opacity-100 group-hover/box:opacity-100"
+            full ? "" : "opacity-0 focus-within:opacity-100 group-hover/box:opacity-100 pointer-coarse:opacity-100"
           }`}
         >
           <IconButton label={full ? `Shrink ${label} (Esc)` : `Fill the screen with ${label}`} onClick={() => actions.toggleFull(id)}>

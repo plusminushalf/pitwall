@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, type MouseEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, type PointerEvent } from "react";
 import {
   defineWidget,
   drawCornerLabels,
@@ -25,6 +25,10 @@ import { labelOrder, stackOrder } from "./stacking";
 
 const PADDING = 56;
 const HIT_RADIUS = 14;
+/** A fingertip's reach on a touch screen. */
+const TOUCH_HIT_RADIUS = 24;
+/** A press that moves further than this before lifting is a drag (a scroll), not a tap. */
+const TAP_SLOP = 8;
 const LABEL_H = 16;
 const FLAG_COLORS: Record<SectorFlag, string> = { YELLOW: "#facc15", "DOUBLE YELLOW": "#f97316", RED: "#ef4444" };
 /** The car layer redraws only the boxes around cars that changed, unless they cover more than this share of it. */
@@ -661,25 +665,36 @@ function TrackMap() {
     carsOnScreen.current = cars.map((c) => ({ driver: c.n, x: c.cx, y: c.cy }));
   });
 
-  /** The car under the pointer, if any. */
-  const carAt = (e: MouseEvent<HTMLCanvasElement>) => {
+  /** The car under the pointer, if any; a finger is wider than a mouse pointer, so a touch reaches further. */
+  const carAt = (e: PointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
+    const radius = e.pointerType === "touch" ? TOUCH_HIT_RADIUS : HIT_RADIUS;
     let best: { driver: number; d: number } | null = null;
     for (const c of carsOnScreen.current) {
       const d = Math.hypot(c.x - mx, c.y - my);
-      if (d <= HIT_RADIUS && (!best || d < best.d)) best = { driver: c.driver, d };
+      if (d <= radius && (!best || d < best.d)) best = { driver: c.driver, d };
     }
     return best?.driver ?? null;
   };
-  // Toggle the car in the selection; clicks on empty track leave the selection alone.
-  const onClick = (e: MouseEvent<HTMLCanvasElement>) => {
+  // A tap or click (down and up without moving) toggles the car in the selection; one on empty track leaves
+  // the selection alone. Pointer events rather than click, so a touch that turns into a scroll (the browser
+  // cancels the pointer) never selects a car.
+  const press = useRef<{ x: number; y: number } | null>(null);
+  const onPointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
+    press.current = e.button === 0 ? { x: e.clientX, y: e.clientY } : null;
+  };
+  const onPointerUp = (e: PointerEvent<HTMLCanvasElement>) => {
+    const p = press.current;
+    press.current = null;
+    if (!p || Math.hypot(e.clientX - p.x, e.clientY - p.y) > TAP_SLOP) return;
     const n = carAt(e);
     if (n != null) toggle(n);
   };
-  // Only a car can be clicked, so only a car gets the pointer.
-  const onMouseMove = (e: MouseEvent<HTMLCanvasElement>) => {
+  // Only a car can be clicked, so only a car gets the pointer (the mouse pointer: touch has none).
+  const onPointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    if (e.pointerType !== "mouse") return;
     const cursor = carAt(e) != null ? "pointer" : "";
     if (e.currentTarget.style.cursor !== cursor) e.currentTarget.style.cursor = cursor;
   };
@@ -690,7 +705,16 @@ function TrackMap() {
   return (
     <div className="relative h-full w-full overflow-hidden">
       <canvas ref={trackRef} className="pointer-events-none absolute inset-0" style={{ width: w, height: h }} />
-      <canvas ref={carsRef} onClick={onClick} onMouseMove={onMouseMove} className="absolute inset-0" style={{ width: w, height: h }} />
+      {/* touch-pan-y: the map doesn't pan, so a finger dragged over it scrolls the page as anywhere else. */}
+      <canvas
+        ref={carsRef}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerCancel={() => (press.current = null)}
+        onPointerMove={onPointerMove}
+        className="absolute inset-0 touch-pan-y"
+        style={{ width: w, height: h }}
+      />
       {banner && (
         <div className={`absolute left-1/2 top-3 -translate-x-1/2 rounded px-4 py-1 text-sm font-bold uppercase tracking-wider shadow-lg ${banner.className}`}>
           {banner.label}

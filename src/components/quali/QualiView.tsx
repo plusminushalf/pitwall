@@ -2,12 +2,13 @@
 // board on the left, speed, delta, throttle, brake and gear on one distance axis, and the track map with who's
 // fastest in each mini-sector and the laps as ghosts.
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { cornerLabel } from "../../data/circuits";
 import { compareModel, type CompareModel } from "../../data/compare";
 import { miniSectors } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";
+import { useCoarsePointer, usePhone } from "../../hooks/usePhone";
 import { lapTime } from "../../lib/format";
 import { ghost, GHOST_SPEEDS, MINI_SECTOR_COUNTS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
@@ -100,6 +101,40 @@ function PracticeSummary({ meta, model }: { meta: SessionMeta; model: CompareMod
             <span className="text-xs tabular-nums text-zinc-300">{lapTime(b.time)}</span>
           </span>
         </span>
+      ))}
+    </div>
+  );
+}
+
+/** The phone's header: the way back, the session, the practice switch and Share. The summaries live on the board. */
+function PhoneHeader({ meta }: { meta: SessionMeta }) {
+  return (
+    <header className="flex h-[52px] items-center gap-2 border-b border-zinc-800 bg-zinc-950 px-3">
+      <RacesButton />
+      <SessionPicker meta={meta} />
+      <div className="ml-auto flex shrink-0 items-center gap-2">
+        <PracticeViewSwitch />
+        <ShareButton />
+      </div>
+    </header>
+  );
+}
+
+type Panel = "board" | "charts" | "map";
+const PANELS: { id: Panel; label: string }[] = [
+  { id: "board", label: "Board" },
+  { id: "charts", label: "Charts" },
+  { id: "map", label: "Map" },
+];
+
+/** The phone shows one of the three columns at a time; this picks it. */
+function PanelTabs({ panel, onPick }: { panel: Panel; onPick: (p: Panel) => void }) {
+  return (
+    <div className="flex shrink-0 gap-1 border-b border-zinc-800 bg-zinc-950 p-1" role="tablist" aria-label="Panel">
+      {PANELS.map((p) => (
+        <button key={p.id} type="button" role="tab" aria-selected={panel === p.id} onClick={() => onPick(p.id)} className={`h-11 flex-1 rounded-md text-sm font-semibold ${panel === p.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 active:bg-zinc-800"}`}>
+          {p.label}
+        </button>
       ))}
     </div>
   );
@@ -262,78 +297,98 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
   }, [withTrace, meta]);
 
   const ref = entries[0];
-  return (
-    <div className="relative grid h-full grid-rows-[auto_minmax(0,1fr)_auto]">
-      <CompareHeader meta={meta} model={model} />
-      <div className="grid min-h-0 grid-cols-[360px_minmax(0,1fr)_400px]">
-        <aside data-shot="" className="min-h-0 border-r border-zinc-800">
-          <QualiBoard />
-        </aside>
-        <main data-shot="" className="flex min-h-0 min-w-0 flex-col">
-          <CompareBar model={model} entries={entries} />
-          <div className="flex h-7 shrink-0 items-center justify-between px-3 text-[11px] text-zinc-500">
-            <span>
-              {ref && entries.length > 1 ? (
-                <>
-                  Delta = time behind <span className="font-semibold text-zinc-300">{ref.info.acronym}</span> at the same point of the lap (up = slower)
-                </>
-              ) : (
-                "Speed, throttle, brake and gear against distance from the timing line"
-              )}
-            </span>
-            <span className="flex items-center gap-2">
-              {zoom ? (
-                <>
-                  <span className="text-zinc-600">Swipe sideways to pan</span>
-                  <span className="tabular-nums">
-                    {Math.round(zoom[0])}–{Math.round(zoom[1])} m
-                  </span>
-                  <button onClick={() => useQuali.getState().setZoom(null)} className="rounded px-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white">
-                    Reset zoom
-                  </button>
-                </>
-              ) : (
-                <span className="text-zinc-600">Drag or scroll to zoom</span>
-              )}
-            </span>
-          </div>
-          {withTrace.length ? (
-            <CompareCharts entries={entries} lapLength={model.lapLength} sectorDistances={model.sectorDistances} corners={corners} />
+  const phone = usePhone();
+  const coarse = useCoarsePointer();
+  const [panel, setPanel] = useState<Panel>("charts");
+
+  const board = (
+    <aside data-shot="" className={phone ? "min-h-0" : "min-h-0 border-r border-zinc-800"}>
+      <QualiBoard />
+    </aside>
+  );
+  const charts = (
+    <main data-shot="" className="flex min-h-0 min-w-0 flex-col">
+      <CompareBar model={model} entries={entries} />
+      <div className="flex h-7 shrink-0 items-center justify-between gap-2 px-3 text-[11px] text-zinc-500">
+        <span className="min-w-0 truncate">
+          {ref && entries.length > 1 ? (
+            <>
+              Delta = time behind <span className="font-semibold text-zinc-300">{ref.info.acronym}</span> at the same point of the lap (up = slower)
+            </>
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-zinc-500">
-              {entries.some((e) => e.loading) ? "Loading lap telemetry…" : "Pick drivers on the timing board to compare their laps"}
-            </div>
+            "Speed, throttle, brake and gear against distance from the timing line"
           )}
-        </main>
-        <aside className="flex min-h-0 flex-col border-l border-zinc-800">
-          {/* The map and what goes with it: one region to share (share/ShareShot.tsx). */}
-          <div data-shot="" className="flex min-h-0 flex-1 flex-col">
-            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
-              <span className={LABEL}>Fastest per mini-sector</span>
-              <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
-                {MINI_SECTOR_COUNTS.map((n) => (
-                  <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
-                    {n}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="shrink-0 px-3 pt-1">
-              <Dominance entries={entries} sectors={sectors} />
-            </div>
-            <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} names={cornerNames} />
-            <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
-              <p>Hover to follow the charts' cursor · click a mini-sector to zoom to it</p>
-              {meta.track.corners.some((c) => c.name) && (
-                <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
-                  Corner names
+        </span>
+        <span className="flex shrink-0 items-center gap-2">
+          {zoom ? (
+            <>
+              {!coarse && <span className="text-zinc-600">Swipe sideways to pan</span>}
+              <span className="tabular-nums">
+                {Math.round(zoom[0])}–{Math.round(zoom[1])} m
+              </span>
+              {/* Touch has its own Reset zoom button over the charts (CompareCharts.tsx). */}
+              {!coarse && (
+                <button onClick={() => useQuali.getState().setZoom(null)} className="rounded px-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white">
+                  Reset zoom
                 </button>
               )}
-            </div>
-          </div>
-          <SectorTable entries={entries} />
-        </aside>
+            </>
+          ) : (
+            <span className="text-zinc-600">{coarse ? "Drag to zoom · double-tap to reset" : "Drag or scroll to zoom"}</span>
+          )}
+        </span>
       </div>
+      {withTrace.length ? <CompareCharts entries={entries} lapLength={model.lapLength} sectorDistances={model.sectorDistances} corners={corners} /> : <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-zinc-500">{entries.some((e) => e.loading) ? "Loading lap telemetry…" : "Pick drivers on the timing board to compare their laps"}</div>}
+    </main>
+  );
+  const map = (
+    // A phone's panel scrolls: the map keeps a readable height and the sector table goes under it.
+    <aside className={`flex min-h-0 flex-col ${phone ? "overflow-y-auto overscroll-contain" : "border-l border-zinc-800"}`}>
+      {/* The map and what goes with it: one region to share (share/ShareShot.tsx). */}
+      <div data-shot="" className={`flex min-h-0 flex-1 flex-col ${phone ? "min-h-[24rem] shrink-0" : ""}`}>
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pt-2">
+          <span className={LABEL}>Fastest per mini-sector</span>
+          <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
+            {MINI_SECTOR_COUNTS.map((n) => (
+              <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums pointer-coarse:px-3 pointer-coarse:py-2 ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+                {n}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="shrink-0 px-3 pt-1">
+          <Dominance entries={entries} sectors={sectors} />
+        </div>
+        <CompareMap track={meta.track} entries={entries} sectors={withTrace.length > 1 ? sectors : []} names={cornerNames} />
+        <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
+          <p>{coarse ? "Touch the track to follow the charts' cursor · tap a mini-sector to zoom to it" : "Hover to follow the charts' cursor · click a mini-sector to zoom to it"}</p>
+          {meta.track.corners.some((c) => c.name) && (
+            <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 pointer-coarse:px-3 pointer-coarse:py-2 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+              Corner names
+            </button>
+          )}
+        </div>
+      </div>
+      <SectorTable entries={entries} />
+    </aside>
+  );
+
+  return (
+    <div className="relative grid h-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)_auto]">
+      {phone ? <PhoneHeader meta={meta} /> : <CompareHeader meta={meta} model={model} />}
+      {phone ? (
+        // One column at a time; the tab bar picks which. Each panel keeps its own height so the canvases size to it.
+        <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)]">
+          <PanelTabs panel={panel} onPick={setPanel} />
+          <div className="grid min-h-0">{panel === "board" ? board : panel === "charts" ? charts : map}</div>
+        </div>
+      ) : (
+        <div className="grid min-h-0 grid-cols-[360px_minmax(0,1fr)_400px]">
+          {board}
+          {charts}
+          {map}
+        </div>
+      )}
       <GhostBar entries={entries} maxDuration={maxDuration} />
       {overlay}
     </div>
