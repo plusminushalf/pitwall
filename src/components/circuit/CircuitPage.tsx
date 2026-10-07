@@ -216,8 +216,11 @@ function History({ h, slug }: { h: CircuitHistory; slug: string }) {
  */
 function PastRaces({ slug }: { slug: string }) {
   const scope = useMemo(() => ({ slug }), [slug]);
+  // Each a panel of its own in a screenshot (shift-click for several), as on the grid.
   const host = (id: string, className: string) => (
-    <WidgetHost key={id} widget={BUILTIN_WIDGETS.get(id)!} circuit={scope} className={`border-b border-r border-zinc-800 ${className}`} />
+    <div key={id} data-shot="" className={`border-b border-r border-zinc-800 ${className}`}>
+      <WidgetHost widget={BUILTIN_WIDGETS.get(id)!} circuit={scope} className="h-full" />
+    </div>
   );
   return (
     <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-2">
@@ -286,15 +289,18 @@ export function CircuitPage({ slug }: { slug: string }) {
         </header>
 
         <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-6">
-          <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-zinc-50">
-            {latest && <Flag country={latest.country} className="h-6" />}
-            {name}
-          </h1>
-          <p className="mt-1 text-sm text-zinc-400">
-            {[history?.circuit.fullName !== name ? history?.circuit.fullName : null, latest?.country, gps.length ? gps.join(" · ") : null]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+          {/* A panel of its own in a screenshot: shift-click it with a widget to share both. */}
+          <div data-shot="">
+            <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-zinc-50">
+              {latest && <Flag country={latest.country} className="h-6" />}
+              {name}
+            </h1>
+            <p className="mt-1 text-sm text-zinc-400">
+              {[history?.circuit.fullName !== name ? history?.circuit.fullName : null, latest?.country, gps.length ? gps.join(" · ") : null]
+                .filter(Boolean)
+                .join(" · ")}
+            </p>
+          </div>
           {coming && <WeekendForecast sessions={comingSessions} meetingName={coming.meetingName} circuitKey={coming.circuitKey} now={now} />}
           <PastRaces slug={slug} />
           {history && <History h={history} slug={slug} />}
