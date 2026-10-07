@@ -782,7 +782,8 @@ export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meet
   );
 }
 
-export function Season() {
+/** `heading`: what leads the section, its title (Home puts its Circuits / Season tabs there). */
+export function Season({ heading }: { heading: ReactNode }) {
   const year = useLibrary((s) => s.calendarYear);
   const setYear = useLibrary((s) => s.setCalendarYear);
   const state = useLibrary((s) => s.years[s.calendarYear]);
@@ -817,11 +818,9 @@ export function Season() {
   }
 
   return (
-    <section aria-labelledby="season-title" className="mt-12">
+    <section aria-label="Season" className="mt-12">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        <h2 id="season-title" className="text-2xl font-bold tracking-tight text-zinc-50">
-          Season
-        </h2>
+        {heading}
         <Segmented label="Year" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />
         <span className="flex-1" />
         <Segmented label="Sessions" value={filter} options={FILTERS} onChange={setFilter} />

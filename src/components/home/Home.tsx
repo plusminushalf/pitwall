@@ -3,9 +3,10 @@
 // moment is: the next session's countdown, or a session live now. Under it a live row, only while live mode can
 // actually follow a session (the page's one white button then). Then the jump field, which finds any session by
 // Grand Prix, year and type, over Continue (what's in this browser, the latest race first when it's newer than what
-// was last watched) and the season sheet. Opening a session from here is a new history entry (useReplay's openSession).
+// was last watched) and, as tabs, the season's circuits (each opening the circuit's page) or the season sheet.
+// Opening a session from here is a new history entry (useReplay's openSession).
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { LIVE_TYPES } from "../../../scripts/lib/season";
 import { isLive, nextSession, nextWeekend, type CatalogRow } from "../../ingest/catalog";
 import { currentYear, FIRST_YEAR, useLibrary } from "../../library";
@@ -18,10 +19,11 @@ import { accountStatus, LiveDot } from "../LiveControl";
 import { Logo } from "../Logo";
 import { useVault } from "../vault/useVault";
 import { VaultIndicators } from "../vault/VaultStatus";
-import { Attribution, LABEL, PRIMARY, SECONDARY, sessionTime, shortGp, size, useDownloadBlock, useNow, waitText } from "./common";
+import { Attribution, FOCUS, LABEL, PRIMARY, SECONDARY, sessionTime, shortGp, size, useDownloadBlock, useNow, waitText } from "./common";
 import { Continue } from "./Continue";
 import { Jump } from "./Jump";
 import { Season } from "./Season";
+import { Circuits } from "./Circuits";
 import { Settings } from "./Settings";
 
 /** Why downloads wait (unless the live row already says), and another tab downloading. */
@@ -205,6 +207,53 @@ function Stored() {
   );
 }
 
+type Browsing = "circuits" | "season";
+const BROWSING_KEY = "f1-replay:home-browse";
+const readBrowsing = (): Browsing => {
+  try {
+    return globalThis.localStorage?.getItem(BROWSING_KEY) === "season" ? "season" : "circuits";
+  } catch {
+    return "circuits";
+  }
+};
+
+/**
+ * Under Continue: the season's circuits (each opening its page, with every session there over the years), or the
+ * season sheet (every session of a season by round). Tabs that are the section's title; the choice is kept.
+ */
+function Browse() {
+  const [browsing, setBrowsing] = useState(readBrowsing);
+  const choose = (b: Browsing) => {
+    setBrowsing(b);
+    try {
+      globalThis.localStorage?.setItem(BROWSING_KEY, b);
+    } catch {
+      // Not kept: circuits next time.
+    }
+  };
+  const heading = (
+    <h2 className="flex items-baseline gap-4" role="tablist" aria-label="Browse">
+      {(
+        [
+          ["circuits", "Circuits"],
+          ["season", "Season"],
+        ] as const
+      ).map(([id, label]) => (
+        <button
+          key={id}
+          role="tab"
+          aria-selected={browsing === id}
+          onClick={() => choose(id)}
+          className={`rounded-sm text-2xl font-bold tracking-tight ${FOCUS} ${browsing === id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
+        >
+          {label}
+        </button>
+      ))}
+    </h2>
+  );
+  return browsing === "circuits" ? <Circuits heading={heading} /> : <Season heading={heading} />;
+}
+
 export function Home() {
   const years = useLibrary((s) => s.years);
   const current = useLibrary((s) => s.years[currentYear()]);
@@ -271,7 +320,7 @@ export function Home() {
           {action && <LiveRow action={action} />}
           <Jump>
             <Continue featured={featured} lead={!action} />
-            <Season />
+            <Browse />
           </Jump>
         </main>
 
