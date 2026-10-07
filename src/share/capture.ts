@@ -126,6 +126,23 @@ export async function captureApp(): Promise<Shot> {
   }
 }
 
+/** A PNG of `el` (a share card, drawn transparent where it waits) at `scale` image px per CSS px. */
+export async function captureCard(el: HTMLElement, scale: number): Promise<Blob> {
+  const { domToBlob } = await import("modern-screenshot");
+  return domToBlob(el, {
+    scale,
+    type: "image/png",
+    backgroundColor: PIT_BLACK,
+    font: false,
+    style: { opacity: "1" },
+    onCloneNode: (cloned) => {
+      const style = document.createElement("style");
+      style.textContent = "* { scrollbar-width: none !important; }";
+      (cloned as Element).prepend(style);
+    },
+  });
+}
+
 let logo: Promise<HTMLImageElement> | null = null;
 function loadLogo(): Promise<HTMLImageElement> {
   logo ??= new Promise((resolve, reject) => {

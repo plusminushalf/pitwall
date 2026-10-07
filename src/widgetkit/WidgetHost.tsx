@@ -20,6 +20,23 @@ export interface WidgetHostProps {
   style?: CSSProperties;
   /** A circuit's page: the circuit a circuit widget shows, with no session needed. */
   circuit?: CircuitScope;
+  /** Device px per CSS px for the widget's canvases, instead of the display's (a share card's, drawn bigger). */
+  pixelRatio?: number;
+}
+
+/** What a mounted widget is, to mount it again elsewhere (a share card). */
+export interface HostedWidget {
+  widget: WidgetDefinition<any>;
+  settings: Partial<WidgetSettings>;
+  circuit?: CircuitScope;
+}
+
+const HOSTED = new WeakMap<Element, { current: HostedWidget }>();
+
+/** The widget mounted in `el` (or `el` itself), as it's set now; null if there's none. */
+export function hostedIn(el: Element): HostedWidget | null {
+  const host = el.matches("[data-widget-host]") ? el : el.querySelector("[data-widget-host]");
+  return (host && HOSTED.get(host)?.current) ?? null;
 }
 
 /** Catches a crashed widget; it gets another go when `resetKey` changes (another widget or other settings). */
@@ -40,7 +57,7 @@ class Boundary extends Component<{ name: string; resetKey: string; children: Rea
   }
 }
 
-export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style, circuit }: WidgetHostProps) {
+export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style, circuit, pixelRatio: ratio }: WidgetHostProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visibility] = useState(createVisibility);
   const [size, setSize] = useState<WidgetSize>({ width: 0, height: 0, pixelRatio: 1 });
@@ -61,7 +78,7 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
     const measure = (box: { width: number; height: number } = el.getBoundingClientRect()) => {
       const width = Math.floor(box.width);
       const height = Math.floor(box.height);
-      const pixelRatio = window.devicePixelRatio || 1;
+      const pixelRatio = ratio ?? (window.devicePixelRatio || 1);
       setSize((m) => (m.width === width && m.height === height && m.pixelRatio === pixelRatio ? m : { width, height, pixelRatio }));
     };
     measure();
@@ -82,6 +99,11 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
 
   const latest = useRef({ overrides, onSettingsChange });
   latest.current = { overrides, onSettingsChange };
+  const hosted = useRef<HostedWidget>({ widget, settings: overrides, circuit });
+  hosted.current = { widget, settings: overrides, circuit };
+  useLayoutEffect(() => {
+    HOSTED.set(ref.current!, hosted);
+  }, []);
   const update = useCallback((patch: Partial<WidgetSettings>) => {
     const next = { ...latest.current.overrides, ...patch };
     setOverrides(next);
@@ -97,7 +119,7 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   const content = useMemo(() => <Widget />, [Widget]);
   const resetKey = `${widget.id}:${JSON.stringify(settingsValue.settings)}`;
   return (
-    <div ref={ref} className={className} style={style}>
+    <div ref={ref} data-widget-host="" className={className} style={style}>
       {(circuit ? widget.group === "circuit" : kind && widget.sessions.includes(kind)) && size.width > 0 && (
         <CircuitContext.Provider value={circuit ?? null}>
           <VisibilityContext.Provider value={visibility}>

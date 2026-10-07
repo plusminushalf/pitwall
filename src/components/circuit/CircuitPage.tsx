@@ -14,6 +14,7 @@ import { currentYear, useLibrary, YEARS } from "../../library";
 import { FOCUS, LABEL, SECONDARY } from "../controls";
 import { Attribution, shortGp, useNow } from "../home/common";
 import { WeekendForecast } from "./Forecast";
+import { useShareHeading } from "../../share/ShareCard";
 import { Settings } from "../home/Settings";
 import { byMeeting, WeekendSheet } from "../home/Season";
 import { RacesButton } from "../Navigation";
@@ -258,6 +259,15 @@ export function CircuitPage({ slug }: { slug: string }) {
   // The name OpenF1 gives it, and what F1DB calls it (Sepang's "Kuala Lumpur" is "Sepang International Circuit").
   const name = latest?.circuit ?? slug;
   const gps = [...new Set(meetings.map((m) => shortGp(m.name)))];
+  const detail = [history?.circuit.fullName !== name ? history?.circuit.fullName : null, latest?.country, gps.length ? gps.join(" · ") : null]
+    .filter(Boolean)
+    .join(" · ");
+  // A share card of the widgets here is headed as the page is.
+  const country = latest?.country;
+  useEffect(() => {
+    useShareHeading.setState({ heading: { title: name, detail, country } });
+    return () => useShareHeading.setState({ heading: null });
+  }, [name, detail, country]);
   // The weekend here still to finish, if there is one: its sessions (practice too) for the forecast.
   const now = useNow(60_000);
   const coming = rows.find((r) => !r.cancelled && Date.parse(r.dateEnd) > now);
@@ -291,18 +301,14 @@ export function CircuitPage({ slug }: { slug: string }) {
         </header>
 
         <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-6">
-          {/* A panel of its own in a screenshot: shift-click it with a widget to share both. Inset as the sections'
-              text and the widgets' are, so it lines up with them. */}
-          <div data-shot="" className="px-3">
+          {/* A panel of its own in a screenshot: shift-click it with a widget to share both (a card's heading says
+              it). Inset as the sections' text and the widgets' are, so it lines up with them. */}
+          <div data-shot="title" className="px-3">
             <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-zinc-50">
               {latest && <Flag country={latest.country} className="h-6" />}
               {name}
             </h1>
-            <p className="mt-1 text-sm text-zinc-400">
-              {[history?.circuit.fullName !== name ? history?.circuit.fullName : null, latest?.country, gps.length ? gps.join(" · ") : null]
-                .filter(Boolean)
-                .join(" · ")}
-            </p>
+            <p className="mt-1 text-sm text-zinc-400">{detail}</p>
           </div>
           {coming && <WeekendForecast sessions={comingSessions} meetingName={coming.meetingName} circuitKey={coming.circuitKey} now={now} />}
           <PastRaces slug={slug} />

@@ -1,7 +1,9 @@
 // Share a screenshot (S on any page, or a session's Share button): the screen is frozen as it is, the user drags out an
 // area, clicks a widget or panel (anything marked data-widget / data-shot; shift-click for several), or presses Enter
-// for all of it, and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. A toast
-// then offers the link to this moment, or off a session to the page (share/link.ts), and the image to save.
+// for all of it, and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. Widgets
+// picked (only widgets) are a share card instead (ShareCard.tsx): mounted again in a narrow column and drawn bigger,
+// so they read in a feed. A toast then offers the link to this moment, or off a session to the page (share/link.ts),
+// and the image to save.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
@@ -11,6 +13,7 @@ import { useReplay } from "../store";
 import { Icon } from "../widgetkit/ui/Icon";
 import { brandedImage, captureApp, clampArea, IGNORE, type Rect, type Shot } from "./capture";
 import { shareLink, siteOrigin } from "./link";
+import { cardPanels, shareHeading, ShareCard, type CardJob, type ShareHeading } from "./ShareCard";
 
 /** A drag shorter than this (CSS px) is a click. */
 const DRAG_PX = 4;
@@ -35,15 +38,20 @@ type Page = "session" | "page";
 type Phase =
   | { kind: "idle" }
   | { kind: "capturing" }
-  | { kind: "picking"; shot: Shot; image: string; link: Promise<string | null>; fileName: string; page: Page };
+  | { kind: "picking"; shot: Shot; image: string; link: Promise<string | null>; fileName: string; page: Page; heading: ShareHeading | null };
 
 interface ShareState {
   phase: Phase;
   result: Result | null;
+  /** The share card being drawn. */
+  card: CardJob | null;
   /** Freezes the screen and opens the picker. */
   start: () => void;
-  /** Shares `area` of the frozen screen (all of it if null). Called from the pointer or key event, so the clipboard takes it. */
-  pick: (area: Rect | null) => void;
+  /**
+   * Shares `area` of the frozen screen (all of it if null), or a card of `panels` if they're all widgets. Called from
+   * the pointer or key event, so the clipboard takes it.
+   */
+  pick: (area: Rect | null, panels?: readonly Element[]) => void;
   cancel: () => void;
   dismiss: () => void;
 }
@@ -65,6 +73,7 @@ export const useShare = create<ShareState>((set, get) => {
   return {
     phase: { kind: "idle" },
     result: null,
+    card: null,
     start: () => {
       const s = useReplay.getState();
       if (get().phase.kind !== "idle") return;
@@ -72,6 +81,7 @@ export const useShare = create<ShareState>((set, get) => {
       const page: Page = meta ? "session" : "page";
       // The link is to the moment the key was pressed.
       const link = shareLink().catch(() => null);
+      const heading = shareHeading();
       const fileName = meta
         ? `pitwall-${slug(`${meta.year} ${meta.meetingName} ${meta.sessionName}`)}-${Math.floor(s.t / 1000)}.png`
         : `pitwall-${slug(location.pathname) || "home"}.png`;
@@ -82,7 +92,7 @@ export const useShare = create<ShareState>((set, get) => {
           const blob = await new Promise<Blob | null>((resolve) => shot.canvas.toBlob(resolve, "image/png"));
           if (!blob) throw new Error("The screen couldn't be captured");
           if (get().phase.kind !== "capturing") return;
-          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName, page } });
+          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName, page, heading } });
         })
         .catch((e) => {
           console.error("Screenshot failed", e);
@@ -90,11 +100,24 @@ export const useShare = create<ShareState>((set, get) => {
           void link.then((l) => update(get().result!.id, { link: l }));
         });
     },
-    pick: (area) => {
+    pick: (area, panels) => {
       const phase = get().phase;
       if (phase.kind !== "picking") return;
-      const image = brandedImage(phase.shot, clampArea(phase.shot, area), new URL(siteOrigin()).host);
-      track("screenshot_created", { selection: area ? "area" : "full_screen", page: phase.page });
+      const host = new URL(siteOrigin()).host;
+      const card = panels ? cardPanels(panels) : null;
+      let image: Promise<Blob>;
+      if (card) {
+        let job!: CardJob;
+        image = new Promise<Blob>((done, fail) => {
+          job = { panels: card, heading: phase.heading, host, done, fail };
+        });
+        set({ card: job });
+        const clear = () => get().card === job && set({ card: null });
+        image.then(clear, clear);
+      } else {
+        image = brandedImage(phase.shot, clampArea(phase.shot, area), host);
+      }
+      track("screenshot_created", { selection: card ? "card" : area ? "area" : "full_screen", page: phase.page });
       // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
       let copied: Promise<boolean>;
       try {
@@ -124,20 +147,24 @@ export const useShare = create<ShareState>((set, get) => {
   };
 });
 
-/** The widget or panel at a point of the page, from the app's top left; null if it's in none. */
-function regionAt(x: number, y: number, bounds: Rect): Rect | null {
+/** A widget or panel, and where it is from the app's top left. */
+interface Region {
+  el: Element;
+  rect: Rect;
+}
+
+/** The widget or panel at a point of the page; null if it's in none. */
+function regionAt(x: number, y: number, bounds: Rect): Region | null {
   for (const el of document.elementsFromPoint(x, y)) {
     // The picker itself is on top.
     if (el.closest(`[${IGNORE}]`)) continue;
     const region = el.closest("[data-widget], [data-shot]");
     if (!region) return null;
     const r = region.getBoundingClientRect();
-    return { left: r.left - bounds.left, top: r.top - bounds.top, width: r.width, height: r.height };
+    return { el: region, rect: { left: r.left - bounds.left, top: r.top - bounds.top, width: r.width, height: r.height } };
   }
   return null;
 }
-
-const sameRect = (a: Rect, b: Rect) => a.left === b.left && a.top === b.top && a.width === b.width && a.height === b.height;
 
 /** The smallest area holding all of `rects`; null if there are none. */
 function union(rects: Rect[]): Rect | null {
@@ -166,8 +193,8 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
   const parts = (n: number) => `${n} ${part}${n === 1 ? "" : "s"}`;
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<Rect | null>(null);
-  const [hover, setHover] = useState<Rect | null>(null);
-  const [picked, setPicked] = useState<Rect[]>([]);
+  const [hover, setHover] = useState<Region | null>(null);
+  const [picked, setPicked] = useState<Region[]>([]);
   const pickedRef = useRef(picked);
   pickedRef.current = picked;
 
@@ -176,7 +203,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") cancel();
       // The widgets picked, or without any the whole screen.
-      else if (e.key === "Enter") pick(union(pickedRef.current));
+      else if (e.key === "Enter") share(pickedRef.current);
       else return;
       e.preventDefault();
       e.stopPropagation();
@@ -185,6 +212,12 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
     return () => window.removeEventListener("keydown", onKey, true);
   }, [pick, cancel]);
 
+  /** Shares `regions` (as a card if they're widgets), or the whole screen if there are none. */
+  const share = (regions: readonly Region[]) =>
+    pick(
+      union(regions.map((r) => r.rect)),
+      regions.map((r) => r.el),
+    );
   const local = (e: ReactPointerEvent) => ({ x: e.clientX - bounds.left, y: e.clientY - bounds.top });
   const onPointerDown = (e: ReactPointerEvent) => {
     if (e.button !== 0) return;
@@ -206,22 +239,23 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
     if (drag) {
       setDrag(null);
       // Too small to be meant: start again.
-      if (drag.width >= 8 && drag.height >= 8) pick(union([...picked, drag]));
+      if (drag.width >= 8 && drag.height >= 8) pick(union([...picked.map((r) => r.rect), drag]));
       return;
     }
     const region = regionAt(e.clientX, e.clientY, bounds);
     if (adding(e)) {
-      if (region) setPicked(picked.some((r) => sameRect(r, region)) ? picked.filter((r) => !sameRect(r, region)) : [...picked, region]);
+      if (region) setPicked(picked.some((r) => r.el === region.el) ? picked.filter((r) => r.el !== region.el) : [...picked, region]);
       return;
     }
     // Outside any widget, with some picked: those.
-    pick(region || picked.length > 0 ? union(region ? [...picked, region] : picked) : null);
+    share(region && !picked.some((r) => r.el === region.el) ? [...picked, region] : picked);
   };
 
-  const hovering = hover && !picked.some((r) => sameRect(r, hover));
+  const hovering = hover && !picked.some((r) => r.el === hover.el);
   // Lit: what Enter would share (the widgets picked), what a click would (the one under the pointer), or the area
   // being dragged out. With widgets picked, the one under the pointer is outlined: a click adds it.
-  const area = drag ? union([...picked, drag]) : picked.length > 0 ? union(picked) : hover;
+  const rects = picked.map((r) => r.rect);
+  const area = drag ? union([...rects, drag]) : picked.length > 0 ? union(rects) : (hover?.rect ?? null);
   return (
     <div
       data-shot-ignore=""
@@ -250,7 +284,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
       ) : (
         <div className="pointer-events-none absolute inset-0 bg-black/40" />
       )}
-      {picked.map((r, i) => (
+      {rects.map((r, i) => (
         <div
           key={i}
           className="pointer-events-none absolute outline-2 -outline-offset-2 outline-zinc-100 outline-solid"
@@ -260,7 +294,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
       {picked.length > 0 && hovering && !drag && (
         <div
           className="pointer-events-none absolute outline-1 -outline-offset-1 outline-zinc-400 outline-dashed"
-          style={{ left: bounds.left + hover.left, top: bounds.top + hover.top, width: hover.width, height: hover.height }}
+          style={{ left: bounds.left + hover.rect.left, top: bounds.top + hover.rect.top, width: hover.rect.width, height: hover.rect.height }}
         />
       )}
       {!drag && coarse && (
@@ -272,7 +306,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
         >
           <Icon name="camera" size={14} className="text-zinc-400" />
           <span>{picked.length > 0 ? `${parts(picked.length)} picked` : `Drag out an area or tap a ${part}`}</span>
-          <button type="button" onClick={() => pick(union(pickedRef.current))} className={`${BUTTON} min-h-11`}>
+          <button type="button" onClick={() => share(pickedRef.current)} className={`${BUTTON} min-h-11`}>
             {picked.length > 0 ? "Share these" : "Whole screen"}
           </button>
           <button type="button" onClick={cancel} className={`${BUTTON} min-h-11 bg-transparent`}>
@@ -401,8 +435,10 @@ function ShareToast({ result }: { result: Result }) {
 export function ShareShot() {
   const phase = useShare((s) => s.phase);
   const result = useShare((s) => s.result);
+  const card = useShare((s) => s.card);
   return (
     <>
+      {card && <ShareCard job={card} />}
       {phase.kind === "capturing" && <div data-shot-ignore="" className="fixed inset-0 z-50 cursor-wait" />}
       {phase.kind === "picking" && <Picker shot={phase.shot} image={phase.image} page={phase.page} />}
       {result && phase.kind === "idle" && <ShareToast result={result} />}
