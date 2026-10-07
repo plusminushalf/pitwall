@@ -25,6 +25,7 @@ import { Jump } from "./Jump";
 import { Season } from "./Season";
 import { Circuits } from "./Circuits";
 import { Settings } from "./Settings";
+import { ForecastBrief } from "../circuit/Forecast";
 
 /** Why downloads wait (unless the live row already says), and another tab downloading. */
 function Banners({ liveRow }: { liveRow: boolean }) {
@@ -118,6 +119,7 @@ function Moment({ weekend }: { weekend: CatalogRow[] | null }) {
       <span className="truncate text-sm tabular-nums text-zinc-100">
         {next.sessionName} in <span className="font-bold text-zinc-50">{countdownShort(Date.parse(next.dateStart) - now)}</span>
         <span className="text-zinc-400"> · {sessionTime(next.dateStart)}</span>
+        <ForecastBrief circuitKey={next.circuitKey} start={Date.parse(next.dateStart)} end={Date.parse(next.dateEnd)} now={now} />
       </span>
     </div>
   );

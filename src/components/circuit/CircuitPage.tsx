@@ -12,7 +12,8 @@ import { currentLayout, lastPodiums, leaders, poleLapRecord, poleToWin, raceLapR
 import type { CircuitHistory, HistoryEntry } from "../../history/types";
 import { currentYear, useLibrary, YEARS } from "../../library";
 import { FOCUS, LABEL, SECONDARY } from "../controls";
-import { Attribution, shortGp } from "../home/common";
+import { Attribution, shortGp, useNow } from "../home/common";
+import { WeekendForecast } from "./Forecast";
 import { Settings } from "../home/Settings";
 import { byMeeting, WeekendSheet } from "../home/Season";
 import { RacesButton } from "../Navigation";
@@ -254,6 +255,13 @@ export function CircuitPage({ slug }: { slug: string }) {
   // The name OpenF1 gives it, and what F1DB calls it (Sepang's "Kuala Lumpur" is "Sepang International Circuit").
   const name = latest?.circuit ?? slug;
   const gps = [...new Set(meetings.map((m) => shortGp(m.name)))];
+  // The weekend here still to finish, if there is one: its sessions (practice too) for the forecast.
+  const now = useNow(60_000);
+  const coming = rows.find((r) => !r.cancelled && Date.parse(r.dateEnd) > now);
+  const comingSessions = useMemo(
+    () => (coming ? (years[coming.year]?.catalog?.sessions ?? []).filter((s) => s.meeting_key === coming.meetingKey) : []),
+    [coming, years],
+  );
 
   let sessions;
   if (rows.length) sessions = <WeekendSheet meetings={meetings} filter="all" lead="year" label={`Weekends at ${name}`} />;
@@ -287,6 +295,7 @@ export function CircuitPage({ slug }: { slug: string }) {
               .filter(Boolean)
               .join(" · ")}
           </p>
+          {coming && <WeekendForecast sessions={comingSessions} meetingName={coming.meetingName} circuitKey={coming.circuitKey} now={now} />}
           <PastRaces slug={slug} />
           {history && <History h={history} slug={slug} />}
 
