@@ -512,7 +512,7 @@ const DesktopGrid = memo(function DesktopGrid() {
         <Popover
           anchor={picker.slot ? { left: slotBox(picker.slot).left + 6, top: picker.slot.top + 6, align: "left" } : { left: size.width - 8, top: 8, align: "right" }}
           grid={ref}
-          width={320}
+          width={600}
           title="Add a widget"
           ignore="[data-picker-toggle]"
           onClose={() => useLayout.getState().closePicker()}

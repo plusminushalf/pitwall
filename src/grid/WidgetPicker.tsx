@@ -1,9 +1,8 @@
 // The widget picker behind "+ Add widget" (H3.10): every widget for the session's kind (race or practice), also
 // those on the screen already (a widget can be placed more than once, H3.11), greyed out where there's no room
-// for it, and the marketplace still to come. One tab per group, so the list stays short.
+// for it, and the marketplace still to come. Grouped, in two columns, so it all shows at once.
 
-import { useState } from "react";
-import { WIDGET_GROUPS, type WidgetDefinition, type WidgetGroup } from "../widgetkit/defineWidget";
+import { WIDGET_GROUPS, type WidgetDefinition } from "../widgetkit/defineWidget";
 import { LABEL_CLASS } from "../widgetkit/ui/Label";
 import { widgetIdOf, columnRange, type Layout } from "./layout";
 import type { GridKind } from "./storage";
@@ -27,54 +26,39 @@ const defaultColumns = (widget: WidgetDefinition, columns: number) => {
   return Math.min(Math.max(Math.round((widget.width.default * columns) / 100), min), max);
 };
 
-/** The tab last shown, so the picker opens where it was left. */
-let lastGroup: WidgetGroup = WIDGET_GROUPS[0].id;
-
 export function WidgetPicker({ entries, columns, onPick }: { entries: readonly PickerEntry[]; columns: number; onPick: (id: string) => void }) {
-  const groups = WIDGET_GROUPS.filter((g) => entries.some((e) => e.widget.group === g.id));
-  const [picked, setPicked] = useState(lastGroup);
-  const shown = groups.some((g) => g.id === picked) ? picked : (groups[0]?.id ?? picked);
-  const pick = (group: WidgetGroup) => {
-    lastGroup = group;
-    setPicked(group);
-  };
+  const groups = WIDGET_GROUPS.map((g) => ({ ...g, entries: entries.filter((e) => e.widget.group === g.id) })).filter((g) => g.entries.length > 0);
   return (
     <div className="flex flex-col">
-      <div className="mb-2 flex rounded-md bg-zinc-950 p-0.5" role="group" aria-label="Widget group">
+      {/* Two columns, a group never split between them: all of it at once, nothing to page through. */}
+      <div className="columns-2 gap-x-3">
         {groups.map((g) => (
-          <button
-            key={g.id}
-            type="button"
-            onClick={() => pick(g.id)}
-            aria-pressed={g.id === shown}
-            className={`flex-1 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition-colors ${
-              g.id === shown ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"
-            }`}
-          >
-            {g.label}
-          </button>
+          <section key={g.id} className="mb-2 break-inside-avoid">
+            <h3 className={`px-2 pb-0.5 ${LABEL_CLASS} text-zinc-500`}>{g.label}</h3>
+            {g.entries.map(({ widget, room, placed }) => (
+              <button
+                key={widget.id}
+                type="button"
+                disabled={!room}
+                onClick={() => onPick(widget.id)}
+                title={widget.description}
+                className="flex w-full items-start gap-3 rounded px-2 py-1 text-left enabled:hover:bg-zinc-800 disabled:cursor-default"
+              >
+                {/* Without room: dimmed like a disabled button, but "No room" stays readable: it says why. */}
+                <span className={`min-w-0 flex-1 ${room ? "" : "opacity-50"}`}>
+                  <span className="block truncate text-xs font-semibold text-zinc-100">
+                    {widget.name}
+                    {placed > 0 && <span className="ml-1.5 font-normal text-zinc-400">{placed === 1 ? "on screen" : `${placed} on screen`}</span>}
+                  </span>
+                  {widget.description && <span className="line-clamp-2 text-[11px] leading-snug text-zinc-400">{widget.description}</span>}
+                </span>
+                <span className={`mt-px shrink-0 tabular-nums ${LABEL_CLASS}`}>{room ? `${defaultColumns(widget, columns)} col` : "No room"}</span>
+              </button>
+            ))}
+          </section>
         ))}
       </div>
-      {entries.filter((e) => e.widget.group === shown).map(({ widget, room, placed }) => (
-        <button
-          key={widget.id}
-          type="button"
-          disabled={!room}
-          onClick={() => onPick(widget.id)}
-          className="flex items-start gap-3 rounded px-2 py-1.5 text-left enabled:hover:bg-zinc-800 disabled:cursor-default"
-        >
-          {/* Without room: dimmed like a disabled button, but "No room" stays readable: it says why. */}
-          <span className={`min-w-0 flex-1 ${room ? "" : "opacity-50"}`}>
-            <span className="block text-xs font-semibold text-zinc-100">
-              {widget.name}
-              {placed > 0 && <span className="ml-1.5 font-normal text-zinc-400">{placed === 1 ? "on screen" : `${placed} on screen`}</span>}
-            </span>
-            {widget.description && <span className="block text-[11px] leading-snug text-zinc-400">{widget.description}</span>}
-          </span>
-          <span className={`mt-px shrink-0 tabular-nums ${LABEL_CLASS}`}>{room ? `${defaultColumns(widget, columns)} col` : "No room"}</span>
-        </button>
-      ))}
-      <div className="mt-1.5 border-t border-zinc-800 pt-1.5">
+      <div className="border-t border-zinc-800 pt-1.5">
         <button type="button" disabled className="flex w-full cursor-default items-center justify-between gap-3 rounded px-2 py-1.5 text-left">
           <span className="text-xs font-semibold text-zinc-100 opacity-50">Marketplace</span>
           <span className={LABEL_CLASS}>Coming soon</span>

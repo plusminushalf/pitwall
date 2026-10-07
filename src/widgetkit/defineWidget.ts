@@ -50,7 +50,7 @@ export interface WidgetDefinition<S extends WidgetSettings = WidgetSettings> {
   id: string;
   name: string;
   /**
-   * The picker tab it's listed under: session (the whole field and the circuit), driver (one driver's race),
+   * The picker heading it's listed under: session (the whole field and the circuit), driver (one driver's race),
    * telemetry (the car's inputs), analysis (the race lap by lap), circuit (earlier races at the circuit, from
    * useCircuitRaces(); these also show on the circuit's page, where there's no session).
    */
