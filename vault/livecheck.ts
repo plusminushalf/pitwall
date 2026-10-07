@@ -341,7 +341,10 @@ async function main() {
       check("a signed-in REST read (as a download's) answers during the lock", restLaps.status === 200 && restLaps.auth === true, restLaps);
       l = await until("every lap", C, (x) => x.laps >= restLaps.n * 0.9, 60_000).catch(() => live(C));
       check("full catch-up: the laps REST has", l.laps >= restLaps.n * 0.9, `${l.laps} of ${restLaps.n}`);
-      check("...and telemetry from lights out", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
+      // Joining mid-session brings the last few minutes of telemetry first; the earlier pieces follow in the
+      // background (src/live/openf1.ts: QUICK_TELEMETRY_MS, fillEarlier), here through the pass-through.
+      l = await until("telemetry from lights out", C, (x) => x.firstLoc != null && x.lightsOut != null && x.firstLoc <= x.lightsOut, 120_000).catch(() => live(C));
+      check("...and telemetry from lights out (filled in behind)", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
       check("...and the stream on top (the edge moves)", await moving(C), "");
       await Bun.sleep(3_000);
       await shot(C, "6-lock-joined");
@@ -352,7 +355,8 @@ async function main() {
       await C.waitForFunction(() => !!(window as any).__replay, null, { timeout: 60_000 });
       l = await until("live after the reload", C, (x) => x.state === "live" && x.laps >= before, 180_000);
       check("reloaded inside the lock: live again, every lap", l.laps >= before, `${l.laps} (before: ${before})`);
-      check("...telemetry from lights out", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
+      l = await until("telemetry from lights out", C, (x) => x.firstLoc != null && x.lightsOut != null && x.firstLoc <= x.lightsOut, 120_000).catch(() => live(C));
+      check("...telemetry from lights out (filled in behind)", l.firstLoc != null && l.lightsOut != null && l.firstLoc <= l.lightsOut, { firstLoc: l.firstLoc, lightsOut: l.lightsOut });
       check("...and the stream on top", await moving(C), "");
       const header = (await C.getByTestId("live-status").count()) ? await C.getByTestId("live-status").first().textContent() : "";
       check("no retrying or error in the header", !/retrying|error|couldn't/i.test(header ?? ""), header);
