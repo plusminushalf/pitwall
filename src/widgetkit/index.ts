@@ -11,7 +11,8 @@
 // select(value) and re-renders only when that result changes (compared structurally), e.g.
 // useDriver(n, d => d.position) or useFeed(f => f.length). Selectors see the same spoiler-free value.
 //
-//   defineWidget(def)             id, name, version, height, width, sessions, settings, Component
+//   defineWidget(def)             id, name, group, version, height, width, sessions, settings, Component
+//     group                      the picker tab: "session", "driver", "telemetry" or "analysis"
 //     height                     px (fixed: what the contents take at the fixed type size), or a function
 //                                of HeightInput (session info, selection, the widget's settings; never
 //                                live data); { min } to stretch: the last stretching widget in each grid
@@ -96,7 +97,7 @@
 //   and, still as they were lifted from the core: format helpers, colours, the track projection and corner labels.
 
 export { defineWidget } from "./defineWidget";
-export type { WidgetDefinition, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
+export type { WidgetDefinition, WidgetGroup, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
 
 export {
   useAllLaps,

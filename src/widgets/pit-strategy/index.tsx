@@ -198,6 +198,7 @@ function PitStrategy() {
 export default defineWidget({
   id: "pit-strategy",
   name: "Pit stops",
+  group: "analysis",
   description: "Pit stops with tyres, pit times and places gained, and whether each undercut worked.",
   version: "1.0.0",
   // Fills its column and scrolls inside, so the layout never jumps as stops arrive.

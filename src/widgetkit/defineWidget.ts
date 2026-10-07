@@ -32,6 +32,15 @@ export type SettingField =
   | { kind: "toggle"; label: string }
   | { kind: "number"; label: string; min?: number; max?: number; step?: number };
 
+/** The widget picker's tabs, in order. A widget is listed under one. */
+export const WIDGET_GROUPS = [
+  { id: "session", label: "Session" },
+  { id: "driver", label: "Driver" },
+  { id: "telemetry", label: "Telemetry" },
+  { id: "analysis", label: "Analysis" },
+] as const;
+export type WidgetGroup = (typeof WIDGET_GROUPS)[number]["id"];
+
 /** CSS px, or CSS px worked out from the height input. */
 export type Px<S extends WidgetSettings = WidgetSettings> = number | ((input: HeightInput<S>) => number);
 
@@ -39,6 +48,11 @@ export interface WidgetDefinition<S extends WidgetSettings = WidgetSettings> {
   /** Kebab-case, unique: also the widget's folder and its key in the layout. */
   id: string;
   name: string;
+  /**
+   * The picker tab it's listed under: session (the whole field and the circuit), driver (one driver's race),
+   * telemetry (the car's inputs), analysis (the race lap by lap).
+   */
+  group: WidgetGroup;
   /** Semver of the widget itself; the layout pins it (H3.11). */
   version: string;
   /**

@@ -150,6 +150,7 @@ function DriverHeader() {
 export default defineWidget({
   id: "driver-header",
   name: "Driver",
+  group: "driver",
   description: "Headshot, name, team and position of the driver it shows, with focus chips for the selection.",
   version: "1.0.0",
   // The focus chips with a selection, unless pinned; the hint with one driver selected, unless it's focused or pinned.

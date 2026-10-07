@@ -53,6 +53,7 @@ function LapTimes() {
 export default defineWidget({
   id: "lap-times",
   name: "Lap times",
+  group: "driver",
   description: "The lap the driver is on, and their last and best lap times.",
   version: "1.0.0",
   // pt-2, a label line and a 24 px time (the sectors widget under it has the bottom padding).

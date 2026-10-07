@@ -220,6 +220,7 @@ function Battles() {
 export default defineWidget({
   id: "battles",
   name: "Battles",
+  group: "analysis",
   description: "Cars within a second of each other for laps on end: who passed whom, and who's ahead now.",
   version: "1.0.0",
   // Fills its column and scrolls inside, so the layout never jumps as battles come and go.

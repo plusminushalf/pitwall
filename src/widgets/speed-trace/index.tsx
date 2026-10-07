@@ -184,6 +184,7 @@ function SpeedTrace() {
 export default defineWidget({
   id: "speed-trace",
   name: "Last 60 s",
+  group: "telemetry",
   description: "The last 60 seconds of the driver's speed, throttle and braking.",
   version: "1.0.0",
   // The title line and the chart, padded: pt-2.5, mb-1 and pb-2.

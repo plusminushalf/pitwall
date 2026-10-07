@@ -218,6 +218,7 @@ function LongRuns() {
 export default defineWidget({
   id: "long-runs",
   name: "Long runs",
+  group: "analysis",
   description: `Practice's race simulations: every run of ${MIN_RUN_LAPS}+ laps at pace on one set, its average and trend, ranked by compound. Fuel loads aren't known.`,
   version: "1.0.0",
   // Fills its column and scrolls inside.

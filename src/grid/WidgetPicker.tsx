@@ -1,8 +1,9 @@
 // The widget picker behind "+ Add widget" (H3.10): every widget for the session's kind (race or practice), also
 // those on the screen already (a widget can be placed more than once, H3.11), greyed out where there's no room
-// for it, and the marketplace still to come.
+// for it, and the marketplace still to come. One tab per group, so the list stays short.
 
-import type { WidgetDefinition } from "../widgetkit/defineWidget";
+import { useState } from "react";
+import { WIDGET_GROUPS, type WidgetDefinition, type WidgetGroup } from "../widgetkit/defineWidget";
 import { LABEL_CLASS } from "../widgetkit/ui/Label";
 import { widgetIdOf, columnRange, type Layout } from "./layout";
 import type { GridKind } from "./storage";
@@ -26,10 +27,35 @@ const defaultColumns = (widget: WidgetDefinition, columns: number) => {
   return Math.min(Math.max(Math.round((widget.width.default * columns) / 100), min), max);
 };
 
+/** The tab last shown, so the picker opens where it was left. */
+let lastGroup: WidgetGroup = WIDGET_GROUPS[0].id;
+
 export function WidgetPicker({ entries, columns, onPick }: { entries: readonly PickerEntry[]; columns: number; onPick: (id: string) => void }) {
+  const groups = WIDGET_GROUPS.filter((g) => entries.some((e) => e.widget.group === g.id));
+  const [picked, setPicked] = useState(lastGroup);
+  const shown = groups.some((g) => g.id === picked) ? picked : (groups[0]?.id ?? picked);
+  const pick = (group: WidgetGroup) => {
+    lastGroup = group;
+    setPicked(group);
+  };
   return (
     <div className="flex flex-col">
-      {entries.map(({ widget, room, placed }) => (
+      <div className="mb-2 flex rounded-md bg-zinc-950 p-0.5" role="group" aria-label="Widget group">
+        {groups.map((g) => (
+          <button
+            key={g.id}
+            type="button"
+            onClick={() => pick(g.id)}
+            aria-pressed={g.id === shown}
+            className={`flex-1 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold transition-colors ${
+              g.id === shown ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"
+            }`}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
+      {entries.filter((e) => e.widget.group === shown).map(({ widget, room, placed }) => (
         <button
           key={widget.id}
           type="button"

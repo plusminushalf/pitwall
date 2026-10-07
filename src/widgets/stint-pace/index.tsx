@@ -479,6 +479,7 @@ function StintPace() {
 export default defineWidget({
   id: "stint-pace",
   name: "Stint pace",
+  group: "analysis",
   description: "Lap times per stint for the selected drivers, with how much slower each stint gets per lap.",
   version: "1.0.0",
   // Fills its column: a taller chart separates close lap times better.

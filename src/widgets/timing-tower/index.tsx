@@ -348,6 +348,7 @@ function TimingTower() {
 export default defineWidget({
   id: "timing-tower",
   name: "Timing tower",
+  group: "session",
   description: "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops. In practice, by best lap.",
   version: "1.0.0",
   // Fills its column; the rows scroll inside when they don't all fit.

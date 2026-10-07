@@ -424,6 +424,7 @@ function GapChart() {
 export default defineWidget({
   id: "gap-chart",
   name: "Gaps",
+  group: "analysis",
   description: "Gap to the leader or the car ahead, lap by lap. Click a lap to watch it.",
   version: "1.0.0",
   // Fills its column: the title line and a chart with room for a few gridlines.

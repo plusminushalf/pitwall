@@ -94,6 +94,7 @@ function TyreStrip() {
 export default defineWidget({
   id: "tyre-strip",
   name: "Tyres",
+  group: "driver",
   description: "The driver's tyre stints so far along the race distance, with their pit stops and current tyre.",
   version: "1.0.0",
   // py-2, the title line (16 px, the tyre badge) and the 14 px strip 6 px below it.

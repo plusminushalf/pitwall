@@ -517,6 +517,7 @@ function LapCompare() {
 export default defineWidget({
   id: "lap-compare",
   name: "Lap compare",
+  group: "telemetry",
   description: "The selected drivers' laps laid over each other against distance: speed, delta, throttle, brake, gear. Any lap of the race, as in qualifying.",
   version: "1.0.0",
   // Fills its column: the chart takes what the chips leave.

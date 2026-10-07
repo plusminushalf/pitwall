@@ -30,6 +30,7 @@ function Weather() {
 export default defineWidget({
   id: "weather",
   name: "Weather",
+  group: "session",
   description: "Air and track temperature, humidity and wind at the circuit.",
   version: "1.0.0",
   height: 72,

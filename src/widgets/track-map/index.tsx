@@ -727,6 +727,7 @@ function TrackMap() {
 export default defineWidget({
   id: "track-map",
   name: "Track map",
+  group: "session",
   description: "Every car on the circuit, and the sectors under a flag. Click a car to add it to the selection.",
   version: "1.0.0",
   // Fills its column; the circuit is fitted inside, whatever the box's shape.

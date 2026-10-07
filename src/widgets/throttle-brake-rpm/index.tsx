@@ -54,6 +54,7 @@ function ThrottleBrakeRpm() {
 export default defineWidget({
   id: "throttle-brake-rpm",
   name: "Throttle, brake & RPM",
+  group: "telemetry",
   description: "The driver's throttle, brake and RPM as bars.",
   version: "1.0.0",
   // pt-2.5 and three 16 px bars 6 px apart.

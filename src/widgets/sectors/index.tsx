@@ -67,6 +67,7 @@ function Sectors() {
 export default defineWidget({
   id: "sectors",
   name: "Sectors",
+  group: "driver",
   description: "The driver's last lap by sector and mini-sector: purple for the fastest, green for a personal best.",
   version: "1.0.0",
   height: 8 + CELL_H + 8,
