@@ -286,7 +286,9 @@ export function Home() {
     // notch and the sticky header sits just below it. The band is 0 tall everywhere else.
     <div className="flex h-full flex-col">
       <div className="h-[env(safe-area-inset-top)] shrink-0 bg-zinc-950" aria-hidden />
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      {/* Relative, so what is absolutely placed in the page (the sr-only headings) scrolls in it: otherwise it
+          sits on the document and makes the whole page scroll as well. */}
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         <CallBanner />
         <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950">
           <div className="mx-auto grid h-[52px] max-w-6xl grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-3 px-4 md:gap-6 md:px-6">
