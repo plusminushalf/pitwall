@@ -55,6 +55,16 @@ describe("readUrl", () => {
     expect(readUrl("/live", "?range=12-30").range).toBeUndefined();
   });
 
+  test("the dashboard, on a session or live; an id that can't be one is left out", () => {
+    expect(readUrl("/session/11377", "?dash=strategy").dash).toBe("strategy");
+    expect(readUrl("/live", "?dash=my-2").dash).toBe("my-2");
+    expect(readUrl("/session/11377", "?dash=Strategy").dash).toBeUndefined();
+    expect(readUrl("/session/11377", "?dash=").dash).toBeUndefined();
+    expect(urlFor({ live: false, session: 11377, t: 60_000, drivers: [1], focus: null, dash: "telemetry" })).toBe("/session/11377?t=60&drivers=1&dash=telemetry");
+    expect(urlFor({ live: true, session: null, drivers: [], focus: null, dash: "strategy" })).toBe("/live?dash=strategy");
+    expect(upgradeUrl("/session/11377", "?dash=strategy")).toBeNull();
+  });
+
   test("a path the app doesn't have is Home", () => {
     expect(readUrl("/session/abc", "")).toMatchObject({ live: false, session: null });
     expect(readUrl("/races", "")).toMatchObject({ live: false, session: null });

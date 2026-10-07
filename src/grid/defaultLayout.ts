@@ -9,6 +9,10 @@
 // simulations) under the tower and the stint pace (a driver's laps on each set) under the map; the feed down the
 // right.
 //
+// Each kind also ships dashboards for one use (dashboards.ts): Strategy (the tower with the tyres under it, the gaps
+// over the stint pace and the pit stops) and Telemetry (the tower and the map beside the selected drivers' laps
+// overlaid). Their widths stay inside each widget's range at COLUMNS.
+//
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
 // hairlines over them; 1440x900's grid is 767); on a shorter window it's cut off, as for any layout.
@@ -54,3 +58,30 @@ export const PRACTICE_LAYOUT: Layout = {
 };
 
 export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = { race: DEFAULT_LAYOUT, practice: PRACTICE_LAYOUT };
+
+/** Strategy: the tower down the left with the selected driver's tyres under it; the gaps over the stint pace and pit stops. */
+const STRATEGY_TOWER = 13;
+const STRATEGY_PACE = 17;
+export const STRATEGY_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "timing-tower": at(0, 0, STRATEGY_TOWER),
+    "gap-chart": at(STRATEGY_TOWER, 0, COLUMNS - STRATEGY_TOWER, { height: 16 * ROW }),
+    "tyre-strip": at(0, 1, STRATEGY_TOWER),
+    "stint-pace": at(STRATEGY_TOWER, 1, STRATEGY_PACE),
+    "pit-strategy": at(STRATEGY_TOWER + STRATEGY_PACE, 1, COLUMNS - STRATEGY_TOWER - STRATEGY_PACE),
+  },
+};
+
+/** Telemetry: the tower (to pick whose laps) over the map down the left; the lap comparison filling the rest. */
+const TELEMETRY_TOWER = 12;
+export const TELEMETRY_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "timing-tower": at(0, 0, TELEMETRY_TOWER, { height: TOP }),
+    "track-map": at(0, 1, TELEMETRY_TOWER),
+    "lap-compare": at(TELEMETRY_TOWER, 0, COLUMNS - TELEMETRY_TOWER),
+  },
+};

@@ -3,6 +3,7 @@ import { Label, Stat } from "../widgetkit/ui/Label";
 import { canCompare } from "../data/compare";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
+import { dashboardList, NAME_MAX, PRESETS } from "../grid/dashboards";
 import { useLayout } from "../grid/store";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useQuali } from "../qualiStore";
@@ -201,19 +202,114 @@ function ShortcutsHelp() {
 }
 
 const TOP_BUTTON = "whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold";
+const QUIET_BUTTON = `${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`;
+/** The switcher's option that makes a dashboard instead of showing one. */
+const NEW_DASHBOARD = "+new";
 
-/** "Edit layout", or in edit mode what edit mode needs (H3.10). */
+/**
+ * The dashboards of the kind on screen, to switch between, and a new one, a copy of what's on screen. Not while
+ * editing (edit mode shows the dashboard's name instead).
+ */
+function DashboardPicker() {
+  const kind = useLayout((s) => s.kind);
+  const dashboards = useLayout((s) => s.dashboards);
+  const active = useLayout((s) => s.dashboard);
+  const shared = useLayout((s) => s.shared);
+  const grid = useReplay((s) => !comparing(s));
+  if (!grid) return null;
+  const items = dashboardList(dashboards, kind);
+  const own = items.filter((i) => !i.preset);
+  return (
+    <select
+      value={shared ? "" : active}
+      onChange={(e) => {
+        // Blur so the keyboard shortcuts (ignored while a <select> has focus) keep working.
+        e.currentTarget.blur();
+        const s = useLayout.getState();
+        if (e.target.value === NEW_DASHBOARD) s.newDashboard();
+        else s.switchTo(e.target.value);
+      }}
+      className={`${TOP_BUTTON} max-w-44 cursor-pointer truncate field-sizing-content bg-zinc-800 text-zinc-100 hover:bg-zinc-700`}
+      title="Dashboard: the widgets on screen, for any session"
+      aria-label="Dashboard"
+    >
+      {shared && (
+        <option value="" disabled className="bg-zinc-900">
+          Shared dashboard
+        </option>
+      )}
+      <optgroup label="Built in" className="bg-zinc-900">
+        {items
+          .filter((i) => i.preset)
+          .map((i) => (
+            <option key={i.id} value={i.id} title={i.description}>
+              {i.name}
+            </option>
+          ))}
+      </optgroup>
+      {own.length > 0 && (
+        <optgroup label="Yours" className="bg-zinc-900">
+          {own.map((i) => (
+            <option key={i.id} value={i.id}>
+              {i.name}
+            </option>
+          ))}
+        </optgroup>
+      )}
+      <option value={NEW_DASHBOARD} className="bg-zinc-900">
+        + New dashboard
+      </option>
+    </select>
+  );
+}
+
+/** Edit mode's name for the dashboard: a field for the user's own, the preset's name for a preset. */
+function DashboardName() {
+  const kind = useLayout((s) => s.kind);
+  const dashboards = useLayout((s) => s.dashboards);
+  const active = useLayout((s) => s.dashboard);
+  const shared = useLayout((s) => s.shared);
+  const fresh = useLayout((s) => s.fresh);
+  const item = dashboardList(dashboards, kind).find((i) => i.id === active);
+  if (shared || !item) return <Label className="mr-1.5 whitespace-nowrap">Shared dashboard</Label>;
+  if (item.preset) return <span className="mr-1.5 whitespace-nowrap text-xs font-semibold text-zinc-300">{item.name}</span>;
+  return (
+    <input
+      key={item.id}
+      defaultValue={item.name}
+      maxLength={NAME_MAX}
+      aria-label="Dashboard name"
+      title="The dashboard's name"
+      // A new one's name is a placeholder: ready to type over.
+      autoFocus={fresh}
+      onFocus={(e) => e.currentTarget.select()}
+      onChange={(e) => useLayout.getState().renameDashboard(e.target.value)}
+      onBlur={(e) => {
+        // Left empty: the name it has.
+        if (e.currentTarget.value.trim() === "") e.currentTarget.value = item.name;
+      }}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter" || e.key === "Escape") e.currentTarget.blur();
+      }}
+      className="w-32 rounded-md border border-zinc-700 bg-zinc-900 px-2 py-0.5 text-xs font-semibold text-zinc-100 outline-none focus:border-zinc-500"
+    />
+  );
+}
+
+/** The dashboard switcher and "Edit dashboard", or in edit mode what edit mode needs (H3.10). */
 function LayoutControls() {
   const editing = useLayout((s) => s.editing);
   const pickerOpen = useLayout((s) => s.picker != null && s.picker.slot == null);
   const paused = useLayout((s) => s.pausedPlayback);
   const shared = useLayout((s) => s.shared);
+  const preset = useLayout((s) => PRESETS[s.kind].some((p) => p.id === s.dashboard));
   const blur = (e: { currentTarget: HTMLButtonElement }) => e.currentTarget.blur();
   if (shared && !editing) {
     return (
       <div className="flex items-center gap-1.5">
-        <span className="mr-1.5 whitespace-nowrap" title="The layout the link was shared with. Yours is kept unless you keep this one.">
-          <Label>Shared layout</Label>
+        <span className="mr-1.5 whitespace-nowrap" title="The dashboard the link was shared with. Yours are kept unless you save this one.">
+          <Label>Shared dashboard</Label>
         </span>
         <button
           type="button"
@@ -221,10 +317,10 @@ function LayoutControls() {
             blur(e);
             useLayout.getState().keepShared();
           }}
-          className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
-          title="Make this layout yours"
+          className={QUIET_BUTTON}
+          title="Save it as a dashboard of your own"
         >
-          Keep
+          Save
         </button>
         <button
           type="button"
@@ -232,8 +328,8 @@ function LayoutControls() {
             blur(e);
             useLayout.getState().dropShared();
           }}
-          className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
-          title="Back to your own layout"
+          className={QUIET_BUTTON}
+          title="Back to your own dashboard"
         >
           Use mine
         </button>
@@ -242,27 +338,31 @@ function LayoutControls() {
   }
   if (!editing) {
     return (
-      <button
-        type="button"
-        onClick={(e) => {
-          blur(e);
-          useLayout.getState().startEdit();
-        }}
-        className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
-        title="Move, resize, add and remove widgets"
-      >
-        Edit layout
-      </button>
+      <div className="flex items-center gap-1.5">
+        <DashboardPicker />
+        <button
+          type="button"
+          onClick={(e) => {
+            blur(e);
+            useLayout.getState().startEdit();
+          }}
+          className={QUIET_BUTTON}
+          title="Move, resize, add and remove widgets"
+        >
+          Edit
+        </button>
+      </div>
     );
   }
   const s = useLayout.getState();
   return (
     <div className="flex items-center gap-1.5">
       {paused && (
-        <span className="mr-1.5 whitespace-nowrap" title="Done resumes playback">
-          <Label>Paused while editing</Label>
+        <span className="mr-1.5 whitespace-nowrap" title="Paused while editing: Done resumes playback">
+          <Label>Paused</Label>
         </span>
       )}
+      <DashboardName />
       <button
         type="button"
         data-picker-toggle=""
@@ -275,17 +375,34 @@ function LayoutControls() {
       >
         + Add widget
       </button>
-      <button
-        type="button"
-        onClick={(e) => {
-          blur(e);
-          s.reset();
-        }}
-        className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-zinc-700 hover:text-white`}
-        title="Back to the default layout (saved on Done)"
-      >
-        Reset
-      </button>
+      {preset && !shared ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            blur(e);
+            s.reset();
+          }}
+          className={QUIET_BUTTON}
+          title="Back to the dashboard as it ships (saved on Done)"
+        >
+          Reset
+        </button>
+      ) : (
+        !shared && (
+          <button
+            type="button"
+            onClick={(e) => {
+              blur(e);
+              const name = s.dashboards[s.kind].own.find((o) => o.id === s.dashboard)?.name ?? "this dashboard";
+              if (confirm(`Delete “${name}”?`)) s.deleteDashboard();
+            }}
+            className={`${TOP_BUTTON} bg-zinc-800 text-zinc-100 hover:bg-red-500/20 hover:text-red-200`}
+            title="Delete this dashboard"
+          >
+            Delete
+          </button>
+        )
+      )}
       <button
         type="button"
         onClick={(e) => {
@@ -293,7 +410,7 @@ function LayoutControls() {
           s.done();
         }}
         className={`${TOP_BUTTON} bg-zinc-100 text-zinc-950 hover:bg-white`}
-        title="Save the layout"
+        title="Save the dashboard"
       >
         Done
       </button>
@@ -306,6 +423,8 @@ export function Header() {
   const race = useReplay((s) => s.race);
   const t = useReplay((s) => s.t);
   const phone = usePhone();
+  // Edit mode's controls take the room of the weather, Share and the keyboard help.
+  const editing = useLayout((s) => s.editing);
   if (!session) return null;
   const { meta } = session;
   const status = race ? TRACK_STATUS[race.trackStatus] : null;
@@ -313,7 +432,7 @@ export function Header() {
 
   if (phone) {
     // Two rows: the way around (Races, the session, live mode's controls), then the race's state. Weather, the
-    // layout controls (editing is for desktops), the keyboard help, the local clock and Share (ShareShot.tsx) are
+    // dashboards (the phone column starts with them: grid/Grid.tsx), editing (it's for desktops), the keyboard help, the local clock and Share (ShareShot.tsx) are
     // left out.
     return (
       <header className="border-b border-zinc-800 bg-zinc-950 pt-[env(safe-area-inset-top)]">
@@ -358,10 +477,10 @@ export function Header() {
       </div>
 
       <div className="flex items-center justify-end gap-4">
-        <Weather w={race?.weather ?? null} />
+        {!editing && <Weather w={race?.weather ?? null} />}
         {!meta.quali && <LayoutControls />}
-        <ShareButton />
-        <ShortcutsHelp />
+        {!editing && <ShareButton />}
+        {!editing && <ShortcutsHelp />}
       </div>
     </header>
   );

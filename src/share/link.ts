@@ -1,8 +1,9 @@
-// The link that goes with a shared screenshot: the session at this moment, with the drivers picked, and what the
-// address bar doesn't carry: the widget layout (if it isn't the default) or the lap comparison's set-up (../url.ts).
+// The link that goes with a shared screenshot: the session at this moment, with the drivers picked, and how the screen
+// is set up: the dashboard if it's a preset as it ships (by name), else the widget layout itself, or the lap
+// comparison's set-up (../url.ts).
 
 import { BUILTIN_WIDGETS } from "../grid/builtins";
-import { DEFAULT_LAYOUTS } from "../grid/defaultLayout";
+import { FIRST, PRESETS } from "../grid/dashboards";
 import { COLUMNS, type Layout } from "../grid/layout";
 import { parseLayout, type GridKind } from "../grid/storage";
 import { useLayout } from "../grid/store";
@@ -42,7 +43,9 @@ export async function shareLink(): Promise<string | null> {
     state.t = s.t;
     if (s.lapWindow) state.range = [s.lapWindow[0], s.lapWindow[1]];
     const { layout, kind } = useLayout.getState();
-    if (!sameLayout(layout, DEFAULT_LAYOUTS[kind], kind)) state.layout = await encodeLayout(kind, layout);
+    const preset = PRESETS[kind].find((p) => sameLayout(layout, p.layout, kind));
+    if (!preset) state.layout = await encodeLayout(kind, layout);
+    else if (preset.id !== FIRST) state.dash = preset.id;
   }
   return siteOrigin() + urlFor(state);
 }

@@ -15,13 +15,13 @@ Replay or follow a live F1 race on a polished timing screen made of widgets you 
 
 - **Replays.** Every race, sprint, qualifying and free practice session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
 - **One timeline** for timing, gaps, tyres, pit stops, race control, weather and team radio. Pause, scrub, or play at up to 64×.
-- **Widgets.** Move, resize, add or remove them. Your layout is saved.
+- **Dashboards.** Overview, Strategy and Telemetry come built in, and any of them shows any race. Edit one or make your own: move, resize, add or remove widgets, and it's saved.
 - **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Click a lap, a battle or a stop to watch it.
 - **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Free practice** has the timing screen by best lap, with the clock counting down. Deleted lap times are struck through. Long runs ranks every race simulation (5+ laps on a set) by compound, with its average and how much slower it gets per lap. Fastest laps compares up to 4 laps as qualifying does, each with its tyre and its age.
 - **Live.** Follow a race, sprint, qualifying or practice session as it happens. Live qualifying uses the race screen for now. It needs an OpenF1 account, connected in Settings.
-- **Phones** get the same widgets in one scrolling column, with the timeline pinned at the bottom. Arranging the layout is for desktops.
+- **Phones** get the same widgets in one scrolling column, with the timeline pinned at the bottom. Editing dashboards is for desktops.
 
 | Qualifying | Edit the layout |
 | --- | --- |
@@ -94,7 +94,7 @@ export default defineWidget({
 
 1. Make a folder in `src/widgets/` with an `index.tsx` like the one above.
 2. Pick your hooks. They're all listed in [`src/widgetkit/index.ts`](src/widgetkit/index.ts). Import them from `"widget-kit"`.
-3. Register the widget in [`src/grid/builtins.ts`](src/grid/builtins.ts): import it and add it to the `ALL` list. It then shows up under **Edit layout** → **+ Add widget**.
+3. Register the widget in [`src/grid/builtins.ts`](src/grid/builtins.ts): import it and add it to the `ALL` list. It then shows up under **Edit** → **+ Add widget**.
 4. Run `bun run lint` and `bun test src/widgets`. The lint checks that a widget imports only React, `widget-kit` and files in its own folder.
 5. Open a PR.
 

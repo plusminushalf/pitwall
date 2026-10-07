@@ -4,8 +4,9 @@
 //   /session/11228?view=laps&drivers=1,63            finished practice's Fastest laps (the lap comparison)
 //   /session/11731?t=3725&range=12-30                the lap charts zoomed to laps 12 to 30 (the timeline's zoom rail)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
+//   /session/11377?dash=strategy                     a dashboard other than the first (grid/dashboards.ts); live too
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
-//   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't the default
+//   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't a preset's
 //   zoom=120-560&preset=2&laps=1:14,63:12&mini=50&names=1   the lap comparison: its charts' distance window (m), the
 //                                                    segment its laps come from, hand-picked laps, mini-sectors, corner names
 // Links from before paths (`/?session=11377&t=…`, `/?live=1`, the single `driver=63`) still open, and are upgraded.
@@ -25,6 +26,8 @@ export interface UrlState {
   compare?: CompareLink;
   /** A shared link's widget layout, encoded (share/layoutCode.ts). Absent: the browser's own. */
   layout?: string;
+  /** The dashboard (grid/dashboards.ts). Absent: the one the browser last showed. */
+  dash?: string;
 }
 
 /** How a shared link sets up the lap comparison (qualifying, practice's Fastest laps). */
@@ -46,6 +49,8 @@ const LIVE_PATH = /^\/live\/?$/;
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
 const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view", "zoom", "preset", "laps", "mini", "names", "layout", "range"]);
 const LAYOUT_CODE = /^[A-Za-z0-9_-]+$/;
+/** A dashboard id, as grid/dashboards.ts checks it. */
+const DASHBOARD_ID = /^[a-z0-9-]{1,40}$/;
 
 export const sessionPath = (key: number) => `/session/${key}`;
 export const livePath = "/live";
@@ -75,6 +80,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     ...(path && q.get("view") === "laps" ? { view: "laps" as const } : {}),
     ...(path && range && Number(range[1]) >= 1 && Number(range[1]) < Number(range[2]) ? { range: [Number(range[1]), Number(range[2])] as [number, number] } : {}),
     ...(path ? readShared(q) : {}),
+    ...(DASHBOARD_ID.test(q.get("dash") ?? "") ? { dash: q.get("dash")! } : {}),
   };
 }
 
@@ -109,6 +115,7 @@ export function urlFor(v: UrlState): string {
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
   if (v.drivers.length > 0) q.push(`drivers=${v.drivers.join(",")}`);
   if (v.focus != null) q.push(`focus=${v.focus}`);
+  if (v.dash) q.push(`dash=${v.dash}`);
   if (!v.live && v.range) q.push(`range=${v.range[0]}-${v.range[1]}`);
   if (!v.live) {
     const c = v.compare ?? {};

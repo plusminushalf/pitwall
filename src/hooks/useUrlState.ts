@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { rowForKey, rowState, useLibrary } from "../library";
 import { comparing, saveWatched, useReplay } from "../store";
+import { FIRST } from "../grid/dashboards";
 import { useLayout } from "../grid/store";
 import { useQuali } from "../qualiStore";
 import { decodeLayout } from "../share/layoutCode";
@@ -33,6 +34,7 @@ export function applyUrl() {
   // A shared link's set-up: shown when its session is (the address bar drops it once the session's open).
   if (url.compare) useQuali.getState().applyLink(url.session!, url.compare);
   if (url.layout) void decodeLayout(url.layout).then((shared) => shared && useLayout.getState().showShared(shared.kind, shared.layout));
+  else if (url.dash) useLayout.getState().requestDashboard(url.dash, url.live ? null : url.session);
   // A shared link: open it if it's here; carry on streaming it if its download is under way (a reload); otherwise
   // offer to watch it (downloading it, from `t`).
   const key = url.session!;
@@ -64,6 +66,9 @@ export function useUrlSync() {
   // Practice's Fastest laps (qualifying is always the comparison: nothing to say).
   const laps = useReplay((s) => comparing(s) && s.session?.meta.practice != null);
   const lapWindow = useReplay((s) => s.lapWindow);
+  // The dashboard, where there's one on screen and it isn't the first (a shared link's layout isn't one).
+  const dash = useLayout((s) => (s.shared || s.dashboard === FIRST ? undefined : s.dashboard));
+  const grid = useReplay((s) => !comparing(s));
   const lastWrite = useRef(0);
 
   useEffect(() => {
@@ -81,7 +86,7 @@ export function useUrlSync() {
           watchedTo: s.watchedTo,
         });
       }
-      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined, range: lapWindow ? [lapWindow[0], lapWindow[1]] : undefined });
+      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined, range: lapWindow ? [lapWindow[0], lapWindow[1]] : undefined, dash: grid ? dash : undefined });
       if (url === location.pathname + location.search) return;
       lastWrite.current = performance.now();
       // Keeps the entry's state (whether it was opened from Home).
@@ -95,5 +100,5 @@ export function useUrlSync() {
     }
     const id = setTimeout(write, wait);
     return () => clearTimeout(id);
-  }, [view, session, live, second, selected, focused, laps, lapWindow]);
+  }, [view, session, live, second, selected, focused, laps, lapWindow, dash, grid]);
 }

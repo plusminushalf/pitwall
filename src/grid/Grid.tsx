@@ -12,7 +12,7 @@
 // doesn't remount); a button in the same place, or Esc, puts it back. Not a layout change: nothing is saved.
 //
 // On a phone (usePhone) none of that: the same layout's widgets as one full-width column that scrolls
-// (PhoneGrid), the tower first, each widget at its own height (layout.ts: phoneColumn). Edit mode is for
+// (PhoneGrid), under tabs for the dashboards, the tower first, each widget at its own height (layout.ts: phoneColumn). Edit mode is for
 // desktops: the phone column ignores the store's editing flag and never saves, so the layout a user made
 // on their desktop is exactly as they left it when they next open it there.
 
@@ -45,6 +45,7 @@ import {
 } from "./edit";
 import { boxesOf, pack, phoneColumn, ROW, type Box, type Layout } from "./layout";
 import { SettingsEditor, shownFields } from "./SettingsEditor";
+import { dashboardList } from "./dashboards";
 import { gridKind } from "./storage";
 import { useLayout } from "./store";
 
@@ -82,8 +83,32 @@ function PhoneGrid() {
   const column = useMemo(() => (input ? phoneColumn(layout, BUILTIN_WIDGETS, input) : []), [layout, input]);
   return (
     <div className="min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain">
+      <PhoneDashboards />
       {column.map(({ id, widget, settings, height }) => (
         <PhoneBox key={id} id={id} widget={widget} settings={settings} height={height} />
+      ))}
+    </div>
+  );
+}
+
+/** The dashboards on a phone: tabs at the top of the column (scrolling away with it), as the header has no room. */
+function PhoneDashboards() {
+  const kind = useLayout((s) => s.kind);
+  const dashboards = useLayout((s) => s.dashboards);
+  const active = useLayout((s) => (s.shared ? null : s.dashboard));
+  return (
+    <div className="flex gap-1.5 overflow-x-auto border-b border-zinc-800 px-3 py-1.5 [scrollbar-width:none]" role="tablist" aria-label="Dashboards">
+      {dashboardList(dashboards, kind).map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          role="tab"
+          aria-selected={d.id === active}
+          onClick={() => useLayout.getState().switchTo(d.id)}
+          className={`h-9 shrink-0 whitespace-nowrap rounded-md px-3 text-xs font-semibold ${d.id === active ? "bg-zinc-100 text-zinc-900" : "bg-zinc-900 text-zinc-300"}`}
+        >
+          {d.name}
+        </button>
       ))}
     </div>
   );
