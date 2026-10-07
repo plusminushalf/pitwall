@@ -112,7 +112,7 @@ export function CircuitFrame({ title, what, data, done, children }: { title: str
 /**
  * One row per earlier race, newest first: its year, `plot` (the race drawn across the row) and `value` (a figure at
  * the end), a placeholder while it loads and why it didn't load if it didn't. `axis` goes under the plots, with
- * `unit` ("lap", "s") at its end.
+ * `unit` ("lap", "s") at its end. The figures are never cut short ("1 SC · 1 VSC"): their column takes the widest.
  */
 export function CircuitYearRows({
   entries,
@@ -128,7 +128,7 @@ export function CircuitYearRows({
   unit?: string;
 }) {
   return (
-    <div className="mt-1 grid grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-x-2">
+    <div className="mt-1 grid grid-cols-[2.5rem_minmax(0,1fr)_minmax(4.5rem,max-content)] items-center gap-x-2">
       {entries.map((e) => (
         <div key={e.sessionKey} className="contents">
           <span className="tabular-nums leading-[22px] text-zinc-300" title={e.meetingName}>
@@ -143,7 +143,7 @@ export function CircuitYearRows({
               {e.error}
             </span>
           )}
-          <span className="truncate text-right tabular-nums text-zinc-100">{e.race ? value(e.race) : e.loading ? <Skeleton className="ml-auto h-3 w-12" /> : "—"}</span>
+          <span className="whitespace-nowrap text-right tabular-nums text-zinc-100">{e.race ? value(e.race) : e.loading ? <Skeleton className="ml-auto h-3 w-12" /> : "—"}</span>
         </div>
       ))}
       {axis && (

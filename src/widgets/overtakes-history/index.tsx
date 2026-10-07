@@ -4,11 +4,13 @@ const MAX_ROWS = 4;
 /** Laps per cell of the strip. */
 const BIN = 5;
 /**
- * Passes per cell, one hue light to dark on the near-black (sequential: more is lighter). Zero is the raised panel,
- * so a stretch without passes still shows as part of the race.
+ * Passes per cell, one hue light to dark on the near-black (sequential: more is lighter). Four steps, far enough apart
+ * to tell once a screenshot is shrunk and recompressed in a feed. Zero is an empty outlined cell, so a stretch without
+ * passes still shows as part of the race.
  */
-const STEPS = ["#18181b", "#3f3f46", "#71717b", "#a1a1aa", "#d4d4d8", "#fafafa"];
-const shade = (n: number, max: number) => (n <= 0 ? STEPS[0] : STEPS[Math.min(STEPS.length - 1, 1 + Math.floor((n / max) * (STEPS.length - 2) + 1e-9))]);
+const STEPS = ["#3f3f46", "#71717b", "#b4b4bb", "#fafafa"];
+const EMPTY = { boxShadow: "inset 0 0 0 1px #3f3f46" };
+const cell = (n: number, max: number) => (n <= 0 ? EMPTY : { background: STEPS[Math.min(STEPS.length - 1, Math.floor((n / max) * (STEPS.length - 1) + 1e-9))] });
 
 const binsOf = (race: PastRace, bins: number) => {
   const out = new Array<number>(bins).fill(0);
@@ -41,7 +43,7 @@ function Overtakes() {
         plot={(race) => {
           const counts = binsOf(race, bins);
           return (
-            <div className="flex h-3 gap-[2px]">
+            <div className="flex h-4 gap-[3px]">
               {counts.map((n, i) => {
                 const from = i * BIN + 1;
                 const to = Math.min((i + 1) * BIN, race.laps);
@@ -51,7 +53,7 @@ function Overtakes() {
                   <span
                     key={i}
                     className="flex-1 rounded-[2px]"
-                    style={{ background: shade(n, max) }}
+                    style={cell(n, max)}
                     title={`Laps ${from}–${to}: ${n} ${n === 1 ? "pass" : "passes"}`}
                   />
                 );
@@ -64,7 +66,8 @@ function Overtakes() {
         unit="lap"
       />
       <div className="mt-auto flex items-center gap-1.5 pt-1 text-[11px] text-zinc-400">
-        Passes per {BIN} laps: fewer
+        Passes per {BIN} laps: none
+        <span className="inline-block h-2.5 w-3 rounded-[2px]" style={EMPTY} />
         {STEPS.map((c) => (
           <span key={c} className="inline-block h-2.5 w-3 rounded-[2px]" style={{ background: c }} />
         ))}
