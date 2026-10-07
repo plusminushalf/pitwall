@@ -1,12 +1,13 @@
 // The weather forecast for a weekend still to come (../../forecast): on its circuit's page, a row per session left
 // (practice too); on Home's header, a word on the next session's.
 
-import { useMemo, type ReactNode } from "react";
+import { useMemo, useRef, type ReactNode } from "react";
 import type { RawSession } from "../../../scripts/lib/openf1Types";
 import { compass, FORECAST_HORIZON_MS, sessionForecast, skyText, wetSky, type SessionForecast } from "../../forecast/forecast";
 import { useForecast } from "../../forecast/useForecast";
 import { FOCUS, LABEL } from "../controls";
 import { clockTime, day, sessionTime, shortGp } from "../home/common";
+import { useCardSection } from "../../share/ShareCard";
 
 /** Rain likely enough to change a weekend: the chance at which a strategist starts watching the radar. */
 const WET_CHANCE = 40;
@@ -50,7 +51,24 @@ function Credit({ fetchedAt }: { fetchedAt?: number }) {
  * The weekend's sessions still to finish at a circuit, each with its forecast; nothing once the weekend is over. A
  * weekend further out than the forecast reaches says when it will.
  */
-export function WeekendForecast({ sessions, meetingName, circuitKey, now }: { sessions: RawSession[]; meetingName: string; circuitKey: number | null; now: number }) {
+/** A share card's width for the forecast: its four columns of a phone, in 14px type. */
+const CARD_WIDTH = 520;
+
+export function WeekendForecast({
+  sessions,
+  meetingName,
+  circuitKey,
+  now,
+  className = "mt-8",
+}: {
+  sessions: RawSession[];
+  meetingName: string;
+  circuitKey: number | null;
+  now: number;
+  className?: string;
+}) {
+  const ref = useRef<HTMLElement>(null);
+  useCardSection(ref, () => <WeekendForecast sessions={sessions} meetingName={meetingName} circuitKey={circuitKey} now={now} className="" />, CARD_WIDTH);
   const left = useMemo(() => sessions.filter((s) => !s.is_cancelled && Date.parse(s.date_end) > now).sort((a, b) => a.date_start.localeCompare(b.date_start)), [sessions, now]);
   const first = left[0] ? Date.parse(left[0].date_start) : null;
   const reached = first != null && first - now < FORECAST_HORIZON_MS;
@@ -67,13 +85,13 @@ export function WeekendForecast({ sessions, meetingName, circuitKey, now }: { se
         <thead>
           <tr className={`${LABEL} border-y border-zinc-800`}>
             <th className="px-3 py-2 font-[inherit]">Session</th>
-            <th className="hidden px-3 py-2 font-[inherit] sm:table-cell">Starts</th>
+            <th className="hidden px-3 py-2 font-[inherit] @xl:table-cell">Starts</th>
             <th className="px-3 py-2 font-[inherit]">Sky</th>
             <th className="px-3 py-2 font-[inherit]" title="The likeliest hour's chance of rain, and the rain forecast over the session">
               Rain
             </th>
             <th className="px-3 py-2 font-[inherit]">Air</th>
-            <th className="hidden px-3 py-2 font-[inherit] md:table-cell" title="The strongest wind, and where it comes from">
+            <th className="hidden px-3 py-2 font-[inherit] @2xl:table-cell" title="The strongest wind, and where it comes from">
               Wind
             </th>
           </tr>
@@ -88,15 +106,15 @@ export function WeekendForecast({ sessions, meetingName, circuitKey, now }: { se
               <tr key={s.session_key} className="border-b border-zinc-800/70">
                 <td className="px-3 py-2">
                   <span className="font-semibold text-zinc-50">{s.session_name}</span>
-                  <span className="block text-xs tabular-nums text-zinc-400 sm:hidden">{sessionTime(s.date_start)}</span>
+                  <span className="block text-xs tabular-nums text-zinc-400 @xl:hidden">{sessionTime(s.date_start)}</span>
                 </td>
-                {cell(sessionTime(s.date_start), "hidden tabular-nums text-zinc-300 sm:table-cell")}
+                {cell(sessionTime(s.date_start), "hidden tabular-nums text-zinc-300 @xl:table-cell")}
                 {f ? (
                   <>
                     {cell(skyText(f.code), wetSky(f.code) ? "text-sky-300" : "text-zinc-200")}
                     {cell(rainText(f), `tabular-nums ${wet(f) ? "font-semibold text-sky-300" : "text-zinc-300"}`)}
                     {cell(temps(f), "tabular-nums text-zinc-200")}
-                    {cell(`${f.wind.toFixed(1)} m/s ${compass(f.windFrom)}`, "hidden tabular-nums text-zinc-300 md:table-cell")}
+                    {cell(`${f.wind.toFixed(1)} m/s ${compass(f.windFrom)}`, "hidden tabular-nums text-zinc-300 @2xl:table-cell")}
                   </>
                 ) : (
                   <td colSpan={4} className="px-3 py-2 text-zinc-400">
@@ -112,7 +130,8 @@ export function WeekendForecast({ sessions, meetingName, circuitKey, now }: { se
   }
 
   return (
-    <section data-shot="" aria-labelledby="forecast-title" className="mt-8">
+    // Its columns go by its own width, not the screen's: a share card's is a phone's (useCardSection).
+    <section ref={ref} data-shot="" aria-labelledby="forecast-title" className={`@container ${className}`}>
       <h2 id="forecast-title" className={`${LABEL} mb-2 px-3`}>
         Forecast · {shortGp(meetingName)}
       </h2>

@@ -45,8 +45,8 @@ export interface Shot {
   scale: number;
   /** Where the app is on the page (CSS px). */
   bounds: Rect;
-  /** The credit lines on screen, where they are (CSS px, from the app's top left). */
-  credits: { text: string; rect: Rect }[];
+  /** The credit lines on screen, where they are (CSS px, from the app's top left) and where the space above them starts. */
+  credits: { text: string; rect: Rect; above: number }[];
 }
 
 /** On a sticky element stuck away from where it would be, while the copy is made: how far (CSS px, "x y"). */
@@ -89,7 +89,8 @@ export async function captureApp(): Promise<Shot> {
   const stuck = markStuck(root);
   const credits = [...root.querySelectorAll<HTMLElement>(`[${CREDIT}]`)].map((el) => {
     const r = el.getBoundingClientRect();
-    return { text: el.getAttribute(CREDIT)!, rect: { left: r.left - left, top: r.top - top, width: r.width, height: r.height } };
+    const above = r.top - top - parseFloat(getComputedStyle(el).marginTop);
+    return { text: el.getAttribute(CREDIT)!, rect: { left: r.left - left, top: r.top - top, width: r.width, height: r.height }, above };
   });
   try {
     // Loaded on the first share, not with the app.
@@ -126,7 +127,7 @@ export async function captureApp(): Promise<Shot> {
   }
 }
 
-/** A PNG of `el` (a share card, drawn transparent where it waits) at `scale` image px per CSS px. */
+/** A PNG of `el` (a share card, transparent where it waits) at `scale` image px per CSS px. */
 export async function captureCard(el: HTMLElement, scale: number): Promise<Blob> {
   const { domToBlob } = await import("modern-screenshot");
   return domToBlob(el, {
@@ -169,17 +170,21 @@ export function clampArea(shot: Shot, area: Rect | null): Rect {
 const overlaps = (a: Rect, b: Rect) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
 
 /**
- * The PNG to share: `area` of the shot in a margin, over a strip with the logo, the credits of the sources in the
+ * The PNG to share: the `picked` area of the shot in a margin, over a strip with the logo, the credits of the sources in the
  * area and `host`. Credits that don't fit between the logo and the address go on a line of their own under the logo.
  */
-export async function brandedImage(shot: Shot, area: Rect, host: string): Promise<Blob> {
+export async function brandedImage(shot: Shot, picked: Rect, host: string): Promise<Blob> {
   const { canvas, scale } = shot;
+  const credits = shot.credits.filter((c) => overlaps(c.rect, picked));
+  // A credit line the area ends with (a section's last line) is cut off with the space above it, not left blank.
+  const last = credits.find((c) => c.rect.top + c.rect.height >= picked.top + picked.height - 1 && c.above > picked.top);
+  const area = last ? { ...picked, height: last.above - picked.top } : picked;
   const margin = Math.round(Math.min(Math.max(Math.max(area.width, area.height) * MARGIN.share, MARGIN.min), MARGIN.max));
   const inner = Math.max(area.width, MIN_WIDTH);
   const width = inner + 2 * margin;
   const out = document.createElement("canvas");
   const ctx = out.getContext("2d")!;
-  const credit = [...new Set(shot.credits.filter((c) => overlaps(c.rect, area)).map((c) => c.text))].join(" · ");
+  const credit = [...new Set(credits.map((c) => c.text))].join(" · ");
   const creditFont = `400 12px ${FONT}`;
   const hostFont = `500 14px ${FONT}`;
   ctx.font = hostFont;
