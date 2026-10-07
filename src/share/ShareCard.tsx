@@ -65,14 +65,17 @@ export interface CardPanel {
   render: (scale: number) => ReactNode;
   /** The card's width it needs (CSS px). */
   width: number;
-  /** A widget: as tall as it is on screen (CSS px), and framed by hairlines. A section is as tall as it lays out. */
+  /** A widget (framed by hairlines): as tall as it is on screen (CSS px). A section is as tall as it lays out. */
   height?: number;
+  /** A widget that's only as tall as what's in it, up to `height`: one that doesn't draw to its height (no canvas). */
+  fit?: boolean;
 }
 
-const widgetPanel = (hosted: HostedWidget, height: number): CardPanel => ({
+const widgetPanel = (hosted: HostedWidget, el: Element): CardPanel => ({
   render: (scale) => <WidgetHost widget={hosted.widget} settings={hosted.settings} circuit={hosted.circuit} pixelRatio={scale} className="h-full w-full overflow-hidden" />,
   width: CARD_WIDTH,
-  height,
+  height: Math.round(el.getBoundingClientRect().height),
+  fit: !el.querySelector("canvas"),
 });
 
 /**
@@ -88,7 +91,7 @@ export function cardPanels(els: readonly Element[]): CardPanel[] | null {
     const section = SECTIONS.get(el)?.current;
     const hosted = section ? null : hostedIn(el);
     if (!section && !hosted) return null;
-    placed.push({ panel: section ? { render: section.render, width: section.width } : widgetPanel(hosted!, Math.round(r.height)), top: r.top, left: r.left });
+    placed.push({ panel: section ? { render: section.render, width: section.width } : widgetPanel(hosted!, el), top: r.top, left: r.left });
   }
   if (placed.length === 0) return null;
   return placed.sort((a, b) => a.top - b.top || a.left - b.left).map((p) => p.panel);
@@ -113,13 +116,21 @@ async function settled(el: HTMLElement) {
   await frame();
 }
 
+/** Whether `panel`, or a list in it, has more in it than it shows. */
+const overflows = (panel: HTMLElement) =>
+  [panel, ...panel.querySelectorAll<HTMLElement>("*")].some((el) => el.scrollHeight > el.clientHeight + 1 && (el === panel || /auto|scroll/.test(getComputedStyle(el).overflowY)));
+
+/** A panel cut short fades out at the bottom, so it doesn't end on half a row. */
+const FADE = "linear-gradient(to bottom, black calc(100% - 56px), transparent)";
+
 /** The sources credited in `el` (a section's credit line), once each. */
 const creditsIn = (el: Element) => [...new Set([...el.querySelectorAll("[data-shot-credit]")].map((c) => c.getAttribute("data-shot-credit")!))].join(" · ");
 
 /**
  * The card, out of sight while it's drawn: on the page (a widget off screen holds still), but transparent and under
  * everything. The picture is made of its copy, which is opaque. A section's credit line is left out, its source named
- * in the footer instead.
+ * in the footer instead, and so are a widget's controls (data-shot-control: All / Selected, filters), which a
+ * picture can't use.
  */
 export function ShareCard({ job }: { job: CardJob }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -132,6 +143,9 @@ export function ShareCard({ job }: { job: CardJob }) {
     void settled(ref.current!)
       .then(() => {
         flushSync(() => setCredits(creditsIn(ref.current!)));
+        for (const panel of ref.current!.querySelectorAll<HTMLElement>("[data-card-panel]")) {
+          if (overflows(panel)) panel.style.maskImage = FADE;
+        }
         return captureCard(ref.current!, scale);
       })
       .then(
@@ -148,7 +162,7 @@ export function ShareCard({ job }: { job: CardJob }) {
       ref={ref}
       aria-hidden
       inert
-      className="pointer-events-none fixed left-0 top-0 -z-10 bg-zinc-950 px-6 pb-5 pt-6 text-zinc-100 opacity-0 [&_[data-shot-credit]]:hidden"
+      className="pointer-events-none fixed left-0 top-0 -z-10 bg-zinc-950 px-6 pb-5 pt-6 text-zinc-100 opacity-0 [&_[data-shot-control]]:hidden [&_[data-shot-credit]]:hidden"
       style={{ width }}
     >
       {heading && (
@@ -165,7 +179,12 @@ export function ShareCard({ job }: { job: CardJob }) {
         const prev = panels[i - 1];
         if (p.height == null) return <div key={i} className={prev ? "mt-6" : ""}>{p.render(scale)}</div>;
         return (
-          <div key={i} className={`border-x border-b border-zinc-800 ${prev?.height == null ? "border-t" : ""} ${prev && prev.height == null ? "mt-6" : ""}`} style={{ height: p.height }}>
+          <div
+            key={i}
+            data-card-panel=""
+            className={`overflow-hidden border-x border-b border-zinc-800 ${prev?.height == null ? "border-t" : ""} ${prev && prev.height == null ? "mt-6" : ""}`}
+            style={p.fit ? { maxHeight: p.height } : { height: p.height }}
+          >
             {p.render(scale)}
           </div>
         );

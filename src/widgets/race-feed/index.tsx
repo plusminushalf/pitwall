@@ -199,7 +199,7 @@ function RaceFeed() {
       <div className="border-b border-zinc-800 px-3 py-1.5">
         <div className="flex items-center gap-2">
           <Label as="h2">{practice ? "Session feed" : "Race feed"}</Label>
-          <div className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
+          <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
             {(["all", "selected"] as const).map((v) => (
               <button
                 key={v}
@@ -213,7 +213,7 @@ function RaceFeed() {
             ))}
           </div>
         </div>
-        <div className="mt-1 flex flex-wrap gap-1">
+        <div data-shot-control="" className="mt-1 flex flex-wrap gap-1">
           {GROUPS.filter((g) => !practice || g.id !== "overtake").map((g) => {
             const on = groups[g.id];
             return (

@@ -69,6 +69,9 @@
 //     useRadio(select?)          playing, unavailable, play(url), stop()
 //   Opt-out
 //     useWholeSession(select?)   the whole session, future included
+//   Sharing: clicked to share, a widget is mounted again on a share card 480 px wide, as tall as on screen;
+//   one with no canvas only as tall as its contents. Mark controls a picture can't use (All / Selected,
+//   filters) data-shot-control: they're left off the card.
 //
 //   API gaps found rebuilding today's screen (step 2), marked "API gap" where they're defined:
 //     useWidgetSize().pixelRatio  device px per CSS px, for sharp canvases (redraw when it changes)

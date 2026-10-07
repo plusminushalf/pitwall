@@ -188,7 +188,7 @@ function Battles() {
         <span className="truncate text-[11px] text-zinc-400">
           Within {gap.toFixed(1)} s at the line, {minLaps}+ laps
         </span>
-        <div className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
+        <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["all", "selected"] as const).map((v) => (
             <button
               key={v}
