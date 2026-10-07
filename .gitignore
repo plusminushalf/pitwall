@@ -10,6 +10,9 @@ dist/
 # sessions in data/sessions/.
 /data/
 
+# Circuit history (scripts/circuit-history.ts): built from F1DB before every deploy, not committed.
+/public/history/
+
 # CodeGraph index (local code navigation)
 .codegraph/
 

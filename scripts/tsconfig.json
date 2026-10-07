@@ -16,6 +16,7 @@
     "../src/live/protocol.ts",
     "../src/live/openf1.test.ts",
     "../src/data",
+    "../src/history",
     "../src/engine",
     "../src/ingest/eta.ts",
     "../src/ingest/catalog.ts",

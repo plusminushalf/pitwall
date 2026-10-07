@@ -13,6 +13,7 @@
     "ingest": "bun scripts/ingest.ts",
     "ingest:season": "bun scripts/ingest-season.ts",
     "export": "bun scripts/export.ts",
+    "history": "bun scripts/circuit-history.ts",
     "check:quali": "bun scripts/check-quali.ts",
     "live": "bun server/live.ts",
     "live:sim": "LIVE_SIMULATE=11377 bun server/live.ts",
