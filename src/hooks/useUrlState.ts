@@ -29,6 +29,8 @@ export function applyUrl() {
   const opts = { t: url.t, drivers: url.drivers, focus: url.focus, view: url.view, range: url.range };
   if (url.live) {
     library.setLink(null);
+    // Live too can be opened on a dashboard: shown once the live session is (requestDashboard waits for it).
+    if (url.dash) useLayout.getState().requestDashboard(url.dash, null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
   }
   // A shared link's set-up: shown when its session is (the address bar drops it once the session's open).
