@@ -231,46 +231,51 @@ function DashboardPicker() {
   const items = dashboardList(dashboards, kind);
   const own = items.filter((i) => !i.preset);
   return (
-    <select
-      value={shared ? "" : active}
-      onChange={(e) => {
-        // Blur so the keyboard shortcuts (ignored while a <select> has focus) keep working.
-        e.currentTarget.blur();
-        const s = useLayout.getState();
-        if (e.target.value === NEW_DASHBOARD) s.newDashboard();
-        else s.switchTo(e.target.value);
-      }}
-      className={`${TOP_BUTTON} max-w-44 cursor-pointer truncate field-sizing-content bg-zinc-800 text-zinc-100 hover:bg-zinc-700`}
-      title="Dashboard: the widgets on screen, for any session"
-      aria-label="Dashboard"
-    >
-      {shared && (
-        <option value="" disabled className="bg-zinc-900">
-          Shared dashboard
-        </option>
-      )}
-      <optgroup label="Built in" className="bg-zinc-900">
-        {items
-          .filter((i) => i.preset)
-          .map((i) => (
-            <option key={i.id} value={i.id} title={i.description}>
-              {i.name}
-            </option>
-          ))}
-      </optgroup>
-      {own.length > 0 && (
-        <optgroup label="Yours" className="bg-zinc-900">
-          {own.map((i) => (
-            <option key={i.id} value={i.id}>
-              {i.name}
-            </option>
-          ))}
+    // The app's chevron, not the browser's: a native one brings its own padding and height, so the select stood
+    // taller and off-centre beside the buttons next to it.
+    <span className="relative inline-flex shrink-0">
+      <select
+        value={shared ? "" : active}
+        onChange={(e) => {
+          // Blur so the keyboard shortcuts (ignored while a <select> has focus) keep working.
+          e.currentTarget.blur();
+          const s = useLayout.getState();
+          if (e.target.value === NEW_DASHBOARD) s.newDashboard();
+          else s.switchTo(e.target.value);
+        }}
+        className={`${TOP_BUTTON} max-w-44 cursor-pointer appearance-none truncate field-sizing-content bg-zinc-800 pr-6 text-zinc-100 hover:bg-zinc-700`}
+        title="Dashboard: the widgets on screen, for any session"
+        aria-label="Dashboard"
+      >
+        {shared && (
+          <option value="" disabled className="bg-zinc-900">
+            Shared dashboard
+          </option>
+        )}
+        <optgroup label="Built in" className="bg-zinc-900">
+          {items
+            .filter((i) => i.preset)
+            .map((i) => (
+              <option key={i.id} value={i.id} title={i.description}>
+                {i.name}
+              </option>
+            ))}
         </optgroup>
-      )}
-      <option value={NEW_DASHBOARD} className="bg-zinc-900">
-        + New dashboard
-      </option>
-    </select>
+        {own.length > 0 && (
+          <optgroup label="Yours" className="bg-zinc-900">
+            {own.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.name}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        <option value={NEW_DASHBOARD} className="bg-zinc-900">
+          + New dashboard
+        </option>
+      </select>
+      <Icon name="chevron-left" size={12} className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 -rotate-90 text-zinc-400" />
+    </span>
   );
 }
 
