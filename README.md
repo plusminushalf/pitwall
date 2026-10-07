@@ -15,15 +15,17 @@ Replay or follow a live F1 race on a polished timing screen made of widgets you 
 
 - **Replays.** Every race, sprint, qualifying and free practice session since 2023. A race starts about 5 seconds after you pick it. It downloads into your browser as you watch, so next time it opens at once.
 - **One timeline** for timing, gaps, tyres, pit stops, race control, weather and team radio. Pause, scrub, or play at up to 64×.
-- **Dashboards.** Overview, Strategy and Telemetry come built in, and any of them shows any race. Edit one or make your own: move, resize, add or remove widgets, and it's saved.
-- **Circuit history.** Five widgets (picker group "Circuit") show the earlier races at the circuit you're watching: when the safety car came out, how many passes were made on track and where, the race pace and fastest lap, time in the pit lane, and every car's tyre strategy. They come from a few OpenF1 reads per race, kept in your browser. The "Circuit history" dashboard puts them beside the timing; each circuit's page shows them too. Results stay hidden until you ask (or turn spoilers off).
-- **Circuits.** Each circuit has a page with every session there since 2023 and its history: lap records, past winners and pole sitters, who wins there (from [F1DB](https://github.com/f1db/f1db), CC BY 4.0). Home leads with the season's circuits (the season sheet, by round, is the other tab); a session's circuit and the search open them too.
-- **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Click a lap, a battle or a stop to watch it.
+- **Dashboards.** Overview, Strategy and Telemetry are built in. Each one shows any session. Edit one or make your own: move, resize, add or remove widgets. It's saved. Hover a widget to fill the screen with it.
+- **Race analysis.** Gaps to the leader or the car ahead, lap by lap. Lap times per stint, with each stint's trend in seconds per lap. Battles: cars within a second for laps on end, and who passed whom. Pit stops, and whether each undercut worked. Lap compare lays the selected drivers' race laps over each other and marks where one passed another. Click a lap, a battle or a stop to watch it. Pick a range of laps on the rail under the timeline, and every lap chart zooms to it.
 - **No spoilers.** The timeline shows only what you've watched. Safety cars, retirements, penalties and the finish stay hidden until you get there.
 - **Qualifying** has its own screen. Compare up to 4 laps: speed, delta, throttle, brake and gear. See who is fastest in each mini-sector. Replay the laps as ghosts.
 - **Free practice** has the timing screen by best lap, with the clock counting down. Deleted lap times are struck through. Long runs ranks every race simulation (5+ laps on a set) by compound, with its average and how much slower it gets per lap. Fastest laps compares up to 4 laps as qualifying does, each with its tyre and its age.
+- **Circuits.** Each circuit has a page with every session there since 2023. It shows the race lap record, the pole record, who wins most and the last races there, from [F1DB](https://github.com/f1db/f1db). Results stay hidden until you click Show results. Home lists the season's circuits, the next one first. The season by round is the other tab.
+- **Circuit history.** Five widgets show the earlier races at a circuit: safety cars, passes on track, race pace, time in the pit lane, and every car's tyre strategy. Add them from the picker's Circuit group, or open the Circuit history dashboard. A circuit's page shows them too. Each race takes 7 reads from OpenF1, kept in your browser.
+- **Forecast.** A circuit's page shows the weather for its next weekend, session by session: the sky, the chance of rain, the air temperature and the wind. Home's header gives the next session's chance of rain and temperature. It comes from [Open-Meteo](https://open-meteo.com), up to 16 days ahead.
 - **Live.** Follow a race, sprint, qualifying or practice session as it happens. Live qualifying uses the race screen for now. It needs an OpenF1 account, connected in Settings.
-- **Phones** get the same widgets in one scrolling column, with the timeline pinned at the bottom. Editing dashboards is for desktops.
+- **Screenshots.** Press S on any page. Drag out an area, or click a widget. Shift-click picks several. The shot is copied as a PNG with the logo and a link to that moment and layout.
+- **Phones** get the same widgets in one scrolling column, with the timeline pinned at the bottom. Editing dashboards and screenshots are for desktops.
 
 | Qualifying | Edit the layout |
 | --- | --- |
@@ -85,6 +87,7 @@ export default defineWidget({
   id: "fastest-lap", // kebab-case, the same as the folder
   name: "Fastest lap",
   description: "The fastest lap so far, and who set it.", // shown in the widget picker
+  group: "session", // its heading in the widget picker: session, driver, telemetry, analysis or circuit
   version: "1.0.0",
   height: 48, // px
   width: { min: 8, default: 10, max: 25 }, // percent of the grid's width
@@ -107,11 +110,12 @@ To match the app's look, use widget-kit's UI pieces: `Label`, `Stat`, `Icon`, `D
 ### What a widget can read
 
 - **Timing:** `useRunningOrder`, `usePositions`, `useDriver` (position, gaps, tyres, lap, status), `useFastestLap`, `useBestSectors`.
-- **Laps and strategy:** `useLaps` (sector times, mini-sectors, speed traps), `useStints`, `usePitStops` (pit lane and stationary time). `useAllLaps`, `useAllStints` and `useAllPitStops` cover the whole field.
+- **Laps and strategy:** `useLaps` (sector times, mini-sectors, speed traps), `useStints`, `usePitStops` (pit lane and stationary time). `useAllLaps`, `useAllStints` and `useAllPitStops` cover the whole field. `useLapWindow` gives the laps picked on the timeline's rail, for charts by lap.
 - **Telemetry:** `useCar` (speed, gear, RPM, throttle, brake, DRS), `useCarHistory` (recent samples), `useFrame` (car positions every animation frame, for canvas drawing), `useLapTrace` (one completed lap as a distance-aligned trace, with `useLapGeometry` for the lap length, sector boundaries and corners; `deltaSeries`, `miniSectors` and friends read them).
 - **The race:** `useTrackStatus`, `useNeutralPeriods` (SC, VSC and red flag periods), `useSectorFlags`, `useWeather`, `useFeed` (race control, overtakes, pit stops, team radio).
 - **Session:** `useDrivers` (names, teams, colours), `useTrack` (outline, pit lane, corners, sectors), `useSessionInfo`.
-- **Playback and the widget:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useWidgetSize`.
+- **The circuit:** `useCircuitRaces` (the earlier races there: safety cars, stints, passes, pace and pit stops). Widgets in the `circuit` group read it, and they show on the circuit's page too.
+- **Playback and the widget:** `useTime`, `usePlayback`, `useSelection`, `useSettings`, `useWidgetSize`, `usePhone` (the phone layout).
 
 ## Request a widget
 
@@ -119,15 +123,17 @@ Not up for writing one? Missing some data? [Open an issue](https://github.com/pl
 
 ## Not a distribution of OpenF1 data
 
-Pitwall ships code, not data. Your browser downloads each race from OpenF1. It's processed and stored in your browser only. No server of ours hosts, bundles or stores F1 data. This repo contains none. One thing passes through: during live sessions, requests made with your OpenF1 account go through the vault's pass-through (see above), which hands each answer to your browser and keeps nothing.
+Pitwall ships code, not data. Your browser downloads each race from OpenF1. It's processed and stored in your browser only. No server of ours hosts, bundles or stores OpenF1 data. This repo contains none. One thing passes through: during live sessions, requests made with your OpenF1 account go through the vault's pass-through (see above), which hands each answer to your browser and keeps nothing.
 
 OpenF1 data is licensed [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/). Non-commercial use only.
+
+Circuit history (lap records, winners, poles) comes from [F1DB](https://github.com/f1db/f1db). It's built into static files before each deploy, not kept in this repo. F1DB is licensed [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Forecasts go from [Open-Meteo](https://open-meteo.com) straight to your browser, also under CC BY 4.0.
 
 Pitwall is an unofficial fan project. It is not associated with the Formula 1 companies or with OpenF1. F1, FORMULA ONE, FORMULA 1, FIA FORMULA ONE WORLD CHAMPIONSHIP, GRAND PRIX and related marks are trade marks of Formula One Licensing B.V.
 
 ## Analytics
 
-The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home or a session), plus country, browser and referrer. On Called It it also counts a call being locked (which driver), shared and copied, as page views of paths of their own. It also sends [PostHog](https://posthog.com) (EU cloud) the same page views, clicks, errors, and what's used: widgets added, sessions opened and downloaded, screenshots, calls. PostHog keeps a random visitor ID in the browser's local storage so a return visit counts as the same visitor. No cookies, no accounts, no names or emails. Builds you run yourself have none.
+The hosted site counts visits with [Cloudflare Web Analytics](https://www.cloudflare.com/web-analytics/): which pages are viewed (Home, a circuit or a session), plus country, browser and referrer. On Called It it also counts a call being locked (which driver), shared and copied, as page views of paths of their own. It also sends [PostHog](https://posthog.com) (EU cloud) the same page views, clicks, errors, and what's used: widgets added, sessions opened and downloaded, screenshots, calls. PostHog keeps a random visitor ID in the browser's local storage so a return visit counts as the same visitor. No cookies, no accounts, no names or emails. Builds you run yourself have none.
 
 ## License
 
