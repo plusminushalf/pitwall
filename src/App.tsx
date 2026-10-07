@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { DownloadPrompt } from "./components/DownloadPrompt";
 import { Header } from "./components/Header";
 import { LiveScreen } from "./components/LiveControl";
@@ -87,15 +87,25 @@ export function App() {
   }, []);
 
   if (!supported) return <Unsupported />;
-  if (view === "home") return <Home />;
-  if (view === "circuit" && circuit) return <CircuitPage slug={circuit} />;
+  // The screenshot (S) works on every page, not only a session's.
+  let page: ReactNode = null;
+  if (view === "home") page = <Home />;
+  else if (view === "circuit" && circuit) page = <CircuitPage slug={circuit} />;
   // Live mode before there's a live session to show: connecting, relay offline, or no race right now.
-  if (!session && live) return <LiveScreen />;
+  else if (!session && live) page = <LiveScreen />;
   // A shared link to a session that isn't downloaded: offer to.
-  if (link && !live && !loading && session?.meta.sessionKey !== link.key) return <DownloadPrompt sessionKey={link.key} />;
+  else if (link && !live && !loading && session?.meta.sessionKey !== link.key) page = <DownloadPrompt sessionKey={link.key} />;
   // Watched while it downloads, before it can start.
-  if (!session && streaming) return <StreamLoading />;
-  if (!session) return <LoadingScreen />;
+  else if (!session && streaming) page = <StreamLoading />;
+  else if (!session) page = <LoadingScreen />;
+  if (page) {
+    return (
+      <>
+        {page}
+        <ShareShot />
+      </>
+    );
+  }
   // Qualifying sessions open in the lap comparison view, as do practice's Fastest laps.
   if (compare) {
     return (

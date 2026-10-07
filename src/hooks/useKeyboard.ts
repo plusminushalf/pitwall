@@ -6,6 +6,8 @@ import { comparing, SPEEDS, useReplay } from "../store";
  * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
  * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× · esc: clear selection · s: share a screenshot
  *
+ * S works on every page (Home, a circuit's); the others need a session.
+ *
  * The lap comparison (qualifying, practice's Fastest laps) keeps space, P (its ghost laps), S and esc; its other keys
  * are its own (QualiView), so they don't move the replay behind it. While a screenshot's area is being picked, keys
  * are the picker's (share/ShareShot.tsx).
@@ -20,10 +22,17 @@ export function useKeyboard() {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+      const t = e.target;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)) return;
+      if (useShare.getState().phase.kind !== "idle") return;
       const s = useReplay.getState();
-      // Nothing to control on Home (the session left there stays paused).
-      if (!s.session || s.view !== "replay" || useShare.getState().phase.kind !== "idle") return;
+      // Off a session (Home, a circuit's page; the session left there stays paused) there's only the screenshot.
+      if (!s.session || s.view !== "replay") {
+        if ((e.key !== "s" && e.key !== "S") || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+        e.preventDefault();
+        useShare.getState().start();
+        return;
+      }
       const compare = comparing(s);
       // The spoiler prompt is open (over the replay): keys are its own.
       if (s.noSpoilers === null && !compare) return;

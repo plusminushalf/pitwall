@@ -44,7 +44,7 @@ function Cell({ card, phase, stored, history, earlier }: { card: CircuitCard; ph
   const quiet = phase === "later" || phase === "cancelled";
   const facts = [history, stored > 0 ? `${stored} stored` : null].filter(Boolean).join(" · ");
   return (
-    <li className="border-b border-r border-zinc-800">
+    <li data-shot="" className="border-b border-r border-zinc-800">
       <button
         onClick={(e) => {
           e.currentTarget.blur();
@@ -175,7 +175,7 @@ export function Circuits({ heading }: { heading: ReactNode }) {
   }
 
   return (
-    <section aria-label="Circuits" className="mt-12">
+    <section data-shot="" aria-label="Circuits" className="mt-12">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">{heading}</div>
       {body}
     </section>

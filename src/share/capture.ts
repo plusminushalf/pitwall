@@ -1,5 +1,6 @@
 // The screenshot: the app drawn to a canvas from its DOM (canvases included) at the screen's pixel ratio, then an
-// area of it cut out with Pitwall's name and address in a strip underneath.
+// area of it cut out with Pitwall's name and address in a strip underneath. Scrolled areas (Home, a circuit's page, a
+// widget's table) are drawn as scrolled, their sticky headers where they're stuck.
 
 /** On an element that mustn't be in screenshots (the picker, toasts). */
 export const IGNORE = "data-shot-ignore";
@@ -33,6 +34,35 @@ export interface Shot {
   bounds: Rect;
 }
 
+/** On a sticky element stuck away from where it would be, while the copy is made: how far (CSS px, "x y"). */
+const STUCK = "data-shot-stuck";
+
+/**
+ * Marks the sticky elements in scrolled areas with how far they're stuck from where they'd be. The copy draws an area
+ * unscrolled and then moves what's in it by the scroll, which takes a stuck header up with the rest: it's moved back.
+ */
+function markStuck(root: HTMLElement): HTMLElement[] {
+  const marked: HTMLElement[] = [];
+  for (const area of root.querySelectorAll<HTMLElement>("*")) {
+    if (area.scrollTop === 0 && area.scrollLeft === 0) continue;
+    for (const el of area.querySelectorAll<HTMLElement>("*")) {
+      if (el.hasAttribute(STUCK) || getComputedStyle(el).position !== "sticky") continue;
+      const stuck = el.getBoundingClientRect();
+      // Where it would be, unstuck: read and put back in one task, so it's never painted.
+      const inline = el.style.position;
+      el.style.position = "static";
+      const free = el.getBoundingClientRect();
+      el.style.position = inline;
+      const dx = stuck.left - free.left;
+      const dy = stuck.top - free.top;
+      if (dx === 0 && dy === 0) continue;
+      el.setAttribute(STUCK, `${dx} ${dy}`);
+      marked.push(el);
+    }
+  }
+  return marked;
+}
+
 /** The app as it's drawn now. */
 export async function captureApp(): Promise<Shot> {
   const root = document.getElementById("root")!;
@@ -41,6 +71,7 @@ export async function captureApp(): Promise<Shot> {
   // A copied <select> shows the option marked selected, not the one picked (a property): mark those for the copy.
   const marked = [...root.querySelectorAll("select")].flatMap((s) => [...s.selectedOptions]).filter((o) => !o.hasAttribute("selected"));
   marked.forEach((o) => o.setAttribute("selected", ""));
+  const stuck = markStuck(root);
   try {
     // Loaded on the first share, not with the app.
     const { domToCanvas } = await import("modern-screenshot");
@@ -50,6 +81,15 @@ export async function captureApp(): Promise<Shot> {
       // The app uses the platform's fonts: nothing to embed.
       font: false,
       filter: (node) => !(node instanceof Element && node.hasAttribute(IGNORE)),
+      // Scrolled areas as they're scrolled (off by default).
+      features: { restoreScrollPosition: true },
+      onCloneEachNode: (cloned) => {
+        if (!(cloned instanceof HTMLElement) || !cloned.hasAttribute(STUCK)) return;
+        const [dx, dy] = cloned.getAttribute(STUCK)!.split(" ");
+        const own = cloned.style.transform;
+        cloned.style.transform = `translate(${dx}px, ${dy}px)${own && own !== "none" ? ` ${own}` : ""}`;
+        cloned.removeAttribute(STUCK);
+      },
       // Scrollbars: a picture can't be scrolled, and the copy draws them even where the platform's are hidden.
       onCloneNode: (cloned) => {
         const style = document.createElement("style");
@@ -60,6 +100,7 @@ export async function captureApp(): Promise<Shot> {
     return { canvas, scale, bounds: { left, top, width, height } };
   } finally {
     marked.forEach((o) => o.removeAttribute("selected"));
+    stuck.forEach((el) => el.removeAttribute(STUCK));
   }
 }
 

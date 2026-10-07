@@ -818,7 +818,7 @@ export function Season({ heading }: { heading: ReactNode }) {
   }
 
   return (
-    <section aria-label="Season" className="mt-12">
+    <section data-shot="" aria-label="Season" className="mt-12">
       <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
         {heading}
         <Segmented label="Year" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />

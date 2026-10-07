@@ -92,7 +92,7 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
   const shown = all ? rows : rows.slice(0, SHOWN);
 
   return (
-    <section aria-labelledby="continue-title" className="mt-10">
+    <section data-shot="" aria-labelledby="continue-title" className="mt-10">
       <h2 id="continue-title" className="mb-3 text-2xl font-bold tracking-tight text-zinc-50">
         Continue
       </h2>

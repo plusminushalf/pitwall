@@ -138,7 +138,7 @@ function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
   const need = liveVia() === "vault" ? accountNeed(vault) : null;
   const account = need && need !== "loading" && need !== "checking" ? accountStatus(need, true) : null;
   return (
-    <section aria-label="Live" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-3">
+    <section data-shot="" aria-label="Live" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-3">
       {watch ? (
         <span className={LIVE_BADGE}>Live</span>
       ) : (

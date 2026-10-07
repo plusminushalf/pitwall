@@ -71,7 +71,7 @@ function History({ h }: { h: CircuitHistory }) {
   const sameLayout = layout && layout.firstYear !== h.races[0]?.year ? ` (layout since ${layout.firstYear})` : "";
 
   return (
-    <section aria-labelledby="history-title" className="mt-8">
+    <section data-shot="" aria-labelledby="history-title" className="mt-8">
       <h2 id="history-title" className="sr-only">
         History
       </h2>
@@ -262,7 +262,7 @@ export function CircuitPage({ slug }: { slug: string }) {
           </p>
           {history && <History h={history} />}
 
-          <section aria-labelledby="weekends-title" className="mt-12">
+          <section data-shot="" aria-labelledby="weekends-title" className="mt-12">
             <h2 id="weekends-title" className="mb-3 text-2xl font-bold tracking-tight text-zinc-50">
               Sessions here
             </h2>

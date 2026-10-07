@@ -9,7 +9,7 @@ import { parseLayout, type GridKind } from "../grid/storage";
 import { useLayout } from "../grid/store";
 import { useQuali } from "../qualiStore";
 import { comparing, useReplay } from "../store";
-import { urlFor, type UrlState } from "../url";
+import { circuitPath, urlFor, type UrlState } from "../url";
 import { encodeLayout } from "./layoutCode";
 
 export const PUBLIC_SITE = "https://pitwall.plusminushalf.com";
@@ -29,11 +29,16 @@ const sameLayout = (a: Layout, b: Layout, kind: GridKind) => {
   return read(a) === read(b);
 };
 
-/** The link to what's on screen now; null on Home. Live, it's the session at this moment (to watch back). */
-export async function shareLink(): Promise<string | null> {
+/**
+ * The link to what's on screen now. Live, it's the session at this moment (to watch back); off a session (Home, a
+ * circuit's page, live mode waiting for one), the page.
+ */
+export async function shareLink(): Promise<string> {
   const s = useReplay.getState();
+  if (s.view === "home") return siteOrigin() + "/";
+  if (s.view === "circuit" && s.circuit) return siteOrigin() + circuitPath(s.circuit);
   const meta = s.session?.meta;
-  if (!meta) return null;
+  if (!meta) return siteOrigin() + location.pathname;
   const compare = comparing(s);
   const state: UrlState = { live: false, session: meta.sessionKey, drivers: s.selected, focus: s.focused };
   if (compare) {

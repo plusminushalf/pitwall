@@ -1,7 +1,7 @@
-// Share a screenshot (S, or the Share button): the screen is frozen as it is, the user drags out an area, clicks a
-// widget or panel (anything marked data-widget / data-shot; shift-click for several), or presses Enter for all of it,
-// and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. A toast then offers the link to this moment
-// (share/link.ts) and the image to save.
+// Share a screenshot (S on any page, or a session's Share button): the screen is frozen as it is, the user drags out an
+// area, clicks a widget or panel (anything marked data-widget / data-shot; shift-click for several), or presses Enter
+// for all of it, and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. A toast
+// then offers the link to this moment, or off a session to the page (share/link.ts), and the image to save.
 
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { create } from "zustand";
@@ -23,11 +23,19 @@ interface Result {
   blob: Blob | null;
   fileName: string;
   link: string | null;
+  /** Whether the link is to a moment of a session (else to a page). */
+  moment: boolean;
   copied: "pending" | "yes" | "no";
   error?: string;
 }
 
-type Phase = { kind: "idle" } | { kind: "capturing" } | { kind: "picking"; shot: Shot; image: string; link: Promise<string | null>; fileName: string };
+/** What's on screen: a session, or a page (Home, a circuit's, live mode waiting for a session). */
+type Page = "session" | "page";
+
+type Phase =
+  | { kind: "idle" }
+  | { kind: "capturing" }
+  | { kind: "picking"; shot: Shot; image: string; link: Promise<string | null>; fileName: string; page: Page };
 
 interface ShareState {
   phase: Phase;
@@ -59,11 +67,14 @@ export const useShare = create<ShareState>((set, get) => {
     result: null,
     start: () => {
       const s = useReplay.getState();
-      if (get().phase.kind !== "idle" || !s.session || s.view !== "replay") return;
-      const meta = s.session.meta;
+      if (get().phase.kind !== "idle") return;
+      const meta = s.view === "replay" ? s.session?.meta : undefined;
+      const page: Page = meta ? "session" : "page";
       // The link is to the moment the key was pressed.
       const link = shareLink().catch(() => null);
-      const fileName = `pitwall-${slug(`${meta.year} ${meta.meetingName} ${meta.sessionName}`)}-${Math.floor(s.t / 1000)}.png`;
+      const fileName = meta
+        ? `pitwall-${slug(`${meta.year} ${meta.meetingName} ${meta.sessionName}`)}-${Math.floor(s.t / 1000)}.png`
+        : `pitwall-${slug(location.pathname) || "home"}.png`;
       clearResult();
       set({ phase: { kind: "capturing" } });
       captureApp()
@@ -71,11 +82,11 @@ export const useShare = create<ShareState>((set, get) => {
           const blob = await new Promise<Blob | null>((resolve) => shot.canvas.toBlob(resolve, "image/png"));
           if (!blob) throw new Error("The screen couldn't be captured");
           if (get().phase.kind !== "capturing") return;
-          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName } });
+          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName, page } });
         })
         .catch((e) => {
           console.error("Screenshot failed", e);
-          set({ phase: { kind: "idle" }, result: { id: nextId++, image: null, blob: null, fileName, link: null, copied: "no", error: "The screen couldn't be captured." } });
+          set({ phase: { kind: "idle" }, result: { id: nextId++, image: null, blob: null, fileName, link: null, moment: page === "session", copied: "no", error: "The screen couldn't be captured." } });
           void link.then((l) => update(get().result!.id, { link: l }));
         });
     },
@@ -83,7 +94,7 @@ export const useShare = create<ShareState>((set, get) => {
       const phase = get().phase;
       if (phase.kind !== "picking") return;
       const image = brandedImage(phase.shot, clampArea(phase.shot, area), new URL(siteOrigin()).host);
-      track("screenshot_created", { selection: area ? "area" : "full_screen" });
+      track("screenshot_created", { selection: area ? "area" : "full_screen", page: phase.page });
       // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
       let copied: Promise<boolean>;
       try {
@@ -96,7 +107,7 @@ export const useShare = create<ShareState>((set, get) => {
       }
       URL.revokeObjectURL(phase.image);
       const id = nextId++;
-      set({ phase: { kind: "idle" }, result: { id, image: null, blob: null, fileName: phase.fileName, link: null, copied: "pending" } });
+      set({ phase: { kind: "idle" }, result: { id, image: null, blob: null, fileName: phase.fileName, link: null, moment: phase.page === "session", copied: "pending" } });
       image.then(
         (blob) => update(id, { blob, image: URL.createObjectURL(blob) }),
         () => update(id, { error: "The image couldn't be made." }),
@@ -145,11 +156,14 @@ const adding = (e: { shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }) =>
  * The area picker over the frozen screen: drag out an area, or click a widget; shift-click (or ⌘ / Ctrl-click) picks
  * several, and what's shared is the smallest area holding them all (and the one clicked or dragged last).
  */
-function Picker({ shot, image }: { shot: Shot; image: string }) {
+function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }) {
   const { pick, cancel } = useShare.getState();
   const { bounds } = shot;
   // A touch screen has no Enter or Esc: those are buttons in the bar instead, and "click" reads "tap".
   const coarse = useCoarsePointer();
+  // A session's screen is widgets; a page's, sections.
+  const part = page === "session" ? "widget" : "section";
+  const parts = (n: number) => `${n} ${part}${n === 1 ? "" : "s"}`;
   const start = useRef<{ x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<Rect | null>(null);
   const [hover, setHover] = useState<Rect | null>(null);
@@ -257,7 +271,7 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
           onPointerUp={(e) => e.stopPropagation()}
         >
           <Icon name="camera" size={14} className="text-zinc-400" />
-          <span>{picked.length > 0 ? `${picked.length} ${picked.length === 1 ? "widget" : "widgets"} picked` : "Drag out an area or tap a widget"}</span>
+          <span>{picked.length > 0 ? `${parts(picked.length)} picked` : `Drag out an area or tap a ${part}`}</span>
           <button type="button" onClick={() => pick(union(pickedRef.current))} className={`${BUTTON} min-h-11`}>
             {picked.length > 0 ? "Share these" : "Whole screen"}
           </button>
@@ -271,9 +285,7 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
           <Icon name="camera" size={14} className="text-zinc-400" />
           {picked.length > 0 ? (
             <>
-              <span className="font-semibold tabular-nums text-zinc-100">
-                {picked.length} {picked.length === 1 ? "widget" : "widgets"}
-              </span>
+              <span className="font-semibold tabular-nums text-zinc-100">{parts(picked.length)}</span>
               <span className="text-zinc-500">·</span>
               <Kbd>Shift</Kbd> click to add or remove
               <span className="text-zinc-500">·</span>
@@ -281,7 +293,7 @@ function Picker({ shot, image }: { shot: Shot; image: string }) {
             </>
           ) : (
             <>
-              Drag out an area or click a widget
+              Drag out an area or click a {part}
               <span className="text-zinc-500">·</span>
               <Kbd>Shift</Kbd> click for several
               <span className="text-zinc-500">·</span>
@@ -331,7 +343,11 @@ function ShareToast({ result }: { result: Result }) {
   };
 
   const title = result.error ? "Couldn't share the screen" : result.copied === "yes" ? "Screenshot copied" : result.copied === "no" ? "Screenshot ready" : "Copying the screenshot…";
-  const note = result.error ?? (result.copied === "no" ? "This browser wouldn't copy it: save it instead." : "Paste it anywhere. The link opens this moment, as you see it.");
+  const note =
+    result.error ??
+    (result.copied === "no"
+      ? "This browser wouldn't copy it: save it instead."
+      : `Paste it anywhere. The link opens ${result.moment ? "this moment, as you see it" : "this page"}.`);
   return (
     <div
       data-shot-ignore=""
@@ -360,7 +376,7 @@ function ShareToast({ result }: { result: Result }) {
             readOnly
             value={result.link}
             onFocus={(e) => e.currentTarget.select()}
-            aria-label="Link to this moment"
+            aria-label={result.moment ? "Link to this moment" : "Link to this page"}
             className="min-w-0 flex-1 rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300"
           />
           <button onClick={copyLink} className={`touch-hit ${BUTTON}`}>
@@ -388,7 +404,7 @@ export function ShareShot() {
   return (
     <>
       {phase.kind === "capturing" && <div data-shot-ignore="" className="fixed inset-0 z-50 cursor-wait" />}
-      {phase.kind === "picking" && <Picker shot={phase.shot} image={phase.image} />}
+      {phase.kind === "picking" && <Picker shot={phase.shot} image={phase.image} page={phase.page} />}
       {result && phase.kind === "idle" && <ShareToast result={result} />}
     </>
   );
