@@ -98,9 +98,10 @@
 
 export { defineWidget } from "./defineWidget";
 export { useCircuitRaces, type CircuitRaceEntry, type CircuitRaces } from "./circuit";
-export { circuitNotice, CircuitProgress, RetryButton, Skeleton } from "./ui/CircuitStates";
+export { CircuitAxis, CircuitFrame, circuitNotice, CircuitProgress, CircuitYearRows, RetryButton, Skeleton } from "./ui/CircuitStates";
 export type { NeutralKind, NeutralLaps, PastDriver, PastFinisher, PastRace, PastStint } from "../history/pastRaces";
-export { stopsOf, strategies } from "../history/pastRaces";
+export { median, stopsOf, strategies } from "../history/pastRaces";
+export type { PastPace, PastPass, PastPit } from "../history/pastRaces";
 export type { WidgetDefinition, WidgetGroup, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
 
 export {

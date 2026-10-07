@@ -87,15 +87,22 @@ export const TELEMETRY_LAYOUT: Layout = {
   },
 };
 
-/** Circuit history: the tower over the map down the left; earlier races at the circuit (safety cars over strategies) beside them. */
+/**
+ * Circuit history: the tower over the map down the left; earlier races at the circuit beside them, safety cars and
+ * overtakes, race pace and the pit lane in pairs, strategies under them.
+ */
 const HISTORY_SIDE = 13;
+const HISTORY_HALF = Math.floor((COLUMNS - HISTORY_SIDE) / 2);
 export const CIRCUIT_LAYOUT: Layout = {
   version: 1,
   columns: COLUMNS,
   widgets: {
     "timing-tower": at(0, 0, HISTORY_SIDE, { height: TOP }),
     "track-map": at(0, 1, HISTORY_SIDE),
-    "safety-cars": at(HISTORY_SIDE, 0, COLUMNS - HISTORY_SIDE),
-    "strategy-history": at(HISTORY_SIDE, 1, COLUMNS - HISTORY_SIDE),
+    "safety-cars": at(HISTORY_SIDE, 0, HISTORY_HALF),
+    "overtakes-history": at(HISTORY_SIDE + HISTORY_HALF, 0, COLUMNS - HISTORY_SIDE - HISTORY_HALF),
+    "race-pace": at(HISTORY_SIDE, 1, HISTORY_HALF),
+    "pit-history": at(HISTORY_SIDE + HISTORY_HALF, 1, COLUMNS - HISTORY_SIDE - HISTORY_HALF),
+    "strategy-history": at(HISTORY_SIDE, 2, COLUMNS - HISTORY_SIDE),
   },
 };

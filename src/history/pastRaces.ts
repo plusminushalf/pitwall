@@ -1,12 +1,12 @@
-// Past races at a circuit, for the circuit widgets (safety cars, strategies): what a race was like, in laps, from four
-// small OpenF1 reads (drivers, race control, stints, results: ~40 KB, against ~12 MB for a whole session with its
-// telemetry). Fetched by each browser like every other OpenF1 read (PRODUCT.md: nothing of OpenF1's is hosted), and
+// Past races at a circuit, for the circuit widgets (safety cars, strategies, overtakes, pace, pit stops): what a race
+// was like, in laps, from seven OpenF1 reads (drivers, race control, stints, results, laps, pit, overtakes: ~100 KB
+// gzipped, against ~12 MB for a whole session with its telemetry). Fetched by each browser like every other OpenF1 read (PRODUCT.md: nothing of OpenF1's is hosted), and
 // kept in this browser (a past race doesn't change). Pure apart from fetchPastRace.
 
 import type { Fetcher } from "../ingest/catalog";
 
 /** Bumped when PastRace's shape changes: a summary kept under another version is fetched again. */
-export const PAST_RACE_FORMAT = 1;
+export const PAST_RACE_FORMAT = 2;
 
 export type NeutralKind = "SC" | "VSC" | "RED";
 
@@ -41,6 +41,29 @@ export interface PastStint {
   to: number;
 }
 
+/** An overtake on track (passes at the start, under a neutral phase, from pit stops or retirements are left out). */
+export interface PastPass {
+  lap: number;
+  by: number;
+  on: number;
+}
+
+/** A pit stop: the time in the pit lane and, from 2024, stationary (seconds). */
+export interface PastPit {
+  driver: number;
+  lap: number;
+  lane: number | null;
+  stationary: number | null;
+  /** Made under a safety car, VSC or red flag (cheaper). */
+  neutral: boolean;
+}
+
+/** A car's lap times under green (no lap 1, in- or out-laps, neutral laps, or laps slower than 107% of its median), in s. */
+export interface PastPace {
+  driver: number;
+  laps: number[];
+}
+
 export interface PastRace {
   format: typeof PAST_RACE_FORMAT;
   sessionKey: number;
@@ -56,6 +79,12 @@ export interface PastRace {
   /** Classified first, by position; then the rest, most laps first. */
   finish: PastFinisher[];
   stints: PastStint[];
+  passes: PastPass[];
+  pits: PastPit[];
+  /** Classified cars' green laps. */
+  pace: PastPace[];
+  /** The race's fastest lap (lap 1 aside). */
+  fastest: { driver: number; lap: number; time: number } | null;
 }
 
 // ---------------------------------------------------------------- OpenF1's rows (the fields read here)
@@ -82,6 +111,28 @@ export interface RawResult {
   dnf?: boolean;
   dns?: boolean;
   dsq?: boolean;
+}
+
+export interface RawLap {
+  driver_number: number;
+  lap_number: number;
+  date_start: string | null;
+  lap_duration: number | null;
+  is_pit_out_lap: boolean | null;
+}
+
+export interface RawPit {
+  driver_number: number;
+  lap_number: number;
+  pit_duration?: number | null;
+  lane_duration?: number | null;
+  stop_duration?: number | null;
+}
+
+export interface RawOvertake {
+  overtaking_driver_number: number;
+  overtaken_driver_number: number;
+  date: string;
 }
 
 export interface RawDriver {
@@ -147,10 +198,72 @@ export function neutralLaps(messages: readonly RawRaceControl[], laps: number): 
   return out.map((p) => ({ ...p, to: Math.min(p.to, Math.max(laps, p.from)) }));
 }
 
+/** The lap a car was on at `date` (from its laps' starts); 1 before its first. */
+function lapAt(starts: readonly { at: number; lap: number }[] | undefined, at: number): number {
+  let lap = 1;
+  for (const s of starts ?? []) {
+    if (s.at > at) break;
+    lap = s.lap;
+  }
+  return lap;
+}
+
+export const median = (xs: readonly number[]) => {
+  const s = [...xs].sort((a, b) => a - b);
+  return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : NaN;
+};
+
+/**
+ * OpenF1's overtakes are every swap of positions; the passes made on track are what's left without: lap 1, swaps
+ * under a neutral phase, swaps when either car pitted that lap or the one before, swaps with a car retiring, swaps
+ * undone within 5 s (timing glitches: on 2023 Singapore's lap 29 every car "passed" Alonso and back in a second), and
+ * a car "passed" by three or more within 15 s (it lost the time off track: a spin, a drive-through).
+ */
+export function onTrackPasses(
+  raw: readonly RawOvertake[],
+  ctx: { laps: readonly RawLap[]; pits: readonly RawPit[]; neutral: readonly NeutralLaps[]; retiredAfter: ReadonlyMap<number, number> },
+): PastPass[] {
+  const starts = new Map<number, { at: number; lap: number }[]>();
+  for (const l of ctx.laps) if (l.date_start) (starts.get(l.driver_number) ?? starts.set(l.driver_number, []).get(l.driver_number)!).push({ at: Date.parse(l.date_start), lap: l.lap_number });
+  for (const s of starts.values()) s.sort((a, b) => a.at - b.at);
+  const pitLaps = new Map<number, Set<number>>();
+  for (const p of ctx.pits) (pitLaps.get(p.driver_number) ?? pitLaps.set(p.driver_number, new Set()).get(p.driver_number)!).add(p.lap_number);
+  const pitted = (d: number, lap: number) => pitLaps.get(d)?.has(lap) || pitLaps.get(d)?.has(lap - 1);
+  const neutral = (lap: number) => ctx.neutral.some((p) => lap >= p.from && lap <= p.to);
+  const all = raw.map((o) => ({ at: Date.parse(o.date), by: o.overtaking_driver_number, on: o.overtaken_driver_number, lap: lapAt(starts.get(o.overtaking_driver_number), Date.parse(o.date)) }));
+  const undone = new Set<number>();
+  all.forEach((a, i) => {
+    for (let j = i + 1; j < all.length && all[j].at - a.at <= 5_000; j++) {
+      if (all[j].by === a.on && all[j].on === a.by) undone.add(i).add(j);
+    }
+  });
+  const swamped = new Set<number>();
+  all.forEach((a, i) => {
+    const near = all.filter((b) => b.on === a.on && Math.abs(b.at - a.at) <= 15_000);
+    if (new Set(near.map((b) => b.by)).size >= 3) swamped.add(i);
+  });
+  return all
+    .filter((o, i) => {
+      if (o.lap <= 1 || neutral(o.lap) || undone.has(i) || swamped.has(i)) return false;
+      if (pitted(o.by, o.lap) || pitted(o.on, o.lap)) return false;
+      const retired = ctx.retiredAfter.get(o.on);
+      return retired == null || o.lap < retired - 1;
+    })
+    .map(({ lap, by, on }) => ({ lap, by, on }));
+}
+
 /** The race as PastRace from OpenF1's rows. */
 export function summarize(
   session: { sessionKey: number; year: number; meetingName: string; sessionName: string; dateStart: string },
-  raw: { drivers: readonly RawDriver[]; raceControl: readonly RawRaceControl[]; stints: readonly RawStint[]; results: readonly RawResult[] },
+  raw: {
+    drivers: readonly RawDriver[];
+    raceControl: readonly RawRaceControl[];
+    stints: readonly RawStint[];
+    results: readonly RawResult[];
+    laps?: readonly RawLap[];
+    pits?: readonly RawPit[];
+    overtakes?: readonly RawOvertake[];
+  },
 ): PastRace {
   const status = (r: RawResult): PastFinisher["status"] => (r.dsq ? "dsq" : r.dns ? "dns" : r.dnf ? "dnf" : r.position != null ? "finished" : "dnf");
   const finish = raw.results
@@ -168,11 +281,38 @@ export function summarize(
     }))
     .filter((s) => s.to >= s.from)
     .sort((a, b) => a.driver - b.driver || a.from - b.from);
+  const neutral = neutralLaps(raw.raceControl, laps);
+  const isNeutral = (lap: number) => neutral.some((p) => lap >= p.from && lap <= p.to);
+  const rawLaps = raw.laps ?? [];
+  const rawPits = raw.pits ?? [];
+  const retiredAfter = new Map(finish.filter((f) => f.status === "dnf").map((f) => [f.driver, f.laps]));
+  const pits: PastPit[] = rawPits
+    .map((p) => ({ driver: p.driver_number, lap: p.lap_number, lane: p.lane_duration ?? p.pit_duration ?? null, stationary: p.stop_duration ?? null, neutral: isNeutral(p.lap_number) }))
+    // A minute or more in the lane is a car repaired or stopped under a red flag, not a pit stop.
+    .filter((p) => p.lane == null || p.lane < 60)
+    .sort((a, b) => a.lap - b.lap || a.driver - b.driver);
+  const inLaps = new Set(rawPits.map((p) => `${p.driver_number}:${p.lap_number}`));
+  const classified = new Set(finish.filter((f) => f.position != null).map((f) => f.driver));
+  const pace: PastPace[] = [];
+  for (const d of classified) {
+    const own = rawLaps.filter(
+      (l) => l.driver_number === d && l.lap_number > 1 && l.lap_duration != null && !l.is_pit_out_lap && !inLaps.has(`${d}:${l.lap_number}`) && !isNeutral(l.lap_number),
+    );
+    const mid = median(own.map((l) => l.lap_duration!));
+    const kept = own.filter((l) => l.lap_duration! <= mid * 1.07).map((l) => l.lap_duration!);
+    if (kept.length) pace.push({ driver: d, laps: kept });
+  }
+  let fastest: PastRace["fastest"] = null;
+  for (const l of rawLaps) if (l.lap_number > 1 && l.lap_duration != null && (!fastest || l.lap_duration < fastest.time)) fastest = { driver: l.driver_number, lap: l.lap_number, time: l.lap_duration };
   return {
     format: PAST_RACE_FORMAT,
     ...session,
     laps,
-    neutral: neutralLaps(raw.raceControl, laps),
+    neutral,
+    passes: onTrackPasses(raw.overtakes ?? [], { laps: rawLaps, pits: rawPits, neutral, retiredAfter }),
+    pits,
+    pace,
+    fastest,
     drivers: raw.drivers.map((d) => ({
       number: d.driver_number,
       code: d.name_acronym ?? String(d.driver_number),
@@ -185,7 +325,7 @@ export function summarize(
   };
 }
 
-/** A past race from OpenF1: four reads, one after the other (the client spaces them out). */
+/** A past race from OpenF1: seven reads, one after the other (the client spaces them out). */
 export async function fetchPastRace(
   session: { sessionKey: number; year: number; meetingName: string; sessionName: string; dateStart: string },
   get: Fetcher,
@@ -196,7 +336,10 @@ export async function fetchPastRace(
   const stints = await get<RawStint>("stints", q);
   const results = await get<RawResult>("session_result", q);
   if (!results.length) throw new Error(`OpenF1 has no results for ${session.year} ${session.meetingName} yet.`);
-  return summarize(session, { drivers, raceControl, stints, results });
+  const laps = await get<RawLap>("laps", q);
+  const pits = await get<RawPit>("pit", q);
+  const overtakes = await get<RawOvertake>("overtakes", q);
+  return summarize(session, { drivers, raceControl, stints, results, laps, pits, overtakes });
 }
 
 /** The cars' stints in the order they finished: what a strategy widget lists. */

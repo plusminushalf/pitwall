@@ -3,7 +3,8 @@
 // widget's own header stays above them throughout, so nothing jumps when the races come in.
 
 import type { CSSProperties, ReactNode } from "react";
-import type { CircuitRaces } from "../circuit";
+import type { CircuitRaceEntry, CircuitRaces } from "../circuit";
+import type { PastRace } from "../../history/pastRaces";
 
 /** A placeholder for something still loading: a grey block, pulsing unless the user asked for less motion. */
 export function Skeleton({ className = "", style }: { className?: string; style?: CSSProperties }) {
@@ -72,4 +73,99 @@ export function CircuitProgress({ data, done }: { data: CircuitRaces; done: Reac
       </span>
     );
   return <>{done}</>;
+}
+
+/** Placeholder rows shaped like CircuitYearRows', while the calendar loads. */
+const skeletonRows = (
+  <div className="mt-1 flex flex-col gap-2.5 pt-1">
+    {[0, 1, 2].map((i) => (
+      <div key={i} className="grid grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-x-2">
+        <Skeleton className="h-3 w-8" />
+        <Skeleton className="h-3" />
+        <Skeleton className="ml-auto h-3 w-12" />
+      </div>
+    ))}
+  </div>
+);
+
+/**
+ * A circuit widget's frame: its title (with the circuit's name) and how the races are loading over the body, or in
+ * place of the body what circuitNotice() says. `done` is the header's right once every race is in.
+ */
+export function CircuitFrame({ title, what, data, done, children }: { title: string; what: string; data: CircuitRaces; done: ReactNode; children: ReactNode }) {
+  const notice = circuitNotice(data, what, skeletonRows);
+  return (
+    <div className="flex h-full flex-col px-3 py-2 text-xs">
+      <div className="flex h-5 shrink-0 items-center gap-2">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-400">
+          {title}
+          {data.circuit ? ` at ${data.circuit}` : ""}
+        </span>
+        <span className="flex-1" />
+        <CircuitProgress data={data} done={done} />
+      </div>
+      {notice ?? children}
+    </div>
+  );
+}
+
+/**
+ * One row per earlier race, newest first: its year, `plot` (the race drawn across the row) and `value` (a figure at
+ * the end), a placeholder while it loads and why it didn't load if it didn't. `axis` goes under the plots, with
+ * `unit` ("lap", "s") at its end.
+ */
+export function CircuitYearRows({
+  entries,
+  plot,
+  value,
+  axis,
+  unit,
+}: {
+  entries: readonly CircuitRaceEntry[];
+  plot: (race: PastRace) => ReactNode;
+  value: (race: PastRace) => ReactNode;
+  axis?: ReactNode;
+  unit?: string;
+}) {
+  return (
+    <div className="mt-1 grid grid-cols-[2.5rem_minmax(0,1fr)_4.5rem] items-center gap-x-2">
+      {entries.map((e) => (
+        <div key={e.sessionKey} className="contents">
+          <span className="tabular-nums leading-[22px] text-zinc-300" title={e.meetingName}>
+            {e.year}
+          </span>
+          {e.race ? (
+            plot(e.race)
+          ) : e.loading ? (
+            <Skeleton className="h-3" />
+          ) : (
+            <span className="truncate text-red-400" title={e.error ?? undefined}>
+              {e.error}
+            </span>
+          )}
+          <span className="truncate text-right tabular-nums text-zinc-100">{e.race ? value(e.race) : e.loading ? <Skeleton className="ml-auto h-3 w-12" /> : "—"}</span>
+        </div>
+      ))}
+      {axis && (
+        <>
+          <span />
+          {axis}
+          <span className="text-right text-[10px] text-zinc-400">{unit}</span>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** Tick labels under a row's plot: `ticks` placed by `x` (0–1). */
+export function CircuitAxis({ ticks, x }: { ticks: readonly { value: number; text: string }[]; x: (v: number) => number }) {
+  return (
+    <div className="relative h-4 text-[10px] tabular-nums text-zinc-400" aria-hidden>
+      {ticks.map((t) => (
+        <span key={t.value} className="absolute -translate-x-1/2 whitespace-nowrap" style={{ left: `${x(t.value) * 100}%` }}>
+          {t.text}
+        </span>
+      ))}
+    </div>
+  );
 }

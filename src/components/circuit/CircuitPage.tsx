@@ -1,5 +1,6 @@
 // A circuit's page (/circuit/<slug>, ../../url.ts): every weekend OpenF1 has there, newest first, each session with
-// its action as on Home's season sheet; above them its earlier races (the circuit widgets: safety cars, strategies)
+// its action as on Home's season sheet; above them its earlier races (the circuit widgets: safety cars, overtakes,
+// race pace, the pit lane, strategies)
 // and its past from F1DB (../../history): its lap records, the last winners and pole sitters, and who wins there.
 // Reached from a circuit's name on Home and on the replay's header. Its back button goes back to where it was opened
 // from (Home), as the Races button does from a session.
@@ -214,13 +215,17 @@ function History({ h, slug }: { h: CircuitHistory; slug: string }) {
  */
 function PastRaces({ slug }: { slug: string }) {
   const scope = useMemo(() => ({ slug }), [slug]);
-  const safetyCars = BUILTIN_WIDGETS.get("safety-cars")!;
-  const strategies = BUILTIN_WIDGETS.get("strategy-history")!;
+  const host = (id: string, className: string) => (
+    <WidgetHost key={id} widget={BUILTIN_WIDGETS.get(id)!} circuit={scope} className={`border-b border-r border-zinc-800 ${className}`} />
+  );
   return (
-    <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      {/* The same height side by side, so the frame closes; Safety cars keeps its legend at the bottom. */}
-      <WidgetHost widget={safetyCars} circuit={scope} className="h-[300px] border-b border-r border-zinc-800" />
-      <WidgetHost widget={strategies} circuit={scope} className="h-[300px] border-b border-r border-zinc-800" />
+    <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-2">
+      {/* The four small ones in pairs of the same height, so the frame closes; Strategies across the bottom. */}
+      {host("safety-cars", "h-[176px]")}
+      {host("overtakes-history", "h-[176px]")}
+      {host("race-pace", "h-[176px]")}
+      {host("pit-history", "h-[176px]")}
+      {host("strategy-history", "h-[320px] md:col-span-2")}
     </section>
   );
 }
