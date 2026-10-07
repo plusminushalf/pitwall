@@ -185,7 +185,7 @@ function History({ h, slug }: { h: CircuitHistory; slug: string }) {
           )}
         </>
       )}
-      <p className="mt-3 px-3 text-xs text-zinc-400">
+      <p data-shot-credit={`History: F1DB (${h.source.license})`} className="mt-3 px-3 text-xs text-zinc-400">
         {circuit.fullName} · {TYPE[circuit.type]}, {circuit.lengthKm.toFixed(3)} km, {circuit.turns} turns · {circuit.racesHeld} Grands Prix. History from{" "}
         <a
           href={h.source.url}
@@ -291,8 +291,9 @@ export function CircuitPage({ slug }: { slug: string }) {
         </header>
 
         <main className="mx-auto max-w-6xl px-4 pb-16 pt-8 md:px-6">
-          {/* A panel of its own in a screenshot: shift-click it with a widget to share both. */}
-          <div data-shot="">
+          {/* A panel of its own in a screenshot: shift-click it with a widget to share both. Inset as the sections'
+              text and the widgets' are, so it lines up with them. */}
+          <div data-shot="" className="px-3">
             <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-zinc-50">
               {latest && <Flag country={latest.country} className="h-6" />}
               {name}

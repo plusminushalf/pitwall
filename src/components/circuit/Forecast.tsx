@@ -26,7 +26,7 @@ const reachedFrom = (start: number) => day(new Date(start - FORECAST_HORIZON_MS)
 
 function Credit({ fetchedAt }: { fetchedAt?: number }) {
   return (
-    <p className="mt-3 px-3 text-xs text-zinc-400">
+    <p data-shot-credit="Forecast: Open-Meteo (CC BY 4.0)" className="mt-3 px-3 text-xs text-zinc-400">
       Forecast from{" "}
       <a href="https://open-meteo.com" target="_blank" rel="noreferrer" className={`rounded-sm text-zinc-300 underline decoration-zinc-600 underline-offset-2 hover:text-zinc-100 ${FOCUS}`}>
         Open-Meteo
