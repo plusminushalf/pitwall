@@ -65,6 +65,17 @@ describe("readUrl", () => {
     expect(upgradeUrl("/session/11377", "?dash=strategy")).toBeNull();
   });
 
+  test("a circuit's page; with a session, the session", () => {
+    expect(readUrl("/circuit/singapore", "")).toEqual({ live: false, session: null, t: undefined, drivers: [], focus: null, circuit: "singapore" });
+    expect(readUrl("/circuit/yas-marina-circuit/", "").circuit).toBe("yas-marina-circuit");
+    expect(readUrl("/circuit/Singapore", "").circuit).toBeUndefined();
+    expect(readUrl("/circuit/-bad", "").circuit).toBeUndefined();
+    expect(urlFor({ live: false, session: null, drivers: [], focus: null, circuit: "singapore" })).toBe("/circuit/singapore");
+    expect(upgradeUrl("/circuit/singapore", "")).toBeNull();
+    // The session's own address, as it's the circuit's session.
+    expect(upgradeUrl("/circuit/singapore", "?session=9896&t=60")).toBe("/session/9896?t=60");
+  });
+
   test("a path the app doesn't have is Home", () => {
     expect(readUrl("/session/abc", "")).toMatchObject({ live: false, session: null });
     expect(readUrl("/races", "")).toMatchObject({ live: false, session: null });

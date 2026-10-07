@@ -317,6 +317,7 @@ export function rowForKey(key: number, s: Pick<LibraryState, "years" | "entries"
       dateStart: e.dateStart,
       dateEnd: new Date(Date.parse(e.dateStart) + slotMs(e.sessionType)).toISOString(),
       circuit: e.circuit,
+      circuitKey: null,
       country: e.country,
       cancelled: false,
     };
@@ -333,6 +334,7 @@ export function rowForKey(key: number, s: Pick<LibraryState, "years" | "entries"
       dateStart: info.dateStart,
       dateEnd: info.dateEnd,
       circuit: "",
+      circuitKey: null,
       country: "",
       cancelled: false,
     };

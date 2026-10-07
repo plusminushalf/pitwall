@@ -1,5 +1,6 @@
 import { Icon } from "../widgetkit/ui/Icon";
 import { Label, Stat } from "../widgetkit/ui/Label";
+import { circuitSlug } from "../circuit";
 import { canCompare } from "../data/compare";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
@@ -64,7 +65,17 @@ export function SessionPicker({ meta, compact = false }: { meta: SessionMeta; co
       </select>
       {!compact && (
         <span className="truncate text-[11px] text-zinc-400">
-          {meta.circuit}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.currentTarget.blur();
+              useReplay.getState().openCircuit(circuitSlug(meta.circuit));
+            }}
+            className="rounded-sm hover:text-zinc-100 hover:underline hover:decoration-zinc-500 hover:underline-offset-2"
+            title={`${meta.circuit}: every session there, and its history`}
+          >
+            {meta.circuit}
+          </button>
           {meta.country ? ` · ${meta.country}` : ""}
         </span>
       )}

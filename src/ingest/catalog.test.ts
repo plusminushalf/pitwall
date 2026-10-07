@@ -137,6 +137,15 @@ describe("venue country", () => {
     const rows = buildCatalog(2026, [moved, home, unknown], []).rows;
     expect(rows.map((r) => r.country)).toEqual(["Somewhere", "Bahrain", "Malaysia"]);
   });
+
+  test("each row keeps OpenF1's circuit key, the circuit's identity across seasons", () => {
+    const moved = session(9, "Race", "Race", "2026-10-04T07:00:00Z", 2, { circuit_key: 12, circuit_short_name: "Kuala Lumpur" });
+    const none = session(9, "Qualifying", "Qualifying", "2026-10-03T08:00:00Z", 1, { circuit_key: undefined });
+    const catalog = buildCatalog(2026, [moved, none], []);
+    expect(catalog.rows.map((r) => r.circuitKey)).toEqual([null, 12]);
+    // Read back from this browser, worked out again from its sessions.
+    expect(withCurrentRows(catalog).rows.map((r) => r.circuitKey)).toEqual([null, 12]);
+  });
 });
 
 describe("Home's lead weekend", () => {

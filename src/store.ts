@@ -11,7 +11,7 @@ import { connectVaultLive, type LiveAccount, type LiveStall } from "./live/vault
 import { fetchSession, listPlayable } from "./storage/load";
 import { getVault } from "./vault/client";
 import type { SessionIndexEntry } from "./types";
-import { livePath, readUrl, sessionPath } from "./url";
+import { circuitPath, livePath, readUrl, sessionPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
 
@@ -24,8 +24,11 @@ export const clock = { t: 0 };
 /** Watching a stored replay, or a session streamed live by the relay (server/live.ts). */
 export type Mode = "replay" | "live";
 
-/** The Home page (library + calendar), or the session on screen (a replay, live mode, or the offer to download a linked one). */
-export type View = "home" | "replay";
+/**
+ * The Home page (library + calendar), a circuit's page (its sessions over the years, and its history), or the session
+ * on screen (a replay, live mode, or the offer to download a linked one).
+ */
+export type View = "home" | "circuit" | "replay";
 
 /** A finished practice session's two screens: the replay, or the Fastest laps comparison (in the URL: `view=laps`). */
 export type PracticeView = "replay" | "laps";
@@ -57,14 +60,14 @@ const lapWindowOf = (w: LapWindow | null | undefined): LapWindow | null => {
 export const comparing = (s: { session: Session | null; practiceView: PracticeView }): boolean =>
   s.session != null && (s.session.meta.quali != null || (s.practiceView === "laps" && canCompare(s.session.meta)));
 
-/** Home, unless the link opens a session or live mode. */
-const initialView = (): View => {
-  if (typeof location === "undefined") return "home";
-  const url = readUrl(location.pathname, location.search);
-  return url.live || url.session != null ? "replay" : "home";
-};
+/** Home, unless the link opens a session, live mode or a circuit. */
+const initialUrl = typeof location === "undefined" ? null : readUrl(location.pathname, location.search);
+const initialView = (): View => (initialUrl?.live || initialUrl?.session != null ? "replay" : initialUrl?.circuit ? "circuit" : "home");
 
-/** History entries opened from Home: the Races button goes back to it rather than stacking another one. */
+/**
+ * History entries opened from Home or a circuit's page: the Races button goes back to it rather than stacking another
+ * one. (The page it goes back to is the store's `circuit`, or Home.)
+ */
 const pushFromHome = (url: string) => history.pushState({ fromHome: true }, "", url);
 
 /** Where a session was left off (to resume it, and for Home's library order and progress). */
@@ -303,6 +306,8 @@ interface ReplayState {
   focused: number | null;
   mode: Mode;
   view: View;
+  /** The circuit page on screen, or the one the session on screen was opened from (its Races button goes back to it). */
+  circuit: string | null;
   live: LiveInfo;
   /** Latest live edge from the relay (ms since meta.t0), updated with every message. */
   liveEdge: number;
@@ -340,6 +345,10 @@ interface ReplayState {
   goHome: () => void;
   /** goHome() without touching history (Back / Forward already moved it). */
   showHome: () => void;
+  /** A circuit's page (a new history entry): playback stops, the replay stays loaded; live mode is left. */
+  openCircuit: (slug: string) => void;
+  /** openCircuit() without touching history. */
+  showCircuit: (slug: string) => void;
   publish: () => void;
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
@@ -493,6 +502,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     focused: null,
     mode: "replay",
     view: initialView(),
+    circuit: initialUrl?.circuit ?? null,
     live: NO_LIVE,
     liveEdge: 0,
     followLive: false,
@@ -558,7 +568,7 @@ export const useReplay = create<ReplayState>((set, get) => {
 
     openSession: (key, opts) => {
       const s = get();
-      if (s.view === "home") pushFromHome(sessionPath(key));
+      if (s.view !== "replay") pushFromHome(sessionPath(key));
       set({ view: "replay" });
       // Being streamed (left for Home): just show it, playing.
       if (s.mode === "replay" && s.stream?.key === key) return autoplay();
@@ -568,17 +578,38 @@ export const useReplay = create<ReplayState>((set, get) => {
     },
 
     goHome: () => {
-      if (get().view === "home") return;
-      get().showHome();
-      // Back to the Home entry this was opened from, or a new one (it was opened from a link).
-      if (history.state?.fromHome) history.back();
-      else history.pushState(null, "", "/");
+      const { view, circuit } = get();
+      if (view === "home") return;
+      // Back to the page this was opened from (a session opened from a circuit's page goes back to it), or to a new
+      // Home entry (it was opened from a link).
+      if (history.state?.fromHome) {
+        if (view === "replay" && circuit) get().showCircuit(circuit);
+        else get().showHome();
+        history.back();
+      } else {
+        get().showHome();
+        history.pushState(null, "", "/");
+      }
     },
 
     showHome: () => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "home", playing: false, latched: false });
+      set({ view: "home", circuit: null, playing: false, latched: false });
+    },
+
+    openCircuit: (slug) => {
+      const { view, circuit } = get();
+      if (view === "circuit" && circuit === slug) return;
+      // From Home, its back button goes back there; from a session, to a new Home entry.
+      history.pushState(view === "home" ? { fromHome: true } : null, "", circuitPath(slug));
+      get().showCircuit(slug);
+    },
+
+    showCircuit: (slug) => {
+      autoplayPending = false;
+      if (get().mode === "live") restoreReplay();
+      set({ view: "circuit", circuit: slug, playing: false, latched: false });
     },
 
     publish: () => {
@@ -686,7 +717,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         set({ stream: null });
         reportPlayhead(true);
       }
-      liveFromHome = s.view === "home";
+      liveFromHome = s.view !== "replay";
       if (liveFromHome) pushFromHome(livePath);
       loadToken++; // a replay still loading is no longer wanted
       // (A race watched while it downloads isn't kept: its replay is provisional.)
@@ -761,7 +792,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         disconnect();
         replayStash = null;
       }
-      if (s.view === "home") pushFromHome(sessionPath(key));
+      if (s.view !== "replay") pushFromHome(sessionPath(key));
       if (s.stream?.key === key) {
         set({ view: "replay" });
         return reportPlayhead(true);

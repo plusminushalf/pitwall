@@ -17,6 +17,8 @@ export interface CatalogRow {
   dateStart: string;
   dateEnd: string;
   circuit: string;
+  /** OpenF1's circuit id, stable across seasons (src/circuit.ts); null where OpenF1 doesn't give it. */
+  circuitKey: number | null;
   country: string;
   cancelled: boolean;
 }
@@ -68,6 +70,7 @@ export function buildCatalog(year: number, sessions: RawSession[], meetings: Raw
       dateStart: s.date_start,
       dateEnd: s.date_end,
       circuit: s.circuit_short_name,
+      circuitKey: s.circuit_key ?? null,
       country: venueCountry(s),
       cancelled: s.is_cancelled ?? false,
     }),

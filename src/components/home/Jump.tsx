@@ -1,12 +1,15 @@
 // Home's jump field: type "monza 24 q" and the sessions that match replace what's below it (Continue and the season),
 // as timing rows. "/" focuses it, ↑/↓ pick a row, Enter opens it, Esc clears. The first time it's used it loads every
-// season's calendar (cached in this browser; two OpenF1 requests for each season not seen yet).
+// season's calendar (cached in this browser; two OpenF1 requests for each season not seen yet). When the matches are at
+// a few circuits, their pages are offered too (every session there over the years, and its history).
 
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { useCoarsePointer, usePhone } from "../../hooks/usePhone";
 import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS } from "../../library";
-import { FOCUS, Glyph, openAction, useDownloadBlock, useNow } from "./common";
+import { circuitSlug } from "../../circuit";
+import { useReplay } from "../../store";
+import { FOCUS, Glyph, LABEL, openAction, SECONDARY, useDownloadBlock, useNow } from "./common";
 import { resumeClocks } from "./resume";
 import { searchSessions } from "./search";
 import { RowHeader, RowTable, SessionRow } from "./SessionRow";
@@ -55,6 +58,7 @@ export function Jump({ children }: { children: ReactNode }) {
   const states = results.map((r) => rowState(r, { jobs, remote, entries, partial }, now, learned));
   const loading = YEARS.filter((y) => !years[y]?.catalog && years[y]?.loading);
   const pick = Math.min(active, Math.max(0, results.length - 1));
+  const circuits = [...new Set(results.map((r) => r.circuit).filter(Boolean))];
   const optionId = (i: number) => `jump-option-${results[i]?.sessionKey}`;
 
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -140,6 +144,24 @@ export function Jump({ children }: { children: ReactNode }) {
             {results.length === 25 && <span className="text-zinc-400"> · add a year or a session to narrow it</span>}
             {results.length > 0 && !coarse && <span className="text-zinc-400"> · ↑↓ to pick, Enter to open</span>}
           </p>
+          {circuits.length > 0 && circuits.length <= 3 && (
+            <p className="mb-3 flex flex-wrap items-center gap-2 px-3">
+              <span className={LABEL}>{circuits.length === 1 ? "Circuit" : "Circuits"}</span>
+              {circuits.map((c) => (
+                <button
+                  key={c}
+                  onClick={(e) => {
+                    e.currentTarget.blur();
+                    useReplay.getState().openCircuit(circuitSlug(c));
+                  }}
+                  className={`${SECONDARY} pointer-coarse:min-h-11`}
+                  title={`${c}: every session there over the years, and its history`}
+                >
+                  {c} →
+                </button>
+              ))}
+            </p>
+          )}
           {results.length ? (
             <RowTable>
               <RowHeader />

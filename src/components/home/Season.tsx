@@ -2,7 +2,8 @@
 // session has its column (FP1 · FP2 · FP3 · SQ · Sprint · Quali · Race, so a season lines up), and each cell is that
 // session's own action in its state: watch (downloading it as it plays when it isn't here), resume, its download,
 // update, retry. On a phone the sheet is a stack instead: one card per weekend with its sessions as a wrapping row of
-// chips, nothing scrolling sideways.
+// chips, nothing scrolling sideways. A weekend's Grand Prix opens its circuit's page, whose sheet (WeekendSheet) is of
+// the circuit's weekends over the years.
 
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { isFollowedLive } from "../../../scripts/lib/season";
@@ -10,6 +11,7 @@ import { isLive, type CatalogRow } from "../../ingest/catalog";
 import { liveVia } from "../../live/client";
 import { usePhone } from "../../hooks/usePhone";
 import { useReplay } from "../../store";
+import { circuitSlug } from "../../circuit";
 import { loadLearned } from "../../ingest/runner";
 import { rowState, useLibrary, YEARS, type RaceFilter, type RowState } from "../../library";
 import { LiveDot } from "../LiveControl";
@@ -43,9 +45,10 @@ const COLUMNS: Record<RaceFilter, Column[]> = {
   Practice: [FP1, FP2, FP3],
 };
 
-interface Meeting {
+export interface Meeting {
   key: number;
   name: string;
+  year: number;
   round: number | null;
   circuit: string;
   country: string;
@@ -55,11 +58,11 @@ interface Meeting {
 }
 
 /** Rows (in date order) grouped by meeting; meetings left without rows by the filter are dropped. */
-function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
+export function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
   const meetings = new Map<number, Meeting>();
   for (const r of rows) {
     let m = meetings.get(r.meetingKey);
-    if (!m) meetings.set(r.meetingKey, (m = { key: r.meetingKey, name: r.meetingName, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true }));
+    if (!m) meetings.set(r.meetingKey, (m = { key: r.meetingKey, name: r.meetingName, year: r.year, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true }));
     m.round ??= r.round;
     m.cancelled &&= r.cancelled;
     if (filter === "all" || r.sessionType === filter) m.rows.push(r);
@@ -68,6 +71,31 @@ function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
 }
 
 const fullName = (r: CatalogRow) => `${r.year} ${r.meetingName} ${r.sessionName}`;
+
+/**
+ * What leads a weekend's row: its round in a season's sheet, its year in a circuit's (where the circuit isn't said
+ * again: it's the page's).
+ */
+export type Lead = "round" | "year";
+const leadOf = (m: Meeting, lead: Lead) => (lead === "year" ? String(m.year) : m.round != null ? `R${m.round}` : "–");
+
+/** Opens a weekend's circuit's page: what a season's sheet does with its Grand Prix and circuit names. */
+function ToCircuit({ meeting, className, children }: { meeting: Meeting; className: string; children: ReactNode }) {
+  const openCircuit = useReplay((s) => s.openCircuit);
+  if (!meeting.circuit) return <span className={className}>{children}</span>;
+  return (
+    <button
+      onClick={(e) => {
+        e.currentTarget.blur();
+        openCircuit(circuitSlug(meeting.circuit));
+      }}
+      className={`min-w-0 truncate rounded-sm text-left hover:underline hover:decoration-zinc-500 hover:underline-offset-2 ${FOCUS} ${className}`}
+      title={`${meeting.circuit}: every session there over the years, and its history`}
+    >
+      {children}
+    </button>
+  );
+}
 
 // ---------------------------------------------------------------- cells
 
@@ -368,6 +396,7 @@ function WeekendRow({
   resume,
   now,
   waitUntil,
+  lead,
   next = false,
 }: {
   meeting: Meeting;
@@ -376,6 +405,7 @@ function WeekendRow({
   resume: Resume;
   now: number;
   waitUntil: number | null;
+  lead: Lead;
   next?: boolean;
 }) {
   const confirm = useLibrary((s) => s.confirmDelete);
@@ -460,13 +490,23 @@ function WeekendRow({
     <li className="group border-b border-zinc-800/70 px-3 hover:bg-zinc-900">
       <div className={`${sheet.grid} min-h-11 py-1`} style={cellsOf(columns)}>
         <span className={PINNED}>
-          <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{meeting.round != null ? `R${meeting.round}` : "–"}</span>
-          <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
+          <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{leadOf(meeting, lead)}</span>
+          {lead === "round" ? (
+            <ToCircuit meeting={meeting} className="text-sm font-semibold text-zinc-50">
+              {shortGp(meeting.name)}
+            </ToCircuit>
+          ) : (
+            <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
+          )}
           {next && <span className={NEXT_BADGE}>Next</span>}
         </span>
         <span className={`${sheet.circuit} min-w-0 truncate text-xs text-zinc-400`}>
-          {meeting.circuit}
-          {meeting.country ? ` · ${meeting.country}` : ""}
+          {lead === "round" && (
+            <>
+              {meeting.circuit}
+              {meeting.country ? ` · ${meeting.country}` : ""}
+            </>
+          )}
         </span>
         <span className={`${sheet.dates} text-xs tabular-nums text-zinc-400`}>{dateRange(first.dateStart, last.dateEnd)}</span>
         {cells}
@@ -488,6 +528,7 @@ function PhoneWeekend({
   resume,
   now,
   waitUntil,
+  lead,
   next = false,
 }: {
   meeting: Meeting;
@@ -496,6 +537,7 @@ function PhoneWeekend({
   resume: Resume;
   now: number;
   waitUntil: number | null;
+  lead: Lead;
   next?: boolean;
 }) {
   const confirm = useLibrary((s) => s.confirmDelete);
@@ -573,12 +615,20 @@ function PhoneWeekend({
   return (
     <li className="border-b border-zinc-800/70 py-3">
       <div className="flex items-baseline gap-2">
-        <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{meeting.round != null ? `R${meeting.round}` : "–"}</span>
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
+        <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{leadOf(meeting, lead)}</span>
+        {lead === "round" ? (
+          <span className="flex min-w-0 flex-1">
+            <ToCircuit meeting={meeting} className="text-sm font-semibold text-zinc-50">
+              {shortGp(meeting.name)}
+            </ToCircuit>
+          </span>
+        ) : (
+          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
+        )}
         {next && <span className={NEXT_BADGE}>Next</span>}
         <span className="shrink-0 text-xs tabular-nums text-zinc-400">{dateRange(first.dateStart, last.dateEnd)}</span>
       </div>
-      {(meeting.circuit || meeting.country) && (
+      {lead === "round" && (meeting.circuit || meeting.country) && (
         <p className="mt-0.5 truncate text-xs text-zinc-400">
           {meeting.circuit}
           {meeting.circuit && meeting.country ? " · " : ""}
@@ -597,7 +647,7 @@ type Resume = Record<number, string>;
 type Item = { kind: "weekend" | "next"; meeting: Meeting; states: RowState[] } | { kind: "cancelled"; meetings: Meeting[] };
 
 /** A row of pressed/unpressed buttons (the replay screen's segmented control). */
-function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
+export function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
   return (
     <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label={label}>
       {options.map((o) => (
@@ -614,29 +664,25 @@ function Segmented<T extends string | number>({ label, value, options, onChange 
   );
 }
 
-export function Season() {
-  const year = useLibrary((s) => s.calendarYear);
-  const setYear = useLibrary((s) => s.setCalendarYear);
-  const state = useLibrary((s) => s.years[s.calendarYear]);
-  const filter = useLibrary((s) => s.filter);
-  const setFilter = useLibrary((s) => s.setFilter);
-  const loadYear = useLibrary((s) => s.loadYear);
+/**
+ * Weekends as the season sheet shows them (a stack of cards on a phone): newest first, of the future only the next
+ * weekend (unless one is under way), runs of cancelled ones collapsed into one line. `lead`: what the first column
+ * says, the round or (on a circuit's page, its weekends over the years) the year.
+ */
+export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meeting[]; filter: RaceFilter; lead: Lead; label: string }) {
   const jobs = useLibrary((s) => s.jobs);
   const remote = useLibrary((s) => s.remote);
   const entries = useLibrary((s) => s.entries);
   const partial = useLibrary((s) => s.partial);
   const now = useNow(2000);
-  const rows = state?.catalog?.rows;
-  const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
   const learned = useMemo(() => loadLearned(), [jobs]);
   const columns = COLUMNS[filter];
   const sheet = sheetOf(columns);
-  // Read once per visit to Home (it's written while watching).
+  // Read once per visit to the page (it's written while watching).
   const [resume] = useState(resumeClocks);
   const waitUntil = useDownloadBlock();
   const phone = usePhone();
 
-  // Newest first; of the future, only the next weekend (unless one is under way). Runs of cancelled ones collapse into one line.
   const shown: { m: Meeting; states: RowState[] | null }[] = [];
   let next: { m: Meeting; states: RowState[] } | null = null;
   for (const m of meetings) {
@@ -658,6 +704,94 @@ export function Season() {
     else if (prev?.kind === "cancelled") prev.meetings.push(m);
     else items.push({ kind: "cancelled", meetings: [m] });
   }
+  const cancelledText = (ms: Meeting[]) => ms.map((m) => (lead === "year" ? `${m.year} ${shortGp(m.name)}` : shortGp(m.name))).join(" · ");
+
+  if (phone) {
+    return (
+      <ul aria-label={label} className="border-t border-zinc-800">
+        {items.map((it, i) =>
+          it.kind === "cancelled" ? (
+            <li key={`c${i}`} className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400">
+              <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
+            </li>
+          ) : (
+            <PhoneWeekend
+              key={it.meeting.key}
+              meeting={it.meeting}
+              states={it.states}
+              columns={columns}
+              resume={resume}
+              now={now}
+              waitUntil={waitUntil}
+              lead={lead}
+              next={it.kind === "next"}
+            />
+          ),
+        )}
+      </ul>
+    );
+  }
+  return (
+    <div className="@container">
+      {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
+          stay under the page header while the sheet scrolls. */}
+      <div className={sheet.scroll}>
+        <div className={sheet.min}>
+          <div
+            className={`${LABEL} ${sheet.grid} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
+            style={cellsOf(columns)}
+            aria-hidden
+          >
+            <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
+              <span className="w-9 shrink-0">{lead === "year" ? "Year" : "Rd"}</span>
+              Grand Prix
+            </span>
+            <span className={sheet.circuit}>{lead === "round" ? "Circuit" : ""}</span>
+            <span className={sheet.dates}>Dates</span>
+            {columns.map((c) => (
+              <span key={c.id} className="px-2" title={c.title}>
+                {c.label}
+              </span>
+            ))}
+            <span />
+          </div>
+          <ul aria-label={label}>
+            {items.map((it, i) =>
+              it.kind === "cancelled" ? (
+                <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
+                  <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
+                </li>
+              ) : (
+                <WeekendRow
+                  key={it.meeting.key}
+                  meeting={it.meeting}
+                  states={it.states}
+                  columns={columns}
+                  resume={resume}
+                  now={now}
+                  waitUntil={waitUntil}
+                  lead={lead}
+                  next={it.kind === "next"}
+                />
+              ),
+            )}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export function Season() {
+  const year = useLibrary((s) => s.calendarYear);
+  const setYear = useLibrary((s) => s.setCalendarYear);
+  const state = useLibrary((s) => s.years[s.calendarYear]);
+  const filter = useLibrary((s) => s.filter);
+  const setFilter = useLibrary((s) => s.setFilter);
+  const loadYear = useLibrary((s) => s.loadYear);
+  const rows = state?.catalog?.rows;
+  const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
+  const phone = usePhone();
 
   let body;
   if (!rows) {
@@ -673,82 +807,11 @@ export function Season() {
     );
   } else if (!meetings.length) {
     body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No sessions listed for {year} yet.</p>;
-  } else if (phone) {
-    body = (
-      <>
-        {state.error && <p className="mb-2 text-xs text-amber-300">{state.error} Showing the season saved earlier.</p>}
-        <ul aria-label={`${year} season`} className="border-t border-zinc-800">
-          {items.map((it, i) =>
-            it.kind === "cancelled" ? (
-              <li key={`c${i}`} className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400">
-                <span className="line-through">{it.meetings.map((m) => shortGp(m.name)).join(" · ")}</span> cancelled
-              </li>
-            ) : (
-              <PhoneWeekend
-                key={it.meeting.key}
-                meeting={it.meeting}
-                states={it.states}
-                columns={columns}
-                resume={resume}
-                now={now}
-                waitUntil={waitUntil}
-                next={it.kind === "next"}
-              />
-            ),
-          )}
-        </ul>
-      </>
-    );
   } else {
     body = (
       <>
-        {state.error && <p className="mb-2 px-3 text-xs text-amber-300">{state.error} Showing the season saved earlier.</p>}
-        <div className="@container">
-          {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
-              stay under the page header while the season scrolls. */}
-          <div className={sheet.scroll}>
-            <div className={sheet.min}>
-              <div
-                className={`${LABEL} ${sheet.grid} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
-                style={cellsOf(columns)}
-                aria-hidden
-              >
-                <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
-                  <span className="w-9 shrink-0">Rd</span>
-                  Grand Prix
-                </span>
-                <span className={sheet.circuit}>Circuit</span>
-                <span className={sheet.dates}>Dates</span>
-                {columns.map((c) => (
-                  <span key={c.id} className="px-2" title={c.title}>
-                    {c.label}
-                  </span>
-                ))}
-                <span />
-              </div>
-              <ul aria-label={`${year} season`}>
-                {items.map((it, i) =>
-                  it.kind === "cancelled" ? (
-                    <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
-                      <span className="line-through">{it.meetings.map((m) => shortGp(m.name)).join(" · ")}</span> cancelled
-                    </li>
-                  ) : (
-                    <WeekendRow
-                      key={it.meeting.key}
-                      meeting={it.meeting}
-                      states={it.states}
-                      columns={columns}
-                      resume={resume}
-                      now={now}
-                      waitUntil={waitUntil}
-                      next={it.kind === "next"}
-                    />
-                  ),
-                )}
-              </ul>
-            </div>
-          </div>
-        </div>
+        {state.error && <p className={`mb-2 text-xs text-amber-300 ${phone ? "" : "px-3"}`}>{state.error} Showing the season saved earlier.</p>}
+        <WeekendSheet meetings={meetings} filter={filter} lead="round" label={`${year} season`} />
       </>
     );
   }

@@ -9,6 +9,7 @@ import { StreamBuffering, StreamLoading } from "./components/StreamStatus";
 import { Timeline } from "./components/Timeline";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
+import { CircuitPage } from "./components/circuit/CircuitPage";
 import { ShareShot } from "./share/ShareShot";
 import { Grid } from "./grid/Grid";
 import { useKeyboard } from "./hooks/useKeyboard";
@@ -66,6 +67,7 @@ export function App() {
   useUrlSync();
   useHistoryNav();
   const view = useReplay((s) => s.view);
+  const circuit = useReplay((s) => s.circuit);
   const session = useReplay((s) => s.session);
   const loading = useReplay((s) => s.loading);
   const supported = useLibrary((s) => s.supported);
@@ -86,6 +88,7 @@ export function App() {
 
   if (!supported) return <Unsupported />;
   if (view === "home") return <Home />;
+  if (view === "circuit" && circuit) return <CircuitPage slug={circuit} />;
   // Live mode before there's a live session to show: connecting, relay offline, or no race right now.
   if (!session && live) return <LiveScreen />;
   // A shared link to a session that isn't downloaded: offer to.
