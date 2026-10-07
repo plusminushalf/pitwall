@@ -1,7 +1,8 @@
 // A circuit's page (/circuit/<slug>, ../../url.ts): every weekend OpenF1 has there, newest first, each session with
-// its action as on Home's season sheet; above them the circuit's past from F1DB (../../history): its lap records, the
-// last winners and pole sitters, and who wins there. Reached from a circuit's name on Home and on the replay's header.
-// Its back button goes back to where it was opened from (Home), as the Races button does from a session.
+// its action as on Home's season sheet; above them its earlier races (the circuit widgets: safety cars, strategies)
+// and its past from F1DB (../../history): its lap records, the last winners and pole sitters, and who wins there.
+// Reached from a circuit's name on Home and on the replay's header. Its back button goes back to where it was opened
+// from (Home), as the Races button does from a session.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { rowsAt } from "../../circuit";
@@ -16,6 +17,9 @@ import { byMeeting, WeekendSheet } from "../home/Season";
 import { RacesButton } from "../Navigation";
 import { Flag } from "../Flag";
 import { useReplay } from "../../store";
+import { BUILTIN_WIDGETS } from "../../grid/builtins";
+import { usePastRaces } from "../../history/pastRacesStore";
+import { WidgetHost } from "../../widgetkit/WidgetHost";
 
 /** The circuit's F1DB history; null while it loads, and if there's none (not mapped, or not built). */
 function useCircuitHistory(circuitKey: number | null): CircuitHistory | null {
@@ -55,9 +59,10 @@ function Fact({ label, children, title }: { label: string; children: ReactNode; 
  * The circuit's past: what it is, its records, who wins there, and the last few races. Results are spoilers (PRODUCT.md:
  * no surface gives away how a race ended): unless spoilers are shown (Settings), they wait behind Show results.
  */
-function History({ h }: { h: CircuitHistory }) {
+function History({ h, slug }: { h: CircuitHistory; slug: string }) {
   const spoilers = useReplay((s) => s.spoilerPref === "show");
-  const [revealed, setRevealed] = useState(false);
+  // One reveal for the circuit: these records and its widgets (Past races) together.
+  const revealed = usePastRaces((s) => s.revealed[slug] === true);
   const driver = (e: HistoryEntry | null | undefined) => (e ? (h.drivers[e.driverId]?.name ?? e.driverId) : "—");
   const team = (e: HistoryEntry) => h.constructors[e.constructorId]?.name ?? e.constructorId;
   const layout = currentLayout(h);
@@ -78,7 +83,7 @@ function History({ h }: { h: CircuitHistory }) {
       {!spoilers && !revealed ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-4 text-sm text-zinc-300">
           <p className="max-w-[75ch]">Results are hidden: lap records, winners and podiums give away how races ended.</p>
-          <button onClick={() => setRevealed(true)} className={SECONDARY}>
+          <button onClick={() => usePastRaces.getState().reveal(slug)} className={SECONDARY}>
             Show results
           </button>
         </div>
@@ -203,6 +208,22 @@ function History({ h }: { h: CircuitHistory }) {
   );
 }
 
+/**
+ * The circuit widgets (the widget picker's Circuit tab), here for this circuit with no session: the races OpenF1 has
+ * here since 2023, as on a dashboard. Framed and divided by hairlines, as the replay grid's widgets are.
+ */
+function PastRaces({ slug }: { slug: string }) {
+  const scope = useMemo(() => ({ slug }), [slug]);
+  const safetyCars = BUILTIN_WIDGETS.get("safety-cars")!;
+  const strategies = BUILTIN_WIDGETS.get("strategy-history")!;
+  return (
+    <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <WidgetHost widget={safetyCars} circuit={scope} className="border-b border-r border-zinc-800" style={{ height: safetyCars.height as number }} />
+      <WidgetHost widget={strategies} circuit={scope} className="border-b border-r border-zinc-800" style={{ height: 300 }} />
+    </section>
+  );
+}
+
 export function CircuitPage({ slug }: { slug: string }) {
   const years = useLibrary((s) => s.years);
   useEffect(() => {
@@ -260,7 +281,8 @@ export function CircuitPage({ slug }: { slug: string }) {
               .filter(Boolean)
               .join(" · ")}
           </p>
-          {history && <History h={history} />}
+          <PastRaces slug={slug} />
+          {history && <History h={history} slug={slug} />}
 
           <section data-shot="" aria-labelledby="weekends-title" className="mt-12">
             <h2 id="weekends-title" className="mb-3 text-2xl font-bold tracking-tight text-zinc-50">

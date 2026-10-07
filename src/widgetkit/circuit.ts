@@ -1,0 +1,99 @@
+// The circuit widgets' data: earlier races at the circuit (src/history/pastRaces.ts). On a replay, the circuit is the
+// session's and the races are the ones before it (watching 2024 never shows 2025); on a circuit's page, which has no
+// session, the page says which circuit (CircuitContext) and every past race there counts. Results are spoilers:
+// `hidden` until spoilers are shown (Settings) or the user reveals the circuit's (src/history/pastRacesStore.ts).
+
+import { createContext, useContext, useEffect, useMemo } from "react";
+import { circuitSlug, rowsAt } from "../circuit";
+import type { PastRace } from "../history/pastRaces";
+import { usePastRaces } from "../history/pastRacesStore";
+import { useLibrary, YEARS } from "../library";
+import { useReplay } from "../store";
+
+/** A circuit's page: which circuit its widgets are about. */
+export interface CircuitScope {
+  slug: string;
+}
+
+export const CircuitContext = createContext<CircuitScope | null>(null);
+
+export interface CircuitRaces {
+  /** OpenF1's name for the circuit ("Singapore"); null while the calendar loads. */
+  circuit: string | null;
+  /** Every season's calendar is here (or failed): `total` is final. */
+  ready: boolean;
+  slug: string | null;
+  /** Loaded, newest first. */
+  races: readonly PastRace[];
+  /** Earlier races there that OpenF1 has (loaded or not). */
+  total: number;
+  /** Still loading. */
+  pending: number;
+  /** Why some didn't load (one line each, deduplicated). */
+  errors: readonly string[];
+  /** Results are hidden (spoilers) until reveal(). */
+  hidden: boolean;
+  reveal: () => void;
+}
+
+/** Races (`sessionName` "Race" or "Sprint") at the circuit before the session on screen, or all past ones on a circuit's page. */
+export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): CircuitRaces {
+  const scope = useContext(CircuitContext);
+  const sessionCircuit = useReplay((s) => s.session?.meta.circuit ?? null);
+  const sessionStart = useReplay((s) => s.session?.meta.t0 ?? null);
+  const replayKey = useReplay((s) => s.session?.meta.sessionKey ?? null);
+  // (A session left loaded behind a circuit's page isn't the page's.)
+  const sessionKey = scope ? null : replayKey;
+  const slug = scope?.slug ?? (sessionCircuit ? circuitSlug(sessionCircuit) : null);
+  const before = scope ? null : sessionStart;
+  const years = useLibrary((s) => s.years);
+  const spoilers = useReplay((s) => s.spoilerPref === "show");
+  const revealed = usePastRaces((s) => (slug ? s.revealed[slug] === true : false));
+  const states = usePastRaces((s) => s.races);
+
+  // Every season's calendar (cached after the first visit): the circuit's races are spread over them.
+  useEffect(() => {
+    for (const y of YEARS) void useLibrary.getState().loadYear(y);
+  }, []);
+
+  const atCircuit = useMemo(() => (slug ? rowsAt(slug, YEARS.map((y) => years[y]?.catalog)) : []), [slug, years]);
+  const ready = YEARS.every((y) => years[y]?.catalog || years[y]?.error);
+  const rows = useMemo(() => {
+    const now = Date.now();
+    return atCircuit
+      .filter((r) => r.sessionName === sessionName && !r.cancelled && Date.parse(r.dateEnd) < now && r.sessionKey !== sessionKey)
+      .filter((r) => before == null || Date.parse(r.dateStart) < Date.parse(before))
+      .reverse();
+  }, [atCircuit, sessionName, sessionKey, before]);
+  const keys = rows.map((r) => r.sessionKey).join(",");
+
+  useEffect(() => {
+    if (rows.length) usePastRaces.getState().load(rows);
+    // Keyed by which races, not the array.
+  }, [keys]);
+
+  return useMemo(() => {
+    const races: PastRace[] = [];
+    const errors = new Set<string>();
+    let pending = 0;
+    for (const r of rows) {
+      const s = states[r.sessionKey];
+      if (!s || "loading" in s) pending++;
+      else if ("race" in s) races.push(s.race);
+      else errors.add(s.error);
+    }
+    return {
+      circuit: atCircuit.at(-1)?.circuit ?? (scope ? null : sessionCircuit),
+      ready,
+      slug,
+      races,
+      total: rows.length,
+      pending,
+      errors: [...errors],
+      hidden: !spoilers && !revealed,
+      reveal: () => {
+        if (slug) usePastRaces.getState().reveal(slug);
+      },
+    };
+  }, [rows, atCircuit, ready, scope, states, slug, sessionCircuit, spoilers, revealed]);
+}

@@ -38,6 +38,7 @@ export const WIDGET_GROUPS = [
   { id: "driver", label: "Driver" },
   { id: "telemetry", label: "Telemetry" },
   { id: "analysis", label: "Analysis" },
+  { id: "circuit", label: "Circuit" },
 ] as const;
 export type WidgetGroup = (typeof WIDGET_GROUPS)[number]["id"];
 
@@ -50,7 +51,8 @@ export interface WidgetDefinition<S extends WidgetSettings = WidgetSettings> {
   name: string;
   /**
    * The picker tab it's listed under: session (the whole field and the circuit), driver (one driver's race),
-   * telemetry (the car's inputs), analysis (the race lap by lap).
+   * telemetry (the car's inputs), analysis (the race lap by lap), circuit (earlier races at the circuit, from
+   * useCircuitRaces(); these also show on the circuit's page, where there's no session).
    */
   group: WidgetGroup;
   /** Semver of the widget itself; the layout pins it (H3.11). */

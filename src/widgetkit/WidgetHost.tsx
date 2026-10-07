@@ -1,11 +1,13 @@
 // The core's shell around one widget: its settings, size and visibility, and a boundary so a widget
-// that throws doesn't take the screen down with it. The widget renders only with a session it supports.
+// that throws doesn't take the screen down with it. The widget renders only with a session it supports, or (a
+// circuit widget on a circuit's page, which has no session) for the circuit it's given.
 
 import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useReplay } from "../store";
 import { createVisibility, SettingsContext, SizeContext, VisibilityContext, type WidgetSize, type SettingsValue } from "./context";
 import type { WidgetDefinition, WidgetSettings } from "./defineWidget";
 import { sessionKind } from "./select";
+import { CircuitContext, type CircuitScope } from "./circuit";
 
 export interface WidgetHostProps {
   // Any widget's settings type: the host only merges and stores them.
@@ -16,6 +18,8 @@ export interface WidgetHostProps {
   onSettingsChange?: (settings: Partial<WidgetSettings>) => void;
   className?: string;
   style?: CSSProperties;
+  /** A circuit's page: the circuit a circuit widget shows, with no session needed. */
+  circuit?: CircuitScope;
 }
 
 /** Catches a crashed widget; it gets another go when `resetKey` changes (another widget or other settings). */
@@ -36,7 +40,7 @@ class Boundary extends Component<{ name: string; resetKey: string; children: Rea
   }
 }
 
-export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style }: WidgetHostProps) {
+export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style, circuit }: WidgetHostProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visibility] = useState(createVisibility);
   const [size, setSize] = useState<WidgetSize>({ width: 0, height: 0, pixelRatio: 1 });
@@ -94,16 +98,18 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   const resetKey = `${widget.id}:${JSON.stringify(settingsValue.settings)}`;
   return (
     <div ref={ref} className={className} style={style}>
-      {kind && widget.sessions.includes(kind) && size.width > 0 && (
-        <VisibilityContext.Provider value={visibility}>
-          <SettingsContext.Provider value={settingsValue}>
-            <SizeContext.Provider value={size}>
-              <Boundary name={widget.name} resetKey={resetKey}>
-                {content}
-              </Boundary>
-            </SizeContext.Provider>
-          </SettingsContext.Provider>
-        </VisibilityContext.Provider>
+      {(circuit ? widget.group === "circuit" : kind && widget.sessions.includes(kind)) && size.width > 0 && (
+        <CircuitContext.Provider value={circuit ?? null}>
+          <VisibilityContext.Provider value={visibility}>
+            <SettingsContext.Provider value={settingsValue}>
+              <SizeContext.Provider value={size}>
+                <Boundary name={widget.name} resetKey={resetKey}>
+                  {content}
+                </Boundary>
+              </SizeContext.Provider>
+            </SettingsContext.Provider>
+          </VisibilityContext.Provider>
+        </CircuitContext.Provider>
       )}
     </div>
   );

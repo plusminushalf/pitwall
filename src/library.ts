@@ -191,7 +191,7 @@ const signedIn = () => choosePath(getVault().getState().status ?? null).path ===
  * The page's own OpenF1 reads (the calendar, link lookups): through the vault when signed in (OpenF1 refuses browsers
  * without a token during live sessions, and the vault's reads get through: vault/proxy.ts), else straight to OpenF1.
  */
-async function openf1Get(): Promise<Fetcher> {
+export async function openf1Get(): Promise<Fetcher> {
   if (!(await signedInSoon())) return fetchEndpoint;
   return async <T,>(endpoint: string, params: Record<string, string | number>): Promise<T[]> => {
     const r = await getVault().get(endpoint as RestEndpoint, params);

@@ -97,6 +97,10 @@
 //   and, still as they were lifted from the core: format helpers, colours, the track projection and corner labels.
 
 export { defineWidget } from "./defineWidget";
+export { useCircuitRaces, type CircuitRaces } from "./circuit";
+export { CircuitPlaceholder } from "./ui/CircuitPlaceholder";
+export type { NeutralKind, NeutralLaps, PastDriver, PastFinisher, PastRace, PastStint } from "../history/pastRaces";
+export { stopsOf, strategies } from "../history/pastRaces";
 export type { WidgetDefinition, WidgetGroup, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
 
 export {

@@ -8,6 +8,8 @@ import lapCompare from "../widgets/lap-compare";
 import lapTimes from "../widgets/lap-times";
 import longRuns from "../widgets/long-runs";
 import pitStrategy from "../widgets/pit-strategy";
+import safetyCars from "../widgets/safety-cars";
+import strategyHistory from "../widgets/strategy-history";
 import raceFeed from "../widgets/race-feed";
 import sectors from "../widgets/sectors";
 import speedGear from "../widgets/speed-gear";
@@ -19,6 +21,6 @@ import trackMap from "../widgets/track-map";
 import tyreStrip from "../widgets/tyre-strip";
 import weather from "../widgets/weather";
 
-const ALL: WidgetDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns, lapCompare];
+const ALL: WidgetDefinition<any>[] = [timingTower, trackMap, driverHeader, speedGear, throttleBrakeRpm, speedTrace, lapTimes, sectors, tyreStrip, raceFeed, weather, gapChart, stintPace, pitStrategy, battles, longRuns, lapCompare, safetyCars, strategyHistory];
 
 export const BUILTIN_WIDGETS: ReadonlyMap<string, WidgetDefinition> = new Map(ALL.map((b) => [b.id, b as WidgetDefinition]));

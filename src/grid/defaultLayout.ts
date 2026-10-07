@@ -10,8 +10,9 @@
 // right.
 //
 // Each kind also ships dashboards for one use (dashboards.ts): Strategy (the tower with the tyres under it, the gaps
-// over the stint pace and the pit stops) and Telemetry (the tower and the map beside the selected drivers' laps
-// overlaid). Their widths stay inside each widget's range at COLUMNS.
+// over the stint pace and the pit stops), Telemetry (the tower and the map beside the selected drivers' laps
+// overlaid) and Circuit history (the tower and the map beside the earlier races at the circuit). Their widths stay
+// inside each widget's range at COLUMNS.
 //
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
@@ -83,5 +84,18 @@ export const TELEMETRY_LAYOUT: Layout = {
     "timing-tower": at(0, 0, TELEMETRY_TOWER, { height: TOP }),
     "track-map": at(0, 1, TELEMETRY_TOWER),
     "lap-compare": at(TELEMETRY_TOWER, 0, COLUMNS - TELEMETRY_TOWER),
+  },
+};
+
+/** Circuit history: the tower over the map down the left; earlier races at the circuit (safety cars over strategies) beside them. */
+const HISTORY_SIDE = 13;
+export const CIRCUIT_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "timing-tower": at(0, 0, HISTORY_SIDE, { height: TOP }),
+    "track-map": at(0, 1, HISTORY_SIDE),
+    "safety-cars": at(HISTORY_SIDE, 0, COLUMNS - HISTORY_SIDE),
+    "strategy-history": at(HISTORY_SIDE, 1, COLUMNS - HISTORY_SIDE),
   },
 };

@@ -301,6 +301,9 @@ Small grey buttons that read as tools, with one white exception per screen.
 ### Widget kit
 Widgets get the system from widget-kit (`src/widgetkit/ui/`), not their own copies: `Label` and `LABEL_CLASS` (the label type), `Stat` (a label over its value), `Icon`, `DriverTag` (a driver's acronym badge on the team colour) and `TyreBadge`. Third-party widgets use the same pieces, so they look like they belong.
 
+### Circuit widgets
+Safety cars and Strategies draw earlier races at the circuit with the replay's own vocabulary. Neutral laps use the flag colours of the header's status badge: amber for a safety car, lighter amber hatched for a VSC (so it isn't colour alone), red for a red flag. Tyres use the compound colours and letters, and drivers are tagged on their team colour. Until results are revealed, a circuit widget says plainly what it hides, with a grey Show button.
+
 ### Cards / Containers
 None. The system has no cards. Lists sit inside a hairline frame: a column-header row with a hairline under it, then rows divided by hairline at 70% opacity. Empty and error states are a single bordered strip (hairline above and below, 12px × 16px padding).
 
