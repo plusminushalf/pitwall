@@ -232,7 +232,7 @@ function Browse() {
     }
   };
   const heading = (
-    <h2 className="flex items-baseline gap-4" role="tablist" aria-label="Browse">
+    <h2 className="flex scroll-mt-16 items-baseline gap-4" role="tablist" aria-label="Browse">
       {(
         [
           ["circuits", "Circuits"],

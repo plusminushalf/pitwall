@@ -39,6 +39,7 @@
   "dependencies": {
     "@fontsource/barlow-condensed": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
+    "country-flag-icons": "1.6.20",
     "modern-screenshot": "^4.7.0",
     "mqtt": "^5.16.0",
     "posthog-js": "^1.436.0",
