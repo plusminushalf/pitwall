@@ -218,8 +218,9 @@ function PastRaces({ slug }: { slug: string }) {
   const strategies = BUILTIN_WIDGETS.get("strategy-history")!;
   return (
     <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-      <WidgetHost widget={safetyCars} circuit={scope} className="border-b border-r border-zinc-800" style={{ height: safetyCars.height as number }} />
-      <WidgetHost widget={strategies} circuit={scope} className="border-b border-r border-zinc-800" style={{ height: 300 }} />
+      {/* The same height side by side, so the frame closes; Safety cars keeps its legend at the bottom. */}
+      <WidgetHost widget={safetyCars} circuit={scope} className="h-[300px] border-b border-r border-zinc-800" />
+      <WidgetHost widget={strategies} circuit={scope} className="h-[300px] border-b border-r border-zinc-800" />
     </section>
   );
 }

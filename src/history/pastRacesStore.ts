@@ -23,8 +23,15 @@ interface PastRacesState {
 }
 
 const docName = (key: number) => `past-race-${key}-v${PAST_RACE_FORMAT}`;
-const message = (e: unknown) =>
-  e instanceof LiveWindowError ? "OpenF1 blocks free access during live sessions: connect an OpenF1 account (Settings), or try again once it's over." : e instanceof Error ? e.message : String(e);
+/** Why a race didn't load, in a line: the network, OpenF1's live-session block, or OpenF1's answer. */
+function message(e: unknown): string {
+  if (e instanceof LiveWindowError) return "OpenF1 blocks free access during live sessions. Connect an OpenF1 account (Settings), or try again after it.";
+  // fetch() itself failing: offline, or no answer it could read.
+  if (e instanceof TypeError) return "Couldn't reach OpenF1. Check the connection.";
+  const status = e instanceof Error ? /OpenF1 (\d{3})/.exec(e.message)?.[1] : undefined;
+  if (status) return `OpenF1 didn't answer (${status}).`;
+  return e instanceof Error ? e.message : String(e);
+}
 
 /** One race at a time, in the order asked, so a circuit's races don't burst OpenF1's rate limit. */
 let queue: Promise<void> = Promise.resolve();

@@ -17,14 +17,31 @@ export interface CircuitScope {
 
 export const CircuitContext = createContext<CircuitScope | null>(null);
 
+/** One earlier race at the circuit, as it loads. */
+export interface CircuitRaceEntry {
+  sessionKey: number;
+  year: number;
+  meetingName: string;
+  race: PastRace | null;
+  loading: boolean;
+  /** Why it didn't load (then Try again: retry()). */
+  error: string | null;
+}
+
 export interface CircuitRaces {
   /** OpenF1's name for the circuit ("Singapore"); null while the calendar loads. */
   circuit: string | null;
   /** Every season's calendar is here (or failed): `total` is final. */
   ready: boolean;
+  /** A season's calendar didn't load (and none was kept): the races there may be missing. */
+  calendarError: string | null;
   slug: string | null;
   /** Loaded, newest first. */
   races: readonly PastRace[];
+  /** Every earlier race there, newest first, loaded or not: what the widgets lay out before the data is in. */
+  entries: readonly CircuitRaceEntry[];
+  /** Loads again the races that didn't load. */
+  retry: () => void;
   /** Earlier races there that OpenF1 has (loaded or not). */
   total: number;
   /** Still loading. */
@@ -58,6 +75,7 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
 
   const atCircuit = useMemo(() => (slug ? rowsAt(slug, YEARS.map((y) => years[y]?.catalog)) : []), [slug, years]);
   const ready = YEARS.every((y) => years[y]?.catalog || years[y]?.error);
+  const calendarError = YEARS.map((y) => (years[y]?.catalog ? null : (years[y]?.error ?? null))).find((e) => e != null) ?? null;
   const rows = useMemo(() => {
     const now = Date.now();
     return atCircuit
@@ -76,17 +94,26 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
     const races: PastRace[] = [];
     const errors = new Set<string>();
     let pending = 0;
-    for (const r of rows) {
+    const entries = rows.map((r): CircuitRaceEntry => {
       const s = states[r.sessionKey];
-      if (!s || "loading" in s) pending++;
-      else if ("race" in s) races.push(s.race);
-      else errors.add(s.error);
-    }
+      const race = s && "race" in s ? s.race : null;
+      const error = s && "error" in s ? s.error : null;
+      if (race) races.push(race);
+      else if (error) errors.add(error);
+      else pending++;
+      return { sessionKey: r.sessionKey, year: r.year, meetingName: r.meetingName, race, loading: !race && !error, error };
+    });
     return {
       circuit: atCircuit.at(-1)?.circuit ?? (scope ? null : sessionCircuit),
       ready,
+      calendarError,
       slug,
       races,
+      entries,
+      retry: () => {
+        for (const y of YEARS) if (!years[y]?.catalog) void useLibrary.getState().loadYear(y, { force: true });
+        usePastRaces.getState().load(rows);
+      },
       total: rows.length,
       pending,
       errors: [...errors],
@@ -95,5 +122,5 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
         if (slug) usePastRaces.getState().reveal(slug);
       },
     };
-  }, [rows, atCircuit, ready, scope, states, slug, sessionCircuit, spoilers, revealed]);
+  }, [rows, atCircuit, ready, calendarError, years, scope, states, slug, sessionCircuit, spoilers, revealed]);
 }
