@@ -1,7 +1,7 @@
 // The circuit widgets' data: earlier races at the circuit (src/history/pastRaces.ts). On a replay, the circuit is the
 // session's and the races are the ones before it (watching 2024 never shows 2025); on a circuit's page, which has no
-// session, the page says which circuit (CircuitContext) and every past race there counts. Results are spoilers:
-// `hidden` until spoilers are shown (Settings) or the user reveals the circuit's (src/history/pastRacesStore.ts).
+// session, the page says which circuit (CircuitContext) and every past race there counts. They're history, not
+// spoilers, so they show without asking.
 
 import { createContext, useContext, useEffect, useMemo } from "react";
 import { circuitSlug, rowsAt } from "../circuit";
@@ -48,9 +48,6 @@ export interface CircuitRaces {
   pending: number;
   /** Why some didn't load (one line each, deduplicated). */
   errors: readonly string[];
-  /** Results are hidden (spoilers) until reveal(). */
-  hidden: boolean;
-  reveal: () => void;
 }
 
 /** Races (`sessionName` "Race" or "Sprint") at the circuit before the session on screen, or all past ones on a circuit's page. */
@@ -64,8 +61,6 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
   const slug = scope?.slug ?? (sessionCircuit ? circuitSlug(sessionCircuit) : null);
   const before = scope ? null : sessionStart;
   const years = useLibrary((s) => s.years);
-  const spoilers = useReplay((s) => s.spoilerPref === "show");
-  const revealed = usePastRaces((s) => (slug ? s.revealed[slug] === true : false));
   const states = usePastRaces((s) => s.races);
 
   // Every season's calendar (cached after the first visit): the circuit's races are spread over them.
@@ -117,10 +112,6 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
       total: rows.length,
       pending,
       errors: [...errors],
-      hidden: !spoilers && !revealed,
-      reveal: () => {
-        if (slug) usePastRaces.getState().reveal(slug);
-      },
     };
-  }, [rows, atCircuit, ready, calendarError, years, scope, states, slug, sessionCircuit, spoilers, revealed]);
+  }, [rows, atCircuit, ready, calendarError, years, scope, states, slug, sessionCircuit]);
 }

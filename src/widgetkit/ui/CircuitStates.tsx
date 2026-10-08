@@ -1,5 +1,5 @@
 // What the circuit widgets show besides their races (DESIGN.md, Circuit widgets): placeholders shaped like what's
-// loading, the results hidden behind a Show button (spoilers), and why something didn't load, with Try again. The
+// loading, and why something didn't load, with Try again. The
 // widget's own header stays above them throughout, so nothing jumps when the races come in.
 
 import type { CSSProperties, ReactNode } from "react";
@@ -23,25 +23,12 @@ export function RetryButton({ onClick, className = "" }: { onClick: () => void; 
 }
 
 /**
- * The widget's body when it isn't showing races: results hidden (`what` names them: "Safety cars"), the calendar
- * that says which races there are didn't load, or there are none. Null when the widget lays out its races (loaded or
+ * The widget's body when it isn't showing races: the calendar that says which races there are didn't load, or there
+ * are none. Null when the widget lays out its races (loaded or
  * loading); `loading` is what it shows while the calendar itself loads.
  */
-export function circuitNotice(data: CircuitRaces, what: string, loading: ReactNode): ReactNode | null {
+export function circuitNotice(data: CircuitRaces, loading: ReactNode): ReactNode | null {
   const at = data.circuit ? ` at ${data.circuit}` : "";
-  if (data.hidden) {
-    return (
-      <div className="flex flex-1 flex-col items-start justify-center gap-2 text-xs text-zinc-300">
-        <p className="max-w-[48ch]">
-          {what}
-          {at} give away how races ended, so they're hidden.
-        </p>
-        <button type="button" onClick={data.reveal} className={BUTTON}>
-          Show
-        </button>
-      </div>
-    );
-  }
   if (data.total > 0) return null;
   if (data.calendarError && data.ready) {
     return (
@@ -58,7 +45,7 @@ export function circuitNotice(data: CircuitRaces, what: string, loading: ReactNo
 /** The header's right: how far the races have loaded, which didn't (with Try again), or else `done`. */
 export function CircuitProgress({ data, done }: { data: CircuitRaces; done: ReactNode }) {
   const failed = data.entries.filter((e) => e.error).length;
-  if (data.hidden || data.total === 0) return null;
+  if (data.total === 0) return null;
   if (data.pending > 0)
     return (
       <span className="tabular-nums text-zinc-400" aria-live="polite">
@@ -92,8 +79,8 @@ const skeletonRows = (
  * A circuit widget's frame: its title (with the circuit's name) and how the races are loading over the body, or in
  * place of the body what circuitNotice() says. `done` is the header's right once every race is in.
  */
-export function CircuitFrame({ title, what, data, done, children }: { title: string; what: string; data: CircuitRaces; done: ReactNode; children: ReactNode }) {
-  const notice = circuitNotice(data, what, skeletonRows);
+export function CircuitFrame({ title, data, done, children }: { title: string; data: CircuitRaces; done: ReactNode; children: ReactNode }) {
+  const notice = circuitNotice(data, skeletonRows);
   return (
     <div className="flex h-full flex-col px-3 py-2 text-xs">
       <div className="flex h-5 shrink-0 items-center gap-2">

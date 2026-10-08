@@ -28,7 +28,6 @@ function SafetyCars() {
   return (
     <CircuitFrame
       title="Safety cars"
-      what="Safety cars"
       data={data}
       done={
         <span className="tabular-nums text-zinc-300" title="Races with a safety car, a VSC or a red flag">

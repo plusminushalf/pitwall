@@ -1,8 +1,6 @@
 // The past races the circuit widgets show (pastRaces.ts), as they load: kept in this browser once fetched (a past
 // race doesn't change), fetched one race at a time otherwise, through the vault when signed in (so during a live
-// session too) and straight to OpenF1 if not. And which circuits' results the user has asked to see: results are
-// spoilers (PRODUCT.md), so the circuit page and the widgets hide them until spoilers are shown (Settings) or the
-// user reveals a circuit's, for as long as the page is open.
+// session too) and straight to OpenF1 if not.
 
 import { create } from "zustand";
 import { LiveWindowError } from "../../scripts/lib/openf1Http";
@@ -15,11 +13,8 @@ export type PastRaceState = { race: PastRace } | { loading: true } | { error: st
 
 interface PastRacesState {
   races: Record<number, PastRaceState>;
-  /** Circuits (slugs) whose results the user asked to see. */
-  revealed: Record<string, true>;
   /** Loads the races given (the ones not already here or loading). */
   load: (rows: readonly CatalogRow[]) => void;
-  reveal: (slug: string) => void;
 }
 
 const docName = (key: number) => `past-race-${key}-v${PAST_RACE_FORMAT}`;
@@ -52,7 +47,6 @@ export const usePastRaces = create<PastRacesState>((set, get) => {
   };
   return {
     races: {},
-    revealed: {},
     load: (rows) => {
       const todo = rows.filter((r) => {
         const s = get().races[r.sessionKey];
@@ -63,6 +57,5 @@ export const usePastRaces = create<PastRacesState>((set, get) => {
         queue = queue.then(() => loadOne(row));
       }
     },
-    reveal: (slug) => set({ revealed: { ...get().revealed, [slug]: true } }),
   };
 });

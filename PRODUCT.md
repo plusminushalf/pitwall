@@ -63,7 +63,7 @@ Success: a fan gets from the home screen to the session they want, and from ther
 
 ## Product Principles
 
-1. **No spoilers anywhere.** No surface (home, library, cards, notifications) reveals results, winners, positions, incidents or other outcome clues unless the user has turned spoiler protection off.
+1. **No spoilers anywhere.** No surface (home, library, cards, notifications) reveals results, winners, positions, incidents or other outcome clues unless the user has turned spoiler protection off. A circuit's earlier races are history, not spoilers: the circuit page and the circuit widgets show them as they are.
 2. **The data is the product.** Get the user to the session and the data they came for fast. Chrome around it should stay out of the way.
 3. **Your browser, your data.** Nothing is hosted or relayed by us. Say plainly what lives in this browser and what it costs in storage.
 4. **The user arranges the pit wall.** Layout is the user's, and it is kept.

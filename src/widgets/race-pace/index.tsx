@@ -40,7 +40,6 @@ function RacePace() {
   return (
     <CircuitFrame
       title="Race pace"
-      what="Race pace"
       data={data}
       done={
         best && (

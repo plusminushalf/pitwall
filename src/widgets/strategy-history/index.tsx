@@ -116,7 +116,7 @@ function StrategyHistory() {
   const data = useCircuitRaces();
   const [settings, update] = useSettings<Settings>();
   const picked = data.entries.find((e) => e.year === settings.year && !e.error) ?? data.entries.find((e) => e.race) ?? data.entries[0];
-  const notice = circuitNotice(data, "Strategies", skeleton);
+  const notice = circuitNotice(data, skeleton);
   let body;
   if (notice) body = <div className="flex flex-1 flex-col px-3">{notice}</div>;
   else if (picked?.race) body = <Race race={picked.race} show={settings.show} />;
@@ -133,7 +133,7 @@ function StrategyHistory() {
       <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-2">
         <Label>Strategies{data.circuit ? ` at ${data.circuit}` : ""}</Label>
         <span className="flex-1" />
-        {!data.hidden && data.entries.length > 0 && (
+        {data.entries.length > 0 && (
           <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Year">
             {data.entries.map((e) => {
               const on = e === picked;

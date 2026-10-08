@@ -31,7 +31,6 @@ function PitHistory() {
   return (
     <CircuitFrame
       title="Pit lane"
-      what="Pit stops"
       data={data}
       done={
         quickest && (

@@ -19,9 +19,7 @@ import { Settings } from "../home/Settings";
 import { byMeeting, WeekendSheet } from "../home/Season";
 import { RacesButton } from "../Navigation";
 import { Flag } from "../Flag";
-import { useReplay } from "../../store";
 import { BUILTIN_WIDGETS } from "../../grid/builtins";
-import { usePastRaces } from "../../history/pastRacesStore";
 import { WidgetHost } from "../../widgetkit/WidgetHost";
 
 /** The circuit's F1DB history; null while it loads, and if there's none (not mapped, or not built). */
@@ -59,13 +57,10 @@ function Fact({ label, children, title }: { label: string; children: ReactNode; 
 }
 
 /**
- * The circuit's past: what it is, its records, who wins there, and the last few races. Results are spoilers (PRODUCT.md:
- * no surface gives away how a race ended): unless spoilers are shown (Settings), they wait behind Show results.
+ * The circuit's past: what it is, its records, who wins there, and the last few races. History, not spoilers, so
+ * it shows without asking.
  */
-function History({ h, slug }: { h: CircuitHistory; slug: string }) {
-  const spoilers = useReplay((s) => s.spoilerPref === "show");
-  // One reveal for the circuit: these records and its widgets (Past races) together.
-  const revealed = usePastRaces((s) => s.revealed[slug] === true);
+function History({ h }: { h: CircuitHistory }) {
   const driver = (e: HistoryEntry | null | undefined) => (e ? (h.drivers[e.driverId]?.name ?? e.driverId) : "—");
   const team = (e: HistoryEntry) => h.constructors[e.constructorId]?.name ?? e.constructorId;
   const layout = currentLayout(h);
@@ -83,108 +78,97 @@ function History({ h, slug }: { h: CircuitHistory; slug: string }) {
       <h2 id="history-title" className="sr-only">
         History
       </h2>
-      {!spoilers && !revealed ? (
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-4 text-sm text-zinc-300">
-          <p className="max-w-[75ch]">Results are hidden: lap records, winners and podiums give away how races ended.</p>
-          <button onClick={() => usePastRaces.getState().reveal(slug)} className={SECONDARY}>
-            Show results
-          </button>
-        </div>
-      ) : (
-        <>
-          <dl className="grid grid-cols-1 gap-x-6 gap-y-4 border-y border-zinc-800 px-3 py-4 sm:grid-cols-2 md:grid-cols-4">
-            <Fact label="Race lap record" title={lap ? `Fastest race lap on this layout${sameLayout}` : undefined}>
-              {lap ? (
-                <>
-                  <span className="font-semibold tabular-nums">{lap.lap.time}</span>{" "}
-                  <span className="text-zinc-400">
-                    · {driver(lap.lap)}, {lap.race.year}
-                  </span>
-                </>
-              ) : (
-                "—"
-              )}
-            </Fact>
-            <Fact label="Pole record" title={pole ? `Fastest pole lap on this layout${sameLayout}` : undefined}>
-              {pole ? (
-                <>
-                  <span className="font-semibold tabular-nums">{pole.lap.time}</span>{" "}
-                  <span className="text-zinc-400">
-                    · {driver(pole.lap)}, {pole.race.year}
-                  </span>
-                </>
-              ) : (
-                "—"
-              )}
-            </Fact>
-            <Fact label="Most wins" title="Grand Prix wins here, most first">
-              {wins.length ? wins.map((w) => `${h.drivers[w.id]?.lastName ?? w.id} ${w.count}`).join(" · ") : "—"}
-            </Fact>
-            <Fact label={`Pole to win since ${since}`} title="How often the pole sitter won">
-              {conversion.races ? (
-                <>
-                  <span className="font-semibold tabular-nums">
-                    {conversion.wins} of {conversion.races}
-                  </span>
-                  <span className="text-zinc-400"> races</span>
-                </>
-              ) : (
-                "—"
-              )}
-            </Fact>
-          </dl>
-
-          {recent.length > 0 && (
-            <div className="mt-6">
-              {/* On a phone: year, winner and pole. */}
-              <table className="w-full text-left text-sm">
-                <caption className={`${LABEL} px-3 pb-2 text-left`}>Last {recent.length} Grands Prix here</caption>
-                <thead>
-                  <tr className={`${LABEL} border-b border-zinc-800`}>
-                    <th className="w-16 px-3 py-2 font-[inherit]">Year</th>
-                    <th className="px-3 py-2 font-[inherit]">Winner</th>
-                    <th className="px-3 py-2 font-[inherit]">Pole</th>
-                    <th className="hidden px-3 py-2 font-[inherit] md:table-cell">Podium</th>
-                    <th className="hidden px-3 py-2 font-[inherit] md:table-cell">Fastest lap</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((r) => {
-                    const winner = r.podium[0];
-                    return (
-                      <tr key={r.raceId} className="border-b border-zinc-800/70">
-                        <td className="px-3 py-2 tabular-nums text-zinc-400" title={r.grandPrix}>
-                          {r.year}
-                        </td>
-                        <td className="px-3 py-2">
-                          <span className="font-semibold text-zinc-50">{driver(winner)}</span>
-                          <span className="hidden text-zinc-400 sm:inline"> · {team(winner)}</span>
-                        </td>
-                        <td className="px-3 py-2 text-zinc-200">{driver(r.pole)}</td>
-                        <td className="hidden px-3 py-2 text-zinc-300 md:table-cell">
-                          {r.podium
-                            .slice(1)
-                            .map((p) => h.drivers[p.driverId]?.lastName ?? p.driverId)
-                            .join(", ")}
-                        </td>
-                        <td className="hidden px-3 py-2 text-zinc-300 md:table-cell">
-                          {r.fastestLap ? (
-                            <>
-                              {h.drivers[r.fastestLap.driverId]?.lastName ?? r.fastestLap.driverId}
-                              {r.fastestLap.time && <span className="tabular-nums text-zinc-400"> {r.fastestLap.time}</span>}
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+      <dl className="grid grid-cols-1 gap-x-6 gap-y-4 border-y border-zinc-800 px-3 py-4 sm:grid-cols-2 md:grid-cols-4">
+        <Fact label="Race lap record" title={lap ? `Fastest race lap on this layout${sameLayout}` : undefined}>
+          {lap ? (
+            <>
+              <span className="font-semibold tabular-nums">{lap.lap.time}</span>{" "}
+              <span className="text-zinc-400">
+                · {driver(lap.lap)}, {lap.race.year}
+              </span>
+            </>
+          ) : (
+            "—"
           )}
-        </>
+        </Fact>
+        <Fact label="Pole record" title={pole ? `Fastest pole lap on this layout${sameLayout}` : undefined}>
+          {pole ? (
+            <>
+              <span className="font-semibold tabular-nums">{pole.lap.time}</span>{" "}
+              <span className="text-zinc-400">
+                · {driver(pole.lap)}, {pole.race.year}
+              </span>
+            </>
+          ) : (
+            "—"
+          )}
+        </Fact>
+        <Fact label="Most wins" title="Grand Prix wins here, most first">
+          {wins.length ? wins.map((w) => `${h.drivers[w.id]?.lastName ?? w.id} ${w.count}`).join(" · ") : "—"}
+        </Fact>
+        <Fact label={`Pole to win since ${since}`} title="How often the pole sitter won">
+          {conversion.races ? (
+            <>
+              <span className="font-semibold tabular-nums">
+                {conversion.wins} of {conversion.races}
+              </span>
+              <span className="text-zinc-400"> races</span>
+            </>
+          ) : (
+            "—"
+          )}
+        </Fact>
+      </dl>
+
+      {recent.length > 0 && (
+        <div className="mt-6">
+          {/* On a phone: year, winner and pole. */}
+          <table className="w-full text-left text-sm">
+            <caption className={`${LABEL} px-3 pb-2 text-left`}>Last {recent.length} Grands Prix here</caption>
+            <thead>
+              <tr className={`${LABEL} border-b border-zinc-800`}>
+                <th className="w-16 px-3 py-2 font-[inherit]">Year</th>
+                <th className="px-3 py-2 font-[inherit]">Winner</th>
+                <th className="px-3 py-2 font-[inherit]">Pole</th>
+                <th className="hidden px-3 py-2 font-[inherit] md:table-cell">Podium</th>
+                <th className="hidden px-3 py-2 font-[inherit] md:table-cell">Fastest lap</th>
+              </tr>
+            </thead>
+            <tbody>
+              {recent.map((r) => {
+                const winner = r.podium[0];
+                return (
+                  <tr key={r.raceId} className="border-b border-zinc-800/70">
+                    <td className="px-3 py-2 tabular-nums text-zinc-400" title={r.grandPrix}>
+                      {r.year}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="font-semibold text-zinc-50">{driver(winner)}</span>
+                      <span className="hidden text-zinc-400 sm:inline"> · {team(winner)}</span>
+                    </td>
+                    <td className="px-3 py-2 text-zinc-200">{driver(r.pole)}</td>
+                    <td className="hidden px-3 py-2 text-zinc-300 md:table-cell">
+                      {r.podium
+                        .slice(1)
+                        .map((p) => h.drivers[p.driverId]?.lastName ?? p.driverId)
+                        .join(", ")}
+                    </td>
+                    <td className="hidden px-3 py-2 text-zinc-300 md:table-cell">
+                      {r.fastestLap ? (
+                        <>
+                          {h.drivers[r.fastestLap.driverId]?.lastName ?? r.fastestLap.driverId}
+                          {r.fastestLap.time && <span className="tabular-nums text-zinc-400"> {r.fastestLap.time}</span>}
+                        </>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
       <p data-shot-credit={`History: F1DB (${h.source.license})`} className="mt-3 px-3 text-xs text-zinc-400">
         {circuit.fullName} · {TYPE[circuit.type]}, {circuit.lengthKm.toFixed(3)} km, {circuit.turns} turns · {circuit.racesHeld} Grands Prix. History from{" "}
@@ -312,7 +296,7 @@ export function CircuitPage({ slug }: { slug: string }) {
           </div>
           {coming && <WeekendForecast sessions={comingSessions} meetingName={coming.meetingName} circuitKey={coming.circuitKey} now={now} />}
           <PastRaces slug={slug} />
-          {history && <History h={history} slug={slug} />}
+          {history && <History h={history} />}
 
           <section data-shot="" aria-labelledby="weekends-title" className="mt-12">
             <h2 id="weekends-title" className="mb-3 text-2xl font-bold tracking-tight text-zinc-50">

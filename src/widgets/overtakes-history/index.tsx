@@ -30,7 +30,6 @@ function Overtakes() {
   return (
     <CircuitFrame
       title="Overtakes"
-      what="Overtakes"
       data={data}
       done={
         <span className="tabular-nums text-zinc-300" title="Passes on track: not at the start, behind a safety car, or from pit stops">
