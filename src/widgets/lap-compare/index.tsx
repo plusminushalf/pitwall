@@ -33,8 +33,8 @@ import { BEST, FOLLOWING, isFollowing, pick, resolveLaps, stepLap, toggleLink, t
 
 type Settings = { throttle: boolean; gear: boolean; overtakes: boolean };
 
-/** Compared at once (the selection's first four, as the qualifying view). */
-const MAX = 4;
+/** Compared at once (the selection's first eight, as the qualifying view). */
+const MAX = 8;
 const MINI_SECTORS = 25;
 /** A click on the chart without moving this far seeks; further is a zoom brush. */
 const DRAG_PX = 4;

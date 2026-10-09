@@ -518,7 +518,7 @@ export function Header() {
 
       <div className="flex items-center justify-end gap-4">
         {!editing && <Weather w={race?.weather ?? null} />}
-        {!meta.quali && <LayoutControls />}
+        <LayoutControls />
         {!editing && <ShareButton />}
         {!editing && <ShortcutsHelp />}
       </div>

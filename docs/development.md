@@ -42,7 +42,7 @@ bun test                    # data-dependent tests skip without data/sessions/11
 
 ## Qualifying
 
-Qualifying, sprint qualifying and sprint shootout sessions open in a lap comparison view: a timing board (Q1/Q2/Q3 times, per-segment standings with gaps, deleted laps and the knock-out lines) and a compare mode for up to 4 drivers, each on any of their laps (default: their fastest; or every driver's best Q1/Q2/Q3 lap). Speed, delta, throttle, brake and gear share one distance axis with a synced cursor (drag or scroll to zoom); the track map shows who is fastest in each mini-sector and plays the chosen laps as ghosts, starting together at the line.
+Qualifying, sprint qualifying and sprint shootout sessions open in a lap comparison view (a Replay switch shows the session in the grid, with its dashboards): a timing board (Q1/Q2/Q3 times, per-segment standings with gaps, deleted laps and the knock-out lines) and a compare mode for up to 8 drivers, each on any of their laps (default: their fastest; or every driver's best Q1/Q2/Q3 lap). Speed, delta, throttle, brake and gear share one distance axis with a synced cursor (drag or scroll to zoom); the track map shows who is fastest in each mini-sector and plays the chosen laps as ghosts, starting together at the line.
 
 ```sh
 bun run check:quali                   # CLI: sanity-check every qualifying session in data/sessions

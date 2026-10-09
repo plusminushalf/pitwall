@@ -8,7 +8,7 @@ import { fetchLapTraces } from "./storage/load";
 import type { DecodedLap } from "./engine/compare";
 import type { CompareLink } from "./url";
 
-export const MAX_COMPARE = 4;
+export const MAX_COMPARE = 8;
 export const GHOST_SPEEDS = [0.25, 0.5, 1, 2, 4] as const;
 export const MINI_SECTOR_COUNTS = [12, 25, 50] as const;
 const MINI_SECTORS = 25;
