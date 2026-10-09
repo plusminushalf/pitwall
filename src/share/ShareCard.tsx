@@ -72,13 +72,26 @@ export interface CardPanel {
    * an element marked data-shot-fill: an SVG chart sized from useWidgetSize()).
    */
   fit?: boolean;
+  /** How far each of the widget's scrolling parts was scrolled on screen (scrollers() order), to scroll its copy the same. */
+  scroll?: { top: number; left: number }[];
 }
+
+/** The parts of a widget that scroll (a list in it), in document order: the same in its copy, as it's the same widget. */
+const scrollers = (el: Element) => {
+  const host = el.matches("[data-widget-host]") ? el : el.querySelector("[data-widget-host]");
+  if (!host) return [];
+  return [...host.querySelectorAll<HTMLElement>("*")].filter((e) => {
+    const style = getComputedStyle(e);
+    return /auto|scroll/.test(style.overflowY) || /auto|scroll/.test(style.overflowX);
+  });
+};
 
 const widgetPanel = (hosted: HostedWidget, el: Element): CardPanel => ({
   render: (scale) => <WidgetHost widget={hosted.widget} settings={hosted.settings} circuit={hosted.circuit} pixelRatio={scale} className="h-full w-full overflow-hidden" />,
   width: CARD_WIDTH,
   height: Math.round(el.getBoundingClientRect().height),
   fit: !el.querySelector("canvas, [data-shot-fill]"),
+  scroll: scrollers(el).map((e) => ({ top: e.scrollTop, left: e.scrollLeft })),
 });
 
 /**
@@ -146,9 +159,17 @@ export function ShareCard({ job }: { job: CardJob }) {
     void settled(ref.current!)
       .then(() => {
         flushSync(() => setCredits(creditsIn(ref.current!)));
-        for (const panel of ref.current!.querySelectorAll<HTMLElement>("[data-card-panel]")) {
+        // A widget's panels in order, each scrolled as it was on screen (a list scrolled down shows what was shown).
+        const framed = panels.filter((p) => p.height != null);
+        ref.current!.querySelectorAll<HTMLElement>("[data-card-panel]").forEach((panel, i) => {
+          const scroll = framed[i]?.scroll ?? [];
+          scrollers(panel).forEach((e, k) => {
+            if (!scroll[k]) return;
+            e.scrollTop = scroll[k].top;
+            e.scrollLeft = scroll[k].left;
+          });
           if (overflows(panel)) panel.style.maskImage = FADE;
-        }
+        });
         return captureCard(ref.current!, scale);
       })
       .then(
