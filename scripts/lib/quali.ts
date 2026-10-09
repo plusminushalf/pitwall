@@ -90,7 +90,8 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   }
   if (bounds.length !== 3) problems.push(`found ${bounds.length} qualifying segments, expected 3`);
 
-  const classified = raw.results.length;
+  // Right after a session OpenF1 has no results yet: the field is the drivers who set a lap.
+  const classified = raw.results.length || new Set(meta.laps.map((l) => l.driver)).size;
   const q2Size = 10 + Math.ceil((classified - 10) / 2); // 20 cars: 15, 22 cars: 16
   const advances = bounds.length === 3 ? [q2Size, 10, null] : bounds.map((_, i) => (i === bounds.length - 1 ? null : null));
   const segments: QualiSegment[] = bounds.map((b, i) => ({
@@ -226,21 +227,45 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
 
   // ---------------------------------------------------------------- classification
 
-  const results: QualiResult[] = [...raw.results]
+  const counting = (n: number, seg: number) =>
+    (lapsOf.get(n) ?? []).filter((l) => {
+      const q = qlap.get(`${n}:${l.lap}`)!;
+      return l.duration != null && q.segment === seg && !q.afterFlag && !q.deleted && q.kind !== "out" && q.kind !== "in";
+    });
+  // OpenF1 publishes the results a while after the session: until then, the order by each segment's best counting lap.
+  function provisional(): RawResult[] {
+    const best = (n: number, seg: number) => Math.min(Infinity, ...counting(n, seg).map((l) => l.duration!));
+    const out: number[][] = [];
+    let field = [...lapsOf.keys()].sort((a, b) => a - b);
+    for (const [k, s] of segments.entries()) {
+      // (`field` is in the previous segment's order: a stable sort keeps it for equal times, and for no time.)
+      const ranked = [...field].sort((a, b) => {
+        const [ta, tb] = [best(a, s.number), best(b, s.number)];
+        return ta === tb ? 0 : ta - tb;
+      });
+      const through = k === segments.length - 1 ? 0 : Math.min(s.advance ?? ranked.length, ranked.length);
+      out.unshift(ranked.slice(through));
+      field = ranked.slice(0, through);
+    }
+    return out.flat().map((n, i) => {
+      const times = segments.map((s) => (Number.isFinite(best(n, s.number)) ? best(n, s.number) : null));
+      return { driver_number: n, position: i + 1, number_of_laps: null, points: null, dnf: false, dns: false, dsq: false, duration: times as number[], gap_to_leader: null };
+    });
+  }
+  if (!raw.results.length && segments.length) {
+    lines.push("no results from OpenF1 yet: classified by each segment's best counting lap");
+  }
+
+  const results: QualiResult[] = [...(raw.results.length ? raw.results : provisional())]
     .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
     .map((r) => {
       const n = r.driver_number;
       const official = (Array.isArray(r.duration) ? r.duration : [r.duration]).slice(0, segments.length);
       while (official.length < segments.length) official.push(null);
       const own = lapsOf.get(n) ?? [];
-      const counting = (seg: number) =>
-        own.filter((l) => {
-          const q = qlap.get(`${n}:${l.lap}`)!;
-          return l.duration != null && q.segment === seg && !q.afterFlag && !q.deleted && q.kind !== "out" && q.kind !== "in";
-        });
       const laps = segments.map((s, k) => {
         const time = official[k];
-        const mine = counting(s.number).sort((a, b) => a.duration! - b.duration!)[0] ?? null;
+        const mine = counting(n, s.number).sort((a, b) => a.duration! - b.duration!)[0] ?? null;
         if (time == null) {
           if (mine) problems.push(`#${n} ${s.name}: lap ${mine.lap} (${fmtLap(mine.duration!)}) counts here but there's no official time`);
           return null;

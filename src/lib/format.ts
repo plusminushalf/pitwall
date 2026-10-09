@@ -4,7 +4,7 @@ const pad = (n: number, w = 2) => String(n).padStart(w, "0");
 
 /** 104.916 -> "1:44.916" */
 export function lapTime(seconds: number | null | undefined): string {
-  if (seconds == null) return "—";
+  if (seconds == null || !Number.isFinite(seconds)) return "—";
   const m = Math.floor(seconds / 60);
   const s = seconds - m * 60;
   return m > 0 ? `${m}:${s.toFixed(3).padStart(6, "0")}` : s.toFixed(3);
