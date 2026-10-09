@@ -18,14 +18,20 @@ import {
   useFastestLap,
   useLaps,
   useLeaderLap,
+  useQualiPhase,
   useRunningOrder,
   useSelection,
   useSessionInfo,
   useSettings,
   useTime,
+  segmentBest,
+  standingOf,
   type DriverInfo,
   type DriverState,
   type Lap,
+  type LiveQualiSegment,
+  type QualiPhase,
+  type SessionKind,
 } from "widget-kit";
 
 type GapMode = "leader" | "interval";
@@ -40,7 +46,11 @@ const WIDE_COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_46px_46px_46px_58px_5
 /** Practice: no grid to gain places from, and laps run (or a PIT tag) in the last column. */
 const PRACTICE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_58px_40px_28px]";
 const PRACTICE_WIDE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_46px_46px_46px_58px_58px_40px_28px]";
-const colsOf = (wide: boolean, practice: boolean) => (practice ? (wide ? PRACTICE_WIDE_COLS : PRACTICE_COLS) : wide ? WIDE_COLS : COLS);
+/** Live qualifying: the best lap in the segment and the gap by it, then (wide) the last lap; the last column says who's out. */
+const QUALI_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_52px_40px_28px]";
+const QUALI_WIDE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_52px_46px_46px_46px_58px_40px_28px]";
+const colsOf = (wide: boolean, kind: SessionKind) =>
+  kind === "qualifying" ? (wide ? QUALI_WIDE_COLS : QUALI_COLS) : kind === "practice" ? (wide ? PRACTICE_WIDE_COLS : PRACTICE_COLS) : wide ? WIDE_COLS : COLS;
 const WIDE = 590;
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2";
@@ -49,7 +59,10 @@ const FIXED_W = 22 + 22 + 60 + 58 + 40 + 20 + 6 * 4 + 20 + 8;
 const WIDE_FIXED_W = FIXED_W + 3 * 46 + 58 + 4 * 4;
 /** Practice's (no grid-change column, a wider last one). */
 const PRACTICE_FIXED_W = 28 + 60 + 58 + 40 + 28 + 5 * 4 + 20 + 8;
-const fixedWidthOf = (wide: boolean, practice: boolean) => (practice ? PRACTICE_FIXED_W : FIXED_W) + (wide ? WIDE_FIXED_W - FIXED_W : 0);
+const QUALI_FIXED_W = 28 + 60 + 52 + 40 + 28 + 5 * 4 + 20 + 8;
+const QUALI_WIDE_FIXED_W = QUALI_FIXED_W + 3 * 46 + 58 + 4 * 4;
+const fixedWidthOf = (wide: boolean, kind: SessionKind) =>
+  kind === "qualifying" ? (wide ? QUALI_WIDE_FIXED_W : QUALI_FIXED_W) : (kind === "practice" ? PRACTICE_FIXED_W : FIXED_W) + (wide ? WIDE_FIXED_W - FIXED_W : 0);
 
 /**
  * How wide the driver column must be to show every team's name whole after the stripe and acronym (gap-2
@@ -142,6 +155,29 @@ function LapsCell({ n, s }: { n: number; s: RowData }) {
   return <span className="text-right text-xs tabular-nums text-zinc-400">{laps}</span>;
 }
 
+/**
+ * Live qualifying: the driver's best lap in the segment they're in (or went out in), the time that places them. The
+ * segment's fastest is purple.
+ */
+function QualiBestCell({ n, s, segment }: { n: number; s: RowData; segment: LiveQualiSegment | null }) {
+  const laps = useLaps(n);
+  const best = useTime((t) => (segment ? segmentBest(laps, segment, t) : null));
+  if (best == null) return <span className="text-xs text-zinc-600">—</span>;
+  return <span className={`text-xs tabular-nums ${s.position === 1 ? "text-fuchsia-400" : "text-zinc-200"}`}>{lapTime(best)}</span>;
+}
+
+/** Live qualifying's last column: the segment a car went out in, else (as practice) laps run or PIT. */
+function QualiStatusCell({ n, s, out }: { n: number; s: RowData; out: LiveQualiSegment | null }) {
+  if (out) {
+    return (
+      <span className="text-[11px] font-semibold text-zinc-400" title={`Knocked out in ${out.name}`}>
+        {out.name}
+      </span>
+    );
+  }
+  return <LapsCell n={n} s={s} />;
+}
+
 /** Each sector's fastest time among a driver's laps so far. */
 const personalBestSectors = (laps: readonly Lap[]) =>
   [0, 1, 2].map((k) => laps.reduce<number | null>((min, l) => (l.sectors[k] != null && (min == null || l.sectors[k]! < min) ? l.sectors[k] : min), null));
@@ -186,7 +222,8 @@ const Row = memo(function Row({
   mode,
   wide,
   team,
-  practice,
+  kind,
+  phase,
   isSelected,
   isFocused,
   onToggle,
@@ -197,7 +234,9 @@ const Row = memo(function Row({
   wide: boolean;
   /** Show the team's name after the acronym. */
   team: boolean;
-  practice: boolean;
+  kind: SessionKind;
+  /** Live qualifying at t (its clock left out: rows don't show it). */
+  phase: QualiPhase | null;
   isSelected: boolean;
   isFocused: boolean;
   onToggle: (n: number) => void;
@@ -205,14 +244,19 @@ const Row = memo(function Row({
   const select = useMemo(() => rowData(mode), [mode]);
   const s = useDriver(d.number, select);
   if (!s) return null;
+  const practice = kind === "practice";
+  const quali = kind === "qualifying";
+  const standing = quali ? standingOf(phase, s.position) : null;
+  const out = standing && "out" in standing ? standing.out : null;
+  const danger = standing != null && "danger" in standing;
   return (
     <button
       onClick={() => onToggle(d.number)}
       aria-pressed={isSelected}
       title={isSelected ? `Remove ${d.acronym} from the selection` : `Add ${d.acronym} to the selection (filters the track map)`}
-      className={`group absolute inset-x-0 grid ${colsOf(wide, practice)} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
+      className={`group absolute inset-x-0 grid ${colsOf(wide, kind)} items-center gap-1 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
         isFocused ? "bg-zinc-800" : isSelected ? "bg-zinc-800/50 hover:bg-zinc-800/70" : "hover:bg-zinc-900"
-      } ${s.status === "OUT" ? "opacity-50" : ""}`}
+      } ${s.status === "OUT" || out ? "opacity-50" : ""}`}
       style={{ height: ROW_H, transform: `translateY(${index * ROW_H}px)` }}
     >
       <span
@@ -224,8 +268,10 @@ const Row = memo(function Row({
       >
         {isSelected && <Icon name="check" size={9} className="[&_path]:[stroke-width:2.5]" />}
       </span>
-      <span className="font-bold tabular-nums">{s.status === "OUT" ? "–" : s.position}</span>
-      {!practice && (
+      <span className={`font-bold tabular-nums ${danger ? "text-red-400" : ""}`} title={danger ? "In the drop zone: out if the segment ended now" : undefined}>
+        {s.status === "OUT" ? "–" : s.position}
+      </span>
+      {!practice && !quali && (
         <span className="text-[10px]">
           <Change s={s} />
         </span>
@@ -239,14 +285,33 @@ const Row = memo(function Row({
           </span>
         )}
       </span>
-      <span className="text-xs">{practice ? <PracticeGapCell s={s} /> : <GapCell s={s} mode={mode} />}</span>
-      {wide && <SectorCells n={d.number} s={s} />}
-      <span className="text-xs">
-        <LastLapCell n={d.number} s={s} />
-      </span>
-      {wide && <BestLapCell n={d.number} s={s} />}
+      {quali ? (
+        <>
+          <QualiBestCell n={d.number} s={s} segment={out ?? phase?.segment ?? null} />
+          <span className="text-xs tabular-nums">{s.position === 1 ? "" : gap(s.gap)}</span>
+          {wide && <SectorCells n={d.number} s={s} />}
+          {wide && (
+            <span className="text-xs">
+              <LastLapCell n={d.number} s={s} />
+            </span>
+          )}
+        </>
+      ) : (
+        <>
+          <span className="text-xs">{practice ? <PracticeGapCell s={s} /> : <GapCell s={s} mode={mode} />}</span>
+          {wide && <SectorCells n={d.number} s={s} />}
+          <span className="text-xs">
+            <LastLapCell n={d.number} s={s} />
+          </span>
+          {wide && <BestLapCell n={d.number} s={s} />}
+        </>
+      )}
       <TyreBadge compound={s.compound} age={s.tyreAge} />
-      {practice ? (
+      {quali ? (
+        <span className="flex justify-end">
+          <QualiStatusCell n={d.number} s={s} out={out} />
+        </span>
+      ) : practice ? (
         <span className="flex justify-end">
           <LapsCell n={d.number} s={s} />
         </span>
@@ -266,10 +331,16 @@ function TimingTower() {
   const { width } = useWidgetSize();
   const wide = width >= WIDE;
   const coarse = useCoarsePointer();
-  // Practice: ordered by best lap, gaps by best lap, and laps run instead of pit stops.
-  const practice = useSessionInfo((i) => i.kind === "practice");
+  // Practice: ordered by best lap, gaps by best lap, and laps run instead of pit stops. Live qualifying: by best lap
+  // in the segment, with its cut.
+  const kind = useSessionInfo((i) => i.kind);
+  const practice = kind === "practice";
+  const quali = kind === "qualifying";
+  // (Without its clock, so the rows aren't re-rendered as it counts down.)
+  const phase = useQualiPhase((p) => (p ? { ...p, left: 0, red: false } : null));
+  const cut = quali && phase?.segment?.advance != null && phase.field > phase.segment.advance ? phase.segment.advance : null;
   const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers]);
-  const teams = width - fixedWidthOf(wide, practice) >= teamRoom;
+  const teams = width - fixedWidthOf(wide, kind) >= teamRoom;
 
   return (
     <div className="flex h-full flex-col text-sm">
@@ -285,15 +356,16 @@ function TimingTower() {
           <span className="text-zinc-400">{coarse ? "Tap" : "Click"} drivers to show only them on the track map</span>
         )}
       </div>
-      <div className={`grid shrink-0 ${colsOf(wide, practice)} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
+      <div className={`grid shrink-0 ${colsOf(wide, kind)} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}>
         <span>Pos</span>
-        {!practice && <span />}
+        {!practice && !quali && <span />}
         <span>Driver</span>
+        {quali && <span title={`Best lap in ${phase?.segment?.name ?? "the segment"}`}>{phase?.segment?.name ?? "Best"}</span>}
         <button
           onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
           className={`${TAP_CLASS} flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100`}
           title={
-            practice
+            practice || quali
               ? gapMode === "leader"
                 ? "Gap to the fastest by best lap: switch to the car ahead"
                 : "Gap to the car ahead by best lap: switch to the fastest"
@@ -312,10 +384,10 @@ function TimingTower() {
             <span title="Last lap's sector 3">S3</span>
           </>
         )}
-        <span>Last</span>
-        {wide && <span title="Best lap so far">Best</span>}
+        {(!quali || wide) && <span>Last</span>}
+        {wide && !quali && <span title="Best lap so far">Best</span>}
         <span>Tyre</span>
-        {practice ? (
+        {practice || quali ? (
           <span className="text-right" title="Laps run">
             Laps
           </span>
@@ -325,6 +397,14 @@ function TimingTower() {
       </div>
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div className="relative" style={{ height: order.length * ROW_H }}>
+          {cut != null && (
+            // The cut: the cars under it go out at the end of the segment.
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 z-10 border-t border-dashed border-red-500/70" style={{ top: cut * ROW_H }}>
+              <span className="absolute right-1 top-0 -translate-y-1/2 bg-zinc-950 px-1 text-[9px] font-bold uppercase tracking-wider text-red-400">
+                {phase?.settled ? "Out" : "Drop zone"}
+              </span>
+            </div>
+          )}
           {drivers.map((d) => (
             <Row
               key={d.number}
@@ -333,7 +413,8 @@ function TimingTower() {
               mode={gapMode}
               wide={wide}
               team={teams}
-              practice={practice}
+              kind={kind}
+              phase={phase}
               isSelected={selected.includes(d.number)}
               isFocused={focused === d.number}
               onToggle={toggle}
@@ -349,12 +430,13 @@ export default defineWidget({
   id: "timing-tower",
   name: "Timing tower",
   group: "session",
-  description: "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops. In practice, by best lap.",
+  description:
+    "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops. In practice, by best lap; in live qualifying, by best lap in the segment, with its cut.",
   version: "1.0.0",
   // Fills its column; the rows scroll inside when they don't all fit.
   height: { min: HEAD_H + 5 * ROW_H },
   width: { min: 22, default: 35, max: 45 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { gapMode: "leader" as GapMode },
   fields: {
     gapMode: {

@@ -41,7 +41,7 @@ export interface Lap {
   segments: [(number | null)[], (number | null)[], (number | null)[]];
   speedTrap: { i1: number | null; i2: number | null; st: number | null };
   pitOut: boolean;
-  /** Practice only: race control deleted the lap time (track limits...), at `t`; it counts until then. */
+  /** Practice and live qualifying: race control deleted the lap time (track limits...), at `t`; it counts until then. */
   deleted?: { t: Ms; reason: string };
 }
 
@@ -196,6 +196,8 @@ export interface SessionMeta {
   lightsOutEstimated?: boolean; // lap 1 hasn't started: `lightsOut` is a guess (>= the live edge)
   // Qualifying sessions only (lightsOut = Q1 green light, chequered = the final segment's flag):
   quali?: QualiData;
+  // Live qualifying only (a replay has `quali` instead; lightsOut = Q1's green light):
+  qualiLive?: LiveQualiData;
   // Free practice only (lightsOut = the green light, chequered = the flag):
   practice?: PracticeData;
 }
@@ -272,6 +274,27 @@ export interface QualiData {
   results: QualiResult[]; // classification order
   lapLength: number; // metres, timing line to timing line (median speed-integrated flying lap)
   sectorDistances: [number, number]; // metres from the timing line to the sector 2 and 3 boundaries
+}
+
+/**
+ * Live qualifying, written by normalize() (scripts/lib/qualiLive.ts): the segments started so far. The timing
+ * screen's order and gaps are in `positions` and `intervals`: by best lap in the segment running, the cars knocked
+ * out below in the order they went out in, with their gaps in that segment.
+ */
+export interface LiveQualiData {
+  segments: LiveQualiSegment[];
+}
+
+export interface LiveQualiSegment {
+  number: number; // 1, 2, 3
+  name: string; // "Q1".."Q3", or "SQ1".."SQ3"
+  start: Ms; // green light (pit exit open)
+  end: Ms | null; // chequered flag (laps started before it still count); null while it runs
+  advance: number | null; // cars through to the next segment (null for the last one)
+  /** Its scheduled running time: the clock stops under a red flag. */
+  length: Ms;
+  /** Red flags: the clock stopped from `from` until the restart (`to`; null while it's out). */
+  stopped: { from: Ms; to: Ms | null }[];
 }
 
 // Per-driver lap traces (laps/<number>.json, qualifying and finished free practice; scripts/lib/lapTraces.ts):

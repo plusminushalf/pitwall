@@ -11,7 +11,8 @@
 //
 // Each kind also ships dashboards for one use (dashboards.ts): Strategy (the tower with the tyres under it, the gaps
 // over the stint pace and the pit stops, races only), Telemetry (the tower and the map beside the selected drivers'
-// laps overlaid) and, for practice, Debrief (what the session says). Their widths stay inside each widget's range at
+// laps overlaid) and, for practice, Debrief (what the session says). Live qualifying has an Overview of its own and
+// Telemetry. Their widths stay inside each widget's range at
 // COLUMNS. The circuit widgets have no dashboard: a circuit's page shows them.
 //
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
@@ -58,7 +59,24 @@ export const PRACTICE_LAYOUT: Layout = {
   },
 };
 
-export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = { race: DEFAULT_LAYOUT, practice: PRACTICE_LAYOUT };
+/**
+ * Live qualifying: the tower down the left, full height (the order by segment and its cut is what's watched), the map
+ * and the feed beside it, and under them the selected drivers' best laps overlaid.
+ */
+const QUALI_TOWER = 14;
+const QUALI_MAP = 13;
+export const QUALI_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "timing-tower": at(0, 0, QUALI_TOWER),
+    "track-map": at(QUALI_TOWER, 0, QUALI_MAP, { height: TOP }),
+    "race-feed": at(QUALI_TOWER + QUALI_MAP, 0, COLUMNS - QUALI_TOWER - QUALI_MAP, { height: TOP }),
+    "lap-compare": at(QUALI_TOWER, 1, COLUMNS - QUALI_TOWER),
+  },
+};
+
+export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = { race: DEFAULT_LAYOUT, practice: PRACTICE_LAYOUT, qualifying: QUALI_LAYOUT };
 
 /** Strategy: the tower down the left with the selected driver's tyres under it; the gaps over the stint pace and pit stops. */
 const STRATEGY_TOWER = 13;

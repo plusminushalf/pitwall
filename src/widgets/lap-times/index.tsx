@@ -17,8 +17,8 @@ function LapTimes() {
   const fl = useFastestLap();
   const totalLaps = useTotalLaps();
   const totalLapsEstimated = useSessionInfo((i) => i.totalLapsEstimated);
-  // Practice has no race distance.
-  const practice = useSessionInfo((i) => i.kind === "practice");
+  // Practice and qualifying have no race distance.
+  const practice = useSessionInfo((i) => i.kind !== "race");
   if (!s) return null;
   const last = s.lastLap;
   const best = s.bestLap;
@@ -59,7 +59,7 @@ export default defineWidget({
   // pt-2, a label line and a 24 px time (the sectors widget under it has the bottom padding).
   height: 8 + LINE_11 + 24,
   width: { min: 12, default: 21, max: 40 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: LapTimes,
 });

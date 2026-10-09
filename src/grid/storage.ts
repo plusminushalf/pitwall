@@ -1,4 +1,4 @@
-// The saved layouts (H3.11): one per browser for races and one for free practice, in localStorage (sync, so the first
+// The saved layouts (H3.11): one per browser for races, free practice and live qualifying, in localStorage (sync, so the first
 // frame already shows it). What's read back is checked and repaired against the widgets the app has: entries of
 // unknown widgets and widgets for other sessions are dropped, widths clamped, heights kept to at least MIN_HEIGHT,
 // settings the widget no longer accepts dropped, and a layout saved at another column count rescaled. Anything
@@ -8,11 +8,14 @@ import { settingField, type WidgetDefinition, type WidgetSettings, type SettingV
 import type { SessionKind } from "../widgetkit/select";
 import { widgetIdOf, COLUMNS, columnRange, MIN_HEIGHT, type Layout, type LayoutEntry } from "./layout";
 
-/** The sessions shown on the grid, each with its own layout (qualifying has its own screen). */
-export type GridKind = Exclude<SessionKind, "qualifying">;
+/**
+ * The sessions shown on the grid, each with its own layout. Qualifying only live: once downloaded it has its own
+ * screen (the lap comparison).
+ */
+export type GridKind = SessionKind;
 
 /** The layout a session of `kind` is shown with. */
-export const gridKind = (kind: SessionKind | undefined): GridKind => (kind === "practice" ? "practice" : "race");
+export const gridKind = (kind: SessionKind | undefined): GridKind => kind ?? "race";
 
 export const STORAGE_KEY = "f1-replay:layout";
 /** Where each kind's layout is saved: races where the only layout was before practice had its own. */

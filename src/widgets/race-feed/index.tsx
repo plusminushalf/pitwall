@@ -179,7 +179,8 @@ function RaceFeed() {
   });
   const drivers = useDrivers();
   const lightsOut = useSessionInfo((i) => i.lightsOut);
-  const practice = useSessionInfo((i) => i.kind === "practice");
+  // Practice and qualifying: no racing, so no overtakes.
+  const practice = useSessionInfo((i) => i.kind !== "race");
   const seek = usePlayback((p) => p.seek);
   const focus = useSelection((s) => s.focus);
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
@@ -279,7 +280,7 @@ export default defineWidget({
   // Fills its column and scrolls inside, so the layout never jumps as items arrive.
   height: { min: 150 },
   width: { min: 15, default: 21, max: 40 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { show: "all" as Show, passes: "both" as Passes },
   fields: {
     show: {

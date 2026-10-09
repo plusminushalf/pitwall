@@ -190,7 +190,7 @@ export default defineWidget({
   // The title line and the chart, padded: pt-2.5, mb-1 and pb-2.
   height: 10 + LINE_11 + 4 + CHART_H + 8,
   width: { min: 12, default: 21, max: 60 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: SpeedTrace,
 });

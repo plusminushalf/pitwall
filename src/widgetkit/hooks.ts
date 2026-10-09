@@ -8,6 +8,7 @@ import type { Session } from "../data/session";
 import type { DecodedLap } from "../engine/compare";
 import { lapGeometryOf, lapTraceOf, type LapGeometry } from "../engine/lapTrace";
 import { lapWindowIn, type LapWindow } from "../engine/lapWindow";
+import { qualiPhaseAt, type QualiPhase } from "../engine/qualiPhase";
 import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
@@ -194,10 +195,18 @@ export function useLeaderLap<R = number>(select?: Select<number, R>): R {
 /**
  * Race distance in laps as known at t: the scheduled distance until race control takes laps off or the
  * chequered flag ends a shortened race (live: estimated until it's known, see useSessionInfo().totalLapsEstimated).
- * Practice has no distance: the most laps anyone has started (the leader's lap).
+ * Practice and qualifying have no distance: the most laps anyone has started (the leader's lap).
  */
 export function useTotalLaps<R = number>(select?: Select<number, R>): R {
-  return useKit((s) => (s.session.meta.practice ? s.race.leaderLap : raceDistanceAt(s.session.meta, s.race.t).totalLaps), [], select);
+  return useKit((s) => (s.session.meta.practice || s.session.meta.qualiLive ? s.race.leaderLap : raceDistanceAt(s.session.meta, s.race.t).totalLaps), [], select);
+}
+
+/**
+ * API gap: live qualifying at t, the segment running (Q1, Q2, Q3), its clock and the cut. Null in other sessions
+ * (a finished qualifying session has its own screen, not widgets).
+ */
+export function useQualiPhase<R = QualiPhase | null>(select?: Select<QualiPhase | null, R>): R {
+  return useKit((s) => (s.session.meta.qualiLive ? qualiPhaseAt(s.session.meta, s.race.t) : null), [], select);
 }
 
 export function useTrackStatus<R = TrackStatus>(select?: Select<TrackStatus, R>): R {
@@ -389,7 +398,7 @@ export function useFeed<R = readonly FeedEntry[]>(select?: Select<readonly FeedE
  * window for every lap chart on screen. The whole race when nothing is picked.
  */
 export function useLapWindow(totalLaps: number): LapWindow {
-  const picked = useKit((s) => (s.session.meta.practice ? null : s.lapWindow), []);
+  const picked = useKit((s) => (s.session.meta.practice || s.session.meta.qualiLive ? null : s.lapWindow), []);
   return useMemo(() => lapWindowIn(picked, totalLaps), [picked, totalLaps]);
 }
 

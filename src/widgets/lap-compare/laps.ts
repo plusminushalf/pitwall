@@ -3,7 +3,8 @@
 // Linked (the default): one lap number for everyone, the way two cars fighting share a lap. Nothing picked, it
 // follows the replay: the latest lap every compared car has completed, so the widget shows the lap just finished
 // as the race plays. Picking a lap pins it. Unlinked: each driver has their own lap (their pick, else their latest),
-// to set one driver's lap 30 against another's lap 32.
+// to set one driver's lap 30 against another's lap 32. Qualifying starts unlinked on each driver's best lap (BEST):
+// lap numbers mean nothing there.
 
 export interface Picks {
   linked: boolean;
@@ -14,6 +15,8 @@ export interface Picks {
 }
 
 export const FOLLOWING: Picks = { linked: true, shared: null, own: {} };
+/** Qualifying's: each driver's best lap so far (resolveLaps' `best`). */
+export const BEST: Picks = { linked: false, shared: null, own: {} };
 
 export interface LapChoice {
   driver: number;
@@ -32,8 +35,16 @@ export function latestCommonLap(completed: readonly (readonly number[])[]): numb
   return Number.isFinite(best) ? best : null;
 }
 
-/** The lap each driver shows for `picks`; `completed` is each driver's completed lap numbers, in order. */
-export function resolveLaps(drivers: readonly number[], completed: ReadonlyMap<number, readonly number[]>, picks: Picks): LapChoice[] {
+/**
+ * The lap each driver shows for `picks`; `completed` is each driver's completed lap numbers, in order. With `best`
+ * (each driver's best lap), an unpinned driver shows it rather than their latest, when they have one.
+ */
+export function resolveLaps(
+  drivers: readonly number[],
+  completed: ReadonlyMap<number, readonly number[]>,
+  picks: Picks,
+  best?: ReadonlyMap<number, number | null>,
+): LapChoice[] {
   const of = (n: number) => completed.get(n) ?? [];
   if (picks.linked) {
     const lap = picks.shared ?? latestCommonLap(drivers.map(of));
@@ -42,7 +53,7 @@ export function resolveLaps(drivers: readonly number[], completed: ReadonlyMap<n
   return drivers.map((driver) => {
     const own = of(driver);
     const pick = picks.own[driver];
-    return { driver, lap: pick != null && own.includes(pick) ? pick : (own[own.length - 1] ?? null) };
+    return { driver, lap: pick != null && own.includes(pick) ? pick : (best?.get(driver) ?? own[own.length - 1] ?? null) };
   });
 }
 

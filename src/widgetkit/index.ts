@@ -53,6 +53,8 @@
 //     useAllStints(select?)      every car's stints so far
 //     useAllPitStops(select?)    every car's pit stops finished so far
 //     useNeutralPeriods(select?) safety car, VSC and red flag periods so far (the top bar's track status)
+//     useQualiPhase(select?)     live qualifying: the segment (Q1..Q3), its clock and cut; standingOf() a position,
+//                                segmentBest() a driver's best lap in a segment
 //   The lap window
 //     useLapWindow(totalLaps)    the laps picked on the timeline's zoom rail (the whole race if none), for
 //                                charts by lap: the user zooms every lap chart at once
@@ -127,6 +129,7 @@ export {
   useLeaderLap,
   useNeutralPeriods,
   usePitStops,
+  useQualiPhase,
   usePlayback,
   usePositions,
   useRadio,
@@ -146,6 +149,7 @@ export {
 } from "./hooks";
 export type { Playback, Radio, Select, Selection } from "./hooks";
 export type { LapWindow } from "../engine/lapWindow";
+export { segmentBest, standingOf, type QualiPhase, type QualiStanding } from "../engine/qualiPhase";
 export { isPhone, useCoarsePointer, usePhone } from "../hooks/usePhone";
 
 export type { WidgetSize } from "./context";
@@ -159,7 +163,7 @@ export type { DrawFn, Frame } from "./frame";
 export type { CarHistory, CarPosition, FeedEntry, NeutralPeriod, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
 export type { FeedItem, FeedKind } from "../data/session";
 export type { DriverState, DriverStatus, SectorFlag, Telemetry } from "../engine/raceState";
-export type { DriverInfo, Lap, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
+export type { DriverInfo, Lap, LiveQualiSegment, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
 
 // ---------------------------------------------------------------- UI kit
 

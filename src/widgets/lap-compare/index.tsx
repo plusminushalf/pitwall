@@ -29,7 +29,7 @@ import {
   type LapTrace,
 } from "widget-kit";
 import { drawChart, layoutStrips, M, type Marker, type Series } from "./chart";
-import { FOLLOWING, isFollowing, pick, resolveLaps, stepLap, toggleLink, type Picks } from "./laps";
+import { BEST, FOLLOWING, isFollowing, pick, resolveLaps, stepLap, toggleLink, type Picks } from "./laps";
 
 type Settings = { throttle: boolean; gear: boolean; overtakes: boolean };
 
@@ -45,6 +45,8 @@ interface LapInfo {
   lap: number;
   duration: number;
   start: number;
+  /** Can't be a best lap: an out-lap, or race control deleted its time. */
+  void: boolean;
 }
 
 interface TyreOn {
@@ -149,6 +151,9 @@ function Hint({ children }: { children: string }) {
 function LapCompare() {
   const [settings, update] = useSettings<Settings>();
   const sessionKey = useSessionInfo((i) => i.sessionKey);
+  // Qualifying: each driver's best lap, until one is picked.
+  const quali = useSessionInfo((i) => i.kind === "qualifying");
+  const start = quali ? BEST : FOLLOWING;
   const drivers = useSelection((s) => s.selected.slice(0, MAX));
   const infos = useDrivers();
   const geometry = useLapGeometry();
@@ -156,7 +161,9 @@ function LapCompare() {
   // Each compared car's completed laps with a time (the ones that can have a trace).
   const lapsOf = useAllLaps((all) => {
     const out: Record<number, LapInfo[]> = {};
-    for (const n of drivers) out[n] = (all.get(n) ?? []).flatMap((l) => (l.duration != null ? [{ lap: l.lap, duration: l.duration, start: l.start }] : []));
+    for (const n of drivers) {
+      out[n] = (all.get(n) ?? []).flatMap((l) => (l.duration != null ? [{ lap: l.lap, duration: l.duration, start: l.start, void: l.pitOut || l.deleted != null }] : []));
+    }
     return out;
   });
   const stintsOf = useAllStints((all) => {
@@ -188,11 +195,16 @@ function LapCompare() {
   }, [passes]);
 
   // Which laps: the state is the session's (a new session starts over, following the replay).
-  const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: FOLLOWING });
-  const picks = picksFor.key === sessionKey ? picksFor.picks : FOLLOWING;
+  const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: start });
+  const picks = picksFor.key === sessionKey ? picksFor.picks : start;
   const setPicks = (p: Picks) => setPicksFor({ key: sessionKey, picks: p });
   const completed = useMemo(() => new Map(drivers.map((n) => [n, (lapsOf[n] ?? []).map((l) => l.lap)])), [drivers, lapsOf]);
-  const choices = useMemo(() => resolveLaps(drivers, completed, picks), [drivers, completed, picks]);
+  const best = useMemo(() => {
+    if (!quali) return undefined;
+    const fastest = (laps: LapInfo[]) => laps.reduce<LapInfo | null>((b, l) => (!l.void && (!b || l.duration < b.duration) ? l : b), null)?.lap ?? null;
+    return new Map(drivers.map((n) => [n, fastest(lapsOf[n] ?? [])]));
+  }, [quali, drivers, lapsOf]);
+  const choices = useMemo(() => resolveLaps(drivers, completed, picks, best), [drivers, completed, picks, best]);
 
   // A fixed number of trace hooks, so the hook order never changes with the selection.
   const traces = [
@@ -332,7 +344,7 @@ function LapCompare() {
     const s = (stintsOf[n] ?? []).filter((s) => s.lapStart <= lap).at(-1);
     return s ? { compound: s.compound, age: s.ageAtStart == null ? null : s.ageAtStart + lap - s.lapStart } : null;
   };
-  const following = isFollowing(picks);
+  const following = isFollowing(picks) && picks.linked === start.linked;
   const localX = (e: React.PointerEvent) => e.clientX - e.currentTarget.getBoundingClientRect().left;
   const tipFlip = hover != null && xOf(hover) > chart.w - 190;
 
@@ -380,12 +392,20 @@ function LapCompare() {
               </button>
             )}
             {following ? (
-              <span className="px-1.5 text-zinc-500" title="Showing the latest lap everyone has completed; it moves on as the replay plays">
-                Following
+              <span
+                className="px-1.5 text-zinc-500"
+                title={quali ? "Showing each driver's best lap; it moves on as they improve" : "Showing the latest lap everyone has completed; it moves on as the replay plays"}
+              >
+                {quali ? "Best laps" : "Following"}
               </span>
             ) : (
-              <button type="button" className={`${TAP_CLASS} rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`} title="Back to the latest lap, moving on as the replay plays" onClick={() => setPicks(FOLLOWING)}>
-                Follow
+              <button
+                type="button"
+                className={`${TAP_CLASS} rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`}
+                title={quali ? "Back to each driver's best lap, moving on as they improve" : "Back to the latest lap, moving on as the replay plays"}
+                onClick={() => setPicks(start)}
+              >
+                {quali ? "Best laps" : "Follow"}
               </button>
             )}
             {ref && (
@@ -414,7 +434,13 @@ function LapCompare() {
       ) : !Number.isFinite(lapLength) ? (
         <Hint>Waiting for a clean lap to measure the circuit.</Hint>
       ) : series.length === 0 ? (
-        <Hint>{choices.some((c) => c.lap != null) ? "No telemetry for this lap." : "Nothing to compare yet: the lap shown is the latest everyone has completed."}</Hint>
+        <Hint>
+          {choices.some((c) => c.lap != null)
+            ? "No telemetry for this lap."
+            : quali
+              ? "Nothing to compare yet: no lap times."
+              : "Nothing to compare yet: the lap shown is the latest everyone has completed."}
+        </Hint>
       ) : (
         <div ref={wrapRef} className="relative min-h-0 flex-1 select-none">
           {/* touch-pan-y: a sideways drag is the zoom brush (pointer events keep coming), an up-and-down one scrolls the page. */}
@@ -523,7 +549,7 @@ export default defineWidget({
   // Fills its column: the chart takes what the chips leave.
   height: { min: 300 },
   width: { min: 18, default: 32, max: 100 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { throttle: true, gear: false, overtakes: true } satisfies Settings,
   fields: {
     throttle: { kind: "toggle", label: "Throttle strip" },

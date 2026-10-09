@@ -159,7 +159,7 @@ export default defineWidget({
     return (selected.length > 0 && !pinned ? CHIPS_H : 0) + HEAD_H + (focused == null && !pinned && selected.length === 1 ? HINT_H : 0);
   },
   width: { min: 15, default: 21, max: 40 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: DriverHeader,
 });

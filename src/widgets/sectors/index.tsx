@@ -72,7 +72,7 @@ export default defineWidget({
   version: "1.0.0",
   height: 8 + CELL_H + 8,
   width: { min: 12, default: 21, max: 40 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: Sectors,
 });

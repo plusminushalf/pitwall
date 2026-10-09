@@ -180,7 +180,7 @@ export function Timeline() {
   }, [events, shownEvents, duration, barWidth, coarse]);
 
   // The zoom rail's laps: the race distance as the lap charts know it at t, placed where each lap is on the bar.
-  const zoomLaps = !session || session.meta.practice ? 0 : Math.max(raceDistanceAt(session.meta, t).totalLaps, leaderLapAt(session, Math.min(t, shownTo)));
+  const zoomLaps = !session || session.meta.practice || session.meta.qualiLive ? 0 : Math.max(raceDistanceAt(session.meta, t).totalLaps, leaderLapAt(session, Math.min(t, shownTo)));
   const edges = useMemo(
     () => (session && zoomLaps > 0 ? lapEdges(session.lapStartTimes, zoomLaps, session.meta.lightsOut, session.meta.chequered ?? null, shownTo) : []),
     [session, zoomLaps, shownTo],
@@ -225,7 +225,8 @@ export function Timeline() {
     const d = session.drivers.get(n);
     return d ? d.pits.filter((p) => p.entry <= shownTo).map((p) => ({ driver: n, info: d.info, p })) : [];
   });
-  const practice = meta.practice != null;
+  // (Live qualifying runs to the clock too.)
+  const practice = meta.practice != null || meta.qualiLive != null;
   // By the scheduled distance: the laps actually run would give away a race cut short.
   const labelEvery = scheduledDistance(meta).totalLaps > 60 ? 10 : 5;
   const colorOf = (driver: number | null) => teamColor((driver != null && session.drivers.get(driver)?.info.teamColour) || "a1a1aa");

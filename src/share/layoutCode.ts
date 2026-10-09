@@ -6,7 +6,7 @@ import { BUILTIN_WIDGETS } from "../grid/builtins";
 import type { Layout } from "../grid/layout";
 import { parseLayout, type GridKind } from "../grid/storage";
 
-const KINDS: GridKind[] = ["race", "practice"];
+const KINDS: GridKind[] = ["race", "practice", "qualifying"];
 
 async function pipe(bytes: Uint8Array, stream: CompressionStream | DecompressionStream): Promise<Uint8Array> {
   const out = new Response(new Blob([bytes as BlobPart]).stream().pipeThrough(stream));

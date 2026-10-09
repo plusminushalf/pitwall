@@ -35,7 +35,7 @@ export default defineWidget({
   version: "1.0.0",
   height: 72,
   width: { min: 8, default: 10, max: 25 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: {},
   Component: Weather,
 });

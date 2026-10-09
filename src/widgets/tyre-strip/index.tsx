@@ -25,7 +25,8 @@ function TyreStrip() {
   const stints = useStints(n);
   const totalLaps = useTotalLaps();
   const totalLapsEstimated = useSessionInfo((i) => i.totalLapsEstimated);
-  const practice = useSessionInfo((i) => i.kind === "practice");
+  // Practice and qualifying have no race distance.
+  const practice = useSessionInfo((i) => i.kind !== "race");
   const running = s?.status === "RUNNING" || s?.status === "PIT";
   const lapProgress = useLapProgress(n, running);
   // Practice has no race distance: the strip is the driver's own laps so far.
@@ -100,7 +101,7 @@ export default defineWidget({
   // py-2, the title line (16 px, the tyre badge) and the 14 px strip 6 px below it.
   height: 8 + 16 + 6 + 14 + 8,
   width: { min: 12, default: 21, max: 60 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { driver: "follow-selection" as DriverSetting },
   Component: TyreStrip,
 });

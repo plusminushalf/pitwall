@@ -733,7 +733,7 @@ export default defineWidget({
   // Fills its column; the circuit is fitted inside, whatever the box's shape.
   height: { min: 200 },
   width: { min: 20, default: 55, max: 80 },
-  sessions: ["race", "practice"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { cornerNames: false },
   Component: TrackMap,
 });

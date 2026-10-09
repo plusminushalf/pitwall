@@ -3,7 +3,7 @@
 // Used by scripts/ingest.ts (a finished session, all data at once) and by the live relay
 // (server/live.ts: a session in progress, recomputed every few seconds as data arrives).
 // Free practice has its own timing (practice.ts): the session runs from the green light to the flag, and the
-// order is by best lap.
+// order is by best lap. Live qualifying is timed the same way, in its segments (qualiLive.ts).
 // Repairs known OpenF1 glitches: missed timing-line crossings (laps split and renumbered),
 // mis-dated lap starts, duplicate pit records, 2026 race-control wording, stale and missing
 // location samples (cars dead-reckoned along the track outline from their speed trace).
@@ -28,6 +28,7 @@ import type {
 } from "./openf1Types";
 import { deletedLaps } from "./deletedLaps";
 import { endInLapsAtPitEntry, practiceStandings, practiceStart, preparePracticeLaps, PRACTICE_PRE_MS } from "./practice";
+import { liveSegments, qualiStandings } from "./qualiLive";
 import { isFreePractice, venueCountry } from "./season";
 import { repairStints } from "./stintRepair";
 import type {
@@ -460,9 +461,12 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const partial = live ? null : (opts.partial ?? null);
   const { session, meeting, circuit } = raw;
   const practice = isFreePractice(session);
+  // Live qualifying is timed as practice is (runs from the garage, against the clock), in segments (qualiLive.ts).
+  const qualiLive = live != null && session.session_type === "Qualifying";
+  const clocked = practice || qualiLive;
   const rawDrivers = raw.drivers;
   // Practice: no lap times for the laps either side of a garage visit (OpenF1's include the time in the garage).
-  const rawLaps = practice ? preparePracticeLaps(raw.laps, raw.pits) : raw.laps;
+  const rawLaps = clocked ? preparePracticeLaps(raw.laps, raw.pits) : raw.laps;
   const rawStints = raw.stints;
   const rawPits = raw.pits;
   const rawPositions = raw.positions;
@@ -480,10 +484,10 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   const lap1Starts = rawLaps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
   const window = { session, laps: rawLaps, raceControl: raw.raceControl };
-  // Practice, live: the green light, or until it shows the scheduled start (>= the live edge).
-  const green = practice ? practiceStart(raw.raceControl) : null;
+  // Practice and qualifying, live: the green light, or until it shows the scheduled start (>= the live edge).
+  const green = clocked ? practiceStart(raw.raceControl) : null;
   let lightsOutAbs: number;
-  if (practice && live) lightsOutAbs = green ?? Math.max(abs(session.date_start), live.now);
+  if (clocked && live) lightsOutAbs = green ?? Math.max(abs(session.date_start), live.now);
   else if (lap1Starts.length || !live) lightsOutAbs = replayWindow(window).lightsOut;
   else {
     // Lap 1 undated but later laps known: back from lap 2's start; else not started yet.
@@ -987,9 +991,13 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     if (repaired.added > 0) warnings.push(`  added ${repaired.added} stints for pit stops OpenF1's stints miss (compound and age unknown)`);
   }
 
-  // Practice: in-laps end at the pit entry, deleted lap times, and the timing screen's order by best lap.
+  // Practice and live qualifying: in-laps end at the pit entry, deleted lap times, and the timing screen's order by
+  // best lap (qualifying's: in its segments).
   let practiceTiming: { positions: PositionEvent[]; intervals: IntervalEvent[] } | null = null;
-  if (practice) {
+  const segments = qualiLive
+    ? liveSegments(allRaceControl, { sprint: /sprint/i.test(session.session_name), year: session.year, entries: driverNumbers.length })
+    : null;
+  if (clocked) {
     const lapsOf = new Map<number, Lap[]>(driverNumbers.map((n) => [n, []]));
     for (const l of laps) lapsOf.get(l.driver)?.push(l);
     for (const own of lapsOf.values()) own.sort((a, b) => a.lap - b.lap);
@@ -999,7 +1007,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       const d = deleted.get(`${l.driver}:${l.lap}`);
       if (d) l.deleted = d;
     }
-    practiceTiming = practiceStandings(laps, driverNumbers);
+    practiceTiming = segments ? qualiStandings(laps, driverNumbers, segments) : practiceStandings(laps, driverNumbers);
   }
 
   const positions: PositionEvent[] = practiceTiming?.positions ?? clipSteps(
@@ -1163,14 +1171,14 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
         dsq: r.dsq,
         duration: typeof d === "number" ? d : null,
         gapToLeader: lastNumber(r.gap_to_leader),
-        // (Practice has no finish: cars drive back to the garage.)
-        finish: finished && !practice ? (finalLap?.end ?? null) : null,
+        // (Practice and qualifying have no finish: cars drive back to the garage.)
+        finish: finished && !clocked ? (finalLap?.end ?? null) : null,
         retired: r.dnf || r.dns ? retiredAt(r.driver_number) : null,
       };
     })
     .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
 
-  const grid = (practice ? [] : driverNumbers)
+  const grid = (clocked ? [] : driverNumbers)
     .map((n) => {
       const p = positions.filter((e) => e.driver === n && e.t <= lightsOut).at(-1);
       return p ? { driver: n, position: p.position } : null;
@@ -1229,7 +1237,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   // The median-length stop that has a location trace (the feed can have gaps) draws the pit lane. (Practice: of the
   // passes through the pit lane, not the visits to the garage.)
   const passes = pits.filter((p) => p.laneDuration != null && p.laneDuration < 60);
-  const pitTraces = (practice && passes.length ? passes : pits)
+  const pitTraces = (clocked && passes.length ? passes : pits)
     .filter((p) => p.laneDuration != null)
     .sort((a, b) => a.laneDuration! - b.laneDuration!)
     .map((p) => slice(p.driver, p.entry - 2_000, p.exit + 2_000))
@@ -1421,7 +1429,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   let totalLaps: number;
   let totalLapsEstimated = false;
   const maxLapSeen = Math.max(0, ...laps.map((l) => l.lap));
-  if (practice) {
+  if (clocked) {
     // No race distance: the most laps anyone has done.
     totalLaps = maxLapSeen;
   } else if (!live) {
@@ -1470,8 +1478,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     overtakes,
     results,
     track,
-    ...(live ? { totalLapsEstimated, lightsOutEstimated: practice ? green == null : lap1Starts.length === 0 } : {}),
+    ...(live ? { totalLapsEstimated, lightsOutEstimated: clocked ? green == null : lap1Starts.length === 0 } : {}),
     ...(practice ? { practice: { scheduledEnd: abs(session.date_end) - t0 } } : {}),
+    ...(segments ? { qualiLive: { segments } } : {}),
   };
 
   return {

@@ -673,7 +673,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     stepLap: (dir) => {
       const { session, race, selected, focused } = get();
       if (!session || !race) return;
-      if (!session.meta.practice) return get().seekToLap(race.leaderLap + dir);
+      if (!session.meta.practice && !session.meta.qualiLive) return get().seekToLap(race.leaderLap + dir);
       const n = selectedDriverOf(orderOf(race), selected, focused, null);
       const laps = n != null ? session.drivers.get(n)?.laps : undefined;
       if (!laps?.length) return;

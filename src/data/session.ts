@@ -161,7 +161,7 @@ function buildFeed(meta: SessionMeta, acronym: (n: number | null) => string, cul
     feed.push({ t: r.t, kind: "radio", driver: r.driver, text: `${acronym(r.driver)} team radio`, url: r.url });
   }
   for (const p of meta.pits) {
-    if (meta.practice) {
+    if (meta.practice || meta.qualiLive) {
       // A run ends in the garage, the next one starts from it: both ends are news.
       const inLap = meta.laps.filter((l) => l.driver === p.driver && l.start <= p.entry).at(-1)?.lap;
       const stay = p.exit - p.entry;

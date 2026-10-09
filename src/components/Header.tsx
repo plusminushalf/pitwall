@@ -2,6 +2,7 @@ import { Icon } from "../widgetkit/ui/Icon";
 import { Label, Stat } from "../widgetkit/ui/Label";
 import { circuitSlug } from "../circuit";
 import { canCompare } from "../data/compare";
+import { qualiPhaseAt } from "../engine/qualiPhase";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
 import { dashboardList, NAME_MAX, PRESETS } from "../grid/dashboards";
@@ -158,6 +159,31 @@ function SessionClock({ race, meta }: { race: RaceState; meta: SessionMeta }) {
       <span className="text-zinc-400"> LEFT</span>
     </span>
   );
+}
+
+/** Live qualifying: the segment and its clock (stopped under a red flag), as on the timing screens. */
+function QualiClock({ race, meta }: { race: RaceState; meta: SessionMeta }) {
+  const phase = qualiPhaseAt(meta, race.t);
+  const big = "text-xl font-black tracking-tight tabular-nums";
+  if (!phase.segment) {
+    // Before Q1's green light (live, until it shows, only the scheduled start).
+    return <span className={big}>{meta.lightsOutEstimated || race.raceTime >= 0 ? "PRE-SESSION" : `STARTS IN ${raceClock(-race.raceTime)}`}</span>;
+  }
+  const { segment } = phase;
+  if (!phase.running) return <span className={big}>{segment.advance == null ? "FINISHED" : `END OF ${segment.name}`}</span>;
+  return (
+    <span className={big} title={phase.red ? `${segment.name}: the clock is stopped under the red flag` : `${segment.name}: time left`}>
+      {segment.name} {raceClock(phase.left + 999)}
+      <span className="text-zinc-400"> {phase.red ? "STOPPED" : "LEFT"}</span>
+    </span>
+  );
+}
+
+/** The session's clock: laps in a race, time left in practice and live qualifying. */
+function SessionProgress({ race, meta }: { race: RaceState; meta: SessionMeta }) {
+  if (meta.qualiLive) return <QualiClock race={race} meta={meta} />;
+  if (meta.practice) return <SessionClock race={race} meta={meta} />;
+  return <LapCounter race={race} meta={meta} />;
 }
 
 function Weather({ w }: { w: WeatherSample | null }) {
@@ -458,8 +484,8 @@ export function Header() {
           <LiveControl />
         </div>
         <div className="flex h-9 items-center gap-3 px-3 pb-1">
-          {race && (meta.practice ? <SessionClock race={race} meta={meta} /> : <LapCounter race={race} meta={meta} />)}
-          <Stat label={meta.practice ? "Session" : "Race"} className="leading-tight" title={meta.practice ? "Time since the green light" : undefined}>
+          {race && <SessionProgress race={race} meta={meta} />}
+          <Stat label={meta.practice || meta.qualiLive ? "Session" : "Race"} className="leading-tight" title={meta.practice || meta.qualiLive ? "Time since the green light" : undefined}>
             <span className="text-sm tabular-nums text-zinc-100">{race ? raceClock(race.raceTime) : "—"}</span>
           </Stat>
           {statusPill}
@@ -480,9 +506,9 @@ export function Header() {
       </div>
 
       <div className="flex items-center gap-5">
-        {race && (meta.practice ? <SessionClock race={race} meta={meta} /> : <LapCounter race={race} meta={meta} />)}
+        {race && <SessionProgress race={race} meta={meta} />}
         <div className="flex items-center gap-4">
-          <Stat label={meta.practice ? "Session" : "Race"} className="leading-tight" title={meta.practice ? "Time since the green light" : undefined}>
+          <Stat label={meta.practice || meta.qualiLive ? "Session" : "Race"} className="leading-tight" title={meta.practice || meta.qualiLive ? "Time since the green light" : undefined}>
             <span className="text-sm tabular-nums text-zinc-100">{race ? raceClock(race.raceTime) : "—"}</span>
           </Stat>
           <Stat label="Local" className="leading-tight" title={`Local time at the circuit (UTC${meta.gmtOffset.startsWith("-") ? "" : "+"}${meta.gmtOffset.slice(0, -3)})`}>

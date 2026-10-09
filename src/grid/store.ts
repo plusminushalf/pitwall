@@ -1,7 +1,7 @@
 // The dashboard on screen and edit mode (H3.10, H3.11). In normal mode a widget's own setting changes (the
 // tower's Gap/Int toggle) are saved at once; in edit mode everything is saved on Done. Playback pauses
 // in edit mode (dragging with the race playing janks) and resumes on Done, unless the user pressed play
-// meanwhile, in which case it's left as they set it. Races and free practice each have their dashboards
+// meanwhile, in which case it's left as they set it. Races, free practice and live qualifying each have their dashboards
 // (dashboards.ts): opening a session of the other kind shows (and edits) that kind's active one. A shared link's
 // layout (share/layoutCode.ts) is shown instead of the dashboard without replacing it: Save as dashboard (or editing
 // it) makes it one of the user's own, Use mine goes back. A link's `dash=` shows that dashboard once its session is open.
@@ -32,7 +32,8 @@ import type { Layout } from "./layout";
 import type { GridKind } from "./storage";
 
 /** Which layout a session is shown with. */
-const gridKindOf = (session: Session | null): GridKind | null => (session ? (session.meta.practice ? "practice" : "race") : null);
+const gridKindOf = (session: Session | null): GridKind | null =>
+  session ? (session.meta.practice ? "practice" : session.meta.qualiLive ? "qualifying" : "race") : null;
 
 interface LayoutState {
   /** The kind of session the layout is for. */

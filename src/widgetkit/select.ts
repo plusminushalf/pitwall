@@ -11,7 +11,7 @@ import { deepEqual } from "./equal";
 
 export type SessionKind = "race" | "qualifying" | "practice";
 
-const kindOf = (meta: SessionMeta): SessionKind => (meta.quali ? "qualifying" : meta.practice ? "practice" : "race");
+const kindOf = (meta: SessionMeta): SessionKind => (meta.quali || meta.qualiLive ? "qualifying" : meta.practice ? "practice" : "race");
 
 export const sessionKind = (session: Session): SessionKind => kindOf(session.meta);
 
@@ -47,7 +47,7 @@ export interface SessionInfo {
   lightsOutEstimated: boolean;
   /** Practice: when the session clock runs out (ms since t0; it keeps running under a red flag). Null otherwise. */
   scheduledEnd: number | null;
-  /** Scheduled race distance (useTotalLaps() is the distance as known at t: shortened races change). Practice: 0. */
+  /** Scheduled race distance (useTotalLaps() is the distance as known at t: shortened races change). Practice and qualifying: 0. */
   totalLaps: number;
   /** Live, no scheduled distance known: totalLaps is estimated from the lap length. */
   totalLapsEstimated: boolean;
@@ -68,8 +68,8 @@ export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => {
     lightsOut: meta.lightsOut,
     lightsOutEstimated: meta.lightsOutEstimated ?? false,
     scheduledEnd: meta.practice?.scheduledEnd ?? null,
-    // (Practice has no distance: meta.totalLaps, the most laps anyone did, would give away the session.)
-    totalLaps: meta.practice ? 0 : scheduled.totalLaps,
+    // (Practice and qualifying have no distance: meta.totalLaps, the most laps anyone did, would give away the session.)
+    totalLaps: meta.practice || meta.quali || meta.qualiLive ? 0 : scheduled.totalLaps,
     totalLapsEstimated: scheduled.estimated,
   };
 });

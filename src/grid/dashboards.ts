@@ -1,4 +1,5 @@
-// Dashboards: named layouts, any of which can show any session of its kind. Each kind (races, free practice) has the
+// Dashboards: named layouts, any of which can show any session of its kind. Each kind (races, free practice, live
+// qualifying) has the
 // dashboards the app ships (PRESETS) and the user's own, and one of them on screen. A preset the user edits keeps
 // its name and place: the edit is saved over it, and Reset brings the preset back. The user's own can be renamed
 // and deleted. All of it is one localStorage entry, read back checked and repaired like a saved layout
@@ -6,7 +7,7 @@
 // takes it as that kind's Overview, edited, so nobody's screen changes.
 
 import type { WidgetDefinition } from "../widgetkit/defineWidget";
-import { DEBRIEF_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
+import { DEBRIEF_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, QUALI_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
 import { COLUMNS, type Layout } from "./layout";
 import { parseLayout, storageKey, type GridKind } from "./storage";
 
@@ -32,6 +33,10 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
       description: "What the session says: the pace order and its tyres, push laps, sectors, top speeds, each team's programme and the track's evolution",
       layout: DEBRIEF_LAYOUT,
     },
+    { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
+  ],
+  qualifying: [
+    { id: "overview", name: "Overview", description: "The order by segment with its cut, the map and the feed, and the selected drivers' best laps overlaid", layout: QUALI_LAYOUT },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
   ],
 };
@@ -69,13 +74,14 @@ export const DASHBOARDS_KEY = "f1-replay:dashboards";
 export const DASHBOARD_ID = /^[a-z0-9-]{1,40}$/;
 export const NAME_MAX = 40;
 
-const KINDS: GridKind[] = ["race", "practice"];
+const KINDS: GridKind[] = ["race", "practice", "qualifying"];
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const presetOf = (kind: GridKind, id: string) => PRESETS[kind].find((p) => p.id === id);
 
 export const emptyDashboards = (): Dashboards => ({
   race: { active: FIRST, edited: {}, own: [] },
   practice: { active: FIRST, edited: {}, own: [] },
+  qualifying: { active: FIRST, edited: {}, own: [] },
 });
 
 /** A name as it's kept: trimmed, at most NAME_MAX characters; null if nothing's left. */
