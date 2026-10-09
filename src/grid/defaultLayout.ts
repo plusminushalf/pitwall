@@ -10,9 +10,9 @@
 // right.
 //
 // Each kind also ships dashboards for one use (dashboards.ts): Strategy (the tower with the tyres under it, the gaps
-// over the stint pace and the pit stops), Telemetry (the tower and the map beside the selected drivers' laps
-// overlaid) and Circuit history (the tower and the map beside the earlier races at the circuit). Their widths stay
-// inside each widget's range at COLUMNS.
+// over the stint pace and the pit stops, races only), Telemetry (the tower and the map beside the selected drivers'
+// laps overlaid) and, for practice, Debrief (what the session says). Their widths stay inside each widget's range at
+// COLUMNS. The circuit widgets have no dashboard: a circuit's page shows them.
 //
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
@@ -84,26 +84,6 @@ export const TELEMETRY_LAYOUT: Layout = {
     "timing-tower": at(0, 0, TELEMETRY_TOWER, { height: TOP }),
     "track-map": at(0, 1, TELEMETRY_TOWER),
     "lap-compare": at(TELEMETRY_TOWER, 0, COLUMNS - TELEMETRY_TOWER),
-  },
-};
-
-/**
- * Circuit history: the tower over the map down the left; earlier races at the circuit beside them, safety cars and
- * overtakes, race pace and the pit lane in pairs, strategies under them.
- */
-const HISTORY_SIDE = 13;
-const HISTORY_HALF = Math.floor((COLUMNS - HISTORY_SIDE) / 2);
-export const CIRCUIT_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, HISTORY_SIDE, { height: TOP }),
-    "track-map": at(0, 1, HISTORY_SIDE),
-    "safety-cars": at(HISTORY_SIDE, 0, HISTORY_HALF),
-    "overtakes-history": at(HISTORY_SIDE + HISTORY_HALF, 0, COLUMNS - HISTORY_SIDE - HISTORY_HALF),
-    "race-pace": at(HISTORY_SIDE, 1, HISTORY_HALF),
-    "pit-history": at(HISTORY_SIDE + HISTORY_HALF, 1, COLUMNS - HISTORY_SIDE - HISTORY_HALF),
-    "strategy-history": at(HISTORY_SIDE, 2, COLUMNS - HISTORY_SIDE),
   },
 };
 

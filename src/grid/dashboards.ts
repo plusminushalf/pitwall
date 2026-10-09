@@ -6,7 +6,7 @@
 // takes it as that kind's Overview, edited, so nobody's screen changes.
 
 import type { WidgetDefinition } from "../widgetkit/defineWidget";
-import { CIRCUIT_LAYOUT, DEBRIEF_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
+import { DEBRIEF_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
 import { COLUMNS, type Layout } from "./layout";
 import { parseLayout, storageKey, type GridKind } from "./storage";
 
@@ -23,7 +23,6 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
     { id: "overview", name: "Overview", description: "The race at a glance, and the analysis of it underneath", layout: DEFAULT_LAYOUT },
     { id: "strategy", name: "Strategy", description: "Tyres, stints, pit stops and the gaps they made", layout: STRATEGY_LAYOUT },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
-    { id: "circuit", name: "Circuit history", description: "Earlier races at this circuit: safety cars, overtakes, pace, pit stops and strategies, beside the timing", layout: CIRCUIT_LAYOUT },
   ],
   practice: [
     { id: "overview", name: "Overview", description: "The session at a glance, the long runs and the stint pace", layout: PRACTICE_LAYOUT },
@@ -34,7 +33,6 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
       layout: DEBRIEF_LAYOUT,
     },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
-    { id: "circuit", name: "Circuit history", description: "Earlier races at this circuit: safety cars, overtakes, pace, pit stops and strategies, beside the timing", layout: CIRCUIT_LAYOUT },
   ],
 };
 
