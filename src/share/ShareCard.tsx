@@ -6,11 +6,11 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal, flushSync } from "react-dom";
 import { create } from "zustand";
-import { useReplay } from "../store";
-import { sessionKind } from "../widgetkit/select";
+import { comparing, useReplay } from "../store";
 import { hostedIn, WidgetHost, type HostedWidget } from "../widgetkit/WidgetHost";
 import { Flag } from "../components/Flag";
 import { captureCard } from "./capture";
+import { sessionMoment } from "./moment";
 
 /** A card of widgets' width, in CSS px; a section's may be wider (useCardSection). */
 const CARD_WIDTH = 480;
@@ -29,13 +29,16 @@ export interface ShareHeading {
 /** The heading a page gives its share cards (a circuit's page); a session's comes from the session. */
 export const useShareHeading = create<{ heading: ShareHeading | null }>(() => ({ heading: null }));
 
-/** The heading for a card made now: the session's, at the lap it's at, or else the page's. */
+/**
+ * The heading for a card made now: the session's, at the moment it's at (a race's lap, qualifying's segment and clock,
+ * practice's clock; the laps compared are of the whole session), or else the page's.
+ */
 export function shareHeading(): ShareHeading | null {
   const s = useReplay.getState();
   const meta = s.view === "replay" ? s.session?.meta : undefined;
   if (!s.session || !meta) return useShareHeading.getState().heading;
-  const lap = sessionKind(s.session) === "race" && s.race && s.race.leaderLap > 0 ? `Lap ${s.race.leaderLap} of ${meta.totalLaps}` : null;
-  return { title: meta.meetingName, detail: [meta.year, meta.sessionName, lap].filter(Boolean).join(" · "), country: meta.country };
+  const moment = s.race && !comparing(s) ? sessionMoment(meta, s.race) : null;
+  return { title: meta.meetingName, detail: [meta.year, meta.sessionName, moment].filter(Boolean).join(" · "), country: meta.country };
 }
 
 /** A section of a page a card can show (useCardSection). */
