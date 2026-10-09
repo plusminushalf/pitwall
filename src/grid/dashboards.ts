@@ -6,7 +6,7 @@
 // takes it as that kind's Overview, edited, so nobody's screen changes.
 
 import type { WidgetDefinition } from "../widgetkit/defineWidget";
-import { CIRCUIT_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
+import { CIRCUIT_LAYOUT, DEBRIEF_LAYOUT, DEFAULT_LAYOUT, PRACTICE_LAYOUT, STRATEGY_LAYOUT, TELEMETRY_LAYOUT } from "./defaultLayout";
 import { COLUMNS, type Layout } from "./layout";
 import { parseLayout, storageKey, type GridKind } from "./storage";
 
@@ -27,6 +27,12 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
   ],
   practice: [
     { id: "overview", name: "Overview", description: "The session at a glance, the long runs and the stint pace", layout: PRACTICE_LAYOUT },
+    {
+      id: "debrief",
+      name: "Debrief",
+      description: "What the session says: the pace order and its tyres, push laps, sectors, top speeds, each team's programme and the track's evolution",
+      layout: DEBRIEF_LAYOUT,
+    },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
     { id: "circuit", name: "Circuit history", description: "Earlier races at this circuit: safety cars, overtakes, pace, pit stops and strategies, beside the timing", layout: CIRCUIT_LAYOUT },
   ],

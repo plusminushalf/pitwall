@@ -106,3 +106,24 @@ export const CIRCUIT_LAYOUT: Layout = {
     "strategy-history": at(HISTORY_SIDE, 2, COLUMNS - HISTORY_SIDE),
   },
 };
+
+/**
+ * FP1 debrief: what a first practice says, in three columns of two. One-lap pace on the left (the order with the tyre
+ * each best was on, and the push laps per set: how a set holds up for a second push), where the time is in the
+ * middle (sectors and top speed against lap time: the drag levels), and the session on the right (each team's
+ * programme, and how much the track came to the cars). The top row is 23 rows tall (run plans fits 22 drivers); the bottom row takes the rest.
+ */
+const DEBRIEF_TOP = 23 * ROW;
+const DEBRIEF_SIDE = 12;
+export const DEBRIEF_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "pace-order": at(0, 0, DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
+    "sector-strengths": at(DEBRIEF_SIDE, 0, DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
+    "run-plans": at(2 * DEBRIEF_SIDE, 0, COLUMNS - 2 * DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
+    "push-laps": at(0, 1, DEBRIEF_SIDE),
+    "speed-vs-pace": at(DEBRIEF_SIDE, 1, DEBRIEF_SIDE),
+    "track-evolution": at(2 * DEBRIEF_SIDE, 1, COLUMNS - 2 * DEBRIEF_SIDE),
+  },
+};

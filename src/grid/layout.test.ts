@@ -162,7 +162,7 @@ describe("driver layout", () => {
   const states = [input(), input(22, [63, 12]), input(22, [63, 12], 63), input(20, [1])];
   // Weather is in the top bar; the analysis widgets (practice's long runs and the lap comparison too) and the circuit
   // widgets came after it.
-  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs", "lap-compare", "safety-cars", "strategy-history", "overtakes-history", "race-pace", "pit-history"];
+  const NOT_IN_IT = ["weather", "gap-chart", "stint-pace", "pit-strategy", "battles", "long-runs", "lap-compare", "safety-cars", "strategy-history", "overtakes-history", "race-pace", "pit-history", "pace-order", "push-laps", "sector-strengths", "speed-vs-pace", "run-plans", "track-evolution"];
 
   test("places every built-in widget but those off its screen once, within its width range", () => {
     expect(Object.keys(DRIVER_LAYOUT.widgets).sort()).toEqual([...BUILTIN_WIDGETS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
