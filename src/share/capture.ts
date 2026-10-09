@@ -2,6 +2,8 @@
 // area of it cut out, framed by a margin, with Pitwall's name and address in a strip underneath. Scrolled areas (Home, a circuit's page, a
 // widget's table) are drawn as scrolled, their sticky headers where they're stuck.
 
+import { flagSrc } from "../components/Flag";
+
 /** On an element that mustn't be in screenshots (the picker, toasts). */
 export const IGNORE = "data-shot-ignore";
 /**
@@ -14,6 +16,7 @@ const PIT_BLACK = "#09090b";
 const HAIRLINE = "#27272a";
 const TEXT = "#d4d4d8";
 const MUTED = "#a1a1aa";
+const TITLE = "#fafafa";
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif';
 /** The strip's height, in CSS px. */
 const STRIP = 44;
@@ -30,6 +33,15 @@ const GAP = 16;
 const CREDIT_LINE = 20;
 /** public/pitwall-logo.svg's aspect ratio (its viewBox). */
 const LOGO_ASPECT = 712 / 170;
+/** The heading over the area, as a share card's: the title's line, the detail's, the flag's height, and the gap under it (CSS px). */
+const HEADING = { title: 30, detail: 20, flag: 20, gap: 16 };
+
+/** What the area is of (a share card's heading): drawn over it. */
+export interface ImageHeading {
+  title: string;
+  detail?: string;
+  country?: string;
+}
 
 /** An area in CSS px, from the app's top left. */
 export interface Rect {
@@ -144,16 +156,20 @@ export async function captureCard(el: HTMLElement, scale: number): Promise<Blob>
   });
 }
 
-let logo: Promise<HTMLImageElement> | null = null;
-function loadLogo(): Promise<HTMLImageElement> {
-  logo ??= new Promise((resolve, reject) => {
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => {
-      logo = null;
-      reject(new Error("The logo didn't load"));
-    };
-    img.src = "/pitwall-logo.svg";
+    img.onerror = () => reject(new Error(`${src.slice(0, 40)} didn't load`));
+    img.src = src;
+  });
+}
+
+let logo: Promise<HTMLImageElement> | null = null;
+function loadLogo(): Promise<HTMLImageElement> {
+  logo ??= loadImage("/pitwall-logo.svg").catch((e) => {
+    logo = null;
+    throw e;
   });
   return logo;
 }
@@ -170,10 +186,11 @@ export function clampArea(shot: Shot, area: Rect | null): Rect {
 const overlaps = (a: Rect, b: Rect) => a.left < b.left + b.width && b.left < a.left + a.width && a.top < b.top + b.height && b.top < a.top + a.height;
 
 /**
- * The PNG to share: the `picked` area of the shot in a margin, over a strip with the logo, the credits of the sources in the
- * area and `host`. Credits that don't fit between the logo and the address go on a line of their own under the logo.
+ * The PNG to share: the `picked` area of the shot in a margin, under `heading` if any, over a strip with the logo, the
+ * credits of the sources in the area and `host`. Credits that don't fit between the logo and the address go on a line of
+ * their own under the logo.
  */
-export async function brandedImage(shot: Shot, picked: Rect, host: string): Promise<Blob> {
+export async function brandedImage(shot: Shot, picked: Rect, host: string, heading: ImageHeading | null = null): Promise<Blob> {
   const { canvas, scale } = shot;
   const credits = shot.credits.filter((c) => overlaps(c.rect, picked));
   // A credit line the area ends with (a section's last line) is cut off with the space above it, not left blank.
@@ -191,15 +208,40 @@ export async function brandedImage(shot: Shot, picked: Rect, host: string): Prom
   const room = inner - LOGO_HEIGHT * LOGO_ASPECT - ctx.measureText(host).width - 2 * GAP;
   ctx.font = creditFont;
   const inline = ctx.measureText(credit).width <= room;
-  // The margin above the area, below it to the strip's hairline, and half of it under the strip.
-  const rule = margin + area.height + margin;
+  const head = heading ? HEADING.title + (heading.detail ? HEADING.detail : 0) + HEADING.gap : 0;
+  const flag = heading?.country ? flagSrc(heading.country) : null;
+  // The margin above the heading and the area, below it to the strip's hairline, and half of it under the strip.
+  const top = margin + head;
+  const rule = top + area.height + margin;
   const height = rule + 1 + STRIP + (credit && !inline ? CREDIT_LINE : 0) + Math.round(margin / 2);
   out.width = Math.round(width * scale);
   out.height = Math.round(height * scale);
   ctx.scale(scale, scale);
   ctx.fillStyle = PIT_BLACK;
   ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(canvas, area.left * scale, area.top * scale, area.width * scale, area.height * scale, margin + (inner - area.width) / 2, margin, area.width, area.height);
+  ctx.drawImage(canvas, area.left * scale, area.top * scale, area.width * scale, area.height * scale, margin + (inner - area.width) / 2, top, area.width, area.height);
+  if (heading) {
+    ctx.textBaseline = "middle";
+    let x = margin;
+    const mid = margin + HEADING.title / 2;
+    if (flag) {
+      try {
+        const w = (HEADING.flag * 3) / 2;
+        ctx.drawImage(await loadImage(flag), x, mid - HEADING.flag / 2, w, HEADING.flag);
+        x += w + 10;
+      } catch {
+        // The title still says where.
+      }
+    }
+    ctx.font = `700 24px ${FONT}`;
+    ctx.fillStyle = TITLE;
+    ctx.fillText(heading.title, x, mid, margin + inner - x);
+    if (heading.detail) {
+      ctx.font = `400 14px ${FONT}`;
+      ctx.fillStyle = MUTED;
+      ctx.fillText(heading.detail, margin, margin + HEADING.title + HEADING.detail / 2, inner);
+    }
+  }
   ctx.fillStyle = HAIRLINE;
   ctx.fillRect(margin, rule, inner, 1);
   const mid = rule + 1 + STRIP / 2;

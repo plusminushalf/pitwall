@@ -57,11 +57,16 @@ const FLAGS: Readonly<Record<string, string>> = {
   "United States": US,
 };
 
+/** `country`'s flag as an image URL (3:2), or null for a country it doesn't have. */
+export function flagSrc(country: string): string | null {
+  const svg = FLAGS[country];
+  return svg ? `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}` : null;
+}
+
 /** `country`'s flag, 3:2 at the height `className` gives it (h-3 by default); nothing for a country it doesn't have. */
 export function Flag({ country, className = "h-3" }: { country: string; className?: string }) {
-  const svg = FLAGS[country];
-  if (!svg) return null;
-  const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  const src = flagSrc(country);
+  if (!src) return null;
   // Decorative next to the country's name, which is always said in words too.
   return (
     <img

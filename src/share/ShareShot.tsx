@@ -115,7 +115,11 @@ export const useShare = create<ShareState>((set, get) => {
         const clear = () => get().card === job && set({ card: null });
         image.then(clear, clear);
       } else {
-        image = brandedImage(phase.shot, clampArea(phase.shot, area), host);
+        // An area under the page's header doesn't say what it's of: the card's heading does.
+        const picked = clampArea(phase.shot, area);
+        const header = document.querySelector("#root header")?.getBoundingClientRect();
+        const titled = area && header && picked.top >= header.bottom - phase.shot.bounds.top - 1;
+        image = brandedImage(phase.shot, picked, host, titled ? phase.heading : null);
       }
       track("screenshot_created", { selection: card ? "card" : area ? "area" : "full_screen", page: phase.page });
       // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
