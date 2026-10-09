@@ -7,7 +7,7 @@ import type { StreamUpdate } from "./ingest/protocol";
 import { raceStateAt, timeForLap, type RaceState } from "./engine/raceState";
 import { connectLive, liveVia, type LiveConnection, type LiveVia } from "./live/client";
 import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
-import { connectVaultLive, type LiveAccount, type LiveStall } from "./live/vault";
+import { connectVaultLive, type LiveAccount, type LiveStall, type VaultLiveConnection } from "./live/vault";
 import { fetchSession, listPlayable } from "./storage/load";
 import { getVault } from "./vault/client";
 import type { SessionIndexEntry } from "./types";
@@ -266,6 +266,12 @@ function mergeStep(): void {
 }
 
 let live: LiveConnection | null = null;
+/**
+ * Live through the vault, left for a replay or Home: its worker keeps following the session for PARK_MS, so coming
+ * back shows it at once instead of backfilling it from OpenF1 again.
+ */
+let parked: { conn: VaultLiveConnection; timer: ReturnType<typeof setTimeout> } | null = null;
+const PARK_MS = 30 * 60_000;
 /** The replay being watched when live mode was entered, brought back by exitLive(). */
 let replayStash: { session: Session; t: number; watchedTo: number; noSpoilers: boolean | null; selected: number[]; focused: number | null; lapWindow: LapWindow | null } | null = null;
 /** Live mode was entered from Home: leaving it goes back there. */
@@ -407,7 +413,19 @@ export const useReplay = create<ReplayState>((set, get) => {
 
   /** Leave live mode without choosing a replay (the caller loads one). */
   const disconnect = () => {
-    live?.close();
+    if (live && "detach" in live) {
+      const conn = live as VaultLiveConnection;
+      conn.detach();
+      if (parked) clearTimeout(parked.timer);
+      parked = {
+        conn,
+        timer: setTimeout(() => {
+          if (parked?.conn !== conn) return;
+          parked = null;
+          conn.close();
+        }, PARK_MS),
+      };
+    } else live?.close();
     live = null;
     liveOpts = null;
     set({ mode: "replay", live: NO_LIVE, liveEdge: 0, followLive: false });
@@ -752,11 +770,17 @@ export const useReplay = create<ReplayState>((set, get) => {
       if (via === "relay") live = connectLive(handlers);
       else if (via === "vault") {
         // The vault streams OpenF1 with the user's own account: LiveScreen says what the account needs, if anything.
-        live = connectVaultLive({
+        const vaultHandlers = {
           ...handlers,
-          onAccount: (account) => set({ live: { ...get().live, account, ...(account ? { connected: false, offline: false } : {}) } }),
-          onStall: (stall) => set({ live: { ...get().live, stall } }),
-        });
+          onAccount: (account: LiveAccount | null) => set({ live: { ...get().live, account, ...(account ? { connected: false, offline: false } : {}) } }),
+          onStall: (stall: LiveStall | null) => set({ live: { ...get().live, stall } }),
+        };
+        // Left a while ago: the parked worker has the session already.
+        const back = parked?.conn;
+        if (parked) clearTimeout(parked.timer);
+        parked = null;
+        if (back) back.attach(vaultHandlers);
+        live = back ?? connectVaultLive(vaultHandlers);
       }
       // Neither (a static build without the vault): LiveScreen explains, nothing to connect to.
     },

@@ -221,6 +221,37 @@ describe("live through the vault", () => {
     await until("unsubscribed on close", () => vault.topics.size === 0);
   });
 
+  test("detached, the worker keeps the session; attached again, the app gets it at once, with no second backfill", async () => {
+    const api = openf1();
+    const vault = fakeVault(api);
+    const { spawned, spawn } = inProcess();
+    const noop = { onDown: () => {}, onStall: () => {} };
+    const first: LiveMessage[] = [];
+    const conn = connectVaultLive({ ...noop, onOpen: () => {}, onMessage: (m) => first.push(m), onAccount: () => {} }, { vault: vault as unknown as VaultLike, spawn });
+    vault.account("connected");
+    await until("the snapshot", () => first.some((m) => m.type === "snapshot"));
+
+    conn.detach();
+    const seen = first.length;
+    await Bun.sleep(600); // a `tel` tick or so: it goes nowhere
+    expect(first.length).toBe(seen);
+
+    const gets = vault.gets.length;
+    const back: LiveMessage[] = [];
+    const accounts: (LiveAccount | null)[] = [];
+    let opened = 0;
+    conn.attach({ ...noop, onOpen: () => opened++, onMessage: (m) => back.push(m), onAccount: (a) => accounts.push(a) });
+    expect(accounts).toEqual([null]);
+    expect(opened).toBe(1);
+    await until("the snapshot again", () => back.some((m) => m.type === "snapshot" && m.meta.sessionKey === 9001));
+    expect(back[0]).toMatchObject({ type: "status", state: "live" });
+    expect(spawned).toHaveLength(1);
+    expect(vault.gets.length).toBe(gets);
+
+    conn.close();
+    expect(spawned[0].terminated).toBe(true);
+  });
+
   test("a locked or failing account doesn't start it; a login re-checked while it runs doesn't stop it", () => {
     const base = { origin: "https://vault.test" } as const;
     const s = (state: string): VaultState => ({ ...base, phase: "ready", status: { state, live: "off", version: "t" } as never });

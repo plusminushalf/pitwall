@@ -27,7 +27,9 @@ export type ToEngine =
   /** Whether the vault is streaming this tab's topics now. */
   | { type: "stream"; streaming: boolean }
   /** The vault's frame was replaced: this tab may have missed some of the stream. */
-  | { type: "refill" };
+  | { type: "refill" }
+  /** The app's screen is back after a while away: the status and the session so far, as a new consumer gets them. */
+  | { type: "welcome" };
 
 /** The engine -> the page. */
 export type FromEngine =
@@ -113,6 +115,9 @@ export class VaultEngine {
         if (store) void this.live!.refill(store.latestDataTime);
         return;
       }
+      case "welcome":
+        if (this.hub) for (const msg of this.hub.welcome()) this.deps.post({ type: "live", msg });
+        return;
     }
   }
 

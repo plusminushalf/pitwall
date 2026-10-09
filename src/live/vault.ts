@@ -100,9 +100,20 @@ const UNSUBSCRIBE_TRIES = 3;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
+/** A vault connection whose screen can go away and come back (the app keeps it while live mode is left for a while). */
+export interface VaultLiveConnection extends LiveConnection {
+  /** Nothing goes to the app any more; the worker keeps following the session. */
+  detach(): void;
+  /** The app is back: it gets the account, the status and the session so far (a snapshot), then the stream. */
+  attach(handlers: VaultLiveHandlers): void;
+}
+
+const IGNORE: VaultLiveHandlers = { onOpen() {}, onDown() {}, onMessage() {}, onAccount() {}, onStall() {} };
+
 /** Follow live through the vault until `close()`; the app gets the relay's messages. */
-export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: VaultLike; spawn?: () => WorkerLike } = {}): LiveConnection {
+export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: VaultLike; spawn?: () => WorkerLike } = {}): VaultLiveConnection {
   const vault = deps.vault ?? getVault();
+  let h = handlers;
   const spawn = deps.spawn ?? spawnWorker;
   let worker: WorkerLike | null = null;
   let closed = false;
@@ -129,7 +140,7 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
       send({ type: "stream", streaming: on });
     }
     const next = worker && want && have ? stallOf(st) : null;
-    if (next !== stall) handlers.onStall((stall = next));
+    if (next !== stall) h.onStall((stall = next));
   };
 
   const sync = async () => {
@@ -162,9 +173,9 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
         if (!opened) {
           opened = true;
           crashes = 0;
-          handlers.onOpen();
+          h.onOpen();
         }
-        handlers.onMessage(m.msg);
+        h.onMessage(m.msg);
         return;
       case "get":
         vault.get(m.endpoint as RestEndpoint, m.params, GET_TIMEOUT_MS).then(
@@ -194,7 +205,7 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
       if (worker !== w) return;
       console.warn(`[live] the live worker stopped: ${e.message ?? "unknown error"}`);
       stopWorker();
-      handlers.onDown();
+      h.onDown();
       const delay = Math.min(RESTART_MAX_MS, RESTART_MIN_MS * 2 ** crashes++);
       restart = setTimeout(() => {
         restart = null;
@@ -211,7 +222,7 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
     opened = false;
     streaming = false;
     want = false;
-    if (stall) handlers.onStall((stall = null));
+    if (stall) h.onStall((stall = null));
     void sync();
   };
 
@@ -220,7 +231,7 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
     const need = accountNeed(s);
     // A login being checked again (a reconnect in the popup) doesn't stop what runs.
     const now = worker && need === "checking" ? null : need;
-    if (now !== account) handlers.onAccount((account = now));
+    if (now !== account) h.onAccount((account = now));
     if (now === null && !worker && !restart) startWorker(s);
     else if (now !== null && worker) stopWorker();
     // A new vault frame (the old one was removed from the page): it may have missed some of the stream.
@@ -238,6 +249,18 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
   onState(vault.getState());
 
   return {
+    detach: () => {
+      h = IGNORE;
+    },
+    attach: (next) => {
+      if (closed) return;
+      h = next;
+      if (account !== undefined) h.onAccount(account);
+      if (stall) h.onStall(stall);
+      if (opened) h.onOpen();
+      // (Before the worker's first message this is its first: the status, while it's still backfilling.)
+      send({ type: "welcome" });
+    },
     close: () => {
       if (closed) return;
       closed = true;
