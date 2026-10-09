@@ -17,7 +17,7 @@ import {
   type DriverInfo,
   type NeutralPeriod,
 } from "widget-kit";
-import { CLIP, evolution, gainText, minutes, trackTempAt, WINDOW_MS, type EvoPoint, type Evolution } from "./evolution";
+import { CLIP, evolution, gainOf, gainText, minutes, trackTempAt, WINDOW_MS, type EvoPoint, type Evolution } from "./evolution";
 
 const SURFACE = "#09090b";
 const GRID = "#27272a";
@@ -36,8 +36,9 @@ const BAND: Record<NeutralPeriod["status"], string> = {
 const HEAD_H = 28;
 /** Room for the lap times (left) and the minutes (bottom). */
 const M = { left: 44, right: 14, top: 8, bottom: 18 };
-/** Under this width the key goes from the header. */
+/** Under this width the key leaves the header for a row of its own under it (a share card is 480 wide). */
 const KEY_MIN_W = 620;
+const KEY_ROW_H = 24;
 const HOUR = 60 * 60_000;
 
 const compoundColor = (c: string) => (COMPOUND[c] ?? COMPOUND.UNKNOWN).color;
@@ -151,7 +152,8 @@ function TrackEvolution() {
   const model: Evolution = useMemo(() => evolution(laps, stints, neutral, cut, green), [laps, stints, neutral, cut, green]);
 
   const w = size.width;
-  const h = size.height - HEAD_H;
+  const keyRow = w < KEY_MIN_W;
+  const h = size.height - HEAD_H - (keyRow ? KEY_ROW_H : 0);
   const fastest = model.records.at(-1)?.time ?? null;
   const shown = useMemo(() => (fastest == null ? [] : model.points.filter((p) => p.time <= CLIP * fastest)), [model, fastest]);
 
@@ -172,19 +174,17 @@ function TrackEvolution() {
   // The dots only change with the laps and the size, not each second.
   const dots = useMemo(() => (scale ? <Dots points={shown} scale={scale} info={info} onPick={onPick} /> : null), [shown, scale, info, selected]);
 
-  // The caption: the gain from the first window with push laps to the latest, and the track temperature then and now.
-  const first = model.windows[0];
-  const last = model.windows.at(-1);
+  // The caption: the gain from the first window with push laps to the latest that's run, and the track temperature then and now.
+  const gain = gainOf(model.windows, t, scheduledEnd);
   const samples = useMemo(() => weather.filter((s) => s.t <= t), [weather, t]);
   const tempNow = trackTempAt(samples, t);
-  const tempThen = model.gain != null && first ? trackTempAt(samples, first.from) : null;
+  const tempThen = gain ? trackTempAt(samples, gain.first.from) : null;
   const temp =
     tempNow == null ? null : tempThen != null && Math.round(tempThen) !== Math.round(tempNow) ? `track ${Math.round(tempThen)}° → ${Math.round(tempNow)}°C` : `track ${Math.round(tempNow)}°C`;
   const span = (win: { from: number; to: number }) => `${minutes(win.from, green)}–${minutes(win.to, green)} min`;
-  const gainTitle =
-    model.gain != null && first && last
-      ? `Median push lap, ${span(first)}: ${lapTime(first.median)} (${first.laps} laps); ${span(last)}: ${lapTime(last.median)} (${last.laps} laps). Push laps: within 1.5% of the driver's best so far. Compounds and fuel loads are mixed in.`
-      : undefined;
+  const gainTitle = gain
+    ? `Median push lap, ${span(gain.first)}: ${lapTime(gain.first.median)} (${gain.first.laps} laps); ${span(gain.last)}: ${lapTime(gain.last.median)} (${gain.last.laps} laps). Push laps: within 1.5% of the driver's best so far. Compounds and fuel loads are mixed in.`
+    : undefined;
 
   return (
     <section className="flex h-full flex-col text-sm">
@@ -193,15 +193,20 @@ function TrackEvolution() {
           Track evolution
         </Label>
         <span className="min-w-0 truncate text-[11px] text-zinc-300" title={gainTitle}>
-          {model.gain != null ? gainText(model.gain) : model.points.length > 0 ? "push-lap trend after two 10-minute windows" : ""}
+          {gain ? gainText(gain.gain) : model.points.length > 0 ? "push-lap trend after two 10-minute windows" : ""}
           {temp && <span className="text-zinc-400"> · {temp}</span>}
         </span>
-        {w >= KEY_MIN_W && (
+        {!keyRow && (
           <span className="ml-auto">
             <Key />
           </span>
         )}
       </div>
+      {keyRow && (
+        <div className="flex items-center overflow-hidden px-3" style={{ height: KEY_ROW_H }}>
+          <Key />
+        </div>
+      )}
       <div className="relative min-h-0 flex-1">
         {scale && h > 40 ? (
           <svg data-shot-fill="" width={w} height={h} role="img" aria-label="Every valid lap by session time, with the fastest lap so far and the 10-minute median of push laps" className="block">

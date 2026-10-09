@@ -2,7 +2,7 @@
 // files (bun run lint), so not "bun:test".
 
 import type { NeutralPeriod } from "widget-kit";
-import { evolution, gainText, trackTempAt, validLaps, type EvoLap, type EvoStint } from "./evolution";
+import { evolution, gainOf, gainText, trackTempAt, validLaps, type EvoLap, type EvoStint } from "./evolution";
 
 const MIN = 60_000;
 
@@ -97,7 +97,18 @@ describe("evolution", () => {
       [20, 5],
     ]);
     expect(e.windows.map((w) => w.median)).toEqual([90.3, 90.3 - 0.3, 90.3 - 0.6]);
-    expect(e.gain).toBeCloseTo(0.6, 6);
+    expect(gainOf(e.windows, Infinity, null)?.gain).toBeCloseTo(0.6, 6);
+  });
+
+  test("the gain leaves out a window less than half run, by now or by the scheduled end", () => {
+    const w = (from: number, median: number) => ({ from: from * MIN, to: (from + 10) * MIN, median, laps: 5 });
+    const windows = [w(0, 90.3), w(10, 90), w(20, 90.6)];
+    // Live, 4 minutes into the third window: it's left out until it's half run.
+    expect(gainOf(windows, 24 * MIN, null)?.last.median).toBe(90);
+    expect(gainOf(windows, 25 * MIN, null)?.last.median).toBe(90.6);
+    // The session was scheduled to end a minute into it: the laps finishing after the flag don't count.
+    expect(gainOf(windows, Infinity, 21 * MIN)?.gain).toBeCloseTo(0.3, 6);
+    expect(gainOf(windows.slice(0, 1), Infinity, null)).toBeNull();
   });
 
   test("a window with fewer than 3 push laps has no median, and one window has no gain", () => {
@@ -107,7 +118,7 @@ describe("evolution", () => {
     ]);
     const e = evolution(all, new Map([[1, soft], [2, soft]]), [], Infinity, 0);
     expect(e.windows.map((w) => w.laps)).toEqual([3]);
-    expect(e.gain).toBeNull();
+    expect(gainOf(e.windows, Infinity, null)).toBeNull();
   });
 });
 

@@ -63,8 +63,14 @@ export interface Evolution {
   records: FastestStep[];
   /** Windows with at least MIN_WINDOW_LAPS push laps, in order. */
   windows: EvoWindow[];
-  /** Seconds the push-lap median came down from the first window to the latest (negative: slower). Null: < 2 windows. */
-  gain: number | null;
+}
+
+/** The headline's comparison: the first window's push-lap median against the latest's. */
+export interface EvoGain {
+  first: EvoWindow;
+  last: EvoWindow;
+  /** Seconds the median came down (negative: slower). */
+  gain: number;
 }
 
 /** A push lap: within this share of the driver's best valid lap so far. */
@@ -144,8 +150,20 @@ export function evolution(
     .filter(([, times]) => times.length >= MIN_WINDOW_LAPS)
     .sort(([a], [b]) => a - b)
     .map(([w, times]) => ({ from: greenLight + w * WINDOW_MS, to: greenLight + (w + 1) * WINDOW_MS, median: median(times), laps: times.length }));
-  const gain = windows.length >= 2 ? windows[0].median - windows.at(-1)!.median : null;
-  return { points, records, windows, gain };
+  return { points, records, windows };
+}
+
+/**
+ * The first window against the latest one that's at least half run by `now` and by the session's scheduled `end`: a
+ * window just begun (live), or the laps finishing after the chequered flag, are a few laps of whoever was out, not the
+ * track. Null: fewer than two such windows.
+ */
+export function gainOf(windows: readonly EvoWindow[], now: number, end: number | null): EvoGain | null {
+  const run = windows.filter((w) => Math.min(w.to, now, end ?? Infinity) - w.from >= WINDOW_MS / 2);
+  if (run.length < 2) return null;
+  const first = run[0];
+  const last = run.at(-1)!;
+  return { first, last, gain: first.median - last.median };
 }
 
 /** The track temperature at `at` (the last sample by then, else the first), from samples up to t. */
