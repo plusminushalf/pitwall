@@ -1,7 +1,8 @@
 // PostHog on the hosted site, alongside Cloudflare Web Analytics (analytics.ts): page views, the events sent with
 // track(), clicks (autocapture) and uncaught errors, to PostHog's EU cloud. Only in production builds made with
 // VITE_POSTHOG_KEY (`bun run deploy`); the key is public, every event sends it. Never from the dev server, so working
-// on the app (through a proxy or not) doesn't count as a visit.
+// on the app (through a proxy or not) doesn't count as a visit, nor from a production build served on this machine
+// (vite preview).
 //
 // posthog-js is ~95 KB gzipped, so it loads after the page in a chunk of its own; anything tracked before it's
 // ready isn't sent. It keeps a random visitor ID in localStorage, no cookie.
@@ -11,9 +12,11 @@ import type { PostHog } from "posthog-js";
 let ph: PostHog | null = null;
 let started = false;
 
+const LOCAL = /^(localhost|127(\.\d+){3}|\[::1\])$|\.localhost$/;
+
 export function startPostHog() {
   const key = import.meta.env.VITE_POSTHOG_KEY;
-  if (!key || import.meta.env.DEV || started) return;
+  if (!key || import.meta.env.DEV || LOCAL.test(location.hostname) || started) return;
   started = true;
   void import("posthog-js").then(({ default: posthog }) => {
     posthog.init(key, {
