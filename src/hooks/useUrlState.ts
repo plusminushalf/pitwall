@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react";
 import { rowForKey, rowState, useLibrary } from "../library";
-import { comparing, saveWatched, useReplay } from "../store";
+import { comparing, saveWatched, screenInLink, useReplay } from "../store";
 import { FIRST } from "../grid/dashboards";
 import { useLayout } from "../grid/store";
 import { useQuali } from "../qualiStore";
@@ -65,8 +65,8 @@ export function useUrlSync() {
   const second = useReplay((s) => (s.mode === "live" && s.followLive ? -1 : Math.floor(s.t / 1000)));
   const selected = useReplay((s) => s.selected);
   const focused = useReplay((s) => s.focused);
-  // Practice's Fastest laps (qualifying is always the comparison: nothing to say).
-  const laps = useReplay((s) => comparing(s) && s.session?.meta.practice != null);
+  // Practice's Fastest laps, qualifying's replay.
+  const screen = useReplay(screenInLink);
   const lapWindow = useReplay((s) => s.lapWindow);
   // The dashboard, where there's one on screen and it isn't the first (a shared link's layout isn't one).
   const dash = useLayout((s) => (s.shared || s.dashboard === FIRST ? undefined : s.dashboard));
@@ -88,7 +88,7 @@ export function useUrlSync() {
           watchedTo: s.watchedTo,
         });
       }
-      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: laps ? "laps" : undefined, range: lapWindow ? [lapWindow[0], lapWindow[1]] : undefined, dash: grid ? dash : undefined });
+      const url = urlFor({ live, session: session ?? null, t: second >= 0 ? second * 1000 : undefined, drivers: selected, focus: focused, view: screen, range: lapWindow ? [lapWindow[0], lapWindow[1]] : undefined, dash: grid ? dash : undefined });
       if (url === location.pathname + location.search) return;
       lastWrite.current = performance.now();
       // Keeps the entry's state (whether it was opened from Home).
@@ -102,5 +102,5 @@ export function useUrlSync() {
     }
     const id = setTimeout(write, wait);
     return () => clearTimeout(id);
-  }, [view, session, live, second, selected, focused, laps, lapWindow, dash, grid]);
+  }, [view, session, live, second, selected, focused, screen, lapWindow, dash, grid]);
 }

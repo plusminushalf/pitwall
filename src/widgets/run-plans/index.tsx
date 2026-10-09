@@ -226,12 +226,12 @@ export default defineWidget({
   id: "run-plans",
   name: "Run plans",
   group: "analysis",
-  description: "Each team's practice programme on the session clock: every lap by compound, push laps marked, red flags shaded.",
+  description: "Each team's programme on the session clock: every lap by compound, push laps marked, red flags shaded.",
   version: "1.0.0",
   // Every driver's row fits at the least; it fills its column and scrolls inside if shorter.
   height: { min: ({ drivers }) => HEADER + AXIS + drivers.length * ROW + new Set(drivers.map((d) => d.team)).size * TEAM_GAP + 4 },
   width: { min: 30, default: 50, max: 100 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: {},
   Component: RunPlans,
 });

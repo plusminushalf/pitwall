@@ -1,8 +1,7 @@
-// Dashboards: named layouts, any of which can show any session of its kind. Each kind (races, free practice, live
-// qualifying) has the
-// dashboards the app ships (PRESETS) and the user's own, and one of them on screen. A preset the user edits keeps
-// its name and place: the edit is saved over it, and Reset brings the preset back. The user's own can be renamed
-// and deleted. All of it is one localStorage entry, read back checked and repaired like a saved layout
+// Dashboards: named layouts, any of which can show any session of its kind. Each kind (races, free practice,
+// qualifying) has the dashboards the app ships (PRESETS) and the user's own, and one of them on screen. A preset the
+// user edits keeps its name and place: the edit is saved over it, and Reset brings the preset back. The user's own can
+// be renamed and deleted. All of it is one localStorage entry, read back checked and repaired like a saved layout
 // (storage.ts's parseLayout). Before dashboards (until 2026-10-07) each kind had one saved layout; the first read
 // takes it as that kind's Overview, edited, so nobody's screen changes.
 
@@ -37,6 +36,12 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
   ],
   qualifying: [
     { id: "overview", name: "Overview", description: "The order by segment with its cut, the map and the feed, and the push laps being driven, followed live", layout: QUALI_LAYOUT },
+    {
+      id: "debrief",
+      name: "Debrief",
+      description: "What the session says: the pace order and its tyres, push laps, sectors, top speeds, each team's runs and the track's evolution",
+      layout: DEBRIEF_LAYOUT,
+    },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
   ],
 };

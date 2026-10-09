@@ -13,7 +13,7 @@ import { lapTime } from "../../lib/format";
 import { ghost, GHOST_SPEEDS, MINI_SECTOR_COUNTS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
 import type { SessionMeta } from "../../types";
-import { PracticeViewSwitch, SessionPicker } from "../Header";
+import { ScreenSwitch, SessionPicker } from "../Header";
 import { RacesButton } from "../Navigation";
 import { ShareButton } from "../../share/ShareShot";
 import { CompareBar } from "./CompareBar";
@@ -113,7 +113,7 @@ function PhoneHeader({ meta }: { meta: SessionMeta }) {
       <RacesButton />
       <SessionPicker meta={meta} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <PracticeViewSwitch />
+        <ScreenSwitch />
         <ShareButton />
       </div>
     </header>
@@ -157,7 +157,7 @@ function CompareHeader({ meta, model }: { meta: SessionMeta; model: CompareModel
       <div className="flex min-w-0 items-center gap-3">
         <RacesButton />
         <SessionPicker meta={meta} />
-        <PracticeViewSwitch />
+        <ScreenSwitch />
       </div>
       <div className="flex items-center gap-5">
         <span className="text-xl font-black uppercase tracking-tight">{meta.sessionName}</span>

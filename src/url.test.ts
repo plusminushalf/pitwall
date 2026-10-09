@@ -17,9 +17,10 @@ describe("readUrl", () => {
     expect(readUrl("/session/11377/", "").session).toBe(11377);
   });
 
-  test("practice's Fastest laps", () => {
+  test("practice's Fastest laps, qualifying's replay", () => {
     expect(readUrl("/session/11228", "?view=laps&t=600&drivers=1,63")).toEqual({ live: false, session: 11228, t: 600_000, drivers: [1, 63], focus: null, view: "laps" });
-    expect(readUrl("/session/11228", "?view=replay").view).toBeUndefined();
+    expect(readUrl("/session/11730", "?view=replay&t=1200").view).toBe("replay");
+    expect(readUrl("/session/11228", "?view=grid").view).toBeUndefined();
     expect(readUrl("/live", "?view=laps").view).toBeUndefined();
   });
 
@@ -96,6 +97,7 @@ describe("urlFor", () => {
     for (const url of [
       "/session/11377?t=3725&drivers=1,63,55&focus=63",
       "/session/11228?view=laps&t=600&drivers=1,63",
+      "/session/11730?view=replay&t=1200&dash=debrief",
       "/session/11730?drivers=1,44&zoom=120-560&preset=2&laps=1:14,44:12&mini=50&names=1",
       "/session/11731?t=60&layout=abc_-9", "/session/11731?t=60&drivers=1,44&range=12-30", "/live?session=11377&t=90&drivers=4", "/live"]) {
       const [path, search = ""] = url.split("?");

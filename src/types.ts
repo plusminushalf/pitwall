@@ -41,7 +41,7 @@ export interface Lap {
   segments: [(number | null)[], (number | null)[], (number | null)[]];
   speedTrap: { i1: number | null; i2: number | null; st: number | null };
   pitOut: boolean;
-  /** Practice and live qualifying: race control deleted the lap time (track limits...), at `t`; it counts until then. */
+  /** Practice and qualifying: race control deleted the lap time (track limits...), at `t`; it counts until then. */
   deleted?: { t: Ms; reason: string };
 }
 
@@ -196,7 +196,8 @@ export interface SessionMeta {
   lightsOutEstimated?: boolean; // lap 1 hasn't started: `lightsOut` is a guess (>= the live edge)
   // Qualifying sessions only (lightsOut = Q1 green light, chequered = the final segment's flag):
   quali?: QualiData;
-  // Live qualifying only (a replay has `quali` instead; lightsOut = Q1's green light):
+  // Qualifying timed as on the timing screen (lightsOut = Q1's green light): live, and a finished session stored since
+  // Qualifying format 3 (with `quali`):
   qualiLive?: LiveQualiData;
   // Free practice only (lightsOut = the green light, chequered = the flag):
   practice?: PracticeData;
@@ -277,7 +278,8 @@ export interface QualiData {
 }
 
 /**
- * Live qualifying, written by normalize() (scripts/lib/qualiLive.ts): the segments started so far. The timing
+ * Qualifying as the timing screen has it: live, written by normalize() (scripts/lib/qualiLive.ts), the segments
+ * started so far; a finished session, by quali.ts from its segments. The timing
  * screen's order and gaps are in `positions` and `intervals`: by best lap in the segment running, the cars knocked
  * out below in the order they went out in, with their gaps in that segment.
  */

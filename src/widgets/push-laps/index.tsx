@@ -196,12 +196,12 @@ export default defineWidget({
   id: "push-laps",
   name: "Push laps",
   group: "analysis",
-  description: "Practice's quali simulations set by set: the first and best push lap, how many, and the drop from the 1st push to the 2nd (thermal degradation).",
+  description: "Push laps set by set (practice's quali simulations): the first and best push lap, how many, and the drop from the 1st push to the 2nd (thermal degradation).",
   version: "1.0.0",
   // Fills its column and scrolls inside.
   height: { min: 160 },
   width: { min: 24, default: 34, max: 60 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: {},
   Component: PushLaps,
 });

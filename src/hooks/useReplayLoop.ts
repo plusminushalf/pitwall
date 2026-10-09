@@ -18,7 +18,7 @@ export function useReplayLoop() {
     const frame = (now: number) => {
       const dt = now - last;
       last = now;
-      const { playing, speed, session, publish, setPlaying, mode, followLive, live, goLive, stream, practiceView } = useReplay.getState();
+      const { playing, speed, session, publish, setPlaying, mode, followLive, live, goLive, stream, screen } = useReplay.getState();
       let moved = false;
       if (session && mode === "live") {
         const ended = live.state === "ended";
@@ -34,7 +34,7 @@ export function useReplayLoop() {
           if (clock.t >= target) goLive();
           else moved = true;
         }
-      } else if (playing && session && !comparing({ session, practiceView })) {
+      } else if (playing && session && !comparing({ session, screen })) {
         // (The lap comparison plays its ghost laps instead: the replay stays where it was left.)
         // A race streamed while it downloads only plays as far as what's in (and waits there for more).
         const { duration } = session.meta;

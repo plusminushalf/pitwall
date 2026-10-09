@@ -172,7 +172,7 @@ export default defineWidget({
   // Header, column labels, eleven team rows and the note; fills its column and scrolls inside (drivers).
   height: { min: 30 + 25 + 11 * 24 + 25 },
   width: { min: 24, default: 34, max: 60 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: { by: "teams" as By },
   fields: {
     by: {

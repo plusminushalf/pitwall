@@ -1,7 +1,8 @@
 // Live qualifying on top of normalize(), which times it like free practice (practice.ts): from the green light, with
 // no lap time for the laps either side of a garage visit. Here: the Q1/Q2/Q3 segments from race control as they
 // happen, and the timing screen's order through them. A finished qualifying session is ingested by quali.ts instead
-// (lap traces, the official classification). Pure: no file or network I/O.
+// (lap traces, the official classification), which takes the timing screen's order from here too. Pure: no file or
+// network I/O.
 
 import { inSegment } from "../../src/engine/qualiPhase";
 import type { IntervalEvent, Lap, LiveQualiSegment, Ms, PositionEvent, RaceControlMsg } from "../../src/types";
@@ -9,7 +10,7 @@ import type { IntervalEvent, Lap, LiveQualiSegment, Ms, PositionEvent, RaceContr
 const MIN = 60_000;
 
 /** Scheduled running time of each segment: 18, 15 and 12 minutes (13 from 2026); sprint qualifying 12, 10 and 8. */
-function lengthsOf(sprint: boolean, year: number): Ms[] {
+export function segmentLengths(sprint: boolean, year: number): Ms[] {
   return (sprint ? [12, 10, 8] : [18, 15, year >= 2026 ? 13 : 12]).map((m) => m * MIN);
 }
 
@@ -22,7 +23,7 @@ export function liveSegments(
   raceControl: readonly Pick<RaceControlMsg, "t" | "category" | "flag" | "scope" | "message">[],
   opts: { sprint: boolean; year: number; entries: number },
 ): LiveQualiSegment[] {
-  const lengths = lengthsOf(opts.sprint, opts.year);
+  const lengths = segmentLengths(opts.sprint, opts.year);
   const prefix = opts.sprint ? "SQ" : "Q";
   const advances = [10 + Math.ceil(Math.max(0, opts.entries - 10) / 2), 10, null];
   const segments: LiveQualiSegment[] = [];

@@ -8,7 +8,7 @@ import { COLUMNS, type Layout } from "../grid/layout";
 import { parseLayout, type GridKind } from "../grid/storage";
 import { useLayout } from "../grid/store";
 import { useQuali } from "../qualiStore";
-import { comparing, useReplay } from "../store";
+import { comparing, screenInLink, useReplay } from "../store";
 import { circuitPath, urlFor, type UrlState } from "../url";
 import { encodeLayout } from "./layoutCode";
 
@@ -40,9 +40,8 @@ export async function shareLink(): Promise<string> {
   const meta = s.session?.meta;
   if (!meta) return siteOrigin() + location.pathname;
   const compare = comparing(s);
-  const state: UrlState = { live: false, session: meta.sessionKey, drivers: s.selected, focus: s.focused };
+  const state: UrlState = { live: false, session: meta.sessionKey, drivers: s.selected, focus: s.focused, view: screenInLink(s) };
   if (compare) {
-    if (meta.practice) state.view = "laps";
     state.compare = useQuali.getState().link();
   } else {
     state.t = s.t;

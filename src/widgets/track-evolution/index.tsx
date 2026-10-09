@@ -306,7 +306,7 @@ export default defineWidget({
   // Fills its column: a taller chart separates close lap times better.
   height: { min: 240 },
   width: { min: 24, default: 40, max: 100 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: {},
   Component: TrackEvolution,
 });

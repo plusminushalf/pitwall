@@ -10,7 +10,7 @@ import type { LiveMessage, LiveState, LiveStatus } from "./live/protocol";
 import { connectVaultLive, type LiveAccount, type LiveStall, type VaultLiveConnection } from "./live/vault";
 import { fetchSession, listPlayable } from "./storage/load";
 import { getVault } from "./vault/client";
-import type { SessionIndexEntry } from "./types";
+import type { SessionIndexEntry, SessionMeta } from "./types";
 import { circuitPath, livePath, readUrl, sessionPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
@@ -32,15 +32,18 @@ export type Mode = "replay" | "live";
  */
 export type View = "home" | "circuit" | "replay";
 
-/** A finished practice session's two screens: the replay, or the Fastest laps comparison (in the URL: `view=laps`). */
-export type PracticeView = "replay" | "laps";
+/**
+ * A finished session's two screens: the replay, or its laps compared (the Fastest laps). Practice opens on the replay
+ * (in the URL: `view=laps` for the other), qualifying on its laps (`view=replay`).
+ */
+export type SessionScreen = "replay" | "laps";
 
-/** Where to open a session: replay time (ms), drivers, focus, and (practice) the screen. */
+/** Where to open a session: replay time (ms), drivers, focus, and (practice, qualifying) the screen. */
 export interface OpenOpts {
   t?: number;
   drivers?: number[];
   focus?: number | null;
-  view?: PracticeView;
+  view?: SessionScreen;
   /** The lap charts' lap window (lapWindow). */
   range?: LapWindow;
 }
@@ -55,12 +58,25 @@ const lapWindowOf = (w: LapWindow | null | undefined): LapWindow | null => {
   return [from, Math.max(from + 1, Math.round(Math.max(w[0], w[1])))];
 };
 
+/** The screen a session opens on: qualifying's laps compared, any other's replay. */
+export const firstScreen = (meta: SessionMeta): SessionScreen => (meta.quali ? "laps" : "replay");
+
+/** Qualifying stored before it was timed as live (Qualifying format 3) has no replay, only its laps compared. */
+const lapsOnly = (meta: SessionMeta) => meta.quali != null && meta.qualiLive == null;
+
+/** Both screens are there to choose from: a finished session with its laps compared, and its replay. */
+export const hasScreens = (meta: SessionMeta) => canCompare(meta) && !lapsOnly(meta);
+
+/** The screen in a link: the one on screen, if the session has both and it isn't the one it opens on. */
+export const screenInLink = (s: { session: Session | null; screen: SessionScreen }): SessionScreen | undefined =>
+  s.session && hasScreens(s.session.meta) && s.screen !== firstScreen(s.session.meta) ? s.screen : undefined;
+
 /**
- * The lap comparison is on screen instead of the replay: qualifying (it has nothing else), or finished practice's
- * Fastest laps. Its play controls drive the ghost laps; the replay's clock stays where it is.
+ * The lap comparison is on screen instead of the replay: qualifying's (unless its replay was chosen), or finished
+ * practice's Fastest laps. Its play controls drive the ghost laps; the replay's clock stays where it is.
  */
-export const comparing = (s: { session: Session | null; practiceView: PracticeView }): boolean =>
-  s.session != null && (s.session.meta.quali != null || (s.practiceView === "laps" && canCompare(s.session.meta)));
+export const comparing = (s: { session: Session | null; screen: SessionScreen }): boolean =>
+  s.session != null && canCompare(s.session.meta) && (s.screen === "laps" || lapsOnly(s.session.meta));
 
 /** Home, unless the link opens a session, live mode or a circuit. */
 const initialUrl = typeof location === "undefined" ? null : readUrl(location.pathname, location.search);
@@ -332,8 +348,8 @@ interface ReplayState {
   watchedTo: number;
   /** The race on screen is being watched while it downloads (null otherwise). */
   stream: StreamState | null;
-  /** A finished practice session: the replay or the Fastest laps (shown once it can compare laps, see comparing()). */
-  practiceView: PracticeView;
+  /** A finished session: the replay or the Fastest laps (shown once it can compare laps, see comparing()). */
+  screen: SessionScreen;
   /**
    * The laps the lap charts (gaps, stint pace, tyres) show, picked on the timeline's zoom rail; null: the whole race.
    * Kept per session: opening another one shows it whole.
@@ -390,8 +406,8 @@ interface ReplayState {
   streamUpdate: (u: StreamUpdate) => void;
   /** The download being watched is done: swap in the stored replay, where it is. */
   streamDone: (key: number) => Promise<void>;
-  /** Practice: the replay or the Fastest laps. Pauses: each plays on its own (the replay, or the ghost laps). */
-  setPracticeView: (view: PracticeView) => void;
+  /** The replay or the Fastest laps. Pauses: each plays on its own (the replay, or the ghost laps). */
+  setScreen: (view: SessionScreen) => void;
   /** Zoom the lap charts to these laps; null: the whole race. */
   setLapWindow: (w: LapWindow | null) => void;
 }
@@ -530,7 +546,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     noSpoilers: false,
     watchedTo: 0,
     stream: null,
-    practiceView: "replay",
+    screen: "replay",
     lapWindow: null,
 
     loadIndex: async () => {
@@ -566,11 +582,11 @@ export const useReplay = create<ReplayState>((set, get) => {
         // Spoilers: asked about for each race opened (unless an answer is saved); a reload keeps the choice.
         const prev = get();
         const noSpoilers = session.meta.quali ? false : prev.session?.meta.sessionKey === key ? prev.noSpoilers : spoilerChoice(prev.spoilerPref);
-        // Practice: the screen asked for (a link), else the one it was on (reloaded), else the replay.
-        const practiceView = opts.view ?? (prev.session?.meta.sessionKey === key ? prev.practiceView : "replay");
+        // The screen asked for (a link), else the one it was on (reloaded), else the one it opens on.
+        const screen = opts.view ?? (prev.session?.meta.sessionKey === key ? prev.screen : firstScreen(session.meta));
         // The lap window: a link's, else the one it had (reloaded), else the whole race.
         const lapWindow = opts.range ? lapWindowOf(opts.range) : prev.session?.meta.sessionKey === key ? prev.lapWindow : null;
-        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers, practiceView, lapWindow });
+        set({ session, loading: null, selected, focused: focus, watchedTo: last?.watchedTo ?? 0, noSpoilers, screen, lapWindow });
         get().publish();
         // (Not when the race on screen is reloaded where it was: an update.)
         if (prev.session?.meta.sessionKey !== key) autoplay();
@@ -840,7 +856,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         lapWindow: lapWindowOf(opts.range),
         stream: { key, spans: [], opts: opts.t == null && last ? { ...opts, t: last.t } : opts, finishing: false },
         // The Fastest laps open once the download is done (it compares every lap); until then the replay plays.
-        practiceView: opts.view ?? "replay",
+        screen: opts.view ?? "replay",
       });
       reportPlayhead(true);
     },
@@ -884,14 +900,14 @@ export const useReplay = create<ReplayState>((set, get) => {
           const selected = [...new Set(opts.drivers ?? [])].filter((n) => stored.drivers.has(n));
           const focused = opts.focus != null && stored.drivers.has(opts.focus) ? opts.focus : null;
           const noSpoilers = stored.meta.quali ? false : spoilerChoice(s.spoilerPref);
-          set({ session: stored, stream: null, selected, focused, noSpoilers, lapWindow: lapWindowOf(opts.range) });
+          set({ session: stored, stream: null, selected, focused, noSpoilers, lapWindow: lapWindowOf(opts.range), screen: opts.view ?? firstScreen(stored.meta) });
           autoplay();
         } else {
           // The same race, as stored: carry on where it is. (Practice asked for its Fastest laps: they open now, paused.)
           clock.t = Math.min(clock.t, stored.meta.duration);
           const selected = s.selected.filter((n) => stored.drivers.has(n));
           const focused = s.focused != null && stored.drivers.has(s.focused) ? s.focused : null;
-          const laps = comparing({ session: stored, practiceView: s.practiceView });
+          const laps = comparing({ session: stored, screen: s.screen });
           set({ session: stored, stream: null, selected, focused, ...(laps ? { playing: false, latched: false } : {}) });
         }
       } catch (e) {
@@ -902,9 +918,9 @@ export const useReplay = create<ReplayState>((set, get) => {
       get().publish();
     },
 
-    setPracticeView: (practiceView) => {
-      if (practiceView === get().practiceView) return;
-      set({ practiceView, playing: false, latched: false });
+    setScreen: (screen) => {
+      if (screen === get().screen) return;
+      set({ screen, playing: false, latched: false });
       get().publish();
     },
 

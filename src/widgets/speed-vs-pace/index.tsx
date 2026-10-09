@@ -125,7 +125,7 @@ function SpeedVsPace() {
   const size = useWidgetSize();
   const [hover, setHover] = useState<string | null>(null);
 
-  // Laps race control has deleted by now (practice), as "driver:lap": a re-render when one goes, not at 10 Hz.
+  // Laps race control has deleted by now (practice, qualifying), as "driver:lap": a re-render when one goes, not at 10 Hz.
   const deletions = useMemo(() => [...laps].flatMap(([n, own]) => own.flatMap((l) => (l.deleted ? [{ key: `${n}:${l.lap}`, t: l.deleted.t }] : []))), [laps]);
   const deletedKey = useTime((t) => deletions.filter((d) => t >= d.t).map((d) => d.key).join());
   const deleted = useMemo(() => new Set(deletedKey ? deletedKey.split(",") : []), [deletedKey]);
@@ -329,12 +329,12 @@ export default defineWidget({
   id: "speed-vs-pace",
   name: "Speed vs lap time",
   group: "analysis",
-  description: "Practice: each car's top speed on its push laps against its best lap. Drag level and where the lap time comes from.",
+  description: "Each car's top speed on its push laps against its best lap. Drag level and where the lap time comes from.",
   version: "1.0.0",
   // Fills its column: a taller chart spreads the field out.
   height: { min: 260 },
   width: { min: 24, default: 34, max: 60 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: { by: "driver" as By },
   fields: {
     by: {

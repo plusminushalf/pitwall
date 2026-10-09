@@ -1,7 +1,6 @@
 import { Icon } from "../widgetkit/ui/Icon";
 import { Label, Stat } from "../widgetkit/ui/Label";
 import { circuitSlug } from "../circuit";
-import { canCompare } from "../data/compare";
 import { qualiPhaseAt } from "../engine/qualiPhase";
 import { raceDistanceAt } from "../engine/raceDistance";
 import type { RaceState } from "../engine/raceState";
@@ -10,7 +9,7 @@ import { useLayout } from "../grid/store";
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format";
 import { useQuali } from "../qualiStore";
 import { usePhone } from "../hooks/usePhone";
-import { comparing, useReplay, type PracticeView } from "../store";
+import { comparing, hasScreens, screenInLink, useReplay, type SessionScreen } from "../store";
 import type { SessionMeta, WeatherSample } from "../types";
 import { ShareButton } from "../share/ShareShot";
 import { LiveControl } from "./LiveControl";
@@ -46,9 +45,8 @@ export function SessionPicker({ meta, compact = false }: { meta: SessionMeta; co
         onChange={(e) => {
           // Blur so the keyboard shortcuts (ignored while a <select> has focus) keep working.
           e.currentTarget.blur();
-          // From practice's Fastest laps, another practice session opens in its Fastest laps too.
-          const s = useReplay.getState();
-          loadSession(Number(e.target.value), { view: comparing(s) && s.session?.meta.practice ? "laps" : undefined });
+          // From practice's Fastest laps (qualifying's replay), another session opens on them too, if it has them.
+          loadSession(Number(e.target.value), { view: screenInLink(useReplay.getState()) });
         }}
         className={`max-w-full cursor-pointer self-start truncate field-sizing-content rounded bg-transparent pr-1 text-sm font-semibold text-zinc-100 hover:bg-zinc-900 ${compact ? "h-11" : "py-0.5"}`}
         title="Choose a session"
@@ -84,25 +82,25 @@ export function SessionPicker({ meta, compact = false }: { meta: SessionMeta; co
   );
 }
 
-const VIEWS: { id: PracticeView; label: string; title: string }[] = [
+const VIEWS: { id: SessionScreen; label: string; title: string }[] = [
   { id: "replay", label: "Replay", title: "The session as it happened" },
   { id: "laps", label: "Fastest laps", title: "The whole session's laps compared: speed, throttle, brake and gear along the lap, and who's fastest where" },
 ];
 
 /**
- * Finished practice: the replay, or its laps compared as in qualifying. Only once it's downloaded (the comparison needs
+ * Finished practice and qualifying: the replay, or the laps compared. Only once it's downloaded (the comparison needs
  * every lap's trace): live, and while it streams, there's only the replay.
  */
-export function PracticeViewSwitch() {
-  const shown = useReplay((s) => (s.session?.meta.practice && s.mode === "replay" && canCompare(s.session.meta) ? (comparing(s) ? "laps" : "replay") : null));
+export function ScreenSwitch() {
+  const shown = useReplay((s) => (s.session && s.mode === "replay" && hasScreens(s.session.meta) ? (comparing(s) ? "laps" : "replay") : null));
   if (!shown) return null;
-  const choose = (view: PracticeView, e: { currentTarget: HTMLButtonElement }) => {
+  const choose = (view: SessionScreen, e: { currentTarget: HTMLButtonElement }) => {
     e.currentTarget.blur();
     const s = useReplay.getState();
     // Back to the replay: if the comparison picked its drivers itself, the replay's selection goes back to none.
     const picked = useQuali.getState().autoPicked;
     if (view === "replay" && picked && picked.length === s.selected.length && picked.every((n, i) => s.selected[i] === n)) s.clearSelection();
-    s.setPracticeView(view);
+    s.setScreen(view);
   };
   return (
     <div className="flex shrink-0 rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Screen">
@@ -490,7 +488,7 @@ export function Header() {
           </Stat>
           {statusPill}
           <span className="flex-1" />
-          <PracticeViewSwitch />
+          <ScreenSwitch />
         </div>
       </header>
     );
@@ -501,7 +499,7 @@ export function Header() {
       <div className="flex min-w-0 items-center gap-3">
         <RacesButton />
         <SessionPicker meta={meta} />
-        <PracticeViewSwitch />
+        <ScreenSwitch />
         <LiveControl />
       </div>
 

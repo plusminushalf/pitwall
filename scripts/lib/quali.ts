@@ -11,7 +11,8 @@ import type { RawLap, RawPit, RawRaceControl, RawResult, RawSession } from "./op
 import { deletedLaps } from "./deletedLaps";
 import { buildLapTraces, chainLapStarts, lerpAt, lineCrossings, median, quantile, timingLine } from "./lapTraces";
 import type { CleanTelemetry, NormalizeResult } from "./normalize";
-import type { DriverLapTraces, Lap, Ms, QualiData, QualiLap, QualiResult, QualiSegment, TrackStatusEvent } from "../../src/types";
+import { qualiStandings, segmentLengths } from "./qualiLive";
+import type { DriverLapTraces, Lap, LiveQualiSegment, Ms, QualiData, QualiLap, QualiResult, QualiSegment, TrackStatusEvent } from "../../src/types";
 
 export interface QualiInput {
   session: RawSession;
@@ -107,7 +108,9 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   // normalize() stops at the first chequered flag (a race ends there); here every segment ends
   // with one, and red flags suspend a segment until it's restarted.
   const status: TrackStatusEvent[] = [{ t: 0, status: "GREEN" }];
-  for (const seg of segments) {
+  // Each segment's red flags, for its clock (meta.qualiLive).
+  const stopped = segments.map(() => [] as { from: Ms; to: Ms | null }[]);
+  for (const [i, seg] of segments.entries()) {
     status.push({ t: seg.start, status: "GREEN" });
     let red = false;
     for (const m of meta.raceControl) {
@@ -115,12 +118,15 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
       const msg = m.message.toUpperCase();
       if (!red && (m.flag === "RED" || msg.startsWith("RED FLAG"))) {
         status.push({ t: m.t, status: "RED" });
+        stopped[i].push({ from: m.t, to: null });
         red = true;
       } else if (red && ((m.category === "SessionStatus" && /STARTED|RESUMED/.test(msg)) || (m.flag === "GREEN" && m.scope === "Track"))) {
         status.push({ t: m.t, status: "GREEN" });
+        stopped[i].at(-1)!.to = m.t;
         red = false;
       }
     }
+    if (red) stopped[i].at(-1)!.to = seg.end;
     status.push({ t: seg.end, status: "CHEQUERED" });
   }
   meta.trackStatus = status.filter((e, i, arr) => e.t <= meta.duration && (i === 0 || arr[i - 1].status !== e.status));
@@ -183,6 +189,11 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
 
   const { deleted: deletions, unmatched: unmatchedDeletions } = deletedLaps(meta.raceControl, lapsOf, meta.gmtOffset, t0);
   const deleted = new Map([...deletions].map(([key, d]) => [key, d.reason])); // `${driver}:${lap}` -> reason
+  // On the laps too, with when, as live qualifying and practice have them (the replay's widgets read them).
+  for (const l of meta.laps) {
+    const d = deletions.get(`${l.driver}:${l.lap}`);
+    if (d) l.deleted = { t: d.t, reason: d.reason };
+  }
   if (unmatchedDeletions) problems.push(`${unmatchedDeletions} deleted-lap messages matched no lap`);
 
   // ---------------------------------------------------------------- lap attribution
@@ -316,5 +327,16 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
 
   const data: QualiData = { segments, laps: qualiLaps, results, lapLength: Math.round(lapLength * 10) / 10, sectorDistances: [Math.round(sectorDistances[0] * 10) / 10, Math.round(sectorDistances[1] * 10) / 10] };
   meta.quali = data;
+
+  // ---------------------------------------------------------------- timed as live qualifying is
+
+  // So the replay is the live screen's (segment clock, cut, the order by segment) with its dashboards: the segments
+  // with their running times and red flags, and the timing screen's order and gaps in place of OpenF1's.
+  const lengths = segmentLengths(prefix === "SQ", raw.session.year);
+  const timing: LiveQualiSegment[] = segments.map((s, i) => ({ ...s, length: lengths[i] ?? lengths.at(-1)!, stopped: stopped[i] }));
+  meta.qualiLive = { segments: timing };
+  const standings = qualiStandings(meta.laps, meta.drivers.map((d) => d.number), timing);
+  meta.positions = standings.positions;
+  meta.intervals = standings.intervals;
   return { data, traces, report: { lines, problems } };
 }

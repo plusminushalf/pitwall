@@ -2,6 +2,7 @@
 //   /                                                Home
 //   /session/11377?t=3725&drivers=1,63,55&focus=63   a session: its replay, or the offer to download it
 //   /session/11228?view=laps&drivers=1,63            finished practice's Fastest laps (the lap comparison)
+//   /session/11730?view=replay&t=1200                qualifying's replay (it opens on its laps compared)
 //   /session/11731?t=3725&range=12-30                the lap charts zoomed to laps 12 to 30 (the timeline's zoom rail)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
 //   /circuit/singapore                               a circuit: every session there, and its history (../circuit.ts)
@@ -19,8 +20,8 @@ export interface UrlState {
   t?: number;
   drivers: number[];
   focus: number | null;
-  /** Practice: the Fastest laps instead of the replay. Absent: the replay. */
-  view?: "laps";
+  /** The screen, when it isn't the one the session opens on: practice's Fastest laps, qualifying's replay. */
+  view?: "laps" | "replay";
   /** The lap charts' lap window: first and last lap. Absent: the whole race. */
   range?: [number, number];
   /** A shared link's lap comparison set-up. Absent: the comparison's own defaults. */
@@ -85,7 +86,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     t: t != null ? t * 1000 : undefined,
     drivers,
     focus: num("focus") ?? legacy,
-    ...(path && q.get("view") === "laps" ? { view: "laps" as const } : {}),
+    ...(path && (q.get("view") === "laps" || q.get("view") === "replay") ? { view: q.get("view") as "laps" | "replay" } : {}),
     ...(path && range && Number(range[1]) >= 1 && Number(range[1]) < Number(range[2]) ? { range: [Number(range[1]), Number(range[2])] as [number, number] } : {}),
     ...(path ? readShared(q) : {}),
     ...(DASHBOARD_ID.test(q.get("dash") ?? "") ? { dash: q.get("dash")! } : {}),
@@ -120,7 +121,7 @@ function readShared(q: URLSearchParams): Pick<UrlState, "compare" | "layout"> {
 export function urlFor(v: UrlState): string {
   if (!v.live && v.session == null) return v.circuit ? circuitPath(v.circuit) : "/";
   const q: string[] = [];
-  if (!v.live && v.view === "laps") q.push("view=laps");
+  if (!v.live && v.view) q.push(`view=${v.view}`);
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
   if (v.drivers.length > 0) q.push(`drivers=${v.drivers.join(",")}`);
   if (v.focus != null) q.push(`focus=${v.focus}`);

@@ -112,7 +112,8 @@ describe("format version", () => {
     expect(formatVersion("Race")).toBe(2);
     expect(formatVersion(undefined)).toBe(formatVersion("Race"));
     expect(isCurrentFormat({ format: 1, sessionType: "Practice" })).toBe(false);
-    expect(isCurrentFormat({ format: 1, sessionType: "Qualifying" })).toBe(true);
+    expect(isCurrentFormat({ format: 2, sessionType: "Qualifying" })).toBe(false);
+    expect(isCurrentFormat({ format: formatVersion("Qualifying"), sessionType: "Qualifying" })).toBe(true);
   });
 });
 

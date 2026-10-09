@@ -210,12 +210,12 @@ export default defineWidget({
   id: "pace-order",
   name: "Pace order",
   group: "analysis",
-  description: "Practice's order: every driver's best valid lap so far, the tyre it was on, the gap to the quickest, and the ideal lap from their best sectors.",
+  description: "The order by best lap: every driver's best valid lap so far, the tyre it was on, the gap to the quickest, and the ideal lap from their best sectors.",
   version: "1.0.0",
   // Fills its column and scrolls inside.
   height: { min: 200 },
   width: { min: 24, default: 32, max: 60 },
-  sessions: ["practice"],
+  sessions: ["practice", "qualifying"],
   settings: { show: "drivers" as Show },
   fields: {
     show: {
