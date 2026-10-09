@@ -44,6 +44,8 @@
 //     useLapTrace(n, lap, select?)  one completed lap as a distance-aligned trace, to overlay laps (race laps
 //                                are built from the telemetry; see lapDelta and the other compare helpers)
 //     useLapGeometry(select?)    lap length, sector boundaries and corners as distances along the lap
+//     useLiveLap(n, select?)     the lap in progress as far as the car has got, aligned like useLapTrace's
+//     useLiveLaps(select?)       every car's lap in progress: distance covered and time taken
 //     useStints(n, select?)      stints started so far (the current one open)
 //     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
@@ -125,6 +127,8 @@ export {
   useLapGeometry,
   useLapTrace,
   useLapWindow,
+  useLiveLap,
+  useLiveLaps,
   useLaps,
   useLeaderLap,
   useNeutralPeriods,
@@ -147,7 +151,8 @@ export {
   useWeather,
   useWholeSession,
 } from "./hooks";
-export type { Playback, Radio, Select, Selection } from "./hooks";
+export type { LapProgress, Playback, Radio, Select, Selection } from "./hooks";
+export type { LiveLap } from "../engine/lapTrace";
 export type { LapWindow } from "../engine/lapWindow";
 export { segmentBest, standingOf, type QualiPhase, type QualiStanding } from "../engine/qualiPhase";
 export { isPhone, useCoarsePointer, usePhone } from "../hooks/usePhone";

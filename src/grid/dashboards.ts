@@ -36,7 +36,7 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
   ],
   qualifying: [
-    { id: "overview", name: "Overview", description: "The order by segment with its cut, the map and the feed, and the selected drivers' best laps overlaid", layout: QUALI_LAYOUT },
+    { id: "overview", name: "Overview", description: "The order by segment with its cut, the map and the feed, and the push laps being driven, followed live", layout: QUALI_LAYOUT },
     { id: "telemetry", name: "Telemetry", description: "The selected drivers' laps overlaid: speed, throttle, brake and gear along the lap", layout: TELEMETRY_LAYOUT },
   ],
 };

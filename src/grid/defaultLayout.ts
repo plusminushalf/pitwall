@@ -61,7 +61,7 @@ export const PRACTICE_LAYOUT: Layout = {
 
 /**
  * Live qualifying: the tower down the left, full height (the order by segment and its cut is what's watched), the map
- * and the feed beside it, and under them the selected drivers' best laps overlaid.
+ * and the feed beside it, and under them the push laps being driven, the ones followed drawn as they go.
  */
 const QUALI_TOWER = 14;
 const QUALI_MAP = 13;
@@ -72,7 +72,7 @@ export const QUALI_LAYOUT: Layout = {
     "timing-tower": at(0, 0, QUALI_TOWER),
     "track-map": at(QUALI_TOWER, 0, QUALI_MAP, { height: TOP }),
     "race-feed": at(QUALI_TOWER + QUALI_MAP, 0, COLUMNS - QUALI_TOWER - QUALI_MAP, { height: TOP }),
-    "lap-compare": at(QUALI_TOWER, 1, COLUMNS - QUALI_TOWER),
+    "live-laps": at(QUALI_TOWER, 1, COLUMNS - QUALI_TOWER),
   },
 };
 

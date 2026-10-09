@@ -329,3 +329,91 @@ function build(session: Session, n: number, lapNo: number): DecodedLap | null {
   }
   return { driver: n, lap: lapNo, t, d: dist, speed, throttle, brake, gear, x, y, duration: t[m - 1], length: lapLength };
 }
+
+// ---------------------------------------------------------------- the lap in progress
+
+/** A car's lap in progress at t, as far as it has got: what a live push lap is followed with. */
+export interface LiveLap {
+  driver: number;
+  lap: number;
+  /** When it started (ms since t0, chained as a finished lap's start is). */
+  start: number;
+  /** An out-lap (from the pit exit): not a push lap. */
+  pitOut: boolean;
+  /**
+   * Distance-aligned up to the car's latest sample at or before t (`duration`: ms into the lap there, `length`: metres
+   * covered). Pinned at the sector 2 and 3 boundaries once their official times are in; past the last pin, the
+   * integrated speed.
+   */
+  trace: DecodedLap;
+}
+
+const liveCache = new WeakMap<CarSeries, LiveLap & { last: number }>();
+
+/**
+ * Car n's lap in progress at t (null between laps, before its first, when no lap length is known yet, or without car
+ * data since the line). Spoiler-free: reads nothing after t. Cached per car until a new sample or lap.
+ */
+export function liveLapOf(session: Session, n: number, t: number): LiveLap | null {
+  const d = session.drivers.get(n);
+  if (!d) return null;
+  const li = indexAtOrBefore(d.lapStarts, t);
+  if (li < 0) return null;
+  const l = d.laps[li];
+  if (l.end != null && l.end <= t) return null;
+  const { lapLength, sectorDistances } = lapGeometryOf(session);
+  if (!Number.isFinite(lapLength)) return null;
+  const start = startsOf(d).get(l.lap) ?? l.start;
+  const car = d.car;
+  const last = indexAtOrBefore(car.t, t);
+  if (last < 0 || car.t[last] <= start) return null;
+  const hit = liveCache.get(car);
+  if (hit && hit.lap === l.lap && hit.driver === n && hit.last === last && hit.start === start) return hit;
+
+  let first = indexAtOrBefore(car.t, start) + 1;
+  if (first < 0) first = 0;
+  const times = [start];
+  for (let i = first; i <= last; i++) if (car.t[i] > start) times.push(car.t[i]);
+  const m = times.length;
+  const tt = Float64Array.from(times);
+  const v = Float64Array.from(times, (x) => lerpClamped(car.t, car.speed, x));
+  const D = new Float64Array(m);
+  for (let k = 1; k < m; k++) D[k] = D[k - 1] + (((v[k - 1] + v[k]) / 2 / 3.6) * (tt[k] - tt[k - 1])) / 1000;
+  // Pins: the sector boundaries the official times have placed so far; past the last, the integrated distance.
+  const pins: [number, number][] = [[start, 0]];
+  const [a, b] = sectorTimes(l, start, tt[m - 1] + 1);
+  if (a != null && Number.isFinite(sectorDistances[0])) pins.push([a, sectorDistances[0]]);
+  if (b != null && Number.isFinite(sectorDistances[1])) pins.push([b, sectorDistances[1]]);
+  const dAt = (x: number) => lerpClamped(tt, D, x);
+  const dist = new Float64Array(m);
+  for (let k = 0; k < m; k++) {
+    const x = tt[k];
+    let j = 0;
+    while (j + 1 < pins.length && pins[j + 1][0] <= x) j++;
+    const [t0, d0] = pins[j];
+    const next = pins[j + 1];
+    const raw = dAt(x) - dAt(t0);
+    const span = next ? dAt(next[0]) - dAt(t0) : 0;
+    dist[k] = Math.min(lapLength, next && span > 0 ? d0 + (raw / span) * (next[1] - d0) : d0 + raw);
+    if (k > 0) dist[k] = Math.max(dist[k], dist[k - 1]);
+  }
+  const step = (arr: ArrayLike<number>, x: number) => arr[Math.max(0, indexAtOrBefore(car.t, x))];
+  const hasLoc = d.loc.t.length > 0;
+  const trace: DecodedLap = {
+    driver: n,
+    lap: l.lap,
+    t: Float64Array.from(tt, (x) => x - start),
+    d: dist,
+    speed: Float32Array.from(v),
+    throttle: Float32Array.from(tt, (x) => lerpClamped(car.t, car.throttle, x)),
+    brake: Uint8Array.from(tt, (x) => (step(car.brake, x) > 0 ? 100 : 0)),
+    gear: Uint8Array.from(tt, (x) => step(car.gear, x)),
+    x: Float32Array.from(tt, (x) => (hasLoc ? lerpClamped(d.loc.t, d.loc.x, x) : 0)),
+    y: Float32Array.from(tt, (x) => (hasLoc ? lerpClamped(d.loc.t, d.loc.y, x) : 0)),
+    duration: tt[m - 1] - start,
+    length: dist[m - 1],
+  };
+  const out = { driver: n, lap: l.lap, start, pitOut: l.pitOut, trace, last };
+  liveCache.set(car, out);
+  return out;
+}

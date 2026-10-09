@@ -6,7 +6,7 @@
 import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import type { Session } from "../data/session";
 import type { DecodedLap } from "../engine/compare";
-import { lapGeometryOf, lapTraceOf, type LapGeometry } from "../engine/lapTrace";
+import { lapGeometryOf, lapTraceOf, liveLapOf, type LapGeometry, type LiveLap } from "../engine/lapTrace";
 import { lapWindowIn, type LapWindow } from "../engine/lapWindow";
 import { qualiPhaseAt, type QualiPhase } from "../engine/qualiPhase";
 import { raceDistanceAt } from "../engine/raceDistance";
@@ -338,6 +338,38 @@ export function useLapTrace<R = DecodedLap>(n: number | null, lap: number | null
     [n, lap],
     orNull(select),
   ) as R | null;
+}
+
+/**
+ * API gap: car n's lap in progress at t, as far as it has got (distance-aligned like useLapTrace's, growing as the
+ * car goes): to follow a live push lap. Null between laps, before a lap length is known, or without car data.
+ */
+export function useLiveLap<R = LiveLap>(n: number | null, select?: Select<LiveLap, R>): R | null {
+  return useKit((s) => (n == null ? null : liveLapOf(s.session, n, s.t)), [n], orNull(select)) as R | null;
+}
+
+/** Where a car is on its lap in progress (useLiveLaps). */
+export interface LapProgress {
+  driver: number;
+  lap: number;
+  pitOut: boolean;
+  /** Metres from the line. */
+  distance: number;
+  /** Ms into the lap at that distance. */
+  elapsed: number;
+}
+
+/** API gap: every car's lap in progress at t (cars between laps or without car data left out), in session order. */
+export function useLiveLaps<R = readonly LapProgress[]>(select?: Select<readonly LapProgress[], R>): R {
+  return useKit(
+    (s) =>
+      s.session.driverNumbers.flatMap((n): LapProgress[] => {
+        const l = liveLapOf(s.session, n, s.t);
+        return l ? [{ driver: n, lap: l.lap, pitOut: l.pitOut, distance: l.trace.length, elapsed: l.trace.duration }] : [];
+      }),
+    [],
+    select,
+  );
 }
 
 /**
