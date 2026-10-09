@@ -28,8 +28,10 @@ type Settings = { by: By };
 /** The header line (py-1.5 around a 20 px control) and the one-line note under the chart. */
 const HEAD_H = 33;
 const FOOT_H = 25;
+/** Px along the plot's top and bottom kept for the quadrant captions. */
+const CAPTION_BAND = 18;
 /** Seconds: slower than this to the fastest lap, a dot is drawn at it (its tooltip has the real gap). */
-const GAP_CAP = 2.5;
+const GAP_CAP = 3;
 /** Room for the gap labels and the rotated axis title (left), the speeds and their title (bottom). */
 const M = { left: 52, right: 14, top: 10, bottom: 32 };
 const DOT_R = 5;
@@ -165,7 +167,8 @@ function SpeedVsPace() {
     const yLo = -Math.max(yHi * 0.04, 0.03);
     const xOf = (v: number) => plotL + ((v - xLo) / (xHi - xLo)) * plotW;
     // Fastest at the top.
-    const yOf = (g: number) => plotT + ((Math.min(g, top) - yLo) / (yHi - yLo)) * plotH;
+    // (No dot in the CAPTION_BAND along the top and bottom: the quadrants' captions are there.)
+    const yOf = (g: number) => plotT + CAPTION_BAND + ((Math.min(g, top) - yLo) / (yHi - yLo)) * (plotH - 2 * CAPTION_BAND);
 
     const order = new Map(drivers.map((d, i) => [d.number, i]));
     const placed = [...all]
@@ -241,7 +244,7 @@ function SpeedVsPace() {
         {!chart ? (
           <p className="px-3 py-6 text-center text-xs text-zinc-400">No laps that count yet</p>
         ) : (
-          <svg width={w} height={h} className="block" role="img" aria-label="Top speed against gap to the fastest lap, a dot per driver" style={{ fontFamily: FONT }}>
+          <svg data-shot-fill="" width={w} height={h} className="block" role="img" aria-label="Top speed against gap to the fastest lap, a dot per driver" style={{ fontFamily: FONT }}>
             {/* Grid and axes. */}
             {chart.yTicks.map((v) => (
               <g key={`y${v}`}>

@@ -67,7 +67,10 @@ export interface CardPanel {
   width: number;
   /** A widget (framed by hairlines): as tall as it is on screen (CSS px). A section is as tall as it lays out. */
   height?: number;
-  /** A widget that's only as tall as what's in it, up to `height`: one that doesn't draw to its height (no canvas). */
+  /**
+   * A widget that's only as tall as what's in it, up to `height`: one that doesn't draw to its height (no canvas, nor
+   * an element marked data-shot-fill: an SVG chart sized from useWidgetSize()).
+   */
   fit?: boolean;
 }
 
@@ -75,7 +78,7 @@ const widgetPanel = (hosted: HostedWidget, el: Element): CardPanel => ({
   render: (scale) => <WidgetHost widget={hosted.widget} settings={hosted.settings} circuit={hosted.circuit} pixelRatio={scale} className="h-full w-full overflow-hidden" />,
   width: CARD_WIDTH,
   height: Math.round(el.getBoundingClientRect().height),
-  fit: !el.querySelector("canvas"),
+  fit: !el.querySelector("canvas, [data-shot-fill]"),
 });
 
 /**

@@ -204,7 +204,7 @@ function TrackEvolution() {
       </div>
       <div className="relative min-h-0 flex-1">
         {scale && h > 40 ? (
-          <svg width={w} height={h} role="img" aria-label="Every valid lap by session time, with the fastest lap so far and the 10-minute median of push laps" className="block">
+          <svg data-shot-fill="" width={w} height={h} role="img" aria-label="Every valid lap by session time, with the fastest lap so far and the 10-minute median of push laps" className="block">
             <Frame scale={scale} neutral={neutral} t={t} />
             {dots}
             <Lines model={model} scale={scale} t={t} />
