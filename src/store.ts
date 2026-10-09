@@ -14,6 +14,8 @@ import type { SessionIndexEntry } from "./types";
 import { circuitPath, livePath, readUrl, sessionPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
+/** Key 8 only, not among the timeline's buttons: an hour of practice in half a minute, for screen captures. */
+export const CAPTURE_SPEED = 128;
 
 /**
  * Per-frame replay time. The rAF loop and the track map read/write this directly;

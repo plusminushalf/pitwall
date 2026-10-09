@@ -1,10 +1,10 @@
 import { useEffect } from "react";
 import { useShare } from "../share/ShareShot";
-import { comparing, SPEEDS, useReplay } from "../store";
+import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store";
 
 /**
  * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
- * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× · esc: clear selection · s: share a screenshot
+ * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× (8: a hidden 128×, for captures) · esc: clear selection · s: share a screenshot
  *
  * S works on every page (Home, a circuit's); the others need a session.
  *
@@ -39,7 +39,8 @@ export function useKeyboard() {
       if (compare && !" pPsS".includes(e.key) && e.key !== "Escape") return;
       // Don't let space/arrows also activate whatever button was clicked last.
       if (e.target instanceof HTMLButtonElement) e.target.blur();
-      const speedIndex = SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);
+      // The capture speed sits past the last button: - steps down to 64×.
+      const speedIndex = s.speed === CAPTURE_SPEED ? SPEEDS.length : SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);
       switch (e.key) {
         case " ":
           if (!e.repeat) {
@@ -70,7 +71,7 @@ export function useKeyboard() {
           break;
         case "+":
         case "=":
-          s.setSpeed(SPEEDS[Math.min(SPEEDS.length - 1, speedIndex + 1)]);
+          if (speedIndex < SPEEDS.length) s.setSpeed(SPEEDS[Math.min(SPEEDS.length - 1, speedIndex + 1)]);
           break;
         case "Escape":
           s.clearSelection();
@@ -81,10 +82,10 @@ export function useKeyboard() {
           useShare.getState().start();
           break;
         default: {
-          // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×.
+          // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×, and 8 → the hidden 128×.
           const n = Number(e.key);
-          if (!Number.isInteger(n) || n < 1 || n > SPEEDS.length || e.ctrlKey || e.metaKey || e.altKey) return;
-          s.setSpeed(SPEEDS[n - 1]);
+          if (!Number.isInteger(n) || n < 1 || n > SPEEDS.length + 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+          s.setSpeed(n > SPEEDS.length ? CAPTURE_SPEED : SPEEDS[n - 1]);
         }
       }
       e.preventDefault();
