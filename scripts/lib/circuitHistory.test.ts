@@ -64,9 +64,21 @@ const db: F1db = {
     { id: "monza-7", circuitId: "monza", effective: true, length: 5.793, turns: 11 },
     { id: "monza-0", circuitId: "monza", effective: false, length: 10, turns: 20 },
   ],
-  countries: [{ id: "italy", name: "Italy" }],
+  countries: [{ id: "italy", alpha2Code: "IT", name: "Italy" }],
   grandsPrix: [{ id: "italy", fullName: "Italian Grand Prix" }],
-  drivers: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({ id, name: `Driver ${id}`, lastName: id, abbreviation: id.slice(0, 3).toUpperCase(), nationalityCountryId: "italy" })),
+  drivers: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({
+    id,
+    name: `Driver ${id}`,
+    firstName: "Driver",
+    lastName: id,
+    abbreviation: id.slice(0, 3).toUpperCase(),
+    permanentNumber: null,
+    dateOfBirth: "1990-01-01",
+    dateOfDeath: null,
+    placeOfBirth: "Monza",
+    countryOfBirthCountryId: "italy",
+    nationalityCountryId: "italy",
+  })),
   constructors: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({ id: `${id}-team`, name: `Team ${id}` })),
   // Out of date order, and with next year's race, which hasn't been run.
   races: [race(3, 2025, "monza-7", { sprintRaceDate: "2025-09-06", driversChampionshipDecider: true }), race(1, 1999, "monza-6"), race(2, 2024, "monza-7"), race(4, 2027, "monza-7")],
@@ -81,6 +93,9 @@ const db: F1db = {
   qualifyingResults: [quali(1, "schumacher", { time: "1:22.432", timeMillis: 82432 }), quali(3, "norris", { q1: "1:20.0", q1Millis: 80000, q3: "1:18.792", q3Millis: 78792 })],
   fastestLaps: [fastest(1, "schumacher", 85000), fastest(2, "norris", 81432), fastest(3, "leclerc", 82000)],
   driverOfTheDay: [row(3, 1, "leclerc"), row(3, 2, "norris")],
+  seasonsDrivers: [],
+  seasonsDriverStandings: [],
+  seasonsEntrantsDrivers: [],
 };
 
 describe("buildCircuitHistories", () => {

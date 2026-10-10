@@ -66,6 +66,14 @@ describe("readUrl", () => {
     expect(upgradeUrl("/session/11377", "?dash=strategy")).toBeNull();
   });
 
+  test("a driver's page", () => {
+    expect(readUrl("/driver/max-verstappen", "")).toEqual({ live: false, session: null, t: undefined, drivers: [], focus: null, driver: "max-verstappen" });
+    expect(readUrl("/driver/Max", "").driver).toBeUndefined();
+    expect(urlFor({ live: false, session: null, drivers: [], focus: null, driver: "carlos-sainz-jr" })).toBe("/driver/carlos-sainz-jr");
+    expect(upgradeUrl("/driver/max-verstappen", "")).toBeNull();
+    expect(upgradeUrl("/driver/max-verstappen", "?session=9896&t=60")).toBe("/session/9896?t=60");
+  });
+
   test("a circuit's page; with a session, the session", () => {
     expect(readUrl("/circuit/singapore", "")).toEqual({ live: false, session: null, t: undefined, drivers: [], focus: null, circuit: "singapore" });
     expect(readUrl("/circuit/yas-marina-circuit/", "").circuit).toBe("yas-marina-circuit");

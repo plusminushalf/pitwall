@@ -1,4 +1,4 @@
-// Build the circuit history files (src/history/types.ts) from the latest F1DB release, into public/ so Vite
+// Build the circuit and driver history files (src/history/types.ts) from the latest F1DB release, into public/ so Vite
 // serves them in dev and copies them into dist/ for the deploy. Run by CI before every deploy; the files are
 // built, never committed.
 //
@@ -10,11 +10,13 @@
 import { mkdir, rm } from "node:fs/promises";
 import { F1DB_CIRCUIT } from "../src/history/circuits";
 import { buildCircuitHistories, historySource } from "./lib/circuitHistory";
+import { buildDriverHistories } from "./lib/driverHistory";
 import { F1DB_FILES, type F1db } from "./lib/f1dbTypes";
 
 const REPO = "https://github.com/f1db/f1db";
 const ZIP = "f1db-json-splitted.zip";
 const OUT = "public/history/circuits";
+const DRIVERS_OUT = "public/history/drivers";
 
 /** The latest release's tag, from where GitHub redirects /releases/latest (no API call, so no API rate limit). */
 async function latestRelease(): Promise<string> {
@@ -59,7 +61,9 @@ const zip = await releaseZip(release);
 const entries = await Promise.all(Object.entries(F1DB_FILES).map(async ([table, file]) => [table, await readTable(zip, file)] as const));
 const db = Object.fromEntries(entries) as unknown as F1db;
 
-const { histories, index } = buildCircuitHistories(db, historySource(release, new Date().toISOString()));
+const source = historySource(release, new Date().toISOString());
+const { histories, index } = buildCircuitHistories(db, source);
+const drivers = buildDriverHistories(db, source);
 
 // Every circuit the app can ask for must have a file: a missing one means F1DB renamed a circuit.
 const built = new Set(histories.map((h) => h.circuit.id));
@@ -74,3 +78,13 @@ let bytes = 0;
 for (const h of histories) bytes += await Bun.write(`${OUT}/${h.circuit.id}.json`, JSON.stringify(h));
 bytes += await Bun.write(`${OUT}/index.json`, JSON.stringify(index));
 console.log(`F1DB ${release}: ${histories.length} circuits, ${(bytes / 1024).toFixed(0)} KB in ${OUT}/`);
+
+await rm(DRIVERS_OUT, { recursive: true, force: true });
+await mkdir(DRIVERS_OUT, { recursive: true });
+bytes = 0;
+for (const h of drivers.histories) bytes += await Bun.write(`${DRIVERS_OUT}/${h.driver.id}.json`, JSON.stringify(h));
+bytes += await Bun.write(`${DRIVERS_OUT}/index.json`, JSON.stringify(drivers.index));
+const { year, throughRound } = drivers.index;
+console.log(
+  `F1DB ${release}: ${drivers.histories.length} drivers, ${drivers.index.drivers.length} in ${year} (through R${throughRound}), ${(bytes / 1024).toFixed(0)} KB in ${DRIVERS_OUT}/`,
+);

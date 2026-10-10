@@ -2,6 +2,8 @@
 
 import { CIRCUIT_HISTORY_FORMAT, type CircuitHistory, type CircuitHistoryIndex } from "./types";
 
+export { fetchHistoryFile };
+
 /**
  * F1DB's circuit id for each OpenF1 circuit_key. Keyed by circuit, not by Grand Prix: the 2026 Bahrain Grand Prix,
  * held at Sepang, is circuit_key 12 and gets Sepang's history. A circuit OpenF1 adds needs a line here.
@@ -44,11 +46,11 @@ export const circuitHistoryPath = (f1dbId: string) => `${HISTORY_DIR}/${f1dbId}.
  * A static file, or null if there isn't one: the site answers a missing path with index.html (wrangler.jsonc's
  * single-page-application fallback), and a deploy whose history step failed has no files at all.
  */
-async function fetchHistoryFile<T extends { format: number }>(path: string, signal?: AbortSignal): Promise<T | null> {
+async function fetchHistoryFile<T extends { format: number }>(path: string, signal?: AbortSignal, format = CIRCUIT_HISTORY_FORMAT): Promise<T | null> {
   const res = await fetch(path, { signal });
   if (!res.ok || !res.headers.get("content-type")?.includes("application/json")) return null;
   const body = (await res.json()) as T;
-  return body.format === CIRCUIT_HISTORY_FORMAT ? body : null;
+  return body.format === format ? body : null;
 }
 
 /** The history of an OpenF1 circuit, or null if it isn't mapped or wasn't built. */

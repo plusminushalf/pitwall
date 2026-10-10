@@ -146,3 +146,89 @@ export interface CircuitHistoryIndex {
     lastYear: number;
   }[];
 }
+
+// ---------------------------------------------------------------- drivers
+
+/** Bumped when the driver files' shape changes. */
+export const DRIVER_HISTORY_FORMAT = 1;
+
+/** What a driver did over some seasons: Grands Prix only (sprints aren't counted), points all included. */
+export interface DriverTotals {
+  starts: number;
+  wins: number;
+  podiums: number;
+  poles: number;
+  fastestLaps: number;
+  points: number;
+  /** Drivers' championships. */
+  titles: number;
+}
+
+/** A driver's season. */
+export interface DriverSeason extends DriverTotals {
+  year: number;
+  /** The teams raced for, in the order raced for them. */
+  teams: string[];
+  /** Championship position; null if not classified. */
+  position: number | null;
+}
+
+export interface DriverBio {
+  /** F1DB's driver id ("max-verstappen"): the file's name. */
+  id: string;
+  name: string; // "Max Verstappen"
+  firstName: string;
+  lastName: string;
+  abbreviation: string; // "VER"
+  /** Permanent car number, since 2014. */
+  number: string | null;
+  dateOfBirth: string; // "1997-09-30"
+  dateOfDeath: string | null;
+  placeOfBirth: string;
+  countryOfBirth: string; // "Belgium"
+  nationality: string; // "Netherlands"
+  /** ISO 3166 alpha-2 of the nationality ("NL"), for its flag. */
+  nationalityCode: string;
+}
+
+/** public/history/drivers/<id>.json */
+export interface DriverHistory {
+  format: typeof DRIVER_HISTORY_FORMAT;
+  source: HistorySource;
+  driver: DriverBio;
+  /** Every season with a race entry, oldest first. */
+  seasons: DriverSeason[];
+}
+
+/** A driver of the season on Home's board. */
+export interface SeasonDriver {
+  id: string;
+  name: string;
+  lastName: string;
+  abbreviation: string;
+  /** The number raced with at the driver's latest race this season. */
+  number: string | null;
+  nationality: string;
+  nationalityCode: string;
+  /** The team of the driver's latest race this season. */
+  team: string;
+  /** The rounds raced this season. */
+  rounds: number[];
+  /** Raced the season's latest round: one of today's grid, not a stand-in or a driver replaced. */
+  current: boolean;
+  /** Up to the end of last season: history, never a spoiler. */
+  before: DriverTotals;
+  /** This season so far (the rounds F1DB has): spoilers. */
+  season: DriverTotals & { position: number | null };
+}
+
+/** public/history/drivers/index.json: the season's drivers. */
+export interface DriverIndex {
+  format: typeof DRIVER_HISTORY_FORMAT;
+  source: HistorySource;
+  year: number;
+  /** The latest round with results in F1DB, and its Grand Prix; null before the season's first race. */
+  throughRound: number | null;
+  throughGrandPrix: string | null;
+  drivers: SeasonDriver[];
+}

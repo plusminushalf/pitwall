@@ -29,8 +29,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bun run vault:deploy
-      # Circuit history from the latest F1DB release into public/history/. Nothing reads it yet, so a failure
-      # (GitHub down, F1DB renamed a circuit) doesn't hold the deploy: the app treats missing files as no history.
+      # Circuit and driver history from the latest F1DB release into public/history/. A failure (GitHub down, F1DB
+      # renamed a circuit) doesn't hold the deploy: the app treats missing files as no history.
       - run: bun run history
         continue-on-error: true
       - run: bun run deploy

@@ -9,7 +9,7 @@ import { parseLayout, type GridKind } from "../grid/storage";
 import { useLayout } from "../grid/store";
 import { useQuali } from "../qualiStore";
 import { comparing, screenInLink, useReplay } from "../store";
-import { circuitPath, urlFor, type UrlState } from "../url";
+import { circuitPath, driverPath, urlFor, type UrlState } from "../url";
 import { encodeLayout } from "./layoutCode";
 
 export const PUBLIC_SITE = "https://pitwall.plusminushalf.com";
@@ -37,6 +37,7 @@ export async function shareLink(): Promise<string> {
   const s = useReplay.getState();
   if (s.view === "home") return siteOrigin() + "/";
   if (s.view === "circuit" && s.circuit) return siteOrigin() + circuitPath(s.circuit);
+  if (s.view === "driver" && s.driver) return siteOrigin() + driverPath(s.driver);
   const meta = s.session?.meta;
   if (!meta) return siteOrigin() + location.pathname;
   const compare = comparing(s);

@@ -11,7 +11,7 @@ import { readUrl, upgradeUrl, urlFor } from "../url";
 const MIN_WRITE_INTERVAL_MS = 1_000;
 
 /**
- * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), a circuit, or Home. On
+ * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), a circuit, a driver, or Home. On
  * startup (once the library is read) and on the browser's Back / Forward; never adds a history entry.
  */
 export function applyUrl() {
@@ -22,7 +22,8 @@ export function applyUrl() {
   const library = useLibrary.getState();
   if (!url.live && url.session == null) {
     library.setLink(null);
-    return url.circuit ? useReplay.getState().showCircuit(url.circuit) : useReplay.getState().showHome();
+    if (url.circuit) return useReplay.getState().showCircuit(url.circuit);
+    return url.driver ? useReplay.getState().showDriver(url.driver) : useReplay.getState().showHome();
   }
   // Off Home already, so opening doesn't push an entry.
   useReplay.setState({ view: "replay" });

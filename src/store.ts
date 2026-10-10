@@ -11,7 +11,7 @@ import { connectVaultLive, type LiveAccount, type LiveStall, type VaultLiveConne
 import { fetchSession, listPlayable } from "./storage/load";
 import { getVault } from "./vault/client";
 import type { SessionIndexEntry, SessionMeta } from "./types";
-import { circuitPath, livePath, readUrl, sessionPath } from "./url";
+import { circuitPath, driverPath, livePath, readUrl, sessionPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
 /** Key 8 only, not among the timeline's buttons: an hour of practice in half a minute, for screen captures. */
@@ -30,7 +30,7 @@ export type Mode = "replay" | "live";
  * The Home page (library + calendar), a circuit's page (its sessions over the years, and its history), or the session
  * on screen (a replay, live mode, or the offer to download a linked one).
  */
-export type View = "home" | "circuit" | "replay";
+export type View = "home" | "circuit" | "driver" | "replay";
 
 /**
  * A finished session's two screens: the replay, or its laps compared (the Fastest laps). Practice opens on the replay
@@ -78,9 +78,10 @@ export const screenInLink = (s: { session: Session | null; screen: SessionScreen
 export const comparing = (s: { session: Session | null; screen: SessionScreen }): boolean =>
   s.session != null && canCompare(s.session.meta) && (s.screen === "laps" || lapsOnly(s.session.meta));
 
-/** Home, unless the link opens a session, live mode or a circuit. */
+/** Home, unless the link opens a session, live mode, a circuit or a driver. */
 const initialUrl = typeof location === "undefined" ? null : readUrl(location.pathname, location.search);
-const initialView = (): View => (initialUrl?.live || initialUrl?.session != null ? "replay" : initialUrl?.circuit ? "circuit" : "home");
+const initialView = (): View =>
+  initialUrl?.live || initialUrl?.session != null ? "replay" : initialUrl?.circuit ? "circuit" : initialUrl?.driver ? "driver" : "home";
 
 /**
  * History entries opened from Home or a circuit's page: the Races button goes back to it rather than stacking another
@@ -332,6 +333,8 @@ interface ReplayState {
   view: View;
   /** The circuit page on screen, or the one the session on screen was opened from (its Races button goes back to it). */
   circuit: string | null;
+  /** The driver page on screen (F1DB's driver id). */
+  driver: string | null;
   live: LiveInfo;
   /** Latest live edge from the relay (ms since meta.t0), updated with every message. */
   liveEdge: number;
@@ -373,6 +376,10 @@ interface ReplayState {
   openCircuit: (slug: string) => void;
   /** openCircuit() without touching history. */
   showCircuit: (slug: string) => void;
+  /** A driver's page (a new history entry), as openCircuit(). */
+  openDriver: (id: string) => void;
+  /** openDriver() without touching history. */
+  showDriver: (id: string) => void;
   publish: () => void;
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
@@ -539,6 +546,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     mode: "replay",
     view: initialView(),
     circuit: initialUrl?.circuit ?? null,
+    driver: initialUrl?.driver ?? null,
     live: NO_LIVE,
     liveEdge: 0,
     followLive: false,
@@ -631,7 +639,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     showHome: () => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "home", circuit: null, playing: false, latched: false });
+      set({ view: "home", circuit: null, driver: null, playing: false, latched: false });
     },
 
     openCircuit: (slug) => {
@@ -645,7 +653,20 @@ export const useReplay = create<ReplayState>((set, get) => {
     showCircuit: (slug) => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "circuit", circuit: slug, playing: false, latched: false });
+      set({ view: "circuit", circuit: slug, driver: null, playing: false, latched: false });
+    },
+
+    openDriver: (id) => {
+      const { view, driver } = get();
+      if (view === "driver" && driver === id) return;
+      history.pushState(view === "home" ? { fromHome: true } : null, "", driverPath(id));
+      get().showDriver(id);
+    },
+
+    showDriver: (id) => {
+      autoplayPending = false;
+      if (get().mode === "live") restoreReplay();
+      set({ view: "driver", driver: id, circuit: null, playing: false, latched: false });
     },
 
     publish: () => {

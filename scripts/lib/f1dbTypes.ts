@@ -1,4 +1,4 @@
-// The F1DB tables circuit history is built from (f1db-json-splitted.zip, schema v6.5): only the fields read.
+// The F1DB tables circuit and driver history are built from (f1db-json-splitted.zip, schema v6.5): only the fields read.
 // Each table is a JSON array in its own file, f1db-<table>.json. https://github.com/f1db/f1db
 
 export interface F1dbCircuit {
@@ -28,6 +28,7 @@ export interface F1dbCircuitLayout {
 
 export interface F1dbCountry {
   id: string;
+  alpha2Code: string;
   name: string;
 }
 
@@ -39,8 +40,14 @@ export interface F1dbGrandPrix {
 export interface F1dbDriver {
   id: string;
   name: string; // "Lando Norris"
+  firstName: string;
   lastName: string;
   abbreviation: string;
+  permanentNumber: string | null;
+  dateOfBirth: string;
+  dateOfDeath: string | null;
+  placeOfBirth: string;
+  countryOfBirthCountryId: string;
   nationalityCountryId: string;
 }
 
@@ -105,7 +112,36 @@ export interface F1dbFastestLap extends F1dbRaceRow {
 
 export type F1dbDriverOfTheDay = F1dbRaceRow;
 
-/** The tables buildCircuitHistory reads, as parsed from the release. */
+/** A driver's season: Grand Prix totals, and the championship position. */
+export interface F1dbSeasonDriver {
+  year: number;
+  driverId: string;
+  positionNumber: number | null;
+  totalRaceStarts: number;
+  totalRaceWins: number;
+  totalPodiums: number;
+  totalPoints: number;
+  totalPolePositions: number;
+  totalFastestLaps: number;
+}
+
+export interface F1dbSeasonDriverStanding {
+  year: number;
+  driverId: string;
+  /** Champion (only once the season's settled). */
+  championshipWon: boolean;
+}
+
+/** A driver entered for a team in a season; test drivers have no rounds. */
+export interface F1dbSeasonEntrantDriver {
+  year: number;
+  constructorId: string;
+  driverId: string;
+  rounds: number[];
+  testDriver: boolean;
+}
+
+/** The tables the history builds read (circuitHistory.ts, driverHistory.ts), as parsed from the release. */
 export interface F1db {
   circuits: F1dbCircuit[];
   circuitLayouts: F1dbCircuitLayout[];
@@ -118,6 +154,9 @@ export interface F1db {
   qualifyingResults: F1dbQualifyingResult[];
   fastestLaps: F1dbFastestLap[];
   driverOfTheDay: F1dbDriverOfTheDay[];
+  seasonsDrivers: F1dbSeasonDriver[];
+  seasonsDriverStandings: F1dbSeasonDriverStanding[];
+  seasonsEntrantsDrivers: F1dbSeasonEntrantDriver[];
 }
 
 /** The file each table is read from, inside the zip. */
@@ -133,4 +172,7 @@ export const F1DB_FILES: Readonly<Record<keyof F1db, string>> = {
   qualifyingResults: "f1db-races-qualifying-results.json",
   fastestLaps: "f1db-races-fastest-laps.json",
   driverOfTheDay: "f1db-races-driver-of-the-day-results.json",
+  seasonsDrivers: "f1db-seasons-drivers.json",
+  seasonsDriverStandings: "f1db-seasons-driver-standings.json",
+  seasonsEntrantsDrivers: "f1db-seasons-entrants-drivers.json",
 };
