@@ -342,7 +342,7 @@ export function useLapTrace<R = DecodedLap>(n: number | null, lap: number | null
 
 /**
  * API gap: car n's lap in progress at t, as far as it has got (distance-aligned like useLapTrace's, growing as the
- * car goes): to follow a live push lap. Null between laps, before a lap length is known, or without car data.
+ * car goes): to follow a live push lap. Null between laps or without car data.
  */
 export function useLiveLap<R = LiveLap>(n: number | null, select?: Select<LiveLap, R>): R | null {
   return useKit((s) => (n == null ? null : liveLapOf(s.session, n, s.t)), [n], orNull(select)) as R | null;

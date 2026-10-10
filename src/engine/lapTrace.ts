@@ -213,19 +213,23 @@ export function lapGeometryOf(session: Session): LapGeometry {
   const f2s: number[] = [];
   // The fastest clean lap: its path puts the corners along the lap.
   let reference: { d: DriverData; l: Lap; it: Integrated; start: number; end: number } | null = null;
-  for (const l of timed) {
-    if (l.duration! > fastest * PACE_RATIO) continue;
-    const d = session.drivers.get(l.driver);
-    const w = d && windowOf(d, l);
-    if (!d || !w) continue;
-    const [a, b] = sectorTimes(l, w.start, w.end);
-    const it = integrate(d.car, w.start, w.end, [a, b].filter((x): x is number => x != null));
-    if (!it || it.gap.some(Boolean)) continue;
-    const total = it.D[it.D.length - 1];
-    lengths.push(total);
-    if (a != null) f1s.push(lerpClamped(it.t, it.D, a) / total);
-    if (b != null) f2s.push(lerpClamped(it.t, it.D, b) / total);
-    if (!reference || l.duration! < reference.l.duration!) reference = { d, l, it, start: w.start, end: w.end };
+  // Laps without a gap in their car data; failing that (a live stream with small gaps), laps integrate() accepts.
+  for (const strict of [true, false]) {
+    for (const l of timed) {
+      if (l.duration! > fastest * PACE_RATIO) continue;
+      const d = session.drivers.get(l.driver);
+      const w = d && windowOf(d, l);
+      if (!d || !w) continue;
+      const [a, b] = sectorTimes(l, w.start, w.end);
+      const it = integrate(d.car, w.start, w.end, [a, b].filter((x): x is number => x != null));
+      if (!it || (strict && it.gap.some(Boolean))) continue;
+      const total = it.D[it.D.length - 1];
+      lengths.push(total);
+      if (a != null) f1s.push(lerpClamped(it.t, it.D, a) / total);
+      if (b != null) f2s.push(lerpClamped(it.t, it.D, b) / total);
+      if (!reference || l.duration! < reference.l.duration!) reference = { d, l, it, start: w.start, end: w.end };
+    }
+    if (lengths.length) break;
   }
   const lapLength = median(lengths);
   const sectorDistances: [number, number] = [median(f1s) * lapLength, median(f2s) * lapLength];
@@ -351,8 +355,7 @@ export interface LiveLap {
 const liveCache = new WeakMap<CarSeries, LiveLap & { last: number }>();
 
 /**
- * Car n's lap in progress at t (null between laps, before its first, when no lap length is known yet, or without car
- * data since the line). Spoiler-free: reads nothing after t. Cached per car until a new sample or lap.
+ * Car n's lap in progress at t (null between laps, before its first, or without car data since the line). Spoiler-free: reads nothing after t. Cached per car until a new sample or lap.
  */
 export function liveLapOf(session: Session, n: number, t: number): LiveLap | null {
   const d = session.drivers.get(n);
@@ -361,8 +364,9 @@ export function liveLapOf(session: Session, n: number, t: number): LiveLap | nul
   if (li < 0) return null;
   const l = d.laps[li];
   if (l.end != null && l.end <= t) return null;
-  const { lapLength, sectorDistances } = lapGeometryOf(session);
-  if (!Number.isFinite(lapLength)) return null;
+  const { lapLength: measured, sectorDistances } = lapGeometryOf(session);
+  // Before a lap length is known the lap still counts, its distance just isn't capped.
+  const lapLength = Number.isFinite(measured) ? measured : Infinity;
   const start = startsOf(d).get(l.lap) ?? l.start;
   const car = d.car;
   const last = indexAtOrBefore(car.t, t);

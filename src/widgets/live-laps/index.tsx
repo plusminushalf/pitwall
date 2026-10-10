@@ -200,7 +200,7 @@ function Row({
       <span className="font-bold tracking-wide text-zinc-100">{info.acronym}</span>
       {onPush ? (
         <span className="relative h-1.5 overflow-hidden rounded-full bg-zinc-800" title={`${Math.round(p.distance)} m of ${Math.round(lapLength)} m`}>
-          <span className="absolute inset-y-0 left-0 rounded-full bg-zinc-300" style={{ width: `${Math.min(100, (p.distance / lapLength) * 100)}%` }} />
+          <span className="absolute inset-y-0 left-0 rounded-full bg-zinc-300" style={{ width: `${Number.isFinite(lapLength) ? Math.min(100, (p.distance / lapLength) * 100) : 0}%` }} />
         </span>
       ) : (
         <span className="truncate text-zinc-500">{p?.pitOut ? "Out lap" : p ? "Not pushing" : "In the pits"}</span>
