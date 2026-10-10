@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
   defineWidget,
   Label,
@@ -11,6 +11,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCardState,
   useDrivers,
   useNeutralPeriods,
   usePlayback,
@@ -116,7 +117,7 @@ function PaceOrder() {
   const deletedBy = useTime((t) => lastDeletion(laps, t));
 
   // The best clicked, kept as its driver's best while its lap is watched (pace.ts); it goes once the lap is done.
-  const [pin, setPin] = useState<PinnedBest | null>(null);
+  const [pin, setPin] = useCardState<PinnedBest | null>("pin", null);
   const watched = useTime((t) => pin != null && watching(pin, t, sessionKey));
   useEffect(() => {
     if (pin && !watched) setPin(null);
@@ -215,7 +216,7 @@ export default defineWidget({
   // Fills its column and scrolls inside.
   height: { min: 200 },
   width: { min: 24, default: 32, max: 60 },
-  sessions: ["practice", "qualifying"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { show: "drivers" as Show },
   fields: {
     show: {

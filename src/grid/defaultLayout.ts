@@ -11,9 +11,8 @@
 //
 // Each kind also ships dashboards for one use (dashboards.ts): Strategy (the tower with the tyres under it, the gaps
 // over the stint pace and the pit stops, races only), Telemetry (the tower and the map beside the selected drivers'
-// laps overlaid) and, for practice, Debrief (what the session says). Live qualifying has an Overview of its own and
-// Telemetry. Their widths stay inside each widget's range at
-// COLUMNS. The circuit widgets have no dashboard: a circuit's page shows them.
+// laps overlaid) and Debrief (what the session says; for a race, its records, where each car was quick and the pace).
+// Live qualifying has an Overview of its own and Telemetry. Their widths stay inside each widget's range at COLUMNS. The circuit widgets have no dashboard: a circuit's page shows them.
 //
 // Widths are whole columns of COLUMNS; the tower is wide enough for its sector columns from about 1500 px.
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
@@ -123,5 +122,27 @@ export const DEBRIEF_LAYOUT: Layout = {
     "push-laps": at(0, 1, DEBRIEF_SIDE),
     "speed-vs-pace": at(DEBRIEF_SIDE, 1, DEBRIEF_SIDE),
     "track-evolution": at(2 * DEBRIEF_SIDE, 1, COLUMNS - 2 * DEBRIEF_SIDE),
+  },
+};
+
+/**
+ * Race debrief: the stats posted after a race. Across the top the session's records (the fastest sectors, lap and
+ * stop, and who set them), where each car was quick (sectors and top speed by team) and the order by best lap; under
+ * them the stint pace, top speed against lap time, and the pit stops.
+ */
+const RACE_DEBRIEF_BESTS = 12;
+const RACE_DEBRIEF_SECTORS = 12;
+const RACE_DEBRIEF_PACE = 16;
+const RACE_DEBRIEF_SPEED = 11;
+export const RACE_DEBRIEF_LAYOUT: Layout = {
+  version: 1,
+  columns: COLUMNS,
+  widgets: {
+    "session-bests": at(0, 0, RACE_DEBRIEF_BESTS, { height: DEBRIEF_TOP }),
+    "sector-strengths": at(RACE_DEBRIEF_BESTS, 0, RACE_DEBRIEF_SECTORS, { height: DEBRIEF_TOP }),
+    "pace-order": at(RACE_DEBRIEF_BESTS + RACE_DEBRIEF_SECTORS, 0, COLUMNS - RACE_DEBRIEF_BESTS - RACE_DEBRIEF_SECTORS, { height: DEBRIEF_TOP }),
+    "stint-pace": at(0, 1, RACE_DEBRIEF_PACE),
+    "speed-vs-pace": at(RACE_DEBRIEF_PACE, 1, RACE_DEBRIEF_SPEED),
+    "pit-strategy": at(RACE_DEBRIEF_PACE + RACE_DEBRIEF_SPEED, 1, COLUMNS - RACE_DEBRIEF_PACE - RACE_DEBRIEF_SPEED),
   },
 };

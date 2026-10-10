@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import {
   defineWidget,
   Label,
@@ -9,6 +9,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCardState,
   useDrivers,
   useNeutralPeriods,
   usePlayback,
@@ -123,7 +124,7 @@ function SpeedVsPace() {
   const toggle = useSelection((s) => s.toggle);
   const [{ by }, update] = useSettings<Settings>();
   const size = useWidgetSize();
-  const [hover, setHover] = useState<string | null>(null);
+  const [hover, setHover] = useCardState<string | null>("hover", null);
 
   // Laps race control has deleted by now (practice, qualifying), as "driver:lap": a re-render when one goes, not at 10 Hz.
   const deletions = useMemo(() => [...laps].flatMap(([n, own]) => own.flatMap((l) => (l.deleted ? [{ key: `${n}:${l.lap}`, t: l.deleted.t }] : []))), [laps]);
@@ -334,7 +335,7 @@ export default defineWidget({
   // Fills its column: a taller chart spreads the field out.
   height: { min: 260 },
   width: { min: 24, default: 34, max: 60 },
-  sessions: ["practice", "qualifying"],
+  sessions: ["race", "practice", "qualifying"],
   settings: { by: "driver" as By },
   fields: {
     by: {
