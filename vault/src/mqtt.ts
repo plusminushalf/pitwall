@@ -127,8 +127,8 @@ export class PacketReader {
       let i = at + 1;
       let complete = false;
       for (let n = 0; n < 4; n++, i++) {
-        if (i >= this.buf.length) break;
-        const b = this.buf[i]!;
+        const b = this.buf[i];
+        if (b === undefined) break;
         len += (b & 0x7f) * mul;
         mul *= 128;
         if (!(b & 0x80)) {
@@ -141,7 +141,7 @@ export class PacketReader {
       if (!complete) break; // the length itself is split across frames
       if (len > this.maxPacket) throw new ProtocolError(`packet of ${len} bytes`);
       if (this.buf.length - i < len) break;
-      const h = this.buf[at]!;
+      const h = this.buf[at] ?? 0;
       out.push({ type: h >> 4, flags: h & 0x0f, body: this.buf.slice(i, i + len) });
       at = i + len;
     }
@@ -159,7 +159,7 @@ export type Publish = { topic: string; payload: Uint8Array; qos: 0 | 1 | 2; dup:
 
 const readU16 = (b: Uint8Array, at: number) => {
   if (at + 2 > b.length) throw new ProtocolError("truncated");
-  return (b[at]! << 8) | b[at + 1]!;
+  return ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0);
 };
 
 /** A length-prefixed UTF-8 string at `at`: [value, next offset]. Invalid UTF-8 is a protocol error. */
@@ -189,7 +189,8 @@ export function decodePublish(p: RawPacket): Publish {
 
 export function decodeConnack(p: RawPacket): { sessionPresent: boolean; code: number } {
   if (p.body.length !== 2) throw new ProtocolError("CONNACK length");
-  return { sessionPresent: !!(p.body[0]! & 1), code: p.body[1]! };
+  const [flags = 0, code = 0] = p.body;
+  return { sessionPresent: !!(flags & 1), code };
 }
 
 export function decodeSuback(p: RawPacket): { packetId: number; granted: number[] } {
@@ -435,7 +436,7 @@ export class MqttSession {
       case PUBLISH: {
         const m = decodePublish(p);
         if (m.qos === 2) throw new ProtocolError("PUBLISH with QoS 2 (we subscribe at QoS 0)");
-        if (m.qos === 1) this.send(encodePuback(m.packetId!));
+        if (m.packetId !== undefined) this.send(encodePuback(m.packetId)); // QoS 1
         this.o.onMessage(m.topic, m.payload);
         return;
       }

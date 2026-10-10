@@ -3,6 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { buildSession, type DriverData } from "../data/session";
+import { must } from "../lib/must";
 import type { DriverTelemetry, PitStop, RaceControlMsg, SessionMeta, TrackStatusEvent } from "../types";
 import { incidentsOf, yellowCulprits } from "./yellowCause";
 
@@ -219,11 +220,11 @@ const available = existsSync(`${dir}meta.json`);
 describe.skipIf(!available)("Baku 2026 yellows", () => {
   const meta: SessionMeta = available ? JSON.parse(readFileSync(`${dir}meta.json`, "utf8")) : (null as unknown as SessionMeta);
   const telemetry: DriverTelemetry[] = available ? meta.drivers.map((d) => JSON.parse(readFileSync(`${dir}drivers/${d.number}.json`, "utf8"))) : [];
-  const s = available ? buildSession(meta, telemetry) : null!;
+  const feed = available ? buildSession(meta, telemetry).feed : [];
   const byNumber = new Map(meta?.drivers.map((d) => [d.number, d.acronym]));
   /** Acronyms named on the feed's sector yellows of `lap`, by message. */
   const named = (lap: number) =>
-    s.feed
+    feed
       .filter((f) => f.kind === "flag" && f.text.includes("TRACK SECTOR") && meta.raceControl.some((m) => m.t === f.t && m.lap === lap))
       .map((f) => (f.inferred ?? []).map((n) => byNumber.get(n)).join("+"));
 
@@ -244,7 +245,7 @@ describe.skipIf(!available)("Baku 2026 yellows", () => {
   test("nobody under the safety car without a stopped car, nor after the flag", () => {
     expect(named(32).every((x) => x === "")).toBe(true);
     expect(named(33).every((x) => x === "")).toBe(true);
-    const after = s.feed.filter((f) => f.inferred && f.t > meta.chequered!);
+    const after = feed.filter((f) => f.inferred && f.t > must(meta.chequered));
     expect(after).toEqual([]);
   });
 });

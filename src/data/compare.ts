@@ -4,7 +4,7 @@
 
 import { defaultLap, type LapPreset } from "./quali";
 import { defaultPracticeLap, practiceClassification, practiceComparable, tracedLaps, tyreOn, type PracticeResult, type Tyre } from "./practice";
-import type { SessionMeta } from "../types";
+import type { QualiData, SessionMeta } from "../types";
 
 export interface LapOption {
   lap: number;
@@ -50,8 +50,7 @@ export const canCompare = (meta: SessionMeta) => meta.quali != null || practiceC
 
 const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase();
 
-function qualiModel(meta: SessionMeta): CompareModel {
-  const q = meta.quali!;
+function qualiModel(meta: SessionMeta, q: QualiData): CompareModel {
   const duration = (driver: number, lap: number) => meta.laps.find((l) => l.driver === driver && l.lap === lap)?.duration ?? null;
   return {
     kind: "qualifying",
@@ -62,7 +61,7 @@ function qualiModel(meta: SessionMeta): CompareModel {
       ...q.segments.map((s) => ({ id: s.number, label: s.name, title: `Each driver's best ${s.name} lap (fastest overall if they have none)` })),
     ],
     defaultDrivers: q.results.slice(0, 2).map((r) => r.driver),
-    defaultLap: (driver, preset) => defaultLap(meta, driver, preset),
+    defaultLap: (driver, preset) => defaultLap(meta, q, driver, preset),
     lapGroups: (driver) => {
       const own = q.laps.filter((l) => l.driver === driver && l.trace);
       return [...q.segments.map((s) => ({ name: s.name, laps: own.filter((l) => l.segment === s.number) })), { name: "Other", laps: own.filter((l) => l.segment == null) }]
@@ -83,14 +82,13 @@ function qualiModel(meta: SessionMeta): CompareModel {
   };
 }
 
-function practiceModel(meta: SessionMeta): CompareModel {
-  const p = meta.practice!;
+function practiceModel(meta: SessionMeta, lapLength: number, sectorDistances: [number, number]): CompareModel {
   const classification = practiceClassification(meta);
   const lapOf = (driver: number, lap: number) => meta.laps.find((l) => l.driver === driver && l.lap === lap) ?? null;
   return {
     kind: "practice",
-    lapLength: p.lapLength!,
-    sectorDistances: p.sectorDistances!,
+    lapLength,
+    sectorDistances,
     presets: [],
     defaultDrivers: classification.filter((r) => r.best != null).slice(0, 2).map((r) => r.driver),
     defaultLap: (driver) => defaultPracticeLap(meta, driver, classification),
@@ -104,7 +102,10 @@ function practiceModel(meta: SessionMeta): CompareModel {
         const stint = meta.stints.filter((s) => s.driver === driver && s.lapStart <= lap).at(-1);
         const name = stint ? `Run ${stint.stint} · ${compoundName(stint.compound)}${stint.ageAtStart == null ? "" : stint.ageAtStart === 0 ? ", new" : `, ${stint.ageAtStart} laps old`}` : "Other";
         let group = groups.at(-1);
-        if (group?.name !== name) groups.push((group = { name, laps: [] }));
+        if (group?.name !== name) {
+          group = { name, laps: [] };
+          groups.push(group);
+        }
         group.laps.push({ lap, duration: l?.duration ?? null, notes: [lap === best ? "★ best" : "", l?.deleted ? "deleted" : ""].filter(Boolean), tyre });
       }
       return groups;
@@ -121,7 +122,8 @@ const models = new WeakMap<SessionMeta, CompareModel | null>();
 export function compareModel(meta: SessionMeta): CompareModel | null {
   let m = models.get(meta);
   if (m === undefined) {
-    m = meta.quali ? qualiModel(meta) : practiceComparable(meta) ? practiceModel(meta) : null;
+    const p = meta.practice;
+    m = meta.quali ? qualiModel(meta, meta.quali) : practiceComparable(meta) && p?.lapLength != null && p.sectorDistances ? practiceModel(meta, p.lapLength, p.sectorDistances) : null;
     models.set(meta, m);
   }
   return m;

@@ -364,7 +364,7 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     ctx.fillStyle = CALLOUT;
-    g.lines.forEach((line, i) => ctx.fillText(line, bx + 8, by + 5 + i * 15));
+    for (let i = 0; i < g.lines.length; i++) ctx.fillText(g.lines[i], bx + 8, by + 5 + i * 15);
     ctx.globalAlpha = 1;
   }
   ctx.font = FONT;

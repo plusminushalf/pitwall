@@ -138,7 +138,8 @@ export function milestones(outings: readonly Outing[], team = false): Milestone[
   push("First win", first(outings, won));
   if (team) {
     const o = outings.find((x) => x.cars.some((c) => c.pos === 1) && x.cars.some((c) => c.pos === 2));
-    push("First 1-2", o ? { race: o.race, car: o.cars.find(won)! } : null);
+    const winner = o?.cars.find(won);
+    push("First 1-2", o && winner ? { race: o.race, car: winner } : null);
   }
   const lastWin = last(outings, won);
   if (lastWin && lastWin.race.raceId !== first(outings, won)?.race.raceId) push("Latest win", lastWin);
@@ -154,9 +155,9 @@ export function longestRun(outings: readonly Outing[], what: (c: CarResult) => b
   let from: RaceRef | null = null;
   for (const o of outings) {
     if (o.cars.some((c) => what(c))) {
-      if (run === 0) from = o.race;
+      if (run === 0 || !from) from = o.race;
       run++;
-      if (!best || run > best.length) best = { length: run, from: from!, to: o.race };
+      if (!best || run > best.length) best = { length: run, from, to: o.race };
     } else run = 0;
   }
   return best;

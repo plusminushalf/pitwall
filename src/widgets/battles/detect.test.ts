@@ -16,6 +16,9 @@ function car(driver: number, laps: number, offset: (lap: number) => number, more
   return { driver, laps: lapsOf(ends), stintStarts: [1], out: false, finished: false, ...more };
 }
 
+/** The line crossings back out of a car's (all completed) laps. */
+const endsOf = (c: CarLaps) => c.laps.flatMap((l) => (l.end == null ? [] : [l.end]));
+
 const input = (cars: CarLaps[], more: Partial<Inputs> = {}): Inputs => ({ cars, neutral: [], pitEntries: [], passes: [], ...more });
 const OPTS = { gap: 1, minLaps: 3 };
 
@@ -87,7 +90,7 @@ describe("detectBattles", () => {
     const two = car(2, 10, () => 5_000);
     expect(detectBattles(input([one, two]), { gap: 1, minLaps: 2 })).toEqual([]);
     // The same stop known only from the pit-out flag, or only from the feed's pit entry.
-    const flagged = { ...one, stintStarts: [1], laps: lapsOf(one.laps.map((l) => l.end!), [5]) };
+    const flagged = { ...one, stintStarts: [1], laps: lapsOf(endsOf(one), [5]) };
     expect(detectBattles(input([flagged, two]), { gap: 1, minLaps: 2 })).toEqual([]);
     const fed = { ...one, stintStarts: [1] };
     expect(detectBattles(input([fed, two], { pitEntries: [{ driver: 1, t: 4 * LAP - 10_000 }] }), { gap: 1, minLaps: 2 })).toEqual([]);
@@ -128,7 +131,7 @@ describe("pitLapsOf", () => {
   test("the in-lap and out-lap, from stints, pit-out flags or pit entries", () => {
     const c = car(1, 10, () => 0, { stintStarts: [1, 4] });
     expect([...pitLapsOf(c, [])].sort()).toEqual([3, 4]);
-    expect([...pitLapsOf({ ...c, stintStarts: [1], laps: lapsOf(c.laps.map((l) => l.end!), [7]) }, [])].sort()).toEqual([6, 7]);
+    expect([...pitLapsOf({ ...c, stintStarts: [1], laps: lapsOf(endsOf(c), [7]) }, [])].sort()).toEqual([6, 7]);
     expect([...pitLapsOf({ ...c, stintStarts: [1] }, [{ driver: 1, t: 8 * LAP - 5_000 }])].sort()).toEqual([8, 9]);
   });
 });

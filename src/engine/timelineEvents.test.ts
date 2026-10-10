@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import type { SessionMeta } from "../types";
 import { clusterEvents, EVENT_PRIORITY, timelineEvents, type TimelineEvent, type TimelineEventKind } from "./timelineEvents";
+import { must } from "../lib/must";
 
 const ev = (t: number, kind: TimelineEventKind): TimelineEvent => ({ t, kind, text: kind, driver: null });
 
@@ -58,7 +59,7 @@ describe.skipIf(!available)("Baku 2026 timeline events", () => {
   });
 
   test("seven retirements", () => {
-    expect(of("retired").map((e) => e.driver).sort((a, b) => a! - b!)).toEqual([1, 10, 14, 18, 23, 43, 77]);
+    expect(of("retired").map((e) => e.driver).sort((a, b) => (a ?? 0) - (b ?? 0))).toEqual([1, 10, 14, 18, 23, 43, 77]);
     expect(of("retired")[0].text).toBe("STR retired");
   });
 
@@ -77,9 +78,9 @@ describe.skipIf(!available)("Baku 2026 timeline events", () => {
     expect(clusters.reduce((n, c) => n + c.events.length, 0)).toBe(events.length);
     for (const c of clusters) expect(c.events.every((e) => EVENT_PRIORITY[e.kind] <= EVENT_PRIORITY[c.kind])).toBe(true);
     const gap = (6 / 1_000) * meta.duration;
-    for (let i = 1; i < clusters.length; i++) expect(clusters[i].events[0].t - clusters[i - 1].events.at(-1)!.t).toBeGreaterThanOrEqual(gap);
+    for (let i = 1; i < clusters.length; i++) expect(clusters[i].events[0].t - must(clusters[i - 1].events.at(-1)).t).toBeGreaterThanOrEqual(gap);
     // The first safety car absorbs the incident that caused it: #23's retirement and the yellows just before.
-    const sc = clusters.find((c) => c.primary === of("sc")[0])!;
+    const sc = must(clusters.find((c) => c.primary === of("sc")[0]));
     expect(sc.kind).toBe("sc");
     expect(sc.events.some((e) => e.kind === "retired" && e.driver === 23)).toBe(true);
   });

@@ -75,7 +75,7 @@ export function WeekendForecast({
   const state = useForecast(circuitKey, !reached);
   if (first == null || !state) return null;
 
-  let body;
+  let body: ReactNode;
   if (!reached) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">The forecast reaches this weekend on {reachedFrom(first)}.</p>;
   else if (state.status === "error") body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Couldn't load the forecast from Open-Meteo.</p>;
   else {

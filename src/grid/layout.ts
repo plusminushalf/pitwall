@@ -107,10 +107,12 @@ const EPS = 1e-6;
  */
 export function pack(layout: Layout, widgets: ReadonlyMap<string, WidgetDefinition>, input: GridInput, gridHeight: number): Placement[] {
   const items = Object.entries(layout.widgets)
-    .filter(([id, entry]) => widgets.has(widgetIdOf(id, entry)))
-    .sort(([, a], [, b]) => a.y - b.y || a.x - b.x)
-    .map(([id, entry]) => {
-      const widget = widgets.get(widgetIdOf(id, entry))!;
+    .flatMap(([id, entry]) => {
+      const widget = widgets.get(widgetIdOf(id, entry));
+      return widget ? [{ id, entry, widget }] : [];
+    })
+    .sort((a, b) => a.entry.y - b.entry.y || a.entry.x - b.entry.x)
+    .map(({ id, entry, widget }) => {
       const range = columnRange(widget, layout.columns);
       const width = Math.min(Math.max(entry.width, range.min), range.max);
       const x = Math.min(Math.max(entry.x, 0), layout.columns - width);
@@ -218,10 +220,12 @@ export function phoneColumn(layout: Layout, widgets: ReadonlyMap<string, WidgetD
     return first === -1 ? PHONE_FIRST.length : first;
   };
   return Object.entries(layout.widgets)
-    .filter(([id, entry]) => widgets.has(widgetIdOf(id, entry)))
-    .sort(([ia, a], [ib, b]) => rank(ia, a) - rank(ib, b) || a.y - b.y || a.x - b.x)
-    .map(([id, entry]) => {
-      const widget = widgets.get(widgetIdOf(id, entry))!;
+    .flatMap(([id, entry]) => {
+      const widget = widgets.get(widgetIdOf(id, entry));
+      return widget ? [{ id, entry, widget }] : [];
+    })
+    .sort((a, b) => rank(a.id, a.entry) - rank(b.id, b.entry) || a.entry.y - b.entry.y || a.entry.x - b.entry.x)
+    .map(({ id, entry, widget }) => {
       const at: HeightInput = { ...input, settings: { ...widget.settings, ...entry.settings } as WidgetSettings };
       return { id, widget, settings: entry.settings, height: phoneHeight(widget, at) };
     });

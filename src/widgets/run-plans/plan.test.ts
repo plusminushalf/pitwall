@@ -4,6 +4,12 @@
 import type { NeutralPeriod } from "widget-kit";
 import { axisOf, byTeam, deletedBy, planRow, type PlanLapInput, type PlanStint } from "./plan";
 
+/** The value, or the test fails here. */
+function must<T>(v: T | null | undefined): T {
+  if (v == null) throw new Error("expected a value");
+  return v;
+}
+
 /** A run from the garage: its compound, the set's age, and its laps ("o" the out-lap, null untimed: the in-lap). */
 type Spec = { compound: string; age?: number; laps: (number | "o" | null)[]; garage?: number };
 
@@ -59,7 +65,7 @@ describe("run plans", () => {
     const { laps, stints } = session([{ compound: "SOFT", laps: ["o", 93.0, 89.0, 92.5, 91.0, null] }]);
     // Lap 3 (89.0) is deleted; lap 4 runs into a red flag.
     const marked = laps.map((l) => (l.lap === 3 ? { ...l, deleted: true } : l));
-    const red: NeutralPeriod[] = [{ status: "RED", start: laps[3].start + 50_000, end: laps[3].end! - 5_000 }];
+    const red: NeutralPeriod[] = [{ status: "RED", start: laps[3].start + 50_000, end: must(laps[3].end) - 5_000 }];
     const row = planRow(1, marked, stints, red);
     expect(row.best).toBe(91.0);
     expect(whys(row)).toEqual(["out-lap", null, "deleted", "red flag", null, "untimed"]);

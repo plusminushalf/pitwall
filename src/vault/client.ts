@@ -127,7 +127,8 @@ export class VaultClient {
 
   /** Mount the iframe and do the handshake, once. Resolves either way; see the state's phase. */
   start(): Promise<void> {
-    return (this.started ??= this.handshake());
+    this.started ??= this.handshake();
+    return this.started;
   }
 
   status = () => this.call("status", {});
@@ -335,11 +336,12 @@ export class VaultClient {
       });
 
       const onReady = (e: MessageEvent) => {
-        if (e.source !== iframe.contentWindow || e.origin !== origin || !isReady(e.data)) return;
+        const frame = iframe.contentWindow;
+        if (!frame || e.source !== frame || e.origin !== origin || !isReady(e.data)) return;
         const channel = new MessageChannel();
         this.port = channel.port1;
         channel.port1.onmessage = (m) => this.onPortMessage(m.data);
-        iframe.contentWindow!.postMessage({ v: 1, type: "hello" } satisfies Hello, origin, [channel.port2]);
+        frame.postMessage({ v: 1, type: "hello" } satisfies Hello, origin, [channel.port2]);
         finish({ phase: "ready", handshakeMs: Math.round(performance.now() - t0) });
         void this.status().then(
           (status) => this.set({ status }),

@@ -451,10 +451,11 @@ export const useLibrary = create<LibraryState>((set, get) => {
 
   const saveQueue = () => {
     try {
+      const { watch } = get();
       const items = get()
         .queue.map((key) => get().jobs[key])
         .filter((j) => j && isActive(j.phase))
-        .map((j) => ({ info: j.info, watch: get().watch?.key === j.info.key ? get().watch!.opts : null }));
+        .map((j) => ({ info: j.info, watch: watch?.key === j.info.key ? watch.opts : null }));
       sessionStorage.setItem(QUEUE_KEY, JSON.stringify(items));
     } catch {}
   };
@@ -490,8 +491,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     resumeTimer = null;
     const times = get()
       .queue.map((k) => get().jobs[k])
-      .filter((j) => j?.phase === "paused" && j.resumeAt != null)
-      .map((j) => j.resumeAt!);
+      .flatMap((j) => (j?.phase === "paused" && j.resumeAt != null ? [j.resumeAt] : []));
     if (!times.length) return;
     const wait = Math.max(1_000, Math.min(...times) - Date.now() + 1_000);
     resumeTimer = setTimeout(() => void pump(), Math.min(wait, 2 ** 31 - 1));
@@ -681,7 +681,7 @@ export const useLibrary = create<LibraryState>((set, get) => {
     setJob(key, { phase: "cancelled", progress: null, finishedAt: Date.now(), notice: null });
     dequeue(key);
     const wasRunning = running?.key === key;
-    if (wasRunning) running!.handle.cancel();
+    if (wasRunning && running) running.handle.cancel();
     // Nothing left to wait for: stop queueing for the lock.
     if (!get().queue.length) lockAbort?.abort();
     return wasRunning;

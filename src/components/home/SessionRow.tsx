@@ -92,10 +92,10 @@ function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; sta
     return (
       <div className="flex items-center justify-end gap-1.5">
         <span className="whitespace-nowrap text-xs text-zinc-200">Delete{stored ? ` ${size(stored)}` : ""}?</span>
-        <button onClick={() => void remove(row.sessionKey)} className={`${DANGER} ${TOUCH}`}>
+        <button type="button" onClick={() => void remove(row.sessionKey)} className={`${DANGER} ${TOUCH}`}>
           Delete
         </button>
-        <button onClick={() => askDelete(null)} className={`${SECONDARY} ${TOUCH}`}>
+        <button type="button" onClick={() => askDelete(null)} className={`${SECONDARY} ${TOUCH}`}>
           Keep
         </button>
       </div>
@@ -108,13 +108,13 @@ function RowActions({ row, state, resume, lead, option }: { row: CatalogRow; sta
   return (
     <div className="flex flex-row-reverse items-center justify-start gap-1.5" aria-hidden={option || undefined}>
       {open && (
-        <button tabIndex={tab} onClick={open} className={`${lead ? PRIMARY : SECONDARY} ${TOUCH} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
+        <button type="button" tabIndex={tab} onClick={open} className={`${lead ? PRIMARY : SECONDARY} ${TOUCH} inline-flex items-center gap-1.5 tabular-nums`} aria-label={`${label}: ${name}`}>
           <Glyph name={state.kind === "stale" || label === "Retry" ? "retry" : "play"} />
           {label}
         </button>
       )}
       {state.kind === "job" && isActive(state.job.phase) && (
-        <button tabIndex={tab} onClick={() => cancel(row.sessionKey)} className={`${SECONDARY} ${TOUCH}`} title="Stop; what's downloaded so far is kept">
+        <button type="button" tabIndex={tab} onClick={() => cancel(row.sessionKey)} className={`${SECONDARY} ${TOUCH}`} title="Stop; what's downloaded so far is kept">
           Cancel
         </button>
       )}

@@ -66,7 +66,9 @@ function chainStarts(laps: readonly Lap[]): Map<number, number> {
     const anchor = median(r.map((l, i) => l.start - cum[i]));
     // Durations that don't chain (a lost record in between): the laps keep their own starts.
     const broken = r.some((l, i) => Math.abs(l.start - (anchor + cum[i])) > 2_500);
-    r.forEach((l, i) => out.set(l.lap, broken ? l.start : Math.round(anchor + cum[i])));
+    r.forEach((l, i) => {
+      out.set(l.lap, broken ? l.start : Math.round(anchor + cum[i]));
+    });
   }
   return out;
 }
@@ -75,7 +77,10 @@ const startsCache = new WeakMap<DriverData, Map<number, number>>();
 
 function startsOf(d: DriverData): Map<number, number> {
   let s = startsCache.get(d);
-  if (!s) startsCache.set(d, (s = chainStarts(d.laps)));
+  if (!s) {
+    s = chainStarts(d.laps);
+    startsCache.set(d, s);
+  }
   return s;
 }
 
@@ -170,7 +175,10 @@ function align(it: Integrated, anchors: [number, number][]): Float64Array {
     const span = anchors[j + 1][1] - anchors[j][1];
     let good = 0;
     let missing = 0;
-    for (let k = from + 1; k <= to; k++) it.gap[k] ? (missing += inc[k]) : (good += inc[k]);
+    for (let k = from + 1; k <= to; k++) {
+      if (it.gap[k]) missing += inc[k];
+      else good += inc[k];
+    }
     let goodScale = good + missing > 0 ? span / (good + missing) : 0;
     let gapScale = goodScale;
     if (missing > 0 && good < span && (span - good) / missing >= 0.25 && (span - good) / missing <= 2.5) {
@@ -206,17 +214,17 @@ const geometryCache = new WeakMap<Session, LapGeometry>();
 export function lapGeometryOf(session: Session): LapGeometry {
   let g = geometryCache.get(session);
   if (g) return g;
-  const timed = session.meta.laps.filter((l) => l.duration != null && !l.pitOut && l.lap > 1);
-  const fastest = Math.min(...timed.map((l) => l.duration!));
+  const timed = session.meta.laps.filter((l): l is Lap & { duration: number } => l.duration != null && !l.pitOut && l.lap > 1);
+  const fastest = Math.min(...timed.map((l) => l.duration));
   const lengths: number[] = [];
   const f1s: number[] = [];
   const f2s: number[] = [];
   // The fastest clean lap: its path puts the corners along the lap.
-  let reference: { d: DriverData; l: Lap; it: Integrated; start: number; end: number } | null = null;
+  let reference: { d: DriverData; l: Lap & { duration: number }; it: Integrated; start: number; end: number } | null = null;
   // Laps without a gap in their car data; failing that (a live stream with small gaps), laps integrate() accepts.
   for (const strict of [true, false]) {
     for (const l of timed) {
-      if (l.duration! > fastest * PACE_RATIO) continue;
+      if (l.duration > fastest * PACE_RATIO) continue;
       const d = session.drivers.get(l.driver);
       const w = d && windowOf(d, l);
       if (!d || !w) continue;
@@ -227,7 +235,7 @@ export function lapGeometryOf(session: Session): LapGeometry {
       lengths.push(total);
       if (a != null) f1s.push(lerpClamped(it.t, it.D, a) / total);
       if (b != null) f2s.push(lerpClamped(it.t, it.D, b) / total);
-      if (!reference || l.duration! < reference.l.duration!) reference = { d, l, it, start: w.start, end: w.end };
+      if (!reference || l.duration < reference.l.duration) reference = { d, l, it, start: w.start, end: w.end };
     }
     if (lengths.length) break;
   }
@@ -284,7 +292,10 @@ const traceCache = new WeakMap<Session, Map<string, DecodedLap | null>>();
  */
 export function lapTraceOf(session: Session, n: number, lapNo: number): DecodedLap | null {
   let byKey = traceCache.get(session);
-  if (!byKey) traceCache.set(session, (byKey = new Map()));
+  if (!byKey) {
+    byKey = new Map();
+    traceCache.set(session, byKey);
+  }
   const key = `${n}:${lapNo}`;
   const hit = byKey.get(key);
   if (hit !== undefined) return hit;

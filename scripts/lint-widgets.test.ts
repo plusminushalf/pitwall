@@ -37,7 +37,7 @@ type Chart = typeof import("../speed-gear/chart");
 export const B = () => <div />;
 `,
 );
-write("stray.ts", `export const x = 1;`);
+write("stray.ts", "export const x = 1;");
 
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 

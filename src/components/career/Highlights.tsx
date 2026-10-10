@@ -47,15 +47,15 @@ export function Runs({ outings, names }: { outings: Outing[]; names: HistoryName
     ["Points in a row", pointsStreak(outings)],
     ["Finishes in a row", longestRun(outings, (c) => c.pos != null)],
   ] as const;
-  const shown = runs.filter(([, r]) => r && r.length > 1);
+  const shown = runs.flatMap(([label, r]) => (r && r.length > 1 ? [{ label, r }] : []));
   if (shown.length === 0) return null;
   return (
     <DetailRows
-      rows={shown.map(([label, r]) => ({
+      rows={shown.map(({ label, r }) => ({
         key: label,
         label,
-        value: r!.length,
-        detail: `${raceName(r!.from, names)} to ${r!.from.year === r!.to.year ? (names.gps[r!.to.gp]?.short ?? r!.to.gp) : raceName(r!.to, names)}`,
+        value: r.length,
+        detail: `${raceName(r.from, names)} to ${r.from.year === r.to.year ? (names.gps[r.to.gp]?.short ?? r.to.gp) : raceName(r.to, names)}`,
       }))}
     />
   );

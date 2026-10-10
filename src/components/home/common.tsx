@@ -111,11 +111,12 @@ export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) 
     return otherTab ? <p className="mt-1 text-xs text-zinc-400">Another tab is downloading; this starts when it's done.</p> : null;
   }
   if (job && job.phase === "paused") {
-    const wait = job.resumeAt != null ? Math.max(0, job.resumeAt - now) : null;
+    const at = job.resumeAt;
+    const wait = at != null ? Math.max(0, at - now) : 0;
     return (
       <p className="mt-1 text-xs text-amber-300">
         {job.notice ?? "Paused"}
-        {wait != null && (wait > 90_000 ? ` Starts by itself at ${clockTime(job.resumeAt!)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`)}
+        {at != null && (wait > 90_000 ? ` Starts by itself at ${clockTime(at)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`)}
       </p>
     );
   }
@@ -143,7 +144,7 @@ export function JobProgress({ job, remote }: { job?: Job; remote?: RemoteJob }) 
           {details.join(" · ")}
         </span>
         {job && key != null && !streaming && (
-          <button
+          <button type="button"
             onClick={() => setWatch(watching ? null : key)}
             aria-pressed={watching}
             className={`flex shrink-0 items-center gap-1 rounded px-1 hover:bg-zinc-800 pointer-coarse:min-h-11 pointer-coarse:px-2 ${FOCUS} ${watching ? "text-zinc-100" : "text-zinc-400 hover:text-zinc-100"}`}
@@ -186,7 +187,7 @@ export function Glyph({ name, className = "h-3 w-3" }: { name: keyof typeof GLYP
 export function TrashButton({ sessionKey, title, className = "", tabIndex }: { sessionKey: number; title: string; className?: string; tabIndex?: number }) {
   const askDelete = useLibrary((s) => s.askDelete);
   return (
-    <button tabIndex={tabIndex} onClick={() => askDelete(sessionKey)} className={`${ICON} ${className}`} aria-label={title} title={title}>
+    <button type="button" tabIndex={tabIndex} onClick={() => askDelete(sessionKey)} className={`${ICON} ${className}`} aria-label={title} title={title}>
       <Glyph name="trash" className="h-3.5 w-3.5" />
     </button>
   );
@@ -234,7 +235,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
   const key = row.sessionKey;
   const primary = quiet ? SECONDARY : PRIMARY;
   const watch = (title: string) => (
-    <button onClick={() => stream(row)} className={primary} title={title}>
+    <button type="button" onClick={() => stream(row)} className={primary} title={title}>
       {loaded ? "Resume" : "Watch"}
     </button>
   );
@@ -244,10 +245,10 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
     return (
       <>
         <span className="whitespace-nowrap text-xs text-zinc-300">Delete{bytes ? ` ${size(bytes)}` : ""}?</span>
-        <button onClick={() => void remove(key)} className={DANGER}>
+        <button type="button" onClick={() => void remove(key)} className={DANGER}>
           Delete
         </button>
-        <button onClick={() => askDelete(null)} className={SECONDARY}>
+        <button type="button" onClick={() => askDelete(null)} className={SECONDARY}>
           Keep
         </button>
       </>
@@ -266,7 +267,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
       return (
         <>
           {!compact && muted(bytes)}
-          <button onClick={() => watchNow(key)} className={primary} title={compact ? `Stored in this browser (${bytes})` : undefined}>
+          <button type="button" onClick={() => watchNow(key)} className={primary} title={compact ? `Stored in this browser (${bytes})` : undefined}>
             {loaded ? "Resume" : "Watch"}
           </button>
           <TrashButton sessionKey={key} title="Delete from this browser" />
@@ -277,7 +278,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
       return (
         <>
           {!compact && muted("Needs an update")}
-          <button
+          <button type="button"
             onClick={() => reprocess(state.entry)}
             className={primary}
             title="Processed by an older version of the app: re-process it from the stored OpenF1 data (no download)"
@@ -293,7 +294,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
         const cached = state.cache;
         return (
           <>
-            <button onClick={() => stream(row)} className={SECONDARY} title={cached ? "Watch it; the download carries on from what's stored" : "Try again"}>
+            <button type="button" onClick={() => stream(row)} className={SECONDARY} title={cached ? "Watch it; the download carries on from what's stored" : "Try again"}>
               Retry
             </button>
             {cached && <TrashButton sessionKey={key} title="Discard the partial download" />}
@@ -306,7 +307,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
           <>
             {muted(job.phase === "paused" ? "Waiting" : "Queued")}
             {watchable && watch("Watch it now: its download goes first")}
-            <button onClick={() => cancel(key)} className={SECONDARY}>
+            <button type="button" onClick={() => cancel(key)} className={SECONDARY}>
               Cancel
             </button>
           </>
@@ -319,7 +320,7 @@ export function Action({ row, state, compact = false, quiet = false }: { row: Ca
             {p ? `${Math.round(p.progress * 100)}% · ${left(p.etaSeconds)}` : job.info.mode === "reprocess" ? "Updating…" : "Starting…"}
           </span>
           {watchable && watch("Watch it while it downloads")}
-          <button onClick={() => cancel(key)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
+          <button type="button" onClick={() => cancel(key)} className={SECONDARY} title="Stop; what's downloaded so far is kept">
             Cancel
           </button>
         </>

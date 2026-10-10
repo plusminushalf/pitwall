@@ -5,6 +5,7 @@ import { describe, expect, test } from "bun:test";
 import { FakeClock, settle } from "../../vault/testkit";
 import type { VaultStatus } from "../../vault/src/protocol";
 import { choosePath, PING_MS, PING_TIMEOUT_MS, vaultFetchEndpoint, VaultPort, type PortLike } from "./vaultPort";
+import { must } from "../lib/must";
 
 const NOW = 1_700_000_000_000;
 const connected: VaultStatus = { state: "connected", live: "off", version: "t", tokenExpiresAt: NOW + 3_600_000, refresh: "scheduled" };
@@ -36,7 +37,7 @@ function fakeVault(clock: FakeClock, opts: { status?: VaultStatus; answer?: (end
         let result: unknown = {};
         if (req.type === "status") result = opts.status ?? connected;
         if (req.type === "get") {
-          const a = opts.answer?.(req.endpoint!, req.params) ?? { status: 200, body: JSON.stringify([{ endpoint: req.endpoint }]), auth: true };
+          const a = opts.answer?.(must(req.endpoint), req.params) ?? { status: 200, body: JSON.stringify([{ endpoint: req.endpoint }]), auth: true };
           result = { status: a.status, body: new TextEncoder().encode(a.body).buffer, auth: a.auth };
         }
         port.onmessage?.({ data: { v: 1, id: req.id, ok: true, result } });
@@ -55,7 +56,10 @@ function setup(opts: Parameters<typeof fakeVault>[1] = {}) {
   const retries: number[] = [];
   const fetch = vaultFetchEndpoint({
     vault,
-    direct: async <T,>(endpoint: string) => (direct.push(endpoint), [{ direct: endpoint }] as T[]),
+    direct: async <T,>(endpoint: string) => {
+      direct.push(endpoint);
+      return [{ direct: endpoint }] as T[];
+    },
     onPath: (p, why) => paths.push(`${p}: ${why}`),
     onRetry: (e) => retries.push(e.status),
     sleep: (ms) => new Promise((r) => clock.setTimeout(() => r(), ms)),

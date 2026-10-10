@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import {
   circuitNotice,
   COMPOUND,
@@ -47,6 +48,7 @@ const ROW = "grid h-[22px] grid-cols-[2rem_2.75rem_minmax(0,1fr)_1.25rem] items-
 const skeleton = (
   <ol aria-hidden className="mt-1.5 px-3">
     {Array.from({ length: 10 }, (_, i) => (
+      // biome-ignore lint/suspicious/noArrayIndexKey: placeholder rows with no data of their own, never reordered: the position is the identity
       <li key={i} className={ROW}>
         <Skeleton className="h-3 w-4" />
         <Skeleton className="h-4" />
@@ -83,15 +85,15 @@ function Race({ race, show }: { race: PastRace; show: Show }) {
               {driver?.code ?? `#${finisher.driver}`}
             </span>
             <div className="relative h-3.5 overflow-hidden rounded-sm bg-zinc-900">
-              {race.neutral.map((p, i) => (
-                <div key={`n${i}`} className="absolute inset-y-0 bg-amber-300/25" style={{ left: pct(p.from - 1), width: pct(p.to - p.from + 1) }} />
+              {race.neutral.map((p) => (
+                <div key={`n${p.kind}${p.from}-${p.to}`} className="absolute inset-y-0 bg-amber-300/25" style={{ left: pct(p.from - 1), width: pct(p.to - p.from + 1) }} />
               ))}
               {stints.map((st, i) => {
                 const c = COMPOUND[st.compound] ?? COMPOUND.UNKNOWN;
                 const laps = st.to - st.from + 1;
                 return (
                   <div
-                    key={i}
+                    key={`s${st.from}`}
                     className="absolute inset-y-[3px] flex items-center justify-center overflow-hidden rounded-[2px] text-[9px] font-bold leading-none text-black/75"
                     style={{ left: `calc(${pct(st.from - 1)} + ${i > 0 ? 1 : 0}px)`, width: `calc(${pct(laps)} - ${i > 0 ? 1 : 0}px)`, background: c.color }}
                     title={`${driver?.code ?? finisher.driver}: ${st.compound.toLowerCase()}, laps ${st.from}–${st.to}`}
@@ -117,7 +119,7 @@ function StrategyHistory() {
   const [settings, update] = useSettings<Settings>();
   const picked = data.entries.find((e) => e.year === settings.year && !e.error) ?? data.entries.find((e) => e.race) ?? data.entries[0];
   const notice = circuitNotice(data, skeleton);
-  let body;
+  let body: ReactNode;
   if (notice) body = <div className="flex flex-1 flex-col px-3">{notice}</div>;
   else if (picked?.race) body = <Race race={picked.race} show={settings.show} />;
   else if (picked?.loading) body = skeleton;
@@ -134,7 +136,7 @@ function StrategyHistory() {
         <Label>Strategies{data.circuit ? ` at ${data.circuit}` : ""}</Label>
         <span className="flex-1" />
         {data.entries.length > 0 && (
-          <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Year">
+          <fieldset className="flex rounded-md bg-zinc-900 p-0.5" aria-label="Year">
             {data.entries.map((e) => {
               const on = e === picked;
               return (
@@ -156,7 +158,7 @@ function StrategyHistory() {
                 </button>
               );
             })}
-          </div>
+          </fieldset>
         )}
       </div>
       {body}

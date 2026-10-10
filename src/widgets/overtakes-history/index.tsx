@@ -47,10 +47,10 @@ function Overtakes() {
                 const from = i * BIN + 1;
                 const to = Math.min((i + 1) * BIN, race.laps);
                 // Past the race's own distance (a shorter race than the longest shown): nothing to draw.
-                if (from > race.laps) return <span key={i} className="flex-1" />;
+                if (from > race.laps) return <span key={from} className="flex-1" />;
                 return (
                   <span
-                    key={i}
+                    key={from}
                     className="flex-1 rounded-[2px]"
                     style={cell(n, max)}
                     title={`Laps ${from}–${to}: ${n} ${n === 1 ? "pass" : "passes"}`}

@@ -109,7 +109,10 @@ export const useShare = create<ShareState>((set, get) => {
         .catch((e) => {
           console.error("Screenshot failed", e);
           set({ phase: { kind: "idle" }, result: { id: nextId++, image: null, blob: null, fileName, link: null, moment: page === "session", copied: "no", error: "The screen couldn't be captured." } });
-          void link.then((l) => update(get().result!.id, { link: l }));
+          void link.then((l) => {
+            const r = get().result;
+            if (r) update(r.id, { link: l });
+          });
         });
     },
     pick: (area, panels) => {
@@ -274,6 +277,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
   const rects = picked.map((r) => r.rect);
   const area = drag ? union([...rects, drag]) : picked.length > 0 ? union(rects) : (hover?.rect ?? null);
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a full-screen pointer overlay for picking with the mouse; its keys (Esc cancels, Enter shares) are on the window's keydown listener above
     <div
       data-shot-ignore=""
       className="fixed inset-0 z-50 cursor-crosshair touch-none select-none"
@@ -303,6 +307,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
       )}
       {rects.map((r, i) => (
         <div
+          // biome-ignore lint/suspicious/noArrayIndexKey: stateless outlines placed by their props alone; nothing in a region (an element) makes a key
           key={i}
           className="pointer-events-none absolute outline-2 -outline-offset-2 outline-zinc-100 outline-solid"
           style={{ left: bounds.left + r.left, top: bounds.top + r.top, width: r.width, height: r.height }}
@@ -418,7 +423,7 @@ function ShareToast({ result }: { result: Result }) {
           </p>
           <p className="mt-0.5 text-zinc-400">{note}</p>
         </div>
-        <button onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
+        <button type="button" onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
           <Icon name="close" size={12} />
         </button>
       </div>
@@ -431,7 +436,7 @@ function ShareToast({ result }: { result: Result }) {
             aria-label={result.moment ? "Link to this moment" : "Link to this page"}
             className="min-w-0 flex-1 rounded bg-zinc-800 px-2 py-1 text-[11px] text-zinc-300"
           />
-          <button onClick={copyLink} className={`touch-hit ${BUTTON}`}>
+          <button type="button" onClick={copyLink} className={`touch-hit ${BUTTON}`}>
             <Icon name={linkCopied ? "check" : "link"} size={12} />
             {linkCopied ? "Copied" : "Copy link"}
           </button>
@@ -439,7 +444,7 @@ function ShareToast({ result }: { result: Result }) {
       )}
       {result.image && (
         <div className="mt-2 flex justify-end">
-          <button onClick={save} className={`touch-hit ${BUTTON}`}>
+          <button type="button" onClick={save} className={`touch-hit ${BUTTON}`}>
             <Icon name="download" size={12} />
             Save image
           </button>

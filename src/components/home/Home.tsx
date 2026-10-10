@@ -142,6 +142,7 @@ function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
   // (Still loading or checking the login: Watch live, and the live screen says how it goes.)
   const need = liveVia() === "vault" ? accountNeed(vault) : null;
   const account = need && need !== "loading" && need !== "checking" ? accountStatus(need, true) : null;
+  const accountAction = account?.action;
   return (
     <section data-shot="" aria-label="Live" className="mb-6 flex flex-wrap items-center gap-x-4 gap-y-2 border-y border-zinc-800 px-3 py-3">
       {watch ? (
@@ -166,19 +167,19 @@ function LiveRow({ action }: { action: NonNullable<LiveAction> }) {
       <span className="flex-1" />
       {account ? (
         // Connect / Unlock / Reconnect open the vault's popup: inside the click.
-        account.action && (
-          <button
+        accountAction && (
+          <button type="button"
             onClick={(e) => {
               e.currentTarget.blur();
-              account.action!.run();
+              accountAction.run();
             }}
             className={`${PRIMARY} px-4 py-2 text-sm pointer-coarse:min-h-11`}
           >
-            {account.action.label}
+            {accountAction.label}
           </button>
         )
       ) : (
-        <button
+        <button type="button"
           onClick={(e) => {
             e.currentTarget.blur();
             enterLive();
@@ -248,7 +249,7 @@ function Browse() {
             ["season", "Season"],
           ] as const
         ).map(([id, label]) => (
-          <button
+          <button type="button"
             key={id}
             role="tab"
             aria-selected={browsing === id}
@@ -326,7 +327,7 @@ export function Home() {
           {current?.error && !current.catalog && (
             <div className="mb-6 flex flex-wrap items-center gap-3 border-y border-zinc-800 px-3 py-3 text-sm text-red-400">
               {current.error}
-              <button onClick={() => void useLibrary.getState().loadYear(currentYear(), { force: true })} className={SECONDARY}>
+              <button type="button" onClick={() => void useLibrary.getState().loadYear(currentYear(), { force: true })} className={SECONDARY}>
                 Try again
               </button>
             </div>

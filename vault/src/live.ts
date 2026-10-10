@@ -159,7 +159,10 @@ export class LiveState {
   accept(topic: LiveTopic, m: LiveMessage): boolean {
     const keys = identity(topic, m);
     let s = this.seen.get(topic);
-    if (!s) this.seen.set(topic, (s = { set: new Set(), order: [], head: 0 }));
+    if (!s) {
+      s = { set: new Set(), order: [], head: 0 };
+      this.seen.set(topic, s);
+    }
     if (keys.some((k) => s.set.has(k))) {
       this.duplicates++;
       return false;
@@ -168,7 +171,10 @@ export class LiveState {
       s.set.add(k);
       s.order.push(k);
     }
-    while (s.order.length - s.head > this.cap) s.set.delete(s.order[s.head++]!);
+    while (s.order.length - s.head > this.cap) {
+      const k = s.order[s.head++];
+      if (k !== undefined) s.set.delete(k);
+    }
     if (s.head > this.cap) {
       s.order = s.order.slice(s.head);
       s.head = 0;
@@ -214,9 +220,19 @@ export class LiveState {
   merge(snap: LiveSnapshot) {
     for (const [t, keys] of Object.entries(snap.seen) as [LiveTopic, string[]][]) {
       let s = this.seen.get(t);
-      if (!s) this.seen.set(t, (s = { set: new Set(), order: [], head: 0 }));
-      for (const k of keys) if (!s.set.has(k)) (s.set.add(k), s.order.push(k));
-      while (s.order.length - s.head > this.cap) s.set.delete(s.order[s.head++]!);
+      if (!s) {
+        s = { set: new Set(), order: [], head: 0 };
+        this.seen.set(t, s);
+      }
+      for (const k of keys) {
+        if (s.set.has(k)) continue;
+        s.set.add(k);
+        s.order.push(k);
+      }
+      while (s.order.length - s.head > this.cap) {
+        const k = s.order[s.head++];
+        if (k !== undefined) s.set.delete(k);
+      }
     }
     for (const [t, d] of Object.entries(snap.lastSeen) as [LiveTopic, string][]) {
       const ms = Date.parse(d);
@@ -450,11 +466,11 @@ export class LiveManager {
       this.retryAt = undefined;
       const k = this.retryKind;
       this.retryKind = null;
-      if (!this.running || !this.topics.size) return;
+      if (!k || !this.running || !this.topics.size) return;
       if (k === "handover" && !this.active) return void this.open("connect");
       if (k === "handover" && this.next) return;
       if (k === "connect" && (this.active || this.next)) return;
-      void this.open(k!);
+      void this.open(k);
     }, delay);
     this.deps.onStatus();
   }
@@ -647,7 +663,10 @@ export class LiveManager {
   private deliver(topic: LiveTopic, m: LiveMessage): boolean {
     if (!this.state.accept(topic, m)) return false;
     let box = this.outbox.get(topic);
-    if (!box) this.outbox.set(topic, (box = []));
+    if (!box) {
+      box = [];
+      this.outbox.set(topic, box);
+    }
     box.push(m);
     if (this.flushTimer === null) this.flushTimer = this.deps.setTimeout(() => this.flush(), FLUSH_MS);
     return true;
@@ -736,7 +755,7 @@ export function gapParams(topic: LiveTopic, sessionKey: number | "latest", state
   if (last === undefined && since === undefined) return null;
   if (rule === "whole") return { session_key: sessionKey };
   const lastMs = last !== undefined ? Date.parse(last) : NaN;
-  const from = Number.isFinite(lastMs) ? lastMs - rule : since! - Math.max(rule, GAP_MARGIN_MS);
+  const from = Number.isFinite(lastMs) ? lastMs - rule : (since ?? NaN) - Math.max(rule, GAP_MARGIN_MS);
   return { session_key: sessionKey, "date>=": isoDate(from) };
 }
 

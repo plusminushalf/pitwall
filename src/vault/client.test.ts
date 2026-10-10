@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
 import type { VaultStatus } from "../../vault/src/protocol";
 import { VaultClient, VaultRequestError, type VaultPhase } from "./client";
+import { must } from "../lib/must";
 
 const ORIGIN = "https://vault.test";
 const STATUS: VaultStatus = { state: "disconnected", live: "off", version: "t" };
@@ -19,7 +20,7 @@ class FakeFrame {
   /** The iframe's contentWindow: the app's hello arrives here. */
   postMessage(msg: { type?: string }, origin: string, transfer: MessagePort[] = []) {
     if (msg.type !== "hello" || origin !== ORIGIN || transfer.length !== 1) return;
-    this.port = transfer[0]!;
+    this.port = must(transfer[0]);
     this.port.onmessage = (e) => this.answer(e.data as Req);
   }
   private answer(req: Req) {
@@ -124,7 +125,10 @@ function fakePage(opts: { hang?: (type: string) => boolean; onMount?: (f: FakeIf
   g.window = {
     addEventListener: (type: string, fn: (e: unknown) => void) => type === "message" && listeners.add(fn),
     removeEventListener: (_: string, fn: (e: unknown) => void) => listeners.delete(fn),
-    open: (url: string) => (opened.push(url), popup),
+    open: (url: string) => {
+      opened.push(url);
+      return popup;
+    },
     screenX: 0,
     screenY: 0,
     outerWidth: 1280,
@@ -135,7 +139,7 @@ function fakePage(opts: { hang?: (type: string) => boolean; onMount?: (f: FakeIf
   const vault = new VaultClient(ORIGIN);
   const phases: VaultPhase[] = [];
   vault.onState((s) => phases.push(s.phase));
-  return { vault, body, frames, opened, popup, phases, iframe: () => body.children[0]! };
+  return { vault, body, frames, opened, popup, phases, iframe: () => must(body.children[0]) };
 }
 
 async function until(cond: () => boolean, ms = 1000) {
@@ -157,12 +161,12 @@ describe("the vault iframe removed from the page", () => {
     const first = x.iframe();
     const before = x.phases.length;
     first.remove();
-    await until(() => x.frames.length === 2 && x.vault.getState().handshakeMs !== undefined && x.frames[1]!.types().includes("status"));
+    await until(() => x.frames.length === 2 && x.vault.getState().handshakeMs !== undefined && must(x.frames[1]).types().includes("status"));
     expect(x.body.children).toHaveLength(1);
     expect(x.iframe()).not.toBe(first);
     expect(x.vault.getState().remounts).toBe(1);
     expect((await x.vault.status()).state).toBe("disconnected");
-    expect(x.frames[1]!.types()).toEqual(["status", "status"]);
+    expect(must(x.frames[1]).types()).toEqual(["status", "status"]);
     // No flicker: still "ready", with the last status, while the new frame loaded.
     expect(x.phases.slice(before).every((p) => p === "ready")).toBe(true);
     expect(x.vault.getState().status).toEqual(STATUS);
@@ -172,7 +176,7 @@ describe("the vault iframe removed from the page", () => {
     const x = fakePage({ hang: (type) => type === "get" });
     await x.vault.start();
     const got = x.vault.get("laps", { session_key: 1 });
-    await until(() => x.frames[0]!.types().includes("get"));
+    await until(() => must(x.frames[0]).types().includes("get"));
     x.iframe().remove();
     const r = await within(got, 100);
     expect(r).not.toBe("pending");
@@ -195,9 +199,9 @@ describe("the vault iframe removed from the page", () => {
     expect(x.frames).toHaveLength(2);
     expect(x.vault.getState().popup).toBe("connect");
     expect(await done).toEqual(STATUS);
-    const connects = x.frames[1]!.requests.filter((r) => r.type === "connect");
-    expect(connects.map((r) => r.ticket)).toEqual([ticketOf(x.opened[0]!)]);
-    expect(x.frames[0]!.types()).not.toContain("connect");
+    const connects = must(x.frames[1]).requests.filter((r) => r.type === "connect");
+    expect(connects.map((r) => r.ticket)).toEqual([ticketOf(must(x.opened[0]))]);
+    expect(must(x.frames[0]).types()).not.toContain("connect");
     expect(x.vault.getState().actionError).toBeUndefined();
   });
 
@@ -207,20 +211,20 @@ describe("the vault iframe removed from the page", () => {
     await x.vault.subscribe(["laps", "position"]);
     await x.vault.connect();
     x.iframe().remove();
-    await until(() => x.frames.length === 2 && x.frames[1]!.types().filter((t) => t !== "status").length >= 2);
+    await until(() => x.frames.length === 2 && must(x.frames[1]).types().filter((t) => t !== "status").length >= 2);
     await new Promise((r) => setTimeout(r, 20));
-    const next = x.frames[1]!.requests.filter((r) => r.type !== "status");
+    const next = must(x.frames[1]).requests.filter((r) => r.type !== "status");
     expect(next.map((r) => [r.type, r.ticket ?? r.topics])).toEqual([
       ["subscribe", ["laps", "position"]],
-      ["connect", ticketOf(x.opened[0]!)],
+      ["connect", ticketOf(must(x.opened[0]))],
     ]);
     // Once the popup is closed, a later frame isn't given its ticket.
     x.popup.closed = true;
-    await until(() => x.frames[1]!.types().includes("cancel"), 2000);
+    await until(() => must(x.frames[1]).types().includes("cancel"), 2000);
     x.iframe().remove();
-    await until(() => x.frames.length === 3 && x.frames[2]!.types().includes("subscribe"));
+    await until(() => x.frames.length === 3 && must(x.frames[2]).types().includes("subscribe"));
     await new Promise((r) => setTimeout(r, 20));
-    expect(x.frames[2]!.types()).not.toContain("connect");
+    expect(must(x.frames[2]).types()).not.toContain("connect");
   });
 
   test("two Connect clicks while the frame is gone: the new frame expects the second ticket only", async () => {
@@ -232,7 +236,7 @@ describe("the vault iframe removed from the page", () => {
     await Promise.all([a, b]);
     expect(x.opened).toHaveLength(2);
     expect(x.frames).toHaveLength(2);
-    expect(x.frames[1]!.requests.filter((r) => r.type === "connect").map((r) => r.ticket)).toEqual([ticketOf(x.opened[1]!)]);
+    expect(must(x.frames[1]).requests.filter((r) => r.type === "connect").map((r) => r.ticket)).toEqual([ticketOf(must(x.opened[1]))]);
   });
 
   test("removed before it answered (first handshake): another frame is mounted, and calls wait for it", async () => {
@@ -269,7 +273,7 @@ describe("the vault iframe removed from the page", () => {
     const removeAndWait = async () => {
       const n = x.frames.length;
       x.iframe().remove();
-      await until(() => x.frames.length === n + 1 && x.vault.getState().phase === "ready" && x.frames[n]!.types().includes("status"));
+      await until(() => x.frames.length === n + 1 && x.vault.getState().phase === "ready" && must(x.frames[n]).types().includes("status"));
     };
     for (let i = 0; i < 3; i++) await removeAndWait();
     setSystemTime(t0 + 61_000);

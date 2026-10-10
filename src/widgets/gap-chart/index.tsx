@@ -285,13 +285,12 @@ function GapChart() {
     const info = new Map(drivers.map((d) => [d.number, d]));
     // The first car of each team in session order is solid, the second dashed.
     const second = new Set(drivers.filter((d, i) => drivers.findIndex((o) => o.teamColour === d.teamColour) < i).map((d) => d.number));
-    return gapSeries(all, shown, gapMode)
-      .filter((s) => info.has(s.driver))
-      .map((series) => {
-        const d = info.get(series.driver)!;
-        const mate = shown.some((n) => n !== d.number && info.get(n)?.teamColour === d.teamColour);
-        return { series, info: d, color: teamColor(d.teamColour), dashed: mate && second.has(d.number) };
-      });
+    return gapSeries(all, shown, gapMode).flatMap((series) => {
+      const d = info.get(series.driver);
+      if (!d) return [];
+      const mate = shown.some((n) => n !== d.number && info.get(n)?.teamColour === d.teamColour);
+      return [{ series, info: d, color: teamColor(d.teamColour), dashed: mate && second.has(d.number) }];
+    });
   }, [all, shown, gapMode, drivers]);
 
   const completed = leader.length - 1;
@@ -359,6 +358,7 @@ function GapChart() {
       <div className="flex items-center justify-between gap-3" style={{ height: HEAD_H }}>
         <span className={`${LABEL_CLASS} shrink-0`}>
           <button
+            type="button"
             onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
             className={`${TAP_CLASS} rounded-sm uppercase hover:text-zinc-100`}
             title={gapMode === "leader" ? "Show the interval to the car ahead" : "Show the gap to the leader"}

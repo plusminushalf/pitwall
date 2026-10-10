@@ -65,7 +65,11 @@ export function drawCornerLabels(
       while (corners[last + 1]?.name === name) last++;
       const w = ctx.measureText(name).width;
       const all = Array.from({ length: last - i + 1 }, (_, k) => spots(i + k, w)).flat();
-      const spot = all.find(clear) ?? spots(i, w).find(fits) ?? spots(i, w).at(-1)!;
+      let spot = all.find(clear);
+      if (!spot) {
+        const own = spots(i, w);
+        spot = own.find(fits) ?? own[own.length - 1];
+      }
       ctx.strokeText(name, spot.x, spot.y);
       ctx.fillText(name, spot.x, spot.y);
       taken.push(spot);

@@ -6,6 +6,7 @@ import { existsSync, readFileSync } from "node:fs";
 import type { DriverInfo, Lap, SessionMeta, Stint } from "../types";
 import { canCompare, compareModel } from "./compare";
 import { defaultPracticeLap, practiceClassification, practiceComparable, tyreOn } from "./practice";
+import { must } from "../lib/must";
 
 const lap = (driver: number, n: number, start: number, duration: number | null, extra: Partial<Lap> = {}): Lap => ({
   driver,
@@ -74,7 +75,7 @@ describe("practice classification", () => {
   test("compared only once downloaded: with lap traces (live and a download being watched have none)", () => {
     expect(practiceComparable(META)).toBe(true);
     expect(canCompare({ ...META, practice: { scheduledEnd: 3_600_000 } })).toBe(false);
-    const model = compareModel(META)!;
+    const model = must(compareModel(META));
     expect(model.kind).toBe("practice");
     expect(model.presets).toEqual([]);
     expect(model.defaultDrivers).toEqual([16, 1]);
@@ -97,12 +98,13 @@ const meta = existsSync(`${dir}meta.json`) ? (JSON.parse(readFileSync(`${dir}met
 
 describe.skipIf(!meta?.practice?.lapLength)("2026 Australian GP FP2", () => {
   test("the classification is the official one, and every driver's best lap with a time has a trace", () => {
-    const c = practiceClassification(meta!);
-    const official = [...meta!.results].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+    const m = must(meta);
+    const c = practiceClassification(m);
+    const official = [...m.results].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
     expect(c.filter((r) => r.best != null).map((r) => r.driver)).toEqual(official.filter((r) => r.position != null && r.duration != null).map((r) => r.driver));
     for (const r of c) {
-      if (r.lap != null) expect(defaultPracticeLap(meta!, r.driver, c)).toBe(r.lap);
+      if (r.lap != null) expect(defaultPracticeLap(m, r.driver, c)).toBe(r.lap);
     }
-    expect(compareModel(meta!)!.defaultDrivers).toEqual(official.slice(0, 2).map((r) => r.driver));
+    expect(must(compareModel(m)).defaultDrivers).toEqual(official.slice(0, 2).map((r) => r.driver));
   });
 });

@@ -15,15 +15,14 @@ export function DriverList({ race, value, onChange, label, locked = false }: { r
         <span className={`${LABEL} hidden sm:block`}>Team</span>
         <span className={`${LABEL} text-right`}>No.</span>
       </div>
-      <div role="radiogroup" aria-label={label}>
+      <fieldset className="min-w-0" aria-label={label}>
         {topFive(race).map((d) => {
           const on = value === d.number;
           return (
             <button
               key={d.number}
               type="button"
-              role="radio"
-              aria-checked={on}
+              aria-pressed={on}
               disabled={locked}
               onClick={() => onChange(d.number)}
               className={`grid min-h-[44px] w-full ${COLS} items-center border-b border-zinc-800/70 px-3 text-left transition-colors ${on ? "bg-zinc-800/60" : locked ? "opacity-50" : "hover:bg-zinc-900"}`}
@@ -46,7 +45,7 @@ export function DriverList({ race, value, onChange, label, locked = false }: { r
             </button>
           );
         })}
-      </div>
+      </fieldset>
     </div>
   );
 }

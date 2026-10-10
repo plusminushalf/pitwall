@@ -3,6 +3,7 @@ import { buildSession } from "../data/session";
 import type { DriverTelemetry, Lap, SessionMeta } from "../types";
 import { timeAtDistance, valueAtDistance } from "./compare";
 import { lapGeometryOf, lapTraceOf } from "./lapTrace";
+import { must } from "../lib/must";
 
 // Two cars on a 1 km lap: car 1 steady at 180 km/h (50 m/s: a 20 s lap), car 2 steady at 150 km/h (a 24 s lap).
 // Sector boundaries at 300 m and 600 m. Lap starts jittered by up to 800 ms against the
@@ -77,7 +78,7 @@ describe("race lap traces", () => {
   });
 
   test("a trace runs from the line to the line, the jittered start chained away", () => {
-    const tr = lapTraceOf(session, 1, 3)!;
+    const tr = must(lapTraceOf(session, 1, 3));
     expect(tr).not.toBeNull();
     expect(tr.t[0]).toBe(0);
     expect(tr.duration).toBe(20_000);
@@ -89,8 +90,8 @@ describe("race lap traces", () => {
   });
 
   test("a slower lap is behind at the same distance", () => {
-    const a = lapTraceOf(session, 1, 2)!;
-    const b = lapTraceOf(session, 2, 2)!;
+    const a = must(lapTraceOf(session, 1, 2));
+    const b = must(lapTraceOf(session, 2, 2));
     // Car 2 loses 2 s by half distance and 4 s over the lap.
     expect(timeAtDistance(b, 500) - timeAtDistance(a, 500)).toBeCloseTo(2_000, -1);
     expect(timeAtDistance(b, LAP_M) - timeAtDistance(a, LAP_M)).toBeCloseTo(4_000, -1);

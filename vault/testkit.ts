@@ -175,7 +175,10 @@ export class MemBroker {
     for (const c of this.clients) if (c.open && !c.sock.closed && c.subs.has(`v1/${topic}`)) this.reply(c, bytes);
     const { _id, _key, ...rest } = withId as Record<string, unknown>;
     let list = this.records.get(topic);
-    if (!list) this.records.set(topic, (list = []));
+    if (!list) {
+      list = [];
+      this.records.set(topic, list);
+    }
     list.push(rest);
     return withId;
   }

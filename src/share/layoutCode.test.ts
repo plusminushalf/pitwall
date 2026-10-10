@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { DEFAULT_LAYOUTS } from "../grid/defaultLayout";
 import { decodeLayout, encodeLayout } from "./layoutCode";
+import { must } from "../lib/must";
 
 describe("layout codes", () => {
   test("a layout round-trips, in a link-sized code", async () => {
@@ -10,8 +11,8 @@ describe("layout codes", () => {
     expect(code.length).toBeLessThan(500);
     const back = await decodeLayout(code);
     expect(back?.kind).toBe("race");
-    expect(Object.keys(back!.layout.widgets)).toEqual(Object.keys(layout.widgets));
-    expect(back!.layout.widgets["timing-tower"]).toMatchObject({ x: 0, width: 15, settings: { gapMode: "interval" } });
+    expect(Object.keys(must(back).layout.widgets)).toEqual(Object.keys(layout.widgets));
+    expect(must(back).layout.widgets["timing-tower"]).toMatchObject({ x: 0, width: 15, settings: { gapMode: "interval" } });
   });
 
   test("keeps the kind", async () => {

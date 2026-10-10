@@ -17,7 +17,8 @@ describe("device mode", () => {
   });
   test("tampering is detected", async () => {
     const login = await sealDevice(secret, "a***@b.co");
-    new Uint8Array(login.sealed.ciphertext)[0]! ^= 1;
+    const bytes = new Uint8Array(login.sealed.ciphertext);
+    bytes[0] = (bytes[0] ?? 0) ^ 1;
     expect(openLogin(login)).rejects.toThrow();
   });
 });

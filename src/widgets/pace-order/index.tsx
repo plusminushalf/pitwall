@@ -70,11 +70,11 @@ function PaceRowView({ row, info, scale, narrow, teams, pinned, onPick }: { row:
     `${teams && info ? `${shortTeam(info.team)}, ${name}` : name}: ${lapTime(best.time)} on lap ${best.lap}, ` +
     `${best.compound.toLowerCase()}s ${best.age === 0 ? "new" : `${plural(best.age, "lap")} old`}` +
     `${first ? "" : `, ${gap.toFixed(3)} s off the quickest`}. ` +
-    (best.ideal == null ? "No ideal lap yet (a sector without a valid time). " : `Ideal lap (best sectors) ${lapTime(best.ideal)}: ${left!.toFixed(3)} s left on the table. `) +
+    (best.ideal == null || left == null ? "No ideal lap yet (a sector without a valid time). " : `Ideal lap (best sectors) ${lapTime(best.ideal)}: ${left.toFixed(3)} s left on the table. `) +
     (pinned ? "Watching it." : "Click to watch the lap.");
   return (
     <li className={pinned ? "bg-zinc-800/80" : undefined}>
-      <button onClick={() => onPick(row)} className={`${colsOf(narrow, teams)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
+      <button type="button" onClick={() => onPick(row)} className={`${colsOf(narrow, teams)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
         <span className={`text-right text-[11px] font-semibold tabular-nums ${first ? "text-zinc-50" : "text-zinc-400"}`}>{rank}</span>
         <span className="flex min-w-0 items-center gap-1">
           <Chip n={best.driver} d={info} team={teams} />
@@ -151,6 +151,7 @@ function PaceOrder() {
         <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["drivers", "teams"] as const).map((v) => (
             <button
+              type="button"
               key={v}
               onClick={() => update({ show: v })}
               aria-pressed={show === v}

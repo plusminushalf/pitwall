@@ -91,7 +91,8 @@ export function pushSets(driver: number, laps: readonly PushLap[], stints: reado
     const setBest = Math.min(...own.map((l) => l.time));
     const pushed = setBest <= SET_PACE * overall;
     const pushes = own.filter((l) => l.time <= PUSH * overall || (pushed && l.time <= PUSH * setBest));
-    if (pushes.length === 0) return;
+    const last = pushes.at(-1);
+    if (!last) return;
     const times = pushes.map((l) => l.time);
     out.push({
       driver,
@@ -104,7 +105,7 @@ export function pushSets(driver: number, laps: readonly PushLap[], stints: reado
       best: Math.min(...times),
       drop: times.length > 1 ? times[1] - times[0] : null,
       start: pushes[0].start,
-      end: pushes.at(-1)!.end,
+      end: last.end,
     });
   });
   return out;
@@ -117,8 +118,12 @@ export const COMPOUND_ORDER = ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET", 
 export function byCompound(sets: readonly SetPushes[]): { compound: string; sets: SetPushes[] }[] {
   const groups = new Map<string, SetPushes[]>();
   for (const s of sets) {
-    if (!groups.has(s.compound)) groups.set(s.compound, []);
-    groups.get(s.compound)!.push(s);
+    let group = groups.get(s.compound);
+    if (!group) {
+      group = [];
+      groups.set(s.compound, group);
+    }
+    group.push(s);
   }
   const rank = (c: string) => (COMPOUND_ORDER.includes(c) ? COMPOUND_ORDER.indexOf(c) : COMPOUND_ORDER.length);
   return [...groups]

@@ -5,10 +5,13 @@ import type { QualiData, QualiLap, SessionMeta } from "../types";
 export type LapPreset = "best" | number; // fastest counting lap overall, or in segment n
 
 /** The lap to compare for a driver when none was picked: fastest counting lap (overall or in a segment). */
-export function defaultLap(meta: SessionMeta, driver: number, preset: LapPreset): number | null {
-  const q = meta.quali!;
+export function defaultLap(meta: SessionMeta, q: QualiData, driver: number, preset: LapPreset): number | null {
   const r = q.results.find((x) => x.driver === driver);
-  const own = (k: number) => (r?.laps[k] != null && r.times[k] != null ? { lap: r.laps[k]!, time: r.times[k]! } : null);
+  const own = (k: number) => {
+    const lap = r?.laps[k];
+    const time = r?.times[k];
+    return lap != null && time != null ? { lap, time } : null;
+  };
   if (preset !== "best") {
     const s = own(preset - 1);
     if (s) return s.lap;

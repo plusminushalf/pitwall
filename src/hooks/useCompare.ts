@@ -48,7 +48,7 @@ export function useCompare(): CompareEntry[] {
     const meta = session?.meta;
     const model = meta ? compareModel(meta) : null;
     if (!meta || !model) return [];
-    const infos = drivers.map((n) => session!.drivers.get(n)?.info);
+    const infos = drivers.map((n) => session?.drivers.get(n)?.info);
     const styles = compareStyles(infos);
     return drivers.flatMap((n, i) => {
       const info = infos[i];

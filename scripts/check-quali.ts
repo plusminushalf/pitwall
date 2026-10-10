@@ -92,7 +92,10 @@ for (const key of keys) {
       if (time == null) return;
       const lapNo = r.laps[k];
       const seg = q.segments[k].name;
-      if (lapNo == null) return fails.push(`#${r.driver} ${seg} ${lapTime(time)}: no lap found`);
+      if (lapNo == null) {
+        fails.push(`#${r.driver} ${seg} ${lapTime(time)}: no lap found`);
+        return;
+      }
       const lap = meta.laps.find((l) => l.driver === r.driver && l.lap === lapNo);
       const ql = q.laps.find((l) => l.driver === r.driver && l.lap === lapNo);
       check(lap?.duration != null && Math.abs(lap.duration - time) < 0.0015, `#${r.driver} ${seg}: lap ${lapNo} is ${lap?.duration}, official ${time}`);
@@ -113,14 +116,14 @@ for (const key of keys) {
       const lapNo = r.laps[k];
       const lap = lapNo != null ? traces.get(r.driver)?.get(lapNo) : undefined;
       const meta_ = meta.laps.find((l) => l.driver === r.driver && l.lap === lapNo);
-      return lap && meta_ ? [{ lap, meta: meta_ }] : [];
+      return lap && meta_?.duration != null ? [{ lap, meta: meta_, duration: meta_.duration }] : [];
     });
     for (let i = 0; i < best.length; i++) {
       for (let j = i + 1; j < best.length; j++) {
         const a = best[i];
         const b = best[j];
         pairs++;
-        const line = Math.abs(deltaAt(a.lap, b.lap, q.lapLength) - (b.meta.duration! - a.meta.duration!));
+        const line = Math.abs(deltaAt(a.lap, b.lap, q.lapLength) - (b.duration - a.duration));
         if (line > worstLine) {
           worstLine = line;
           worstPair = `${seg.name} #${a.lap.driver} L${a.lap.lap} vs #${b.lap.driver} L${b.lap.lap}`;
@@ -128,9 +131,11 @@ for (const key of keys) {
         let sa = 0;
         let sb = 0;
         for (let s = 0; s < 2; s++) {
-          if (a.meta.sectors[s] == null || b.meta.sectors[s] == null) break;
-          sa += a.meta.sectors[s]!;
-          sb += b.meta.sectors[s]!;
+          const as = a.meta.sectors[s];
+          const bs = b.meta.sectors[s];
+          if (as == null || bs == null) break;
+          sa += as;
+          sb += bs;
           worstSector = Math.max(worstSector, Math.abs(deltaAt(a.lap, b.lap, q.sectorDistances[s]) - (sb - sa)));
         }
       }
@@ -147,7 +152,7 @@ for (const key of keys) {
   const oy = [...outline.y, outline.y[0]];
   const os = [0];
   for (let i = 1; i < ox.length; i++) os.push(os[i - 1] + Math.hypot(ox[i] - ox[i - 1], oy[i] - oy[i - 1]) / 10);
-  const scale = q.lapLength / os.at(-1)!;
+  const scale = q.lapLength / os[os.length - 1];
   const project = (x: number, y: number, near: number) => {
     let best = NaN;
     let bestD = Infinity;

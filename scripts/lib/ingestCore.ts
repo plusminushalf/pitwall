@@ -142,7 +142,11 @@ function limiter(limit: () => number) {
   const queue: (() => void)[] = [];
   let stopped = false;
   const next = () => {
-    while (active < limit() && queue.length) queue.shift()!();
+    while (active < limit()) {
+      const start = queue.shift();
+      if (!start) break;
+      start();
+    }
   };
   function run<T>(task: () => Promise<T>, front = false, now = false): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -214,8 +218,12 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     const t2 = now();
     pendingWrites.push(
       writeCache(io, file, data).then(
-        () => void (timings.rawWrite += now() - t2),
-        (error) => void (writeError ??= { error }),
+        () => {
+          timings.rawWrite += now() - t2;
+        },
+        (error) => {
+          writeError ??= { error };
+        },
       ),
     );
     onEvent?.({ kind: "raw", name, source: "network", ms: t2 - t1, data });
@@ -369,7 +377,8 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
           if (!Number.isFinite(window.t0) || !Number.isFinite(window.end)) throw new Error(`Session ${sessionKey} has no timed laps`);
           const span = telemetrySpan(window);
           const storedParts = stored.flatMap((name) => parseSliceFile(name) ?? []);
-          const p = (plan = new SlicePlan(span, storedParts));
+          const p = new SlicePlan(span, storedParts);
+          plan = p;
           onEvent?.({ kind: "plan", window, span, stored: storedParts });
           const playhead = () => io.playhead?.() ?? window.lightsOut; // where a new race opens
           // Someone is watching (a jump is urgent only then).
@@ -438,7 +447,9 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     failure ??= { error };
     limit.stop();
   });
-  tasks.push(circuitP.catch(() => {}), driverNumbersP.catch(() => {}), (perDriverP ?? slicesP)!.catch(() => {}));
+  const telemetryP = perDriverP ?? slicesP;
+  tasks.push(circuitP.catch(() => {}), driverNumbersP.catch(() => {}));
+  if (telemetryP) tasks.push(telemetryP.catch(() => {}));
 
   await settled();
   await rethrowFailure();
@@ -530,7 +541,11 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
   }
 
   await writeJson(`${outDir}/meta.json`, () => meta);
-  for (const n of driverNumbers) await writeJson(`${outDir}/drivers/${n}.json`, () => encodeTelemetry(telemetry.get(n)!));
+  for (const n of driverNumbers) {
+    const tel = telemetry.get(n);
+    if (!tel) throw new Error(`#${n}: no telemetry`);
+    await writeJson(`${outDir}/drivers/${n}.json`, () => encodeTelemetry(tel));
+  }
   const traces = quali?.traces ?? practice?.traces;
   if (traces) for (const tr of traces.values()) await writeJson(`${outDir}/laps/${tr.driver}.json`, () => tr);
 

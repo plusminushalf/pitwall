@@ -137,9 +137,9 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
   // Practice: race control has deleted it by now (track limits).
   const deleted = useTime((t) => l?.deleted != null && t >= l.deleted.t);
   if (!l) return <span className="text-zinc-600">—</span>;
-  if (deleted) {
+  if (deleted && l.deleted) {
     return (
-      <span className="tabular-nums text-zinc-400 line-through" title={`Deleted: ${l.deleted!.reason.toLowerCase()}`}>
+      <span className="tabular-nums text-zinc-400 line-through" title={`Deleted: ${l.deleted.reason.toLowerCase()}`}>
         {lapTime(l.duration)}
       </span>
     );
@@ -180,7 +180,12 @@ function QualiStatusCell({ n, s, out }: { n: number; s: RowData; out: LiveQualiS
 
 /** Each sector's fastest time among a driver's laps so far. */
 const personalBestSectors = (laps: readonly Lap[]) =>
-  [0, 1, 2].map((k) => laps.reduce<number | null>((min, l) => (l.sectors[k] != null && (min == null || l.sectors[k]! < min) ? l.sectors[k] : min), null));
+  [0, 1, 2].map((k) =>
+    laps.reduce<number | null>((min, l) => {
+      const v = l.sectors[k];
+      return v != null && (min == null || v < min) ? v : min;
+    }, null),
+  );
 
 /** The last lap's sector times: purple for the fastest by anyone so far, green for the driver's own best. */
 function SectorCells({ n, s }: { n: number; s: RowData }) {
@@ -251,6 +256,7 @@ const Row = memo(function Row({
   const danger = standing != null && "danger" in standing;
   return (
     <button
+      type="button"
       onClick={() => onToggle(d.number)}
       aria-pressed={isSelected}
       title={isSelected ? `Remove ${d.acronym} from the selection` : `Add ${d.acronym} to the selection (filters the track map)`}
@@ -348,7 +354,7 @@ function TimingTower() {
         {selected.length > 0 ? (
           <span className="text-zinc-400">
             Showing <span className="font-semibold tabular-nums text-zinc-100">{selected.length}</span> on track ·{" "}
-            <button onClick={clear} className={`${TAP_CLASS} rounded px-1 font-semibold text-zinc-200 underline-offset-2 hover:bg-zinc-800 hover:text-white hover:underline`} title="Show every car on the track map (esc)">
+            <button type="button" onClick={clear} className={`${TAP_CLASS} rounded px-1 font-semibold text-zinc-200 underline-offset-2 hover:bg-zinc-800 hover:text-white hover:underline`} title="Show every car on the track map (esc)">
               Show all
             </button>
           </span>
@@ -362,6 +368,7 @@ function TimingTower() {
         <span>Driver</span>
         {quali && <span title={`Best lap in ${phase?.segment?.name ?? "the segment"}`}>{phase?.segment?.name ?? "Best"}</span>}
         <button
+          type="button"
           onClick={() => update({ gapMode: gapMode === "leader" ? "interval" : "leader" })}
           className={`${TAP_CLASS} flex items-center gap-1 rounded-sm text-left uppercase hover:text-zinc-100`}
           title={

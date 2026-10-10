@@ -17,6 +17,7 @@ import {
   type PopupResult,
   type PopupWelcome,
   type StorageMode,
+  type Ticket,
 } from "./protocol";
 
 const ORIGIN = location.origin;
@@ -100,7 +101,8 @@ window.addEventListener("message", (e: MessageEvent) => {
 });
 
 function send(msg: PopupMessage) {
-  frame!.postMessage(msg, { targetOrigin: ORIGIN });
+  if (!frame) throw new Error("no vault frame yet");
+  frame.postMessage(msg, { targetOrigin: ORIGIN });
 }
 
 /**
@@ -111,12 +113,15 @@ function send(msg: PopupMessage) {
 function appFrames(opener: Window): Window[] {
   const found: Window[] = [];
   const queue = [opener.top ?? opener];
-  while (queue.length && found.length < FRAMES_MAX) {
-    const w = queue.shift()!;
+  while (found.length < FRAMES_MAX) {
+    const w = queue.shift();
+    if (!w) break;
     try {
       for (let i = 0; i < w.frames.length && found.length < FRAMES_MAX; i++) {
-        found.push(w.frames[i]!);
-        queue.push(w.frames[i]!);
+        const f = w.frames[i];
+        if (!f) continue;
+        found.push(f);
+        queue.push(f);
       }
     } catch {}
   }
@@ -124,9 +129,9 @@ function appFrames(opener: Window): Window[] {
 }
 
 /** Post a hello to every frame of the app window; the one expecting our ticket answers. */
-function findFrame(): Promise<PopupWelcome | PopupResult | null> {
+function findFrame(ticket: Ticket): Promise<PopupWelcome | PopupResult | null> {
   return new Promise((resolve) => {
-    const hello: PopupMessage = { v: 1, type: "popup:hello", ticket: ticket! };
+    const hello: PopupMessage = { v: 1, type: "popup:hello", ticket };
     const ping = () => {
       const w = window.opener as Window | null;
       if (!w) return;
@@ -154,7 +159,7 @@ function ask(msg: PopupMessage): Promise<PopupResult> {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       onAnswer = null;
-      resolve({ v: 1, type: "popup:result", ticket: ticket!, ok: false, error: { code: "network", message: "The vault didn't answer. Close this window and try again." } });
+      resolve({ v: 1, type: "popup:result", ticket: msg.ticket, ok: false, error: { code: "network", message: "The vault didn't answer. Close this window and try again." } });
     }, ANSWER_MS);
     onAnswer = (m) => {
       if (m.type !== "popup:result") return;
@@ -274,7 +279,7 @@ async function connectFlow(welcome: Extract<PopupWelcome, { kind: "connect" }>) 
     ui.submit.disabled = true;
     error(null);
     progress("Checking your login with OpenF1…");
-    const r = await ask({ v: 1, type: "popup:login", ticket: ticket!, username, password, mode: storage });
+    const r = await ask({ v: 1, type: "popup:login", ticket: welcome.ticket, username, password, mode: storage });
     busy = false;
     ui.submit.disabled = false;
     progress("");
@@ -287,12 +292,15 @@ async function connectFlow(welcome: Extract<PopupWelcome, { kind: "connect" }>) 
     if (r.next === "done") return void finished(username, password);
     // Passkey: the frame has checked the login and waits for the PRF output.
     show("passkeyStep");
-    await passkeySetup(username, password, welcome.prfSalt);
+    await passkeySetup(username, password, welcome.prfSalt, welcome.ticket);
   });
 }
 
-async function passkeySetup(username: string, password: string, salt: ArrayBuffer) {
-  const buttons = (on: boolean) => ((ui.passkeyRetry.disabled = !on), (ui.useDevice.disabled = !on));
+async function passkeySetup(username: string, password: string, salt: ArrayBuffer, ticket: Ticket) {
+  const buttons = (on: boolean) => {
+    ui.passkeyRetry.disabled = !on;
+    ui.useDevice.disabled = !on;
+  };
   const attempt = async () => {
     buttons(false);
     error(null);
@@ -311,7 +319,7 @@ async function passkeySetup(username: string, password: string, salt: ArrayBuffe
     }
     buttons(false);
     progress("Saving your login…");
-    const r = await ask({ v: 1, type: "popup:passkey", ticket: ticket!, credentialId: out.credentialId, prf: out.prf });
+    const r = await ask({ v: 1, type: "popup:passkey", ticket, credentialId: out.credentialId, prf: out.prf });
     new Uint8Array(out.prf).fill(0);
     progress("");
     buttons(true);
@@ -323,7 +331,7 @@ async function passkeySetup(username: string, password: string, salt: ArrayBuffe
     buttons(false);
     error(null);
     progress("Saving your login…");
-    const r = await ask({ v: 1, type: "popup:device", ticket: ticket! });
+    const r = await ask({ v: 1, type: "popup:device", ticket });
     progress("");
     buttons(true);
     if (!r.ok) return error(r.error);
@@ -353,7 +361,7 @@ function unlockFlow(welcome: Extract<PopupWelcome, { kind: "unlock" }>) {
       return;
     }
     progress("Unlocking…");
-    const r = await ask({ v: 1, type: "popup:unlock", ticket: ticket!, prf });
+    const r = await ask({ v: 1, type: "popup:unlock", ticket: welcome.ticket, prf });
     new Uint8Array(prf).fill(0);
     progress("");
     ui.unlockButton.disabled = false;
@@ -369,7 +377,7 @@ async function main() {
     progress("");
     return error("Open this window with the Connect button in Pitwall.");
   }
-  const welcome = await findFrame();
+  const welcome = await findFrame(ticket);
   if (!welcome) {
     progress("");
     return error(NO_FRAME);

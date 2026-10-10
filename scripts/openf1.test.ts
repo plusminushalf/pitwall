@@ -81,7 +81,10 @@ describe("without credentials (free tier)", () => {
   test("concurrent requests keep the tier's spacing (each reserves its own slot)", async () => {
     setCreds();
     const starts: number[] = [];
-    respond = () => (starts.push(Date.now()), json([]));
+    respond = () => {
+      starts.push(Date.now());
+      return json([]);
+    };
     setRequestInterval(40);
     const t0 = Date.now();
     try {
@@ -92,7 +95,7 @@ describe("without credentials (free tier)", () => {
     expect(starts.length).toBe(4);
     // Each starts at or after its own slot, 40 ms after the one before. (Not the gaps between starts: a timer
     // that fires late under load brings one start closer to the next, which is on time.)
-    starts.forEach((t, k) => expect(t - t0).toBeGreaterThanOrEqual(k * 40));
+    for (const [k, t] of starts.entries()) expect(t - t0).toBeGreaterThanOrEqual(k * 40);
   });
 
   test("a blank username counts as missing", () => {
@@ -108,7 +111,7 @@ describe("with credentials (sponsor tier)", () => {
     await fetchEndpoint("laps", { session_key: 1 });
     await fetchEndpoint("stints", { session_key: 1 });
     expect(calls.map((c) => c.method)).toEqual(["POST", "GET", "GET"]);
-    const form = new URLSearchParams(calls[0].body!);
+    const form = new URLSearchParams(calls[0].body ?? "");
     expect(form.get("username")).toBe("fan@example.com");
     expect(form.get("password")).toBe("s3cret&pass");
     expect(calls[1].auth).toBe("Bearer tok-1");

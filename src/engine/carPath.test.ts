@@ -4,6 +4,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { buildSession, type CarSeries, type DriverData } from "../data/session";
+import { must } from "../lib/must";
 import type { DriverTelemetry, SessionMeta } from "../types";
 import { carPathOf, carPathPosition } from "./carPath";
 import { carPositionAt } from "./raceState";
@@ -33,7 +34,10 @@ const circle = (kmh: number, r: number): Drive => ({
 /** Deterministic pseudo-random numbers in [0, 1). */
 function rng(seed: number) {
   let x = seed;
-  return () => ((x = (x * 1_103_515_245 + 12_345) % 2_147_483_648) / 2_147_483_648);
+  return () => {
+    x = (x * 1_103_515_245 + 12_345) % 2_147_483_648;
+    return x / 2_147_483_648;
+  };
 }
 
 interface Options {
@@ -99,6 +103,11 @@ function frames(d: DriverData, a: number, b: number) {
   return out;
 }
 
+/** frames() where the car must be on the map in every one. */
+function placedFrames(d: DriverData, a: number, b: number) {
+  return frames(d, a, b).map(({ t, p }) => ({ t, p: must(p, `a position at ${t}`) }));
+}
+
 /** Frame speeds (km/h) between consecutive non-null frames. */
 function speeds(f: ReturnType<typeof frames>) {
   const v: number[] = [];
@@ -156,9 +165,8 @@ describe("car paths: motion", () => {
   test("on a curve it stays on the racing line", () => {
     const r = 1_500; // 150 m
     const d = drive(circle(160, r), { earlyFrac: 0.25, early: 120 });
-    for (const { p } of frames(d, 10_000, 60_000)) {
-      expect(p).not.toBeNull();
-      expect(Math.abs(Math.hypot(p!.x, p!.y - r) - r)).toBeLessThan(5); // 0.5 m
+    for (const { p } of placedFrames(d, 10_000, 60_000)) {
+      expect(Math.abs(Math.hypot(p.x, p.y - r) - r)).toBeLessThan(5); // 0.5 m
     }
   });
 
@@ -187,9 +195,9 @@ describe("car paths: motion", () => {
       { dist, speed: (t) => (t >= 20_000 && t < 40_000 ? 0 : 60), at: (s) => [s, 0] },
       { edit: (_i, t, p) => (t > 20_000 && t < 40_000 ? [p[0] + (noise() - 0.5) * 6, p[1] + (noise() - 0.5) * 6] : p) },
     );
-    const f = frames(d, 21_000, 39_000);
-    const first = f[0].p!;
-    for (const { p } of f) expect(Math.hypot(p!.x - first.x, p!.y - first.y)).toBe(0);
+    const f = placedFrames(d, 21_000, 39_000);
+    const first = f[0].p;
+    for (const { p } of f) expect(Math.hypot(p.x - first.x, p.y - first.y)).toBe(0);
     // and it's where the car stopped
     expect(Math.abs(first.x - dist(30_000))).toBeLessThan(15);
   });
@@ -199,9 +207,9 @@ describe("car paths: motion", () => {
     const a = 12; // m/s^2
     const dist = (t: number) => (t < go ? 0 : 10 * 0.5 * a * ((t - go) / 1000) ** 2); // dm
     const d = drive({ dist, speed: (t) => (t < go ? 0 : a * ((t - go) / 1000) * 3.6), at: (s) => [s, 0] }, { to: 40_000 });
-    const before = frames(d, 5_000, go);
-    for (const { p } of before) expect(p!.x).toBe(before[0].p!.x);
-    for (const { t, p } of frames(d, go, 39_000)) expect(Math.abs(p!.x - dist(t))).toBeLessThan(30); // 3 m
+    const before = placedFrames(d, 5_000, go);
+    for (const { p } of before) expect(p.x).toBe(before[0].p.x);
+    for (const { t, p } of placedFrames(d, go, 39_000)) expect(Math.abs(p.x - dist(t))).toBeLessThan(30); // 3 m
     expect(worstBackwardX(frames(d, 5_000, 39_000))).toBe(0);
   });
 
@@ -214,8 +222,8 @@ describe("car paths: motion", () => {
       [31_000, 39_000],
       [61_000, 69_000],
     ]) {
-      const f = frames(d, a, b);
-      for (const { t, p } of f) expect(Math.abs(p!.x - (180 * t) / 360)).toBeLessThan(30);
+      const f = placedFrames(d, a, b);
+      for (const { t, p } of f) expect(Math.abs(p.x - (180 * t) / 360)).toBeLessThan(30);
       expect(Math.min(...speeds(f))).toBeGreaterThan(180 * 0.4);
     }
   });
@@ -232,8 +240,8 @@ describe("car paths: motion", () => {
     // From 50 s on the samples are 200 m to the side, and stay there.
     const d = drive(straight(80), { edit: (_i, t, p) => (t >= 50_000 ? [p[0], p[1] + 2_000] : p) });
     // Before: on the old line; within a second after: on the new one.
-    for (const { p } of frames(d, 40_000, 49_000)) expect(Math.abs(p!.y)).toBeLessThan(10);
-    for (const { p } of frames(d, 51_500, 60_000)) expect(Math.abs(p!.y - 2_000)).toBeLessThan(10);
+    for (const { p } of placedFrames(d, 40_000, 49_000)) expect(Math.abs(p.y)).toBeLessThan(10);
+    for (const { p } of placedFrames(d, 51_500, 60_000)) expect(Math.abs(p.y - 2_000)).toBeLessThan(10);
   });
 
   test("pit entry: a run of samples at the wrong distance along the lane is dropped (replays)", () => {
@@ -244,8 +252,8 @@ describe("car paths: motion", () => {
     const p = carPathOf(d);
     expect(breaks(p)).toEqual([]);
     for (let q = 0; q < p.m; q++) expect(p.T[q] >= 55_000 && p.T[q] < 58_500).toBe(false);
-    const f = frames(d, 50_000, 65_000);
-    for (const { t, p } of f) expect(Math.abs(p!.x - (100 * t) / 360)).toBeLessThan(30); // 3 m
+    const f = placedFrames(d, 50_000, 65_000);
+    for (const { t, p } of f) expect(Math.abs(p.x - (100 * t) / 360)).toBeLessThan(30); // 3 m
     expect(Math.max(...speeds(f))).toBeLessThan(110);
     // Without the stop it's taken for a relocation there and back (the dot slides 60 m each way).
     expect(breaks(carPathOf(drive(straight(100), o))).length).toBeGreaterThan(0);
@@ -256,10 +264,10 @@ describe("car paths: motion", () => {
     const edit = (_i: number, t: number, p: [number, number]): [number, number] => (t >= 50_000 ? [p[0], p[1] + 2_000] : p);
     for (const entry of [100_000, 53_000]) {
       const d = drive(straight(80), { edit, pitEntries: [entry] });
-      const first = d.loc.t.find((t) => t >= 50_000)!;
+      const first = must(d.loc.t.find((t) => t >= 50_000));
       expect(breaks(carPathOf(d))).toEqual([first]);
-      for (const { p } of frames(d, 40_000, 49_000)) expect(Math.abs(p!.y)).toBeLessThan(10);
-      for (const { p } of frames(d, 51_500, 60_000)) expect(Math.abs(p!.y - 2_000)).toBeLessThan(10);
+      for (const { p } of placedFrames(d, 40_000, 49_000)) expect(Math.abs(p.y)).toBeLessThan(10);
+      for (const { p } of placedFrames(d, 51_500, 60_000)) expect(Math.abs(p.y - 2_000)).toBeLessThan(10);
     }
   });
 
@@ -336,9 +344,10 @@ describe.skipIf(!available)("car paths: Baku 2026", () => {
     ? meta.drivers.map((d) => JSON.parse(readFileSync(`${dir}drivers/${d.number}.json`, "utf8")))
     : [];
   const s = available ? buildSession(meta, telemetry) : null;
+  const driver = (n: number) => must(s?.drivers.get(n), `#${n}`);
 
   test("flat out down the main straight, the dot's speed follows the speed trace", () => {
-    const d = s!.drivers.get(63)!;
+    const d = driver(63);
     const cvs: number[] = [];
     for (let a = 450_000; a < 600_000; a += 1_000) {
       const v = speeds(frames(d, a, a + 1_000));
@@ -351,14 +360,14 @@ describe.skipIf(!available)("car paths: Baku 2026", () => {
   });
 
   test("#63's pit entry at 4483 s: the samples 200 m along the lane (4479.3-4482.4 s) are dropped, no slide", () => {
-    const d = s!.drivers.get(63)!;
+    const d = driver(63);
     const p = carPathOf(d);
     for (let q = 0; q < p.m; q++) expect(p.T[q] > 4_479_000 && p.T[q] < 4_482_500).toBe(false);
     expect(breaks(p).filter((t) => t > 4_470_000 && t < 4_490_000)).toEqual([]);
     // The dot drives the chord at about the telemetry speed (under 140 km/h here) and is on the samples after.
     expect(Math.max(...speeds(frames(d, 4_478_000, 4_485_000)))).toBeLessThan(200);
     const i = d.loc.t.findIndex((t) => t > 4_482_500);
-    const at = carPositionAt(d, d.loc.t[i + 1])!;
+    const at = must(carPositionAt(d, d.loc.t[i + 1]));
     expect(Math.hypot(at.x - d.loc.x[i + 1], at.y - d.loc.y[i + 1])).toBeLessThan(50);
   });
 

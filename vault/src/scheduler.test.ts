@@ -67,7 +67,8 @@ function harness(opts: { replies?: Reply[]; lifetime?: number; random?: number }
       now += ms;
     },
     async release(r: Reply = "ok") {
-      const f = hung.shift()!;
+      const f = hung.shift();
+      if (!f) throw new Error("no /token call waiting");
       f(r === "ok" ? { ok: true, token: mint() } : { ok: false, error: loginError(r as LoginErrorCode) });
       await flush();
     },
@@ -76,7 +77,7 @@ function harness(opts: { replies?: Reply[]; lifetime?: number; random?: number }
 }
 
 /** Gaps between consecutive /token calls. */
-const gaps = (calls: number[]) => calls.slice(1).map((c, i) => c - calls[i]!);
+const gaps = (calls: number[]) => calls.slice(1).map((c, i) => c - (calls[i] ?? NaN));
 
 describe("TokenScheduler: the schedule", () => {
   test("refreshes at 5/6 of the lifetime, counted from the token's issue time", async () => {
@@ -139,7 +140,7 @@ describe("TokenScheduler: failures", () => {
     expect(gaps(h.calls)).toEqual([5_000, 10_000, 20_000, 40_000, 80_000, 120_000, 120_000, 120_000]);
     expect(h.s.status()).toMatchObject({ refresh: "scheduled", refreshCount: 1, lastRefresh: { ok: true } });
     // Success resets the backoff.
-    expect(h.s.status().nextRefreshAt).toBe(h.calls.at(-1)! + (HOUR * 5) / 6);
+    expect(h.s.status().nextRefreshAt).toBe((h.calls.at(-1) ?? NaN) + (HOUR * 5) / 6);
   });
 
   test("a /token call that never answers times out as a network failure and is retried", async () => {
@@ -349,7 +350,8 @@ describe("TokenScheduler: throttled and suspended timers", () => {
     const h = harness();
     h.s.start(h.mint());
     // Background throttling: the first (≤60 s) timer only fires 49 min later.
-    const t = h.timers()[0]!;
+    const t = h.timers()[0];
+    if (!t) throw new Error("no timer");
     h.sleep(49 * 60_000);
     expect(h.calls).toEqual([]);
     h.sleep(2 * 60_000);

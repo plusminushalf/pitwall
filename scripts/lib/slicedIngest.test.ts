@@ -50,7 +50,8 @@ function world(opts: {
     if (params["date>="] != null) {
       const from = Date.parse(String(params["date>="]));
       const to = Date.parse(String(params["date<"]));
-      if (opts.sliceDelay) await new Promise((r) => setTimeout(r, ((to - from) / 60_000) * opts.sliceDelay!));
+      const delay = opts.sliceDelay;
+      if (delay) await new Promise((r) => setTimeout(r, ((to - from) / 60_000) * delay));
       return allCars(endpoint).filter((r) => Date.parse(r.date) >= from && Date.parse(r.date) < to);
     }
     if (params.driver_number != null) throw new Error(`per-driver request for ${endpoint} ${params.driver_number}`);
@@ -127,7 +128,7 @@ describe.skipIf(!available)(`ingest core: a race in slices (${KEY})`, () => {
     const cache = new Map<string, Bytes>();
     const first = world({ concurrency: 3, cache, failAfter: 20 });
     expect(await first.run().catch((e) => e)).toBeInstanceOf(Error);
-    const storedSlices = [...cache.keys()].flatMap((k) => parseSliceFile(k.split("/").at(-1)!.replace(".json.gz", "")) ?? []);
+    const storedSlices = [...cache.keys()].flatMap((k) => parseSliceFile(k.slice(k.lastIndexOf("/") + 1).replace(".json.gz", "")) ?? []);
     expect(storedSlices.length).toBeGreaterThan(0);
     const second = world({ concurrency: 3, cache });
     await second.run();
@@ -150,11 +151,15 @@ describe.skipIf(!available)(`ingest core: a race in slices (${KEY})`, () => {
     const run = w.run();
     // Into the middle of the first 30-minute slice, once it's on its way.
     const long = () =>
-      w.started.map((x) => x.split(" ")).find(([e, from, to]) => e === "location" && Date.parse(to!) - Date.parse(from!) >= 30 * 60_000);
+      w.started.map((x) => x.split(" ")).find(([e, from, to]) => e === "location" && Date.parse(to) - Date.parse(from) >= 30 * 60_000);
     let target: string[] | undefined;
-    for (let i = 0; i < 600 && !(target = long()); i++) await new Promise((r) => setTimeout(r, 5));
-    expect(target).toBeDefined();
-    const unit = Date.parse(target![1]!) + 10 * 60_000;
+    for (let i = 0; i < 600; i++) {
+      target = long();
+      if (target) break;
+      await new Promise((r) => setTimeout(r, 5));
+    }
+    if (!target) throw new Error("no long location slice started");
+    const unit = Date.parse(target[1]) + 10 * 60_000;
     ph = unit + 60_000;
     await run;
     // The unit on its own, as well as in the long slice.

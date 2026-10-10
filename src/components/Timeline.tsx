@@ -189,6 +189,7 @@ export function Timeline() {
 
   if (!session) return null;
   const { meta } = session;
+  const chequered = meta.chequered;
   // Following live, the play button pauses (freezes the picture), like when playback is latched.
   const pauses = latched || (live && followLive);
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), duration) / duration) * 100}%`;
@@ -215,7 +216,9 @@ export function Timeline() {
   };
 
   const timeAt = (clientX: number) => {
-    const rect = barRef.current!.getBoundingClientRect();
+    const el = barRef.current;
+    if (!el) throw new Error("timeAt: the bar isn't mounted");
+    const rect = el.getBoundingClientRect();
     const f = Math.min(Math.max((clientX - rect.left) / rect.width, 0), 1);
     return { x: clientX - rect.left, t: f * duration };
   };
@@ -247,8 +250,8 @@ export function Timeline() {
       content: (
         <>
           <div className="grid grid-cols-[28px_auto_auto_auto] items-center gap-x-2 gap-y-1 py-0.5">
-            {list.slice(0, MAX_TIP_LINES).map((e, i) => (
-              <div key={i} className="contents">
+            {list.slice(0, MAX_TIP_LINES).map((e) => (
+              <div key={`${e.t}-${e.kind}-${e.text}`} className="contents">
                 <span className="flex justify-center">
                   <MarkerGlyph kind={e.kind} color={colorOf(e.driver)} />
                 </span>
@@ -331,7 +334,7 @@ export function Timeline() {
 
   const transport = (
     <div className="flex items-center gap-1">
-      <button
+      <button type="button"
         onClick={() => stepLap(-1)}
         className="touch-hit flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
         title={practice ? "Previous lap of the driver shown ([)" : "Previous lap ([)"}
@@ -340,7 +343,7 @@ export function Timeline() {
         <Icon name="previous" size={14} />
       </button>
       {/* A click plays and pauses, like P; holding to play is the space bar's. */}
-      <button
+      <button type="button"
         onClick={(e) => {
           e.currentTarget.blur();
           togglePlay();
@@ -353,7 +356,7 @@ export function Timeline() {
       >
         {pauses ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className={`translate-x-px ${playing ? "animate-pulse" : ""}`} />}
       </button>
-      <button
+      <button type="button"
         onClick={() => stepLap(1)}
         className="touch-hit flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white"
         title={practice ? "Next lap of the driver shown (])" : "Next lap (])"}
@@ -367,7 +370,7 @@ export function Timeline() {
   // The segmented control (DESIGN.md): the play button stays the screen's one white button. A phone's row has no
   // room for seven options: one button there, showing the speed, and each tap goes to the next (64× wraps to 1×).
   const speedControl = phone ? (
-    <button
+    <button type="button"
       onClick={() => setSpeed(SPEEDS[(SPEEDS.indexOf(speed as (typeof SPEEDS)[number]) + 1) % SPEEDS.length])}
       className="h-9 min-w-11 rounded-md bg-zinc-900 px-2 text-xs font-semibold tabular-nums text-zinc-200 transition-colors active:bg-zinc-800"
       title="Playback speed: tap for the next"
@@ -376,9 +379,9 @@ export function Timeline() {
       {speed}×
     </button>
   ) : (
-    <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Playback speed">
+    <fieldset className="flex min-w-0 rounded-md bg-zinc-900 p-0.5" aria-label="Playback speed">
       {SPEEDS.map((s) => (
-        <button
+        <button type="button"
           key={s}
           onClick={() => setSpeed(s)}
           aria-pressed={s === speed}
@@ -389,7 +392,7 @@ export function Timeline() {
           {s}×
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 
   const bar = (
@@ -423,10 +426,10 @@ export function Timeline() {
           ) : null,
         )}
         <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
-        {bands.map((b, i) =>
+        {bands.map((b) =>
           b.from < shownTo ? (
             <div
-              key={i}
+              key={`${b.from}-${b.status}`}
               className={`absolute inset-y-0 ${BAND[b.status]}`}
               style={{ left: pct(b.from), width: `calc(${pct(Math.min(b.to, shownTo))} - ${pct(b.from)})` }}
             />
@@ -454,6 +457,7 @@ export function Timeline() {
       {/* lap ticks */}
       {!practice && session.lapStartTimes.map((lt, lap) =>
         lap === 0 || lt === undefined || lt > shownTo ? null : (
+          // biome-ignore lint/suspicious/noArrayIndexKey: lapStartTimes is indexed by lap number, so the index is the lap
           <div key={lap} className="absolute top-7 h-4" style={{ left: pct(lt) }}>
             <div className={`w-px ${lap % labelEvery === 0 || lap === 1 ? "h-4 bg-zinc-500" : "h-2 bg-zinc-700"}`} />
             {(lap % labelEvery === 0 || lap === 1) && (
@@ -470,7 +474,7 @@ export function Timeline() {
         ) : null,
       )}
       {markers.map((c) => (
-        <button
+        <button type="button"
           key={`${c.events[0].t}-${c.kind}`}
           data-marker=""
           className="touch-hit absolute top-0 flex h-4 -translate-x-1/2 items-end justify-center px-0.5 outline-none focus-visible:ring-1 focus-visible:ring-zinc-400"
@@ -492,27 +496,30 @@ export function Timeline() {
       ))}
 
       {/* chequered flag */}
-      {meta.chequered != null && meta.chequered <= shownTo && (
-        <div
+      {chequered != null && chequered <= shownTo && (
+        <button
+          type="button"
           data-marker=""
-          className="touch-hit absolute top-3.5 -translate-x-[3px] text-zinc-100"
-          style={{ left: pct(meta.chequered) }}
+          className="touch-hit absolute top-3.5 -translate-x-[3px] cursor-pointer text-zinc-100"
+          style={{ left: pct(chequered) }}
           onPointerDown={(e) => coarse && e.stopPropagation()}
-          onClick={() => tap({ type: "chequered", t: meta.chequered! })}
-          onPointerEnter={() => show({ type: "chequered", t: meta.chequered! })}
+          onClick={() => tap({ type: "chequered", t: chequered })}
+          onPointerEnter={() => show({ type: "chequered", t: chequered })}
           onPointerLeave={hide}
         >
           <Icon name="chequered" size={14} label="Chequered flag" />
-        </div>
+        </button>
       )}
 
       {/* selected (or focused) drivers' pit stops */}
       {pitMarkers.map(({ driver, info, p }) => (
-        <div
+        <button
+          type="button"
           key={`${driver}-${p.entry}`}
           data-marker=""
-          className="touch-hit absolute top-4 h-0 w-0 -translate-x-1/2 border-x-[5px] border-t-[7px] border-x-transparent"
+          className="touch-hit absolute top-4 h-0 w-0 -translate-x-1/2 cursor-pointer border-x-[5px] border-t-[7px] border-x-transparent"
           style={{ left: pct(p.entry), borderTopColor: teamColor(info.teamColour) }}
+          aria-label={`${info.acronym} pit stop`}
           onPointerDown={(e) => coarse && e.stopPropagation()}
           onClick={() => tap({ type: "pit", info, pit: p })}
           onPointerEnter={() => show({ type: "pit", info, pit: p })}
@@ -561,7 +568,7 @@ export function Timeline() {
       <span className="text-sm tabular-nums text-zinc-300">{raceClock(t - meta.lightsOut)}</span>
       <StreamBadge />
       {lapWindow.zoomed && (
-        <button
+        <button type="button"
           onClick={() => setLapWindow(null)}
           className="touch-hit flex items-center gap-0.5 whitespace-nowrap rounded text-[11px] tabular-nums text-zinc-400 transition-colors hover:text-white"
           title="The lap charts show these laps: back to the whole race"
@@ -576,7 +583,7 @@ export function Timeline() {
   const tail = live ? (
     <GoLiveButton className={phone ? "shrink-0" : "-ml-1 shrink-0"} />
   ) : (
-    <button
+    <button type="button"
       onClick={() => setNoSpoilers(!noSpoilers)}
       className={`touch-hit flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold transition-colors ${
         noSpoilers ? "bg-zinc-700 text-zinc-50 hover:bg-zinc-600" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"

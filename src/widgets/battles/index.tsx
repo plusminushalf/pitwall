@@ -39,7 +39,10 @@ const stintStarts = (all: ReadonlyMap<number, readonly StintView[]>) => new Map(
 const seconds = (s: number) => `${s.toFixed(3)} s`;
 
 /** Starts a ring's beat on the page clock, so every light in the list beats together however late its battle began. */
-const onBeat = (el: HTMLElement | null) => el?.getAnimations().forEach((a) => (a.startTime = 0));
+const onBeat = (el: HTMLElement | null) => {
+  if (!el) return;
+  for (const a of el.getAnimations()) a.startTime = 0;
+};
 
 /** A battle going on at the playhead: a light that beats while the replay plays and holds still while paused. */
 function NowLight({ playing }: { playing: boolean }) {
@@ -68,14 +71,15 @@ function BattleRow({
   const name = (n: number) => info.get(n)?.acronym ?? `#${n}`;
   const laps = b.from === b.to ? `Lap ${b.from}` : `Laps ${b.from}–${b.to}`;
   let outcome: string;
-  if (b.ongoing) outcome = `${name(b.ahead)} ahead by ${seconds(b.last)}`;
+  const e = b.end;
+  if (!e) outcome = `${name(b.ahead)} ahead by ${seconds(b.last)}`;
   else {
-    const e = b.end!;
+    const who = e.driver != null ? name(e.driver) : "?";
     const why =
       e.reason === "pit"
-        ? `${name(e.driver!)} pitted`
+        ? `${who} pitted`
         : e.reason === "retired"
-          ? `${name(e.driver!)} retired`
+          ? `${who} retired`
           : e.reason === "neutral"
             ? NEUTRAL[e.neutral ?? "SC"]
             : e.reason === "flag"
@@ -86,7 +90,7 @@ function BattleRow({
   return (
     // Battles going on now sit on a faint wash of their light's colour, so the live ones read as one band above the rest.
     <li className={`border-b border-zinc-900 ${b.ongoing ? "bg-emerald-400/[0.05] hover:bg-emerald-400/10" : "hover:bg-zinc-900"}`}>
-      <button onClick={() => onBattle(b)} className="block w-full px-3 pt-1.5 pb-1 text-left" title={`Jump to 5 s before lap ${b.from}'s line`}>
+      <button type="button" onClick={() => onBattle(b)} className="block w-full px-3 pt-1.5 pb-1 text-left" title={`Jump to 5 s before lap ${b.from}'s line`}>
         <span className="flex items-center gap-1.5">
           <span className="flex w-9 shrink-0 items-center justify-between pr-0.5">
             <span className="text-[11px] font-semibold tabular-nums text-zinc-400" title={`Fighting for P${b.position}`}>
@@ -109,6 +113,7 @@ function BattleRow({
         <div className="flex flex-wrap gap-1 pb-1.5 pl-[54px] pr-3">
           {b.passes.map((p) => (
             <button
+              type="button"
               key={`${p.lap}-${p.by}`}
               onClick={() => onPass(p)}
               className={`${TAP_CLASS} rounded bg-zinc-800 px-1.5 text-[11px] leading-5 text-zinc-200 hover:bg-zinc-700 hover:text-white`}
@@ -143,10 +148,8 @@ function Battles() {
 
   const battles = useMemo(() => {
     const oldestFirst = [...feed].reverse();
-    const passes = oldestFirst
-      .filter((f) => f.kind === "overtake" && f.driver != null && f.passed != null)
-      .map((f) => ({ t: f.t, by: f.driver!, on: f.passed! }));
-    const pitEntries = oldestFirst.filter((f) => f.kind === "pit" && f.driver != null).map((f) => ({ driver: f.driver!, t: f.t }));
+    const passes = oldestFirst.flatMap((f) => (f.kind === "overtake" && f.driver != null && f.passed != null ? [{ t: f.t, by: f.driver, on: f.passed }] : []));
+    const pitEntries = oldestFirst.flatMap((f) => (f.kind === "pit" && f.driver != null ? [{ driver: f.driver, t: f.t }] : []));
     const retired = new Set(oldestFirst.filter((f) => f.kind === "retired").map((f) => f.driver));
     // The winner took the flag at the end of the race distance; every car crossing the line since has too.
     let flag = Infinity;
@@ -191,6 +194,7 @@ function Battles() {
         <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["all", "selected"] as const).map((v) => (
             <button
+              type="button"
               key={v}
               onClick={() => update({ show: v })}
               aria-pressed={show === v}

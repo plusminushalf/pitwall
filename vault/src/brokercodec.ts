@@ -10,9 +10,10 @@ export type Connect = { protocol: string; level: number; clean: boolean; keepali
 export function decodeConnect(p: RawPacket): Connect {
   const b = p.body;
   let [protocol, at] = readString(b, 0);
-  const level = b[at++]!;
-  const flags = b[at++]!;
-  const keepaliveS = (b[at]! << 8) | b[at + 1]!;
+  // A short body reads as 0s here (as undefined did): the level check then fails it.
+  const level = b[at++] ?? 0;
+  const flags = b[at++] ?? 0;
+  const keepaliveS = ((b[at] ?? 0) << 8) | (b[at + 1] ?? 0);
   at += 2;
   // biome-ignore lint/style/useConst: assigned together with at, which is a let
   let clientId: string;
@@ -32,7 +33,7 @@ export function decodeConnect(p: RawPacket): Connect {
 /** SUBSCRIBE / UNSUBSCRIBE body: packet id, then topic filters (with a QoS byte each for SUBSCRIBE). */
 export function decodeTopics(p: RawPacket, withQos: boolean): { packetId: number; topics: string[] } {
   const b = p.body;
-  const packetId = (b[0]! << 8) | b[1]!;
+  const packetId = ((b[0] ?? 0) << 8) | (b[1] ?? 0);
   const topics: string[] = [];
   let at = 2;
   while (at < b.length) {

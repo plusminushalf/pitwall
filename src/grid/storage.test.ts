@@ -5,6 +5,7 @@ import { DEFAULT_LAYOUT, DEFAULT_LAYOUTS } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { COLUMNS, MIN_HEIGHT, type Layout } from "./layout";
 import { clearSavedLayout, loadLayout, parseLayout, rescaleLayout, saveLayout, STORAGE_KEY, storageKey } from "./storage";
+import { must } from "../lib/must";
 
 /** A Map-backed localStorage; `broken` makes every call throw (private mode, quota, blocked). */
 function fakeStorage(broken = false) {
@@ -14,9 +15,18 @@ function fakeStorage(broken = false) {
   };
   return {
     items,
-    getItem: (k: string) => (guard(), items.get(k) ?? null),
-    setItem: (k: string, v: string) => (guard(), void items.set(k, String(v))),
-    removeItem: (k: string) => (guard(), void items.delete(k)),
+    getItem: (k: string) => {
+      guard();
+      return items.get(k) ?? null;
+    },
+    setItem: (k: string, v: string) => {
+      guard();
+      items.set(k, String(v));
+    },
+    removeItem: (k: string) => {
+      guard();
+      items.delete(k);
+    },
   };
 }
 
@@ -49,7 +59,7 @@ describe("load and save", () => {
     const sized: Layout = { ...DRIVER_LAYOUT, widgets: { ...DRIVER_LAYOUT.widgets, "timing-tower": { ...DRIVER_LAYOUT.widgets["timing-tower"], height: 480 } } };
     saveLayout(sized);
     expect(loadLayout(BUILTIN_WIDGETS, DRIVER_LAYOUT)).toEqual(sized);
-    const read = (height: unknown) => parseLayout(stored({ "timing-tower": { ...entry(0, 0, 9), height } }), BUILTIN_WIDGETS)!.widgets["timing-tower"];
+    const read = (height: unknown) => must(parseLayout(stored({ "timing-tower": { ...entry(0, 0, 9), height } }), BUILTIN_WIDGETS)).widgets["timing-tower"];
     expect(read("480")).not.toHaveProperty("height");
     expect(read(null)).not.toHaveProperty("height");
     expect(read(Number.POSITIVE_INFINITY)).not.toHaveProperty("height");
@@ -62,7 +72,7 @@ describe("load and save", () => {
     const two: Layout = { ...DRIVER_LAYOUT, widgets: { ...DRIVER_LAYOUT.widgets, "lap-times:2": { ...DRIVER_LAYOUT.widgets["lap-times"], widget: "lap-times", y: 10, settings: { driver: 44 } } } };
     saveLayout(two);
     expect(loadLayout(BUILTIN_WIDGETS, DRIVER_LAYOUT)).toEqual(two);
-    const read = parseLayout(stored({ "timing-tower": entry(0, 0, 9), "x:2": { ...entry(0, 1, 9), widget: "nope" }, "tower-copy": { ...entry(0, 2, 9), widget: "timing-tower" } }), BUILTIN_WIDGETS)!;
+    const read = must(parseLayout(stored({ "timing-tower": entry(0, 0, 9), "x:2": { ...entry(0, 1, 9), widget: "nope" }, "tower-copy": { ...entry(0, 2, 9), widget: "timing-tower" } }), BUILTIN_WIDGETS));
     expect(Object.keys(read.widgets).sort()).toEqual(["timing-tower", "tower-copy"]);
     expect(read.widgets["tower-copy"]).toMatchObject({ widget: "timing-tower", width: tower.width });
   });
@@ -164,7 +174,7 @@ describe("layouts saved before widgets were called widgets", () => {
   });
 
   test("an old blockVersion still pins: another major resets the settings", () => {
-    const read = parseLayout(JSON.parse(OLD.replace('"blockVersion":"1.0.0","x":0', '"blockVersion":"0.9.0","x":0')), BUILTIN_WIDGETS)!;
+    const read = must(parseLayout(JSON.parse(OLD.replace('"blockVersion":"1.0.0","x":0', '"blockVersion":"0.9.0","x":0')), BUILTIN_WIDGETS));
     expect(read.widgets["timing-tower"]).toEqual({ ...DRIVER_LAYOUT.widgets["timing-tower"], settings: {} });
     expect(read.widgets["lap-times:2"].settings).toEqual({ driver: 44 });
   });
@@ -172,7 +182,7 @@ describe("layouts saved before widgets were called widgets", () => {
   test("saving writes the new names, and what's saved loads back the same", () => {
     storage.items.set(STORAGE_KEY, OLD);
     saveLayout(loadLayout(BUILTIN_WIDGETS, DEFAULT_LAYOUT));
-    const raw = JSON.parse(storage.items.get(STORAGE_KEY)!);
+    const raw = JSON.parse(must(storage.items.get(STORAGE_KEY)));
     expect(Object.keys(raw).sort()).toEqual(["columns", "version", "widgets"]);
     expect(raw.widgets["lap-times:2"]).toEqual({ widget: "lap-times", widgetVersion: "1.0.0", x: 30, y: 10, width: 8, group: "laps", settings: { driver: 44 } });
     for (const e of Object.values(raw.widgets) as Record<string, unknown>[]) {
@@ -185,7 +195,7 @@ describe("layouts saved before widgets were called widgets", () => {
 
   test("with both names the new one wins; a broken old shape still falls back", () => {
     const both = { ...JSON.parse(OLD), widgets: { "race-feed": { widgetVersion: "1.0.0", blockVersion: "0.1.0", widget: "race-feed", block: "nope", x: 0, y: 0, width: 8, settings: {} } } };
-    expect(parseLayout(both, BUILTIN_WIDGETS)!.widgets).toEqual({ "race-feed": { widgetVersion: "1.0.0", widget: "race-feed", x: 0, y: 0, width: 8, settings: {} } });
+    expect(must(parseLayout(both, BUILTIN_WIDGETS)).widgets).toEqual({ "race-feed": { widgetVersion: "1.0.0", widget: "race-feed", x: 0, y: 0, width: 8, settings: {} } });
     for (const raw of [
       { version: 1, columns: COLUMNS, blocks: [] },
       { version: 1, columns: COLUMNS, blocks: { "timing-tower": { x: 0, y: 0, width: 9, settings: {} } } },
@@ -202,35 +212,37 @@ describe("parse", () => {
   const widgets = new Map([...BUILTIN_WIDGETS, [quali.id, quali]]);
 
   test("unknown widgets and widgets without race sessions are dropped; nothing left is unusable", () => {
-    const l = parseLayout(stored({ "timing-tower": entry(0, 0, 9), gone: entry(9, 0, 5), "quali-only": entry(20, 0, 4) }), widgets)!;
+    const l = must(parseLayout(stored({ "timing-tower": entry(0, 0, 9), gone: entry(9, 0, 5), "quali-only": entry(20, 0, 4) }), widgets));
     expect(Object.keys(l.widgets)).toEqual(["timing-tower"]);
     expect(parseLayout(stored({ gone: entry(0, 0, 5), "quali-only": entry(0, 0, 4) }), widgets)).toBeNull();
     expect(parseLayout(stored({}), widgets)).toBeNull();
   });
 
   test("widths clamp to the widget's range and x to the grid", () => {
-    const l = parseLayout(stored({ "timing-tower": entry(0, 0, 2), "track-map": entry(36, 1, 40), "speed-gear": entry(-4, 2, 3.4) }), widgets)!;
+    const l = must(parseLayout(stored({ "timing-tower": entry(0, 0, 2), "track-map": entry(36, 1, 40), "speed-gear": entry(-4, 2, 3.4) }), widgets));
     expect(l.widgets["timing-tower"]).toMatchObject({ x: 0, width: 8 });
     expect(l.widgets["track-map"]).toMatchObject({ x: COLUMNS - 30, width: 30 });
     expect(l.widgets["speed-gear"]).toMatchObject({ x: 0, width: 3 });
   });
 
   test("the same major version keeps the settings and pins the current version; another major resets them", () => {
-    const l = parseLayout(
-      stored({
-        "timing-tower": entry(0, 0, 9, { gapMode: "interval" }, "1.4.2"),
-        "lap-times": entry(30, 1, 8, { driver: 44 }, "2.0.0"),
-        sectors: entry(30, 2, 8, { driver: 16 }, "not-semver"),
-      }),
-      widgets,
-    )!;
+    const l = must(
+      parseLayout(
+        stored({
+          "timing-tower": entry(0, 0, 9, { gapMode: "interval" }, "1.4.2"),
+          "lap-times": entry(30, 1, 8, { driver: 44 }, "2.0.0"),
+          sectors: entry(30, 2, 8, { driver: 16 }, "not-semver"),
+        }),
+        widgets,
+      ),
+    );
     expect(l.widgets["timing-tower"]).toMatchObject({ widgetVersion: "1.0.0", settings: { gapMode: "interval" }, x: 0, width: 9 });
     expect(l.widgets["lap-times"]).toMatchObject({ widgetVersion: "1.0.0", settings: {}, x: 30, width: 8 });
     expect(l.widgets.sectors.settings).toEqual({});
   });
 
   test("settings the widget doesn't have or doesn't accept are dropped (so the default applies)", () => {
-    const setting = (id: string, settings: Record<string, unknown>) => parseLayout(stored({ [id]: entry(0, 0, 9, settings) }), widgets)!.widgets[id].settings;
+    const setting = (id: string, settings: Record<string, unknown>) => must(parseLayout(stored({ [id]: entry(0, 0, 9, settings) }), widgets)).widgets[id].settings;
     expect(setting("timing-tower", { gapMode: "bogus", extra: 1 })).toEqual({});
     expect(setting("timing-tower", { gapMode: "leader" })).toEqual({ gapMode: "leader" });
     expect(setting("lap-times", { driver: "follow-selection" })).toEqual({ driver: "follow-selection" });
@@ -244,7 +256,7 @@ describe("parse", () => {
       settings: { on: false, count: 3, name: "x", list: [1] },
       fields: { count: { kind: "number", label: "Count", min: 1, max: 5 } },
     });
-    const parsed = (settings: Record<string, unknown>) => parseLayout(stored({ custom: entry(0, 0, 4, settings) }), new Map([[custom.id, custom as WidgetDefinition]]))!.widgets.custom.settings;
+    const parsed = (settings: Record<string, unknown>) => must(parseLayout(stored({ custom: entry(0, 0, 4, settings) }), new Map([[custom.id, custom as WidgetDefinition]]))).widgets.custom.settings;
     expect(parsed({ on: true, count: 4, name: "y", list: [2] })).toEqual({ on: true, count: 4, name: "y" });
     expect(parsed({ on: "yes", count: 9, name: 1 })).toEqual({});
     expect(parsed({ count: Number.NaN })).toEqual({});
@@ -287,9 +299,9 @@ describe("setting fields", () => {
   const base = BUILTIN_WIDGETS.get("weather") as WidgetDefinition;
 
   test("declared fields win; driver, booleans and numbers are inferred; other settings aren't shown", () => {
-    const tower = BUILTIN_WIDGETS.get("timing-tower")!;
+    const tower = must(BUILTIN_WIDGETS.get("timing-tower"));
     expect(settingField(tower, "gapMode")).toMatchObject({ kind: "choice", options: [{ value: "leader" }, { value: "interval" }] });
-    expect(settingField(BUILTIN_WIDGETS.get("lap-times")!, "driver")).toEqual({ kind: "driver" });
+    expect(settingField(must(BUILTIN_WIDGETS.get("lap-times")), "driver")).toEqual({ kind: "driver" });
     const b = defineWidget({ ...base, id: "custom", settings: { showGaps: true, maxRows: 5, name: "x" } });
     expect(settingField(b, "showGaps")).toEqual({ kind: "toggle", label: "Show gaps" });
     expect(settingField(b, "maxRows")).toEqual({ kind: "number", label: "Max rows" });

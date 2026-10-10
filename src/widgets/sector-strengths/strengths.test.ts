@@ -4,6 +4,12 @@
 import type { NeutralPeriod } from "widget-kit";
 import { deletionsUpTo, driverBests, gapText, groupBests, IDEAL, SPEED, strength, strengthTable, validLaps, type StrengthLap, type StrengthStint } from "./strengths";
 
+/** The value, or the test fails here. */
+function must<T>(v: T | null | undefined): T {
+  if (v == null) throw new Error("expected a value");
+  return v;
+}
+
 /** A lap from t = start (s), its sectors adding up to its time (null: untimed), st the speed trap. */
 function lap(n: number, start: number, sectors: [number, number, number] | null, extra: Partial<StrengthLap> & { st?: number | null; i2?: number | null } = {}): StrengthLap {
   const { st = null, i2 = null, ...rest } = extra;
@@ -70,7 +76,7 @@ describe("a driver's bests", () => {
   const bests = driverBests(16, validLaps(LAPS, STINTS, [], 0));
 
   test("each sector from whichever lap set it; the in-lap's quick S2 doesn't count", () => {
-    expect(bests.slice(0, 3).map((m) => [m!.value, m!.lap])).toEqual([
+    expect(bests.slice(0, 3).map((m) => [m?.value, m?.lap])).toEqual([
       [28.1, 3],
       [35.0, 6],
       [26.3, 3],
@@ -79,8 +85,8 @@ describe("a driver's bests", () => {
   });
 
   test("ideal: the best sectors added up, watched on the fastest lap", () => {
-    expect(bests[IDEAL]!.value).toBeCloseTo(28.1 + 35.0 + 26.3, 9);
-    expect(bests[IDEAL]!.lap).toBe(3);
+    expect(bests[IDEAL]?.value).toBeCloseTo(28.1 + 35.0 + 26.3, 9);
+    expect(bests[IDEAL]?.lap).toBe(3);
   });
 
   test("top speed: the speed trap, or the second intermediate when the trap has nothing", () => {
@@ -100,7 +106,7 @@ describe("the table", () => {
 
   test("a team takes the better of its cars in each column", () => {
     const team = groupBests([bests(16, [28.1, 35.4, 26.2], 320), bests(44, [28.3, 35.1, 26.5], 324), []]);
-    expect(team.map((x) => x!.driver)).toEqual([16, 44, 16, 16, 44]);
+    expect(team.map((x) => x?.driver)).toEqual([16, 44, 16, 16, 44]);
   });
 
   test("gaps and ranks per column, rows by ideal lap, the slower speed as a gap in km/h", () => {
@@ -111,13 +117,13 @@ describe("the table", () => {
     ]);
     expect(rows.map((r) => r.key)).toEqual(["FER", "MCL", "WIL"]);
     const fer = rows[0].cells;
-    expect(fer.map((c) => c!.rank)).toEqual([2, 1, 1, 1, 2]);
-    expect(fer[0]!.gap).toBeCloseTo(0.4, 9);
-    expect(fer[SPEED]!.gap).toBe(5);
-    expect(gapText(SPEED, fer[SPEED]!.gap)).toBe("−5");
-    expect(gapText(0, fer[0]!.gap)).toBe("+0.400");
-    expect(strength(fer[1]!)).toBe(1);
-    expect(strength(rows[2].cells[0]!)).toBe(0);
+    expect(fer.map((c) => c?.rank)).toEqual([2, 1, 1, 1, 2]);
+    expect(fer[0]?.gap).toBeCloseTo(0.4, 9);
+    expect(fer[SPEED]?.gap).toBe(5);
+    expect(gapText(SPEED, must(fer[SPEED]).gap)).toBe("−5");
+    expect(gapText(0, must(fer[0]).gap)).toBe("+0.400");
+    expect(strength(must(fer[1]))).toBe(1);
+    expect(strength(must(rows[2].cells[0]))).toBe(0);
   });
 
   test("ties share a rank; rows with no ideal lap go last, rows with nothing go", () => {
@@ -128,7 +134,7 @@ describe("the table", () => {
       { key: "C", bests: [null, null, null, null, null] },
     ]);
     expect(rows.map((r) => r.key)).toEqual(["B", "A"]);
-    expect(rows.map((r) => r.cells[0]!.rank)).toEqual([1, 1]);
+    expect(rows.map((r) => r.cells[0]?.rank)).toEqual([1, 1]);
     expect(rows[1].cells[IDEAL]).toBeNull();
     expect(rows[0].cells[IDEAL]).toMatchObject({ rank: 1, of: 1 });
   });

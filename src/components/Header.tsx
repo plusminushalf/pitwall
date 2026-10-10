@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react";
 import { Icon } from "../widgetkit/ui/Icon";
 import { Label, Stat } from "../widgetkit/ui/Label";
 import { circuitSlug } from "../circuit";
@@ -103,7 +104,7 @@ export function ScreenSwitch() {
     s.setScreen(view);
   };
   return (
-    <div className="flex shrink-0 rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Screen">
+    <fieldset className="flex min-w-0 shrink-0 rounded-md bg-zinc-900 p-0.5" aria-label="Screen">
       {VIEWS.map((v) => (
         <button
           key={v.id}
@@ -116,7 +117,7 @@ export function ScreenSwitch() {
           {v.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }
 
@@ -213,7 +214,7 @@ function ShortcutsHelp() {
   // Keyboard shortcuts mean nothing on a touch screen, and the popover opens on hover: not shown there.
   return (
     <div className="group relative hidden pointer-fine:block">
-      <button
+      <button type="button"
         className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 text-xs font-bold text-zinc-400 hover:border-zinc-500 hover:text-zinc-100"
         aria-label="Keyboard shortcuts"
       >
@@ -311,17 +312,23 @@ function DashboardName() {
   const shared = useLayout((s) => s.shared);
   const fresh = useLayout((s) => s.fresh);
   const item = dashboardList(dashboards, kind).find((i) => i.id === active);
+  const inputRef = useRef<HTMLInputElement>(null);
+  // The field (one per dashboard: keyed by its id) is shown for the user's own dashboards.
+  const field = !shared && item && !item.preset ? item.id : null;
+  // A new one's name is a placeholder: ready to type over.
+  useEffect(() => {
+    if (field != null && fresh) inputRef.current?.focus();
+  }, [field, fresh]);
   if (shared || !item) return <Label className="mr-1.5 whitespace-nowrap">Shared dashboard</Label>;
   if (item.preset) return <span className="mr-1.5 whitespace-nowrap text-xs font-semibold text-zinc-300">{item.name}</span>;
   return (
     <input
       key={item.id}
+      ref={inputRef}
       defaultValue={item.name}
       maxLength={NAME_MAX}
       aria-label="Dashboard name"
       title="The dashboard's name"
-      // A new one's name is a placeholder: ready to type over.
-      autoFocus={fresh}
       onFocus={(e) => e.currentTarget.select()}
       onChange={(e) => useLayout.getState().renameDashboard(e.target.value)}
       onBlur={(e) => {

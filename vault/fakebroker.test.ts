@@ -62,7 +62,7 @@ describe("fake broker <-> MqttSession over WebSocket", () => {
     await a.s.connect();
     expect(broker.drop("all")).toBe(1);
     await until(() => a.closes.length === 1);
-    expect(a.closes[0]!.reason).toBe("closed");
+    expect(a.closes[0]?.reason).toBe("closed");
   });
 
   test("a reused clientId kicks the older session", async () => {

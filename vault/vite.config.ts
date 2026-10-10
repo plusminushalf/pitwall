@@ -122,7 +122,8 @@ function vaultSimulate(): Plugin {
     configureServer(server) {
       const opts = simOptionsFromEnv(env);
       if (!opts) return;
-      const sim = (simServer = new SimServer(repo, opts, (s) => server.config.logger.info(s)));
+      const sim = new SimServer(repo, opts, (s) => server.config.logger.info(s));
+      simServer = sim;
       server.middlewares.use((req, res, next) => {
         if (!sim.handle(req, res)) next();
       });
@@ -140,10 +141,11 @@ function vaultProxy(): Plugin {
     apply: "serve",
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        if (!req.url?.startsWith("/openf1/")) return next();
+        const url = req.url;
+        if (!url?.startsWith("/openf1/")) return next();
         void (async () => {
           const pick = (name: string) => (typeof req.headers[name] === "string" ? [[name, req.headers[name] as string] as [string, string]] : []);
-          const request = new Request(new URL(req.url!, `http://${req.headers.host ?? "localhost"}`), {
+          const request = new Request(new URL(url, `http://${req.headers.host ?? "localhost"}`), {
             method: req.method,
             headers: [...pick("sec-fetch-site"), ...pick("authorization"), ...pick("accept")],
           });
@@ -151,7 +153,9 @@ function vaultProxy(): Plugin {
           const opts: ProxyOpts = simServer ? { fetch: simServer.fetchRest as typeof fetch } : broker ? { upstream: `${broker}/v1/` } : {};
           const response = await handleProxy(request, opts);
           res.statusCode = response.status;
-          response.headers.forEach((v, k) => res.setHeader(k, v));
+          response.headers.forEach((v, k) => {
+            res.setHeader(k, v);
+          });
           res.end(Buffer.from(await response.arrayBuffer()));
         })().catch(next);
       });

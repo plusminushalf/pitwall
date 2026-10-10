@@ -118,7 +118,7 @@ export function moveWidget(layout: Layout, placements: readonly Placement[], id:
  */
 function resizeStep(layout: Layout, placed: readonly Placement[], id: string, side: "left" | "right", grow: boolean): Layout | null {
   const columns = layout.columns;
-  const self = placed.find((p) => p.id === id)!;
+  const self = placedIn(placed, id);
   const range = (p: Placement) => columnRange(p.widget, columns);
   /** Neighbours whose edge touches `p`'s `side` edge and that overlap it vertically (positions before this step). */
   const touching = (p: Placement, s: "left" | "right") =>
@@ -170,7 +170,7 @@ export function resizeWidget(layout: Layout, ctx: EditContext, id: string, side:
   let current = layout;
   for (let steps = 0; steps < layout.columns; steps++) {
     const placed = pack(current, ctx.widgets, ctx.input, ctx.gridHeight);
-    const self = placed.find((p) => p.id === id)!;
+    const self = placedIn(placed, id);
     const at = side === "left" ? self.x : self.x + self.width;
     if (at === target) break;
     const next = resizeStep(current, placed, id, side, side === "left" ? target < at : target > at);
@@ -186,7 +186,14 @@ function withHeight(layout: Layout, id: string, height: number | undefined): Lay
   return renumber(layout, { ...layout.widgets, [id]: height === undefined ? entry : { ...entry, height } }, order(layout));
 }
 
-const placementOf = (layout: Layout, ctx: EditContext, id: string) => pack(layout, ctx.widgets, ctx.input, ctx.gridHeight).find((p) => p.id === id);
+/** `id`'s placement: callers only ask for a widget in the layout that the app has, which pack() always places. */
+function placedIn(placed: readonly Placement[], id: string): Placement {
+  const p = placed.find((q) => q.id === id);
+  if (!p) throw new Error(`${id} isn't placed`);
+  return p;
+}
+
+const placementOf = (layout: Layout, ctx: EditContext, id: string) => placedIn(pack(layout, ctx.widgets, ctx.input, ctx.gridHeight), id);
 
 /** Where a placed widget's `side` edge is on screen (a top hairline is inside the box). */
 const edgeY = (p: Placement, side: HeightEdge["side"]) => (side === "bottom" ? p.top + p.height : boxTop(p));
@@ -202,10 +209,10 @@ export interface HeightEdge {
  * under a stretching widget (which gives or takes the room). null if it isn't placed.
  */
 export function heightEdge(layout: Layout, ctx: EditContext, id: string): HeightEdge | null {
-  const p = id in layout.widgets ? placementOf(layout, ctx, id) : undefined;
+  const p = id in layout.widgets ? pack(layout, ctx.widgets, ctx.input, ctx.gridHeight).find((q) => q.id === id) : undefined;
   if (!p) return null;
   // A step shorter is always placeable: does the widget's top come down, or its bottom up?
-  const shorter = placementOf(withHeight(layout, id, Math.max(p.height - ROW, 1)), ctx, id)!;
+  const shorter = placementOf(withHeight(layout, id, Math.max(p.height - ROW, 1)), ctx, id);
   const side = Math.abs(shorter.top - p.top) > EPS ? "top" : "bottom";
   return { side, y: edgeY(p, side) };
 }
@@ -228,7 +235,7 @@ function rowLines(gridHeight: number): number[] {
 export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: number): Layout {
   const edge = heightEdge(layout, ctx, id);
   if (!edge) return layout;
-  const p = placementOf(layout, ctx, id)!;
+  const p = placementOf(layout, ctx, id);
   /** The widget's height with the edge at `at`. */
   const heightAt = (at: number) => (edge.side === "bottom" ? at - p.top : p.top + p.height - at - (p.dividerTop ? DIVIDER : 0));
   const lines = rowLines(ctx.gridHeight).filter((l) => heightAt(l) >= MIN_HEIGHT - EPS);
@@ -236,7 +243,7 @@ export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: nu
   const nearest = lines.reduce((a, b) => (Math.abs(b - y) < Math.abs(a - y) ? b : a));
   const ok = (next: Layout) => fitsAsWell(layout, next, ctx);
   const auto = withHeight(layout, id, undefined);
-  if (Math.abs(edgeY(placementOf(auto, ctx, id)!, edge.side) - y) <= Math.abs(nearest - y) + EPS && ok(auto)) return auto;
+  if (Math.abs(edgeY(placementOf(auto, ctx, id), edge.side) - y) <= Math.abs(nearest - y) + EPS && ok(auto)) return auto;
   // From the nearest line down to shorter heights, which only fit better.
   const tallestFirst = lines.filter((l) => heightAt(l) <= heightAt(nearest) + EPS).sort((a, b) => heightAt(b) - heightAt(a));
   for (const l of tallestFirst) {
@@ -250,7 +257,7 @@ export function resizeHeight(layout: Layout, ctx: EditContext, id: string, y: nu
 export function fitHeight(layout: Layout, ctx: EditContext, id: string): Layout {
   const edge = heightEdge(layout, ctx, id);
   if (!edge) return layout;
-  return resizeHeight(layout, ctx, id, edgeY(placementOf(withHeight(layout, id, undefined), ctx, id)!, edge.side));
+  return resizeHeight(layout, ctx, id, edgeY(placementOf(withHeight(layout, id, undefined), ctx, id), edge.side));
 }
 
 /**
@@ -330,7 +337,7 @@ export function addWidget(layout: Layout, ctx: EditContext, widgetId: string, sl
     for (let at = 0; at <= ids.length; at++) {
       const next = place(slot.x, width, at);
       const placed = pack(next, ctx.widgets, ctx.input, ctx.gridHeight);
-      const self = placed.find((p) => p.id === id)!;
+      const self = placedIn(placed, id);
       if (Math.abs(boxTop(self) - slot.top) > 0.5) continue;
       const movedBy = placed.reduce((sum, p) => sum + (p.id === id ? 0 : Math.abs(p.top - (before.get(p.id) ?? p.top))), 0);
       if (movedBy < bestMoved - EPS) {
@@ -343,7 +350,7 @@ export function addWidget(layout: Layout, ctx: EditContext, widgetId: string, sl
 
   const onScreen = columnBottoms(pack(layout, ctx.widgets, ctx.input, ctx.gridHeight), columns);
   const atMin = columnBottoms(pack(layout, ctx.widgets, ctx.input, 0), columns);
-  const height = pack(place(0, range.min, ids.length), ctx.widgets, ctx.input, 0).find((p) => p.id === id)!.height;
+  const height = placedIn(pack(place(0, range.min, ids.length), ctx.widgets, ctx.input, 0), id).height;
   /** The leftmost x with the most room under `bottoms` for `width` columns, and that room. */
   const roomiest = (bottoms: number[], width: number) => {
     let best = { x: 0, room: -Infinity };

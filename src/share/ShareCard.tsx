@@ -122,8 +122,9 @@ export function cardPanels(els: readonly Element[], states: CardStates = new Map
     const r = el.getBoundingClientRect();
     const section = SECTIONS.get(el)?.current;
     const hosted = section ? null : hostedIn(el);
-    if (!section && !hosted) return null;
-    placed.push({ panel: section ? { render: section.render, width: section.width } : widgetPanel(hosted!, el, states), top: r.top, left: r.left });
+    const panel = section ? { render: section.render, width: section.width } : hosted ? widgetPanel(hosted, el, states) : null;
+    if (!panel) return null;
+    placed.push({ panel, top: r.top, left: r.left });
   }
   if (placed.length === 0) return null;
   return placed.sort((a, b) => a.top - b.top || a.left - b.left).map((p) => p.panel);
@@ -156,7 +157,7 @@ const overflows = (panel: HTMLElement) =>
 const FADE = "linear-gradient(to bottom, black calc(100% - 56px), transparent)";
 
 /** The sources credited in `el` (a section's credit line), once each. */
-const creditsIn = (el: Element) => [...new Set([...el.querySelectorAll("[data-shot-credit]")].map((c) => c.getAttribute("data-shot-credit")!))].join(" · ");
+const creditsIn = (el: Element) => [...new Set([...el.querySelectorAll("[data-shot-credit]")].map((c) => c.getAttribute("data-shot-credit") ?? ""))].join(" · ");
 
 /**
  * The card, out of sight while it's drawn: on the page (a widget off screen holds still), but transparent and under
@@ -173,12 +174,17 @@ export function ShareCard({ job }: { job: CardJob }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: panels come with the job
   useEffect(() => {
     let live = true;
-    void settled(ref.current!)
+    const card = () => {
+      const el = ref.current;
+      if (!el) throw new Error("the card is gone");
+      return el;
+    };
+    void settled(card())
       .then(() => {
-        flushSync(() => setCredits(creditsIn(ref.current!)));
+        flushSync(() => setCredits(creditsIn(card())));
         // A widget's panels in order, each scrolled as it was on screen (a list scrolled down shows what was shown).
         const framed = panels.filter((p) => p.height != null);
-        ref.current!.querySelectorAll<HTMLElement>("[data-card-panel]").forEach((panel, i) => {
+        card().querySelectorAll<HTMLElement>("[data-card-panel]").forEach((panel, i) => {
           const scroll = framed[i]?.scroll ?? [];
           scrollers(panel).forEach((e, k) => {
             if (!scroll[k]) return;
@@ -187,7 +193,7 @@ export function ShareCard({ job }: { job: CardJob }) {
           });
           if (overflows(panel)) panel.style.maskImage = FADE;
         });
-        return captureCard(ref.current!, scale);
+        return captureCard(card(), scale);
       })
       .then(
         (blob) => live && job.done(blob),
@@ -218,9 +224,11 @@ export function ShareCard({ job }: { job: CardJob }) {
       {panels.map((p, i) => {
         // Widgets framed and divided by hairlines, as on the page; a section after anything is spaced from it.
         const prev = panels[i - 1];
+        // biome-ignore lint/suspicious/noArrayIndexKey: a job's panels are fixed and never reorder, and nothing else tells two apart
         if (p.height == null) return <div key={i} className={prev ? "mt-6" : ""}>{p.render(scale)}</div>;
         return (
           <div
+            // biome-ignore lint/suspicious/noArrayIndexKey: a job's panels are fixed and never reorder, and nothing else tells two apart
             key={i}
             data-card-panel=""
             className={`overflow-hidden border-x border-b border-zinc-800 ${prev?.height == null ? "border-t" : ""} ${prev && prev.height == null ? "mt-6" : ""}`}

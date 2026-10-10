@@ -273,7 +273,8 @@ function drawStatic(track: Track, w: number, h: number, dpr: number, names: bool
   const canvas = document.createElement("canvas");
   canvas.width = Math.round(w * dpr);
   canvas.height = Math.round(h * dpr);
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("track map: no 2D canvas context");
   ctx.scale(dpr, dpr);
   const tf = trackTransform(track, w, h, PADDING);
   ctx.lineJoin = "round";
@@ -346,7 +347,8 @@ function drawTrackLayer(
 ) {
   if (canvas.width !== layer.canvas.width) canvas.width = layer.canvas.width;
   if (canvas.height !== layer.canvas.height) canvas.height = layer.canvas.height;
-  const ctx = canvas.getContext("2d")!;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
   const { tf, dpr } = layer;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -422,9 +424,10 @@ function addBox(boxes: Box[], b: Box) {
 function dirtyBoxes(before: Drawn, cars: DrawnCar[]): Box[] {
   const boxes: Box[] = [];
   for (const c of cars) {
-    const b = before.byDriver.get(c.n)!;
-    if (sameCar(b, c)) continue;
-    for (const p of [...b.parts, ...c.parts]) if (p) addBox(boxes, p);
+    const b = before.byDriver.get(c.n);
+    if (b && sameCar(b, c)) continue;
+    if (b) for (const p of b.parts) if (p) addBox(boxes, p);
+    for (const p of c.parts) if (p) addBox(boxes, p);
   }
   for (let grew = boxes.length > 0; grew; ) {
     grew = false;
@@ -577,9 +580,10 @@ function TrackMap() {
     if (stack.holding) animating = true;
     const cars = stack.order.flatMap((n) => at.get(n) ?? []);
     // Nothing moved, appeared or disappeared, and the inputs are the same: the layer is up to date.
-    if (!changed && cars.length === last!.cars.length) return;
+    if (!changed && last && cars.length === last.cars.length) return;
 
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     // Labels in priority order (focused car, then the cars labelled last frame, then the rest, each from the top of
     // the stack down), each in the first corner around its dot that doesn't overlap a label already placed; cars
     // in a tight pack may go unlabelled, and a label stays with its car while it fits.
@@ -596,7 +600,9 @@ function TrackMap() {
     for (const car of labelOrder(cars, (c) => c.focused, (c) => last?.byDriver.get(c.n)?.label != null)) {
       const { n, cx, cy } = car;
       const pos = positions.get(n);
-      const text = info.get(n)!.acronym;
+      const d = info.get(n);
+      if (!d) continue;
+      const text = d.acronym;
       const prefix = pos != null ? `${pos} ` : "";
       const prefixW = ctx.measureText(prefix).width;
       const labelW = prefixW + ctx.measureText(text).width + 10;

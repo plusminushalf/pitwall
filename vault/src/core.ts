@@ -316,13 +316,13 @@ export class VaultCore {
         case "popup:passkey":
           if (!p.verified) return null;
           try {
-            return result(await this.store(p, (s, a) => sealPasskey(s, a, msg.prf, msg.credentialId, p.prfSalt), "passkey"));
+            return result(await this.store(p.verified, (s, a) => sealPasskey(s, a, msg.prf, msg.credentialId, p.prfSalt), "passkey"));
           } finally {
             wipe(msg.prf);
           }
         case "popup:device":
           if (!p.verified) return null;
-          return result(await this.store(p, sealDevice, "device"));
+          return result(await this.store(p.verified, sealDevice, "device"));
         case "popup:unlock":
           if (p.kind !== "unlock") return null;
           try {
@@ -353,13 +353,13 @@ export class VaultCore {
       this.set(before.state, { error: before.error });
       return { ok: false as const, error: t.error };
     }
-    p.verified = { secret: { kind: "password", username, password }, token: t.token };
+    const v: NonNullable<Pending["verified"]> = { secret: { kind: "password", username, password }, token: t.token };
+    p.verified = v;
     if (mode === "passkey") return { ok: true as const, next: "passkey" as const };
-    return this.store(p, sealDevice, "device");
+    return this.store(v, sealDevice, "device");
   }
 
-  private async store(p: Pending, sealer: (s: Secret, account: string) => Promise<StoredLogin>, mode: StorageMode) {
-    const v = p.verified!;
+  private async store(v: NonNullable<Pending["verified"]>, sealer: (s: Secret, account: string) => Promise<StoredLogin>, mode: StorageMode) {
     const account = maskEmail(v.secret.username);
     try {
       await this.deps.store.save(await sealer(v.secret, account));

@@ -112,8 +112,9 @@ export class VaultEngine {
         this.feed?.streamingChanged(m.streaming);
         return;
       case "refill": {
-        const store = this.live?.store;
-        if (store) void this.live!.refill(store.latestDataTime);
+        const live = this.live;
+        const store = live?.store;
+        if (live && store) void live.refill(store.latestDataTime);
         return;
       }
       case "welcome":
@@ -125,7 +126,11 @@ export class VaultEngine {
   private start(sim: { anchorWall: number; speed: number } | null): void {
     if (this.hub) return;
     if (sim) this.now = () => sim.anchorWall + (Date.now() - sim.anchorWall) * sim.speed;
-    const hub = new LiveHub(sim ? "simulate" : "openf1", { clients: () => 1, broadcast: (msg) => (this.deps.post({ type: "live", msg }), 0) }, this.deps.log);
+    const broadcast = (msg: LiveMessage) => {
+      this.deps.post({ type: "live", msg });
+      return 0;
+    };
+    const hub = new LiveHub(sim ? "simulate" : "openf1", { clients: () => 1, broadcast }, this.deps.log);
     hub.status = { ...hub.status, state: "connecting", detail: "looking for a live session" };
     this.hub = hub;
     for (const msg of hub.welcome()) this.deps.post({ type: "live", msg });

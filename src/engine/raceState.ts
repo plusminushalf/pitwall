@@ -90,12 +90,16 @@ export function driverStateAt(d: DriverData, t: Ms): DriverState {
 
   let lastLap: Lap | null = null;
   let bestLap: Lap | null = null;
+  let bestMs = Infinity;
   for (let k = li; k >= 0; k--) {
     const l = d.laps[k];
     if (l.end == null || l.end > t || l.duration == null) continue;
     lastLap ??= l;
     if (l.deleted && l.deleted.t <= t) continue;
-    if (!bestLap || l.duration < bestLap.duration!) bestLap = l;
+    if (!bestLap || l.duration < bestMs) {
+      bestLap = l;
+      bestMs = l.duration;
+    }
   }
 
   const tyreLap = Math.max(lap, 1);
@@ -152,12 +156,17 @@ const statusRank = (s: DriverState) => (s.status === "OUT" ? 1 : 0);
 
 export function raceStateAt(session: Session, t: Ms): RaceState {
   const { meta } = session;
-  const drivers = session.driverNumbers.map((n) => driverStateAt(session.drivers.get(n)!, t));
+  const drivers = Array.from(session.drivers.values(), (d) => driverStateAt(d, t));
   drivers.sort((a, b) => statusRank(a) - statusRank(b) || (a.position ?? 99) - (b.position ?? 99));
 
   let fastestLap: Lap | null = null;
+  let fastestMs = Infinity;
   for (const s of drivers) {
-    if (s.bestLap && (!fastestLap || s.bestLap.duration! < fastestLap.duration!)) fastestLap = s.bestLap;
+    const ms = s.bestLap?.duration;
+    if (s.bestLap && ms != null && (!fastestLap || ms < fastestMs)) {
+      fastestLap = s.bestLap;
+      fastestMs = ms;
+    }
   }
 
   return {

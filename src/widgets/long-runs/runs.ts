@@ -98,15 +98,19 @@ export function longRuns(driver: number, laps: readonly RunLap[], stints: readon
     const own = sorted.filter((l) => l.lap >= s.lapStart && (!next || l.lap < next.lapStart));
     // The timed laps between the out-lap and the in-lap (an untimed lap ends a run too), but those touched by a
     // neutral period.
-    const segments: AtPace[][] = [[]];
+    let current: AtPace[] = [];
+    const segments: AtPace[][] = [current];
     own.forEach((l, k) => {
       const inLap = own[k + 1]?.pitOut === true || (next != null && l.lap === next.lapStart - 1);
       if (l.pitOut || (i > 0 && l.lap === s.lapStart) || inLap || l.duration == null || !(l.duration > 0)) {
-        if (segments.at(-1)!.length) segments.push([]);
+        if (current.length) {
+          current = [];
+          segments.push(current);
+        }
         return;
       }
       const end = l.end ?? l.start + l.duration * 1000;
-      if (!neutral.some((p) => p.start < end && l.start < (p.end ?? Infinity))) segments.at(-1)!.push({ lap: l.lap, start: l.start, end, time: l.duration });
+      if (!neutral.some((p) => p.start < end && l.start < (p.end ?? Infinity))) current.push({ lap: l.lap, start: l.start, end, time: l.duration });
     });
     const times = segments.flat().map((l) => l.time);
     if (times.length < minLaps) return;
@@ -136,7 +140,10 @@ export function longRuns(driver: number, laps: readonly RunLap[], stints: readon
       pieces.forEach((p, k) => {
         const prev = pieces[k - 1];
         if (run && prev.slowAfter <= MAX_SLOW && prev.laps.length >= MIN_SIDE && p.laps.length >= MIN_SIDE) run.push(...p.laps);
-        else runs.push((run = [...p.laps]));
+        else {
+          run = [...p.laps];
+          runs.push(run);
+        }
       });
     }
 
@@ -148,7 +155,8 @@ export function longRuns(driver: number, laps: readonly RunLap[], stints: readon
       if (counted.length < minLaps) continue;
       const age = (lap: number) => s.ageAtStart + lap - s.lapStart;
       const first = counted[0];
-      const last = counted.at(-1)!;
+      const last = counted.at(-1);
+      if (!last) continue;
       out.push({
         driver,
         stint: s.stint,
@@ -175,8 +183,12 @@ export const COMPOUND_ORDER = ["SOFT", "MEDIUM", "HARD", "INTERMEDIATE", "WET", 
 export function byCompound(runs: readonly LongRun[]): { compound: string; runs: LongRun[] }[] {
   const groups = new Map<string, LongRun[]>();
   for (const r of runs) {
-    if (!groups.has(r.compound)) groups.set(r.compound, []);
-    groups.get(r.compound)!.push(r);
+    let group = groups.get(r.compound);
+    if (!group) {
+      group = [];
+      groups.set(r.compound, group);
+    }
+    group.push(r);
   }
   const rank = (c: string) => (COMPOUND_ORDER.includes(c) ? COMPOUND_ORDER.indexOf(c) : COMPOUND_ORDER.length);
   return [...groups]
@@ -216,8 +228,8 @@ export interface PinProgress {
  */
 export function pinAt(pin: PinnedRun, t: number, sessionKey: number): PinProgress | null {
   const { start, ends } = pin.run;
-  const end = ends.at(-1)!;
-  if (sessionKey !== pin.sessionKey || t < start - PIN_LEAD_MS || t >= end) return null;
+  const end = ends.at(-1);
+  if (end == null || sessionKey !== pin.sessionKey || t < start - PIN_LEAD_MS || t >= end) return null;
   const done = ends.filter((e) => e <= t).length;
   return { lap: Math.min(done + 1, ends.length), of: ends.length, fraction: Math.min(1, Math.max(0, (t - start) / (end - start))) };
 }
@@ -236,7 +248,7 @@ export const pinFor = (row: ListRow, current: PinnedRun | null, sessionKey: numb
   row.pinned && current ? current : { run: row.run, rank: row.rank, gap: row.gap, sessionKey };
 
 /** The same run: driver and set, laps overlapping (a run still under way has fewer of them). */
-const sameRun = (a: LongRun, b: LongRun) => a.driver === b.driver && a.stint === b.stint && a.laps[0] <= b.laps.at(-1)! && b.laps[0] <= a.laps.at(-1)!;
+const sameRun = (a: LongRun, b: LongRun) => a.driver === b.driver && a.stint === b.stint && a.laps[0] <= (b.laps.at(-1) ?? -Infinity) && b.laps[0] <= (a.laps.at(-1) ?? -Infinity);
 
 /**
  * The list at t: the runs so far by compound, ranked (byCompound), and the pinned run while it's watched (`progress`

@@ -39,6 +39,7 @@ function SectorCell({ index, lap, personal, overall }: { index: number; lap: Lap
       </div>
       <div className="mt-1 flex h-1 gap-px">
         {segments.length > 0 ? (
+          // biome-ignore lint/suspicious/noArrayIndexKey: mini-sectors are positions along the sector (their colours repeat): the index is each one's identity
           segments.map((c, i) => <span key={i} className="flex-1 rounded-[1px]" style={{ background: (c != null && SEGMENT_COLOR[c]) || "#3f3f46" }} />)
         ) : (
           <span className="flex-1 rounded-[1px] bg-zinc-800" />

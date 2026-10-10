@@ -65,9 +65,10 @@ const Row = memo(function Row({
   const name = info?.acronym ?? `#${row.driver}`;
   return (
     <div className={`flex items-center ${focused ? "bg-zinc-100/5" : ""}`} style={{ height: ROW }}>
-      <button onClick={() => onLabel(row.driver)} className="flex shrink-0 items-center pl-3" style={{ width: LABEL_W }} title={`Focus ${name}`}>
+      <button type="button" onClick={() => onLabel(row.driver)} className="flex shrink-0 items-center pl-3" style={{ width: LABEL_W }} title={`Focus ${name}`}>
         <DriverTag number={row.driver} driver={info} />
       </button>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: a click maps x to a moment on the session clock; from the keyboard the label button focuses the driver and the arrow keys seek */}
       <div className="relative h-full min-w-0 flex-1 cursor-pointer" onClick={(e) => onPlot(row.driver, e)}>
         {row.laps.map((l) => {
           const left = Math.max(0, (l.start - from) / span);

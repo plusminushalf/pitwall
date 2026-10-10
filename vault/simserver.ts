@@ -151,7 +151,7 @@ export class SimServer {
     const auth = new Headers(init?.headers).get("authorization") ?? undefined;
     this.stats.restProxied++;
     return new Promise((resolve) =>
-      this.rest(u.pathname.split("/").at(-1)!, u.search, auth, Date.now(), (status, body, type = "application/json") =>
+      this.rest(u.pathname.split("/").at(-1) ?? "", u.search, auth, Date.now(), (status, body, type = "application/json") =>
         resolve(new Response(typeof body === "string" ? body : JSON.stringify(body), { status, headers: { "Content-Type": type } })),
       ),
     );
@@ -330,13 +330,20 @@ export class SimServer {
               return send(200, this.stats);
             case "reset": {
               const patch: Partial<SimOptions> = {};
-              if (q.has("session")) patch.sessionKey = num(q.get("session")!, "session", 1, 1e7, true);
-              if (q.has("speed")) patch.speed = num(q.get("speed")!, "speed", 0.1, 60);
-              if (q.has("start")) patch.startS = num(q.get("start")!, "start", -86_400, 86_400);
-              if (q.has("token")) patch.tokenS = num(q.get("token")!, "token", 20, 3600, true);
-              if (q.has("dropEvery")) patch.dropEveryMin = num(q.get("dropEvery")!, "dropEvery", 0, 600);
-              if (q.has("jitter")) patch.jitterMs = num(q.get("jitter")!, "jitter", 0, 5000);
-              if (q.has("refuseAt")) patch.refuseAtMin = q.get("refuseAt") === "" ? null : num(q.get("refuseAt")!, "refuseAt", 0, 600);
+              const session = q.get("session");
+              const speed = q.get("speed");
+              const start = q.get("start");
+              const token = q.get("token");
+              const dropEvery = q.get("dropEvery");
+              const jitter = q.get("jitter");
+              const refuseAt = q.get("refuseAt");
+              if (session !== null) patch.sessionKey = num(session, "session", 1, 1e7, true);
+              if (speed !== null) patch.speed = num(speed, "speed", 0.1, 60);
+              if (start !== null) patch.startS = num(start, "start", -86_400, 86_400);
+              if (token !== null) patch.tokenS = num(token, "token", 20, 3600, true);
+              if (dropEvery !== null) patch.dropEveryMin = num(dropEvery, "dropEvery", 0, 600);
+              if (jitter !== null) patch.jitterMs = num(jitter, "jitter", 0, 5000);
+              if (refuseAt !== null) patch.refuseAtMin = refuseAt === "" ? null : num(refuseAt, "refuseAt", 0, 600);
               if (q.has("lock")) patch.lock = q.get("lock") === "1";
               this.reset(patch);
               return send(200, this.config());
@@ -362,10 +369,15 @@ export class SimServer {
     if (b - a > FEED_MAX) {
       b = a + FEED_MAX;
       while (b < at.length && at[b] === at[b - 1]) b++; // never split one instant
-      covered = at[b - 1]! + off;
+      covered = (at[b - 1] ?? NaN) + off;
     }
     const events: [number, number, number, string][] = [];
-    for (let i = a; i < b; i++) events.push([i + 1, at[i]! + off, this.tl.topic[i]!, payload(this.tl, i, off)]);
+    for (let i = a; i < b; i++) {
+      const t = at[i];
+      const topic = this.tl.topic[i];
+      if (t === undefined || topic === undefined) break;
+      events.push([i + 1, t + off, topic, payload(this.tl, i, off)]);
+    }
     return { to: covered, events };
   }
 
@@ -395,7 +407,7 @@ export class SimServer {
     }
     // OpenF1's limits: 6/s and 60/min with a login, 3/s and 30/min without.
     const times = authed ? this.restTimes.auth : this.restTimes.anon;
-    while (times.length && times[0]! <= now - 60_000) times.shift();
+    while ((times[0] ?? Infinity) <= now - 60_000) times.shift();
     const inSecond = times.filter((t) => t > now - 1000).length;
     if (inSecond >= (authed ? 6 : 3) || times.length >= (authed ? 60 : 30)) {
       this.stats.rest429++;

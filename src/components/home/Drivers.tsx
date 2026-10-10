@@ -58,7 +58,7 @@ function Row({ d, leader, quiet }: { d: SeasonDriver; leader: number; quiet: boo
 export function Drivers({ heading }: { heading: ReactNode }) {
   const index = useHistoryFile("index", loadIndex);
 
-  let body;
+  let body: ReactNode;
   if (index == null) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the drivers…</p>;
   else if (index === "none") body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No driver history in this build of the site.</p>;
   else {

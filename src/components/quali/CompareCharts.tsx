@@ -74,18 +74,19 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
   const lastTap = useRef<{ t: number; x: number } | null>(null);
 
   useEffect(() => {
-    const el = wrapRef.current!;
+    const el = wrapRef.current;
+    if (!el) return;
     const ro = new ResizeObserver(([e]) => setSize({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  const withTrace = useMemo(() => entries.filter((e) => e.trace != null), [entries]);
+  const withTrace = useMemo(() => entries.filter((e): e is CompareEntry & { trace: DecodedLap } => e.trace != null), [entries]);
   const ref = withTrace[0]?.trace ?? null;
   const deltas = useMemo(() => {
     const out = new Map<number, DeltaSeries>();
     if (!ref) return out;
-    for (const e of withTrace.slice(1)) out.set(e.driver, deltaSeries(ref, e.trace!, Math.max(2, lapLength / 2000)));
+    for (const e of withTrace.slice(1)) out.set(e.driver, deltaSeries(ref, e.trace, Math.max(2, lapLength / 2000)));
     return out;
   }, [withTrace, ref, lapLength]);
 
@@ -101,7 +102,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
     let hi = -Infinity;
     let dmax = 0;
     for (const e of withTrace) {
-      const lap = e.trace!;
+      const lap = e.trace;
       const [a, b] = visible(lap, x0, x1);
       for (let i = a; i <= b; i++) {
         lo = Math.min(lo, lap.speed[i]);
@@ -143,7 +144,8 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
     const dpr = window.devicePixelRatio || 1;
     canvas.width = size.w * dpr;
     canvas.height = size.h * dpr;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, size.w, size.h);
     ctx.font = FONT;
@@ -231,7 +233,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
       // Series: the reference drawn last, on top.
       for (let k = withTrace.length - 1; k >= 0; k--) {
         const e = withTrace[k];
-        const lap = e.trace!;
+        const lap = e.trace;
         ctx.strokeStyle = e.style.color;
         ctx.fillStyle = e.style.color;
         ctx.setLineDash(e.style.dash);
@@ -292,7 +294,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
     // Ghost cars' distances along the top edge.
     if (ghostT > 0 && strips.length) {
       for (const e of withTrace) {
-        const d = distanceAtTime(e.trace!, ghostT);
+        const d = distanceAtTime(e.trace, ghostT);
         if (d < x0 || d > x1) continue;
         const x = xOf(d);
         ctx.fillStyle = e.style.color;
@@ -318,8 +320,8 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
         if (s.key === "brake") continue;
         withTrace.forEach((e, k) => {
           let v: number | null;
-          if (s.key === "delta") v = k === 0 ? 0 : ref ? (timeAtDistance(e.trace!, hover) - timeAtDistance(ref, hover)) / 1000 : null;
-          else v = valueAtDistance(e.trace!, s.key, hover);
+          if (s.key === "delta") v = k === 0 ? 0 : ref ? (timeAtDistance(e.trace, hover) - timeAtDistance(ref, hover)) / 1000 : null;
+          else v = valueAtDistance(e.trace, s.key, hover);
           if (v == null) return;
           ctx.fillStyle = e.style.color;
           ctx.strokeStyle = "#09090b";
@@ -450,7 +452,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
             </div>
             <div className="grid grid-cols-[auto_auto_auto_auto_auto] items-center gap-x-2 gap-y-0.5 tabular-nums">
               {tipEntries.map((e, k) => {
-                const lap = e.trace!;
+                const lap = e.trace;
                 const brake = valueAtDistance(lap, "brake", hover) > 0;
                 const delta = k > 0 && ref ? (timeAtDistance(lap, hover) - timeAtDistance(ref, hover)) / 1000 : null;
                 return (

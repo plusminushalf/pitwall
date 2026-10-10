@@ -6,6 +6,7 @@ import { buildSession, type CarSeries, type DriverData, type Session } from "../
 import { driverStateAt, raceStateAt, type RaceState } from "../engine/raceState";
 import type { DriverTelemetry, Lap, SessionMeta, Stint, TrackStatusEvent } from "../types";
 import { allLapsAt, allPitsAt, allStintsAt, feedEndAt, feedUpTo, historyRange, historySlice, lapsAt, neutralPeriodsAt, pitsAt, selectedDriverOf, stintsAt, trackOf } from "./select";
+import { must } from "../lib/must";
 
 const lap = (n: number, start: number, end: number | null): Lap => ({
   driver: 1,
@@ -91,10 +92,10 @@ describe("the whole field", () => {
     const s = field();
     const a = allLapsAt(s, 150_000);
     expect([...a.keys()]).toEqual([1, 2]);
-    expect(a.get(1)!.map((l) => l.lap)).toEqual([1]);
-    expect(a.get(2)!.map((l) => l.lap)).toEqual([1]);
+    expect(must(a.get(1)).map((l) => l.lap)).toEqual([1]);
+    expect(must(a.get(2)).map((l) => l.lap)).toEqual([1]);
     expect(allLapsAt(s, 199_000)).toBe(a);
-    expect(allLapsAt(s, 201_000).get(1)!.map((l) => l.lap)).toEqual([1, 2]);
+    expect(must(allLapsAt(s, 201_000).get(1)).map((l) => l.lap)).toEqual([1, 2]);
     expect(allPitsAt(s, 310_000).get(1)).toEqual([]);
     expect(allPitsAt(s, 322_000).get(1)).toEqual([stop]);
   });
@@ -103,7 +104,7 @@ describe("the whole field", () => {
     const s = field();
     const race = { drivers: [{ driver: 1, lap: 5 }, { driver: 2, lap: 2 }] } as unknown as RaceState;
     const a = allStintsAt(s, race);
-    expect(a.get(1)!.map((st) => [st.stint, st.open])).toEqual([
+    expect(must(a.get(1)).map((st) => [st.stint, st.open])).toEqual([
       [1, false],
       [2, true],
     ]);
@@ -207,20 +208,20 @@ describe.skipIf(!available)("Baku 2026 at t", () => {
   test("laps, stints and feed stop at t", () => {
     for (const t of times) {
       for (const d of s.drivers.values()) {
-        expect(lapsAt(d, t).every((l) => l.end! <= t)).toBe(true);
+        expect(lapsAt(d, t).every((l) => must(l.end) <= t)).toBe(true);
         const state = driverStateAt(d, t);
         const stints = stintsAt(d, state.lap);
         expect(stints.every((st) => st.lapStart <= Math.max(state.lap, 1) && st.lapEnd <= Math.max(state.lap, 1))).toBe(true);
         // The open stint is the one the tyre badge shows.
-        if (stints.length > 0) expect(stints.at(-1)!.stint).toBe(state.stint!);
+        if (stints.length > 0) expect(must(stints.at(-1)).stint).toBe(must(state.stint));
       }
       expect(feedUpTo(s, feedEndAt(s, t)).every((f) => f.t <= t)).toBe(true);
     }
   });
 
   test("SAI's second stint only shows once he's pitted", () => {
-    const pit = s.meta.pits.find((p) => p.driver === 55 && p.lap === 20)!;
-    const sai = s.drivers.get(55)!;
+    const pit = must(s.meta.pits.find((p) => p.driver === 55 && p.lap === 20));
+    const sai = must(s.drivers.get(55));
     expect(stintsAt(sai, driverStateAt(sai, pit.entry - 5_000).lap).map((x) => x.stint)).toEqual([1]);
     expect(stintsAt(sai, driverStateAt(sai, pit.exit + 5_000).lap).map((x) => x.stint)).toEqual([1, 2]);
   });

@@ -90,8 +90,9 @@ export function parseHeaders(text: string): HeaderRules {
       continue;
     }
     const at = line.indexOf(":");
-    if (at < 0 || !rules.length) throw new Error(`_headers: bad line: ${line}`);
-    rules.at(-1)!.headers[line.slice(0, at).trim()] = line.slice(at + 1).trim();
+    const rule = rules.at(-1);
+    if (at < 0 || !rule) throw new Error(`_headers: bad line: ${line}`);
+    rule.headers[line.slice(0, at).trim()] = line.slice(at + 1).trim();
   }
   return rules;
 }

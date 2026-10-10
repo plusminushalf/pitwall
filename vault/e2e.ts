@@ -131,14 +131,17 @@ async function waitUp(url: string, ms = 30_000) {
 }
 
 function start(cmd: string[], env: Record<string, string> = {}) {
-  const p = spawn(cmd[0]!, cmd.slice(1), { cwd: repo, env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "inherit"], detached: true });
+  const [bin, ...args] = cmd;
+  if (!bin) throw new Error("start: no command");
+  const p = spawn(bin, args, { cwd: repo, env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "inherit"], detached: true });
   started.push(p);
   return p;
 }
 
 function stop(p: ChildProcess) {
+  if (p.pid === undefined) return;
   try {
-    process.kill(-p.pid!, "SIGTERM");
+    process.kill(-p.pid, "SIGTERM");
   } catch {}
 }
 
@@ -245,7 +248,10 @@ const frameRecords = (frame: any) =>
         r.onsuccess = () => {
           const tx = r.result.transaction("login", "readonly");
           const c = tx.objectStore("login").count();
-          tx.oncomplete = () => (r.result.close(), resolve(c.result));
+          tx.oncomplete = () => {
+            r.result.close();
+            resolve(c.result);
+          };
         };
         r.onerror = () => resolve(-1);
       }),
@@ -436,7 +442,8 @@ async function main() {
     await poster.waitForFunction(() => (window as any).__sent === true);
     // Same origin as the app, but not the frame's parent: an about:blank popup of the app page.
     await page.evaluate((i: number) => {
-      const w = window.open("")!;
+      const w = window.open("");
+      if (!w) throw new Error("the sibling window didn't open");
       (w as any).__replies = [];
       const s = w.document.createElement("script");
       s.textContent = `const ch = new MessageChannel(); ch.port1.onmessage = (e) => __replies.push(e.data);
@@ -457,7 +464,9 @@ async function main() {
           const ch = new MessageChannel();
           const got: unknown[] = [];
           ch.port1.onmessage = (e) => got.push(e.data);
-          window.frames[i]!.postMessage({ v: 1, type: "hello" }, vaultUrl, [ch.port2]);
+          const f = window.frames[i];
+          if (!f) throw new Error(`no frame ${i}`);
+          f.postMessage({ v: 1, type: "hello" }, vaultUrl, [ch.port2]);
           ch.port1.postMessage({ v: 1, id: 1, type: "token" });
           ch.port1.postMessage({ v: 1, id: 2, type: "status", extra: 1 });
           ch.port1.postMessage({ v: 1, type: "status" });
@@ -475,7 +484,9 @@ async function main() {
           const ch = new MessageChannel();
           const got: unknown[] = [];
           ch.port1.onmessage = (e) => got.push(e.data);
-          window.frames[i]!.postMessage({ v: 1, type: "hello" }, vaultUrl, [ch.port2]);
+          const f = window.frames[i];
+          if (!f) throw new Error(`no frame ${i}`);
+          f.postMessage({ v: 1, type: "hello" }, vaultUrl, [ch.port2]);
           ch.port1.postMessage({ v: 1, id: 1, type: "status" });
           setTimeout(() => resolve(got), 1000);
         }),
@@ -527,7 +538,9 @@ async function main() {
       const f = document.createElement("iframe");
       f.hidden = true;
       document.body.append(f);
-      const open = f.contentWindow!.open.bind(f.contentWindow);
+      const win = f.contentWindow;
+      if (!win) throw new Error("the extension frame has no window");
+      const open = win.open.bind(win);
       (window as any).__open = window.open;
       window.open = (...args: Parameters<typeof window.open>) => open(...args);
     });
@@ -536,7 +549,9 @@ async function main() {
     await wrapped.locator("#login").waitFor({ timeout: 10_000 }).catch(() => {});
     check("a popup opened from an extension's frame in the app still finds the vault frame", await wrapped.locator("#login").isVisible(), wrappedFrames);
     await wrapped.close();
-    await page.evaluate(() => void (window.open = (window as any).__open));
+    await page.evaluate(() => {
+      window.open = (window as any).__open;
+    });
 
     if (HAVE_LOGIN) await loginChecks();
     else console.log("(skipping the login checks: OPENF1_USERNAME / OPENF1_PASSWORD not set)");
@@ -679,11 +694,11 @@ async function main() {
       // 2. Two scheduled silent refreshes, 100 s apart, while the gets go on.
       const s1 = await st();
       console.log("refresh: waiting for two scheduled refreshes (about 200 s)");
-      const spoilAt = tokenTimes.at(-1)!;
+      const spoilAt = tokenTimes.at(-1);
       await p.waitForFunction(() => (window as any).__vault.getState().status.refreshCount >= 3, null, { timeout: 250_000 });
       await Bun.sleep(3500);
       const sched = tokenTimes.slice(-3);
-      const gapsS = sched.slice(1).map((t, i) => (t - sched[i]!) / 1000);
+      const gapsS = sched.slice(1).map((t, i) => (t - (sched[i] ?? NaN)) / 1000);
       check("two silent refreshes, about 100 s apart", sched[0] === spoilAt && gapsS.every((g) => g > 97 && g < 104), gapsS.map((g) => `${g.toFixed(1)} s`).join(", "));
       const g2 = await gets();
       check(`the gets never failed (${g2.length} so far, all 200 and authenticated)`, g2.length >= 60 && bad(g2).length === 0, JSON.stringify(bad(g2).slice(0, 3)));
@@ -707,8 +722,9 @@ async function main() {
       check("503: the refresh fails and backs off (retrying, server error)", afterFirst.refresh === "retrying" && afterFirst.lastRefresh?.error === "server", `${afterFirst.refresh} ${afterFirst.lastRefresh?.error}`);
       await p.waitForFunction((n: number) => (window as any).__vault.getState().status.refreshCount > n, before503, { timeout: 40_000 }).catch(() => {});
       await ctx.unroute(TOKEN_URL);
-      const b1 = (failAt[1]! - failAt[0]!) / 1000;
-      const b2 = (passedAt - failAt[1]!) / 1000;
+      const [fail0 = NaN, fail1 = NaN] = failAt;
+      const b1 = (fail1 - fail0) / 1000;
+      const b2 = (passedAt - fail1) / 1000;
       check("503 twice: retried after about 5 s, then 10 s, then recovered", failAt.length === 2 && passedAt > 0 && b1 >= 3.8 && b1 <= 6.5 && b2 >= 7.8 && b2 <= 12.5 && (await st()).lastRefresh?.ok === true, `${b1.toFixed(1)} s, ${b2.toFixed(1)} s`);
 
       // 4. /token answers 401 (password changed): needsReauth, banner, gets keep working, no more /token.
@@ -832,7 +848,7 @@ async function main() {
       await collect(b, TB);
       await waitFor("the union subscribed", a, (s) => s.stream?.phase === "connected" && s.stream.topics.join() === "car_data,position,race_control");
       const subs = broker.sessions();
-      check("one MQTT session for both tabs, subscribed to the union", subs.length === 1 && subs[0]!.subs.sort().join() === "v1/car_data,v1/position,v1/race_control", JSON.stringify(subs.map((x) => x.subs)));
+      check("one MQTT session for both tabs, subscribed to the union", subs.length === 1 && subs[0]?.subs.sort().join() === "v1/car_data,v1/position,v1/race_control", JSON.stringify(subs.map((x) => x.subs)));
       check("a fresh clientId", /^f1-vault-[a-z0-9]{16}$/.test(subs[0]?.clientId ?? ""), subs[0]?.clientId);
 
       const from = broker.log.length;
@@ -845,7 +861,7 @@ async function main() {
       const h0 = (await st(a)).stream.handovers;
       await b.evaluate(() => (window as any).__vault.debug.refreshNow());
       await waitFor("the handover", a, (s) => s.stream.handovers === h0 + 1 && s.stream.phase === "connected");
-      check("handover on refresh: a new session with a new clientId, then back to one", broker.sessions().length === 1 && broker.sessions()[0]!.clientId !== subs[0]!.clientId && broker.stats.max === 2, `max ${broker.stats.max}`);
+      check("handover on refresh: a new session with a new clientId, then back to one", broker.sessions().length === 1 && broker.sessions()[0]?.clientId !== subs[0]?.clientId && broker.stats.max === 2, `max ${broker.stats.max}`);
       await Bun.sleep(1500);
 
       // A forced drop: reconnect, gap-fill over REST.
@@ -885,7 +901,11 @@ async function main() {
         let inversions = 0;
         for (const t of topics) {
           const seq = got.filter(([tt]) => tt === t).map(([, n]) => n);
-          for (let i = 1; i < seq.length; i++) if (seq[i]! < seq[i - 1]!) inversions++;
+          let prev = -Infinity;
+          for (const n of seq) {
+            if (n < prev) inversions++;
+            prev = n;
+          }
         }
         check(`${label}: each topic arrives in order`, inversions === 0, `${inversions} out of order`);
         return got;
@@ -957,13 +977,13 @@ async function main() {
     const nginx429 = "<html>\r\n<head><title>429 Too Many Requests</title></head>\r\n<body>\r\n<center><h1>429 Too Many Requests</h1></center>\r\n<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n";
     await context.route(TOKEN_URL, (r: any) => r.fulfill({ status: 429, contentType: "text/html", headers: { "Access-Control-Allow-Origin": "*" }, body: nginx429 }));
     await popup.getByRole("button", { name: "Connect" }).click();
-    await popup.waitForFunction(() => /limiting/.test(document.getElementById("error")!.textContent ?? ""), null, { timeout: 10_000 }).catch(() => {});
+    await popup.waitForFunction(() => /limiting/.test(document.getElementById("error")?.textContent ?? ""), null, { timeout: 10_000 }).catch(() => {});
     text = (await popup.locator("#error").textContent()) ?? "";
     check("rate limited (429, nginx HTML): the popup says so", /limiting/.test(text), text);
     await context.unroute(TOKEN_URL);
     await context.route(TOKEN_URL, (r: any) => r.abort("internetdisconnected"));
     await popup.getByRole("button", { name: "Connect" }).click();
-    await popup.waitForFunction(() => /reach OpenF1/.test(document.getElementById("error")!.textContent ?? ""), null, { timeout: 10_000 }).catch(() => {});
+    await popup.waitForFunction(() => /reach OpenF1/.test(document.getElementById("error")?.textContent ?? ""), null, { timeout: 10_000 }).catch(() => {});
     text = (await popup.locator("#error").textContent()) ?? "";
     check("network error: the popup says so", /reach OpenF1/.test(text), text);
     await context.unroute(TOKEN_URL);
@@ -975,7 +995,7 @@ async function main() {
     check("real login: the popup closes itself", (await closeCalls(popup)) > 0);
     await waitState(page, "connected");
     check("real login: app shows connected", true);
-    check("exactly one /token request, from the vault frame", tokenRequests.length - before === 1 && tokenRequests.at(-1)!.startsWith(`${VAULT}/frame.html`), tokenRequests.slice(before).map((u) => u.split("#")[0]).join(", "));
+    check("exactly one /token request, from the vault frame", tokenRequests.length - before === 1 && tokenRequests.at(-1)?.startsWith(`${VAULT}/frame.html`) === true, tokenRequests.slice(before).map((u) => u.split("#")[0]).join(", "));
     check("panel: stored on this device", (await page.getByTestId("vault-panel-mode").textContent()) === "on this device");
     check("panel: account masked", /^.\*\*\*@[^@]+$/.test((await page.getByTestId("vault-panel-account").textContent()) ?? ""));
     const expiry = (await page.getByTestId("vault-token-expiry").textContent()) ?? "";
@@ -1038,7 +1058,7 @@ async function main() {
     await addAuthenticator(context, noPrf, false);
     await submitLogin(noPrf, USERNAME, PASSWORD, "passkey");
     await noPrf.locator("#use-device:not([hidden])").waitFor({ timeout: 20_000 });
-    await noPrf.waitForFunction(() => /PRF/.test(document.getElementById("passkey-text")!.textContent ?? ""), null, { timeout: 20_000 });
+    await noPrf.waitForFunction(() => /PRF/.test(document.getElementById("passkey-text")?.textContent ?? ""), null, { timeout: 20_000 });
     check("authenticator without PRF: the popup says so and offers stay-connected", true);
     check("while the popup waits, nothing is stored", (await frameRecords(vaultFrame(page))) === 0);
     await noPrf.getByRole("button", { name: "Stay connected on this device instead" }).click();

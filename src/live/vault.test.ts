@@ -8,6 +8,7 @@ import type { LiveMessage } from "./protocol";
 import { TOPICS } from "./topics";
 import { accountNeed, connectVaultLive, stallOf, type LiveAccount, type VaultLike, type WorkerLike } from "./vault";
 import { MAX_IN_FLIGHT, VaultEngine, type FromEngine, type ToEngine } from "./vaultEngine";
+import { must } from "../lib/must";
 
 type Rec = Record<string, any>;
 const MIN = 60_000;
@@ -88,14 +89,14 @@ function fakeVault(api: ReturnType<typeof openf1>) {
     async subscribe(ts: string[]) {
       await Bun.sleep(2);
       for (const t of ts) topics.add(t);
-      state = { ...state, status: { ...state.status!, stream: stream() as never } };
+      state = { ...state, status: { ...must(state.status), stream: stream() as never } };
       emit();
       return { topics: [...topics] };
     },
     async unsubscribe(ts: string[]) {
       await Bun.sleep(2);
       for (const t of ts) topics.delete(t);
-      state = { ...state, status: { ...state.status!, stream: stream() as never } };
+      state = { ...state, status: { ...must(state.status), stream: stream() as never } };
       emit();
       return { topics: [...topics] };
     },
@@ -185,7 +186,7 @@ describe("live through the vault", () => {
     expect(opened).toBe(1);
     expect(msgs[0]).toMatchObject({ type: "status", state: "connecting" });
     expect([...vault.topics].sort()).toEqual([...TOPICS].sort());
-    const snap = msgs.find((m) => m.type === "snapshot")!;
+    const snap = must(msgs.find((m) => m.type === "snapshot"));
     if (snap.type !== "snapshot") throw new Error();
     expect(snap.meta.sessionKey).toBe(9001);
     expect(snap.meta.drivers.map((d) => d.number).sort()).toEqual([1, 44]);

@@ -220,7 +220,10 @@ function LapCompare() {
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: the traces are spread into the deps
   const series = useMemo((): Series[] => {
-    const withTrace = choices.flatMap((_c, i) => (traces[i] ? [{ trace: traces[i]!, style: styles[i] }] : []));
+    const withTrace = choices.flatMap((_c, i) => {
+      const trace = traces[i];
+      return trace ? [{ trace, style: styles[i] }] : [];
+    });
     const ref = withTrace[0]?.trace;
     const step = Math.max(2, geometry.lapLength / 2000);
     return withTrace.map((s, k) => ({ ...s, delta: k > 0 && ref ? deltaSeries(ref, s.trace, step) : null }));
@@ -358,7 +361,8 @@ function LapCompare() {
     <div className="flex flex-col text-sm" style={{ height: size.height }}>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 pb-1.5 pt-2">
         {choices.map((c, i) => {
-          const d = traces[i] && ref && i > 0 ? (traces[i]!.duration - ref.duration) / 1000 : null;
+          const trace = traces[i];
+          const d = trace && ref && i > 0 ? (trace.duration - ref.duration) / 1000 : null;
           return (
             <Chip
               key={c.driver}
@@ -424,9 +428,9 @@ function LapCompare() {
       </div>
       {minis.length > 0 && (
         <div className="mx-3 mb-1 flex h-1.5 overflow-hidden rounded-sm" role="img" aria-label="Fastest driver through each mini-sector">
-          {minis.map((m, i) => (
+          {minis.map((m) => (
             <div
-              key={i}
+              key={m.from}
               className="flex-1"
               style={{ background: series[m.winner].style.color, opacity: m.winner === 0 ? 1 : 0.85 }}
               title={`${Math.round(m.from)}–${Math.round(m.to)} m: ${series.map((s, k) => `${infoOf(s.trace.driver)?.acronym ?? s.trace.driver} ${m.times[k].toFixed(3)}`).join(" · ")}`}

@@ -21,7 +21,7 @@
 // Nothing here is OpenF1's: the app shows "SIMULATED" whenever status.sim is set.
 
 import { decodeConnect, decodeTopics, encodeConnack, encodePingresp, encodePublish, encodeSuback, encodeUnsuback } from "./brokercodec";
-import { CONNECT, DISCONNECT, PINGREQ, PUBACK, PacketReader, SUBSCRIBE, UNSUBSCRIBE, type SocketFactory, type SocketLike } from "./mqtt";
+import { CONNECT, DISCONNECT, PINGREQ, PUBACK, PacketReader, SUBSCRIBE, UNSUBSCRIBE, type RawPacket, type SocketFactory, type SocketLike } from "./mqtt";
 import type { SimAction, SimStatus } from "./protocol";
 import type { Timers } from "./scheduler";
 
@@ -176,7 +176,7 @@ export class SimBroker {
   private onBytes(c: Conn, bytes: Uint8Array) {
     if (c.state === "closed") return;
     c.lastClientAt = this.deps.timers.now();
-    let packets;
+    let packets: RawPacket[];
     try {
       packets = c.reader.push(bytes);
     } catch {
@@ -335,10 +335,10 @@ export class SimBroker {
     const limit = Math.min(now, this.fedTo);
     if (limit > this.sentTo) {
       const f = this.feed;
-      let i = 0;
-      while (i < f.at.length && f.at[i]! <= limit) {
-        if (f.at[i]! > this.sentTo) this.publish(i);
-        i++;
+      for (let i = 0; i < f.at.length; i++) {
+        const at = f.at[i];
+        if (at === undefined || at > limit) break;
+        if (at > this.sentTo) this.publish(i);
       }
       this.sentTo = limit;
       this.trimFeed(limit);
@@ -348,14 +348,17 @@ export class SimBroker {
 
   private publish(i: number) {
     const f = this.feed;
-    const topic = `v1/${this.deps.config.topics[f.topic[i]!]}`;
-    const at = f.at[i]!;
+    const t = f.topic[i];
+    const at = f.at[i];
+    const payload = f.payload[i];
+    if (t === undefined || at === undefined || payload === undefined) return;
+    const topic = `v1/${this.deps.config.topics[t]}`;
     let bytes: Uint8Array | undefined;
     for (const c of this.conns) {
       if (c.state !== "open") continue;
       const since = c.subs.get(topic);
       if (since === undefined || at <= since) continue;
-      bytes ??= encodePublish(topic, f.payload[i]!);
+      bytes ??= encodePublish(topic, payload);
       this.send(c, bytes);
     }
     if (bytes) this.stats.published++;
@@ -365,7 +368,10 @@ export class SimBroker {
   private trimFeed(upTo: number) {
     const f = this.feed;
     let n = 0;
-    while (n < f.at.length && f.at[n]! <= upTo) n++;
+    for (const at of f.at) {
+      if (at > upTo) break;
+      n++;
+    }
     if (!n) return;
     f.ids.splice(0, n);
     f.at.splice(0, n);

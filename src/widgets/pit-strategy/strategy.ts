@@ -157,7 +157,7 @@ function stopsOf(car: CarInput, lines: Lines, periods: readonly NeutralPeriod[])
       found.push({ lap, from: compoundOn(lap), to: null, pit });
     }
   }
-  changes.forEach((c, k) => !used.has(k) && found.push({ ...c, pit: null }));
+  for (const [k, c] of changes.entries()) if (!used.has(k)) found.push({ ...c, pit: null });
 
   return found
     .sort((a, b) => a.lap - b.lap)

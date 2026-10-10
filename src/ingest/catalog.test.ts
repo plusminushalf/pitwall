@@ -17,6 +17,7 @@ import {
   withCurrentRows,
   type CatalogRow,
 } from "./catalog";
+import { must } from "../lib/must";
 
 let nextKey = 1;
 function session(meeting: number, name: string, type: string, start: string, hours = 2, extra: Partial<RawSession> = {}): RawSession {
@@ -97,7 +98,7 @@ describe("calendar", () => {
 
 describe("season rules", () => {
   const [race] = sessions.filter((s) => s.session_name === "Race" && s.meeting_key === 1);
-  const cancelled = sessions.find((s) => s.is_cancelled)!;
+  const cancelled = must(sessions.find((s) => s.is_cancelled));
 
   test("status like the CLI's", () => {
     const before = Date.parse(race.date_start);
@@ -109,7 +110,7 @@ describe("season rules", () => {
   });
 
   test("the free tier's live window: 30 min either side of any session", () => {
-    const fp1 = sessions.find((s) => s.session_name === "Practice 1")!;
+    const fp1 = must(sessions.find((s) => s.session_name === "Practice 1"));
     const start = Date.parse(fp1.date_start);
     const end = Date.parse(fp1.date_end);
     expect(liveWindowAt(sessions, start - LIVE_WINDOW_MARGIN_MS - 1)).toBeNull();
@@ -122,10 +123,10 @@ describe("season rules", () => {
 
   test("overlapping windows: the one ending last", () => {
     const c = buildCatalog(2026, sessions, meetings);
-    const sprint = sessions.find((s) => s.session_name === "Sprint")!;
+    const sprint = must(sessions.find((s) => s.session_name === "Sprint"));
     const w = liveWindowNow([c], Date.parse(sprint.date_start));
     expect(w?.session.session_key).toBe(sprint.session_key);
-    expect(windowLabel(w!, [c])).toBe("Chinese Grand Prix · Sprint");
+    expect(windowLabel(must(w), [c])).toBe("Chinese Grand Prix · Sprint");
   });
 });
 
@@ -178,9 +179,9 @@ describe("Home's lead weekend", () => {
     for (const now of [practice - HERO_WINDOW_MS, quali - 2 * h, quali + 30 * 60_000, quali + 2 * h, race + h]) {
       expect(names(heroWeekend(catalog, now))).toEqual(["21 Practice 1", "21 Qualifying", "21 Race"]);
     }
-    expect(nextSession(heroWeekend(catalog, practice - h)!, practice - h)?.sessionName).toBe("Practice 1");
-    expect(nextSession(heroWeekend(catalog, quali + 2 * h)!, quali + 2 * h)?.sessionName).toBe("Race");
-    const q = rows.find((r) => r.sessionName === "Qualifying")!;
+    expect(nextSession(must(heroWeekend(catalog, practice - h)), practice - h)?.sessionName).toBe("Practice 1");
+    expect(nextSession(must(heroWeekend(catalog, quali + 2 * h)), quali + 2 * h)?.sessionName).toBe("Race");
+    const q = must(rows.find((r) => r.sessionName === "Qualifying"));
     expect(isLive(q, quali + 30 * 60_000)).toBe(true);
     expect(isLive(q, quali + 2 * h)).toBe(false);
   });

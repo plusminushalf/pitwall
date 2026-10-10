@@ -102,7 +102,7 @@ export function Circuits({ heading }: { heading: ReactNode }) {
   const entries = useLibrary((s) => s.entries);
   const loadYear = useLibrary((s) => s.loadYear);
   const now = useNow(30_000);
-  const year = YEARS.at(-1)!;
+  const year = YEARS[YEARS.length - 1];
   const history = useHistoryIndex();
 
   // Earlier seasons for the circuits this one doesn't go to (cached calendars after the first visit).
@@ -122,8 +122,8 @@ export function Circuits({ heading }: { heading: ReactNode }) {
   const phaseOf = (c: CircuitCard): Phase => {
     if (c.cancelled) return "cancelled";
     const w = weekend?.[0];
-    if (w && c.year === w.year && circuitSlug(w.circuit) === c.slug && c.meetingName === w.meetingName)
-      return weekend!.some((r) => isLive(r, now)) ? "live" : "next";
+    if (weekend && w && c.year === w.year && circuitSlug(w.circuit) === c.slug && c.meetingName === w.meetingName)
+      return weekend.some((r) => isLive(r, now)) ? "live" : "next";
     return Date.parse(c.dateEnd) < now ? "raced" : "later";
   };
   const historyOf = (c: CircuitCard) => {
@@ -132,12 +132,12 @@ export function Circuits({ heading }: { heading: ReactNode }) {
   };
   const state = years[year];
 
-  let body;
+  let body: ReactNode;
   if (!season.length) {
     body = state?.error ? (
       <div className="border-y border-zinc-800 px-3 py-4 text-sm">
         <p className="text-red-400">{state.error}</p>
-        <button onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
+        <button type="button" onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
           Try again
         </button>
       </div>

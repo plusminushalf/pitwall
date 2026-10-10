@@ -136,12 +136,14 @@ export class StreamBuilder {
    */
   update(): StreamUpdate | null {
     if (!this.watching || !this.dirty || !this.ready()) return null;
+    // ready() checked these.
+    const { window, plan } = this;
+    const session = this.doc<RawSessionData["session"]>("sessions")[0];
+    if (!window || !plan || !session) return null;
     this.dirty = false;
-    const window = this.window!;
-    const plan = this.plan!;
     const complete = plan.complete();
     const raw: RawSessionData = {
-      session: this.doc<RawSessionData["session"]>("sessions")[0]!,
+      session,
       meeting: this.doc<RawSessionData["meeting"]>("meeting")[0] ?? null,
       circuit: (this.docs.get("circuit") as RawSessionData["circuit"] | undefined) ?? null,
       drivers: this.doc("drivers"),

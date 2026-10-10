@@ -59,9 +59,9 @@ describe("session bests", () => {
 
   test("the ideal lap: the fastest sectors added up, and how far under the fastest lap", () => {
     const { ideal } = sessionBests([HAM, VER], Infinity, true);
-    expect(ideal!.value).toBeCloseTo(31.7 + 43.4 + 29.9, 9);
-    expect(ideal!.drivers).toEqual([1, 44, 44]);
-    expect(ideal!.under).toBeCloseTo(0.1, 9);
+    expect(ideal?.value).toBeCloseTo(31.7 + 43.4 + 29.9, 9);
+    expect(ideal?.drivers).toEqual([1, 44, 44]);
+    expect(ideal?.under).toBeCloseTo(0.1, 9);
   });
 
   test("only what's done by t: laps finished, stops left", () => {
@@ -77,10 +77,10 @@ describe("session bests", () => {
 
   test("a lap deleted by t isn't the fastest lap (until then it is); its sectors still count", () => {
     const deleted = { ...HAM, laps: HAM.laps.map((l) => (l.lap === 2 ? { ...l, deleted: { t: 300_000, reason: "TRACK LIMITS" } } : l)) };
-    expect(sessionBests([deleted, VER], 299_999, true).records.find((r) => r.id === "lap")!.best.driver).toBe(44);
+    expect(sessionBests([deleted, VER], 299_999, true).records.find((r) => r.id === "lap")?.best.driver).toBe(44);
     const after = sessionBests([deleted, VER], 300_000, true);
-    expect(after.records.find((r) => r.id === "lap")!.best).toMatchObject({ driver: 1, lap: 2 });
-    expect(after.records.find((r) => r.id === "s2")!.best.driver).toBe(44);
+    expect(after.records.find((r) => r.id === "lap")?.best).toMatchObject({ driver: 1, lap: 2 });
+    expect(after.records.find((r) => r.id === "s2")?.best.driver).toBe(44);
   });
 
   test("a tie goes to whoever set it first; one driver alone has nobody behind", () => {

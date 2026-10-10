@@ -79,7 +79,7 @@ describe("identity and dedupe", () => {
     const mqtt = { speed: 300, _key: "k", driver_number: 1, _id: 42, date: "2025-03-22T02:18:36.428000+00:00" };
     const a = identity("car_data", rest);
     const b = identity("car_data", mqtt);
-    expect(b).toContain(a[0]!);
+    expect(b).toContain(a[0] ?? "");
     expect(b).toContain("car_data#42");
     const s = new LiveState();
     expect(s.accept("car_data", mqtt)).toBe(true);
@@ -135,7 +135,8 @@ describe("identity and dedupe", () => {
 describe("LiveManager", () => {
   test("connects with a fresh clientId, the token as password, subscribes v1/<topic>, delivers in batches", async () => {
     const x = await streaming(["car_data", "laps"]);
-    const c = x.broker.clients[0]!;
+    const c = x.broker.clients[0];
+    if (!c) throw new Error("no client");
     expect(c.clientId).toMatch(/^f1-vault-[a-z0-9]{16}$/);
     expect(c.password).toBe("tok-1");
     expect(c.username).toBe("me@example.com"); // OpenF1 refuses any other username (CONNACK 5)
@@ -151,12 +152,14 @@ describe("LiveManager", () => {
     expect(x.got.every((b) => b.messages.every((m) => typeof m._id === "number"))).toBe(true);
     const st = x.live.status();
     expect(st).toMatchObject({ phase: "connected", sessions: 1, maxSessions: 1, delivered: 3, duplicates: 0 });
-    expect(st.lastSeen.car_data).toBe(x.got[0]!.messages[1]!.date as string);
+    expect(st.lastSeen.car_data).toBe(x.got[0]?.messages[1]?.date as string);
   });
 
   test("messages on topics nobody subscribed to, and non-JSON payloads, are dropped", async () => {
     const x = await streaming(["car_data"]);
-    x.broker.clients[0]!.subs.add("v1/weather");
+    const c = x.broker.clients[0];
+    if (!c) throw new Error("no client");
+    c.subs.add("v1/weather");
     x.pub("weather");
     await x.clock.advance(FLUSH_MS);
     expect(x.got).toEqual([]);
@@ -222,8 +225,8 @@ describe("LiveManager", () => {
     // Wait until B has subscribed, then publish only to A (as if it had been published a moment earlier).
     for (let i = 0; i < 50 && x.broker.clients.length < 2; i++) await Promise.resolve();
     await settle();
-    const a = x.broker.clients[0]!;
-    const b = x.broker.clients[1]!;
+    const [a, b] = x.broker.clients;
+    if (!a || !b) throw new Error("two clients expected");
     b.subs.delete("v1/car_data");
     x.pub("car_data");
     b.subs.add("v1/car_data");
@@ -280,14 +283,14 @@ describe("LiveManager", () => {
     await x.clock.advance(1_000);
     expect(x.refreshes()).toBe(1);
     expect(x.live.status().phase).toBe("connected");
-    expect(x.broker.clients.at(-1)!.password).toBe("tok-2");
+    expect(x.broker.clients.at(-1)?.password).toBe("tok-2");
   });
 
   test("a drop: reconnect with backoff, gap-fill over REST (date>=lastSeen - overlap, or whole), in order, before live resumes; no loss, no duplicates", async () => {
     const x = await streaming(["car_data", "position", "laps"]);
     for (let i = 0; i < 6; i++) x.pub(i % 2 ? "position" : "car_data");
     await x.clock.advance(FLUSH_MS);
-    const lastCar = x.live.status().lastSeen.car_data!;
+    const lastCar = x.live.status().lastSeen.car_data ?? "";
     x.broker.dropAll();
     await settle();
     expect(x.live.status().phase).toBe("reconnecting");
@@ -299,10 +302,10 @@ describe("LiveManager", () => {
     await x.clock.advance(FLUSH_MS);
     for (let i = 0; i < 4; i++) x.pub("car_data");
     await x.clock.advance(FLUSH_MS);
-    const car = x.restCalls.find(([e]) => e === "car_data")!;
-    expect(car[1]).toEqual({ session_key: 9999, "date>=": isoDate(Date.parse(lastCar) - (GAP_FILL.car_data as number)) });
-    expect(x.restCalls.find(([e]) => e === "position")![1]).toEqual({ session_key: 9999 });
-    expect(x.restCalls.find(([e]) => e === "laps")![1]).toEqual({ session_key: 9999 });
+    const car = x.restCalls.find(([e]) => e === "car_data");
+    expect(car?.[1]).toEqual({ session_key: 9999, "date>=": isoDate(Date.parse(lastCar) - (GAP_FILL.car_data as number)) });
+    expect(x.restCalls.find(([e]) => e === "position")?.[1]).toEqual({ session_key: 9999 });
+    expect(x.restCalls.find(([e]) => e === "laps")?.[1]).toEqual({ session_key: 9999 });
     expect([...x.ns()].sort((a, b) => a - b)).toEqual(range(1, 17));
     // Each topic in order (gap-filled before live).
     for (const t of ["car_data", "position"] as const) {
@@ -327,16 +330,16 @@ describe("LiveManager", () => {
     x.pub("location", { driver_number: 1 });
     await x.clock.advance(FLUSH_MS);
     const seen = x.live.status().lastSeen;
-    expect(Date.parse(seen.pit!)).toBe(entryA + 5_000);
+    expect(Date.parse(seen.pit ?? "")).toBe(entryA + 5_000);
     x.broker.dropAll();
     await settle();
     // During the outage: A, dated before lastSeen (pit); driver 81's lagging samples, dated before lastSeen (telemetry).
     const lateA = x.pub("pit", { date: isoDate(entryA), driver_number: 1, lane_duration: 40 }) as { n?: number };
-    const late81 = x.pub("car_data", { driver_number: 81, date: isoDate(Date.parse(seen.car_data!) - 5_000) }) as { n?: number };
-    const late81loc = x.pub("location", { driver_number: 81, date: isoDate(Date.parse(seen.location!) - 5_000) }) as { n?: number };
+    const late81 = x.pub("car_data", { driver_number: 81, date: isoDate(Date.parse(seen.car_data ?? "") - 5_000) }) as { n?: number };
+    const late81loc = x.pub("location", { driver_number: 81, date: isoDate(Date.parse(seen.location ?? "") - 5_000) }) as { n?: number };
     await x.clock.advance(1_000);
     expect(x.live.status().phase).toBe("connected");
-    expect(x.restCalls.find(([e]) => e === "pit")![1]).toEqual({ session_key: 9999 }); // whole: no date filter
+    expect(x.restCalls.find(([e]) => e === "pit")?.[1]).toEqual({ session_key: 9999 }); // whole: no date filter
     expect(x.ns("pit")).toEqual([1, lateA.n as number]);
     expect(x.ns("car_data")).toEqual([late81.n as number, 2].sort((a, b) => a - b));
     expect(x.ns("location")).toContain(late81loc.n as number);
@@ -385,7 +388,7 @@ describe("LiveManager", () => {
 
   test("a topic with nothing delivered yet is gap-filled from when it started streaming (minus a margin), or whole", async () => {
     const x = await streaming(["car_data", "race_control"]);
-    const since = x.live.status().since.car_data!;
+    const since = x.live.status().since.car_data ?? NaN;
     x.broker.dropAll();
     x.pub("car_data");
     x.pub("race_control");
@@ -415,7 +418,7 @@ describe("LiveManager", () => {
     await x.clock.advance(FLUSH_MS);
     x.live.setTopics(["laps"]);
     await settle();
-    expect([...x.broker.clients[0]!.subs]).toEqual(["v1/laps"]);
+    expect([...(x.broker.clients[0]?.subs ?? [])]).toEqual(["v1/laps"]);
     expect(x.live.status().lastSeen.car_data).toBeUndefined();
     expect(x.live.status().topics).toEqual(["laps"]);
     x.live.setTopics([]);
@@ -433,7 +436,9 @@ describe("LiveManager", () => {
     x.pub("position");
     // The old leader delivered n=1 only, then died.
     state.merge({ lastSeen: { position: isoDate(x.clock.t - 1) }, since: { position: x.clock.t - 1000 }, sessionKey: 9999, seen: {} });
-    state.accept("position", { ...x.broker.records.get("position")![0]! });
+    const first = x.broker.records.get("position")?.[0];
+    if (!first) throw new Error("nothing published");
+    state.accept("position", { ...first });
     x.live.setTopics(["position"]);
     x.live.start({ gap: true });
     await x.clock.advance(FLUSH_MS + 10);

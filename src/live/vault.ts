@@ -140,7 +140,10 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
       send({ type: "stream", streaming: on });
     }
     const next = worker && want && have ? stallOf(st) : null;
-    if (next !== stall) h.onStall((stall = next));
+    if (next !== stall) {
+      stall = next;
+      h.onStall(next);
+    }
   };
 
   const sync = async () => {
@@ -222,7 +225,10 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
     opened = false;
     streaming = false;
     want = false;
-    if (stall) h.onStall((stall = null));
+    if (stall) {
+      stall = null;
+      h.onStall(null);
+    }
     void sync();
   };
 
@@ -231,7 +237,10 @@ export function connectVaultLive(handlers: VaultLiveHandlers, deps: { vault?: Va
     const need = accountNeed(s);
     // A login being checked again (a reconnect in the popup) doesn't stop what runs.
     const now = worker && need === "checking" ? null : need;
-    if (now !== account) h.onAccount((account = now));
+    if (now !== account) {
+      account = now;
+      h.onAccount(now);
+    }
     if (now === null && !worker && !restart) startWorker(s);
     else if (now !== null && worker) stopWorker();
     // A new vault frame (the old one was removed from the page): it may have missed some of the stream.

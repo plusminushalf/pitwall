@@ -106,13 +106,20 @@ export class LiveStore {
       const n = rec.driver_number;
       if (typeof n !== "number") return false;
       let s = this.samples.get(n);
-      if (!s) this.samples.set(n, (s = new DriverSamples(n, this.t0)));
+      if (!s) {
+        s = new DriverSamples(n, this.t0);
+        this.samples.set(n, s);
+      }
       if (topic === "car_data") s.addCar(rec as RawCarData);
       else s.addLocation(rec as RawLocation);
       if (this.keepRaw) {
         const raw = topic === "car_data" ? this.rawCar : this.rawLoc;
         let list = raw.get(n);
-        if (!list) raw.set(n, (list = []));
+        if (!list) {
+          const fresh: never[] = [];
+          raw.set(n, fresh);
+          list = fresh;
+        }
         list.push(rec as never);
       }
       // (A timestamp far ahead of the clock is bogus; a few seconds is just clock skew.)
@@ -121,7 +128,10 @@ export class LiveStore {
       return true;
     }
     let docs = this.docs.get(topic);
-    if (!docs) this.docs.set(topic, (docs = new Map()));
+    if (!docs) {
+      docs = new Map();
+      this.docs.set(topic, docs);
+    }
     docs.set(KEYS[topic](rec), rec);
     this.onDocument?.(topic);
     return true;

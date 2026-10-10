@@ -14,7 +14,8 @@ let current: SessionStore | null = null;
 
 /** The app's store. */
 export function sessionStore(): SessionStore {
-  return (current ??= openStore({ kind: "opfs" }));
+  current ??= openStore({ kind: "opfs" });
+  return current;
 }
 
 /** Browser storage the app can't run without (OPFS needs a secure context: https or localhost). */

@@ -60,7 +60,7 @@ export function qualiPhaseAt(meta: Pick<SessionMeta, "qualiLive" | "drivers">, t
     red: running && segment.stopped.some((r) => r.from <= t && (r.to == null || t < r.to)),
     left: Math.max(0, segment.length - runningTime(segment, t)),
     field,
-    settled: !running && (t >= segment.end! + SETTLE_MS || (next != null && next.start <= t)),
+    settled: segment.end != null && !running && (t >= segment.end + SETTLE_MS || (next != null && next.start <= t)),
     out,
   };
 }

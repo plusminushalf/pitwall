@@ -24,6 +24,12 @@ import {
 
 const hex = (b: Uint8Array | number[]) => [...b].map((x) => x.toString(16).padStart(2, "0")).join(" ");
 const ascii = (s: string) => [...s].map((c) => c.charCodeAt(0));
+/** The first packet in `bytes`, which the test knows are there. */
+const packet = (bytes: Uint8Array | undefined) => {
+  const p = bytes && new PacketReader().push(bytes)[0];
+  if (!p) throw new Error("no packet");
+  return p;
+};
 
 describe("remaining length", () => {
   const cases: [number, number[]][] = [
@@ -54,13 +60,13 @@ describe("remaining length", () => {
       const got = [];
       for (let i = 0; i < bytes.length; i++) got.push(...r.push(bytes.subarray(i, i + 1)));
       expect(got.length).toBe(1);
-      expect(got[0]!.body).toEqual(body);
+      expect(got[0]?.body).toEqual(body);
     } else {
       // Big ones in 3 chunks, split inside the length bytes and inside the body.
       const got = [...r.push(bytes.subarray(0, 2)), ...r.push(bytes.subarray(2, 1000)), ...r.push(bytes.subarray(1000))];
       expect(got.length).toBe(1);
-      expect(got[0]!.body.length).toBe(n);
-      expect(got[0]!.body[n - 1]).toBe((n - 1) % 251);
+      expect(got[0]?.body.length).toBe(n);
+      expect(got[0]?.body[n - 1]).toBe((n - 1) % 251);
     }
     expect(r.pending).toBe(0);
   });
@@ -82,13 +88,15 @@ describe("packet reader", () => {
   test("several packets in one frame", () => {
     const got = new PacketReader().push(all);
     expect(got.map((p) => p.type)).toEqual([3, 13, 3]);
-    expect(decodePublish(got[2]!).topic).toBe("v1/position");
+    const third = got[2];
+    if (!third) throw new Error("no third packet");
+    expect(decodePublish(third).topic).toBe("v1/position");
   });
   test("split at every offset: same packets", () => {
     for (let i = 0; i <= all.length; i++) {
       const r = new PacketReader();
       const got = [...r.push(all.subarray(0, i)), ...r.push(all.subarray(i))];
-      expect(got.map((p) => hex(p.body))).toEqual([a, b, c].map((x) => hex(new PacketReader().push(x)[0]!.body)));
+      expect(got.map((p) => hex(p.body))).toEqual([a, b, c].map((x) => hex(packet(x).body)));
     }
   });
   test("split into three at every pair of offsets", () => {
@@ -108,19 +116,19 @@ describe("encoders (byte fixtures)", () => {
   test("CONNECT: MQTT 3.1.1, clean session, username + password, keepalive", () => {
     const bytes = encodeConnect({ clientId: "c", username: "u", password: "p", keepaliveS: 30 });
     expect(hex(bytes)).toBe(hex([0x10, 19, 0, 4, ...ascii("MQTT"), 4, 0xc2, 0, 30, 0, 1, ...ascii("c"), 0, 1, ...ascii("u"), 0, 1, ...ascii("p")]));
-    const back = decodeConnect(new PacketReader().push(bytes)[0]!);
+    const back = decodeConnect(packet(bytes));
     expect(back).toEqual({ protocol: "MQTT", level: 4, clean: true, keepaliveS: 30, clientId: "c", username: "u", password: "p" });
   });
   test("CONNECT with a long token uses a 2-byte remaining length", () => {
     const token = `eyJ${"x".repeat(1200)}`;
     const bytes = encodeConnect({ clientId: "f1-vault-abc", username: "f1-replay-vault", password: token, keepaliveS: 30 });
-    expect(bytes[1]! & 0x80).toBe(0x80);
-    expect(decodeConnect(new PacketReader().push(bytes)[0]!).password).toBe(token);
+    expect((bytes[1] ?? 0) & 0x80).toBe(0x80);
+    expect(decodeConnect(packet(bytes)).password).toBe(token);
   });
   test("SUBSCRIBE: fixed-header flags 0010, packet id, topic + QoS 0 each", () => {
     expect(hex(encodeSubscribe(1, ["v1/laps"]))).toBe(hex([0x82, 12, 0, 1, 0, 7, ...ascii("v1/laps"), 0]));
     const two = encodeSubscribe(0x1234, ["v1/a", "v1/bb"]);
-    expect(decodeTopics(new PacketReader().push(two)[0]!, true)).toEqual({ packetId: 0x1234, topics: ["v1/a", "v1/bb"] });
+    expect(decodeTopics(packet(two), true)).toEqual({ packetId: 0x1234, topics: ["v1/a", "v1/bb"] });
   });
   test("UNSUBSCRIBE, PUBACK, PINGREQ, DISCONNECT", () => {
     expect(hex(encodeUnsubscribe(2, ["v1/x"]))).toBe(hex([0xa2, 8, 0, 2, 0, 4, ...ascii("v1/x")]));
@@ -137,24 +145,24 @@ describe("encoders (byte fixtures)", () => {
 
 describe("decoders", () => {
   test("PUBLISH QoS 0 with a UTF-8 topic and payload", () => {
-    const p = decodePublish(new PacketReader().push(encodePublish("v1/ümlaut/€", '{"x":"é"}'))[0]!);
+    const p = decodePublish(packet(encodePublish("v1/ümlaut/€", '{"x":"é"}')));
     expect(p.topic).toBe("v1/ümlaut/€");
     expect(p.qos).toBe(0);
     expect(new TextDecoder().decode(p.payload)).toBe('{"x":"é"}');
   });
   test("PUBLISH QoS 1 carries a packet id", () => {
-    const p = decodePublish(new PacketReader().push(encodePublish("v1/laps", "{}", { qos: 1, packetId: 77 }))[0]!);
+    const p = decodePublish(packet(encodePublish("v1/laps", "{}", { qos: 1, packetId: 77 })));
     expect(p).toMatchObject({ qos: 1, packetId: 77, topic: "v1/laps" });
   });
   test("invalid UTF-8 in a topic is a protocol error", () => {
     const bad = frame(PUBLISH, 0, new Uint8Array([0, 2, 0xc3, 0x28, 0x7b, 0x7d]));
-    expect(() => decodePublish(new PacketReader().push(bad)[0]!)).toThrow(ProtocolError);
+    expect(() => decodePublish(packet(bad))).toThrow(ProtocolError);
   });
   test("a truncated topic is a protocol error", () => {
-    expect(() => decodePublish(new PacketReader().push(frame(PUBLISH, 0, new Uint8Array([0, 9, 0x61])))[0]!)).toThrow(ProtocolError);
+    expect(() => decodePublish(packet(frame(PUBLISH, 0, new Uint8Array([0, 9, 0x61]))))).toThrow(ProtocolError);
   });
   test("QoS 3 is a protocol error", () => {
-    expect(() => decodePublish(new PacketReader().push(frame(PUBLISH, 6, new Uint8Array([0, 1, 0x61, 0, 1])))[0]!)).toThrow(ProtocolError);
+    expect(() => decodePublish(packet(frame(PUBLISH, 6, new Uint8Array([0, 1, 0x61, 0, 1]))))).toThrow(ProtocolError);
   });
 });
 
@@ -180,8 +188,12 @@ function setup(opts: { keepaliveS?: number } = {}) {
     onClose: (i) => closes.push(i),
     ...(opts.keepaliveS !== undefined && { keepaliveS: opts.keepaliveS }),
   });
-  const sock = () => sockets[0]!;
-  const sentTypes = () => sock().sent.map((b) => b[0]! >> 4);
+  const sock = () => {
+    const first = sockets[0];
+    if (!first) throw new Error("no socket yet");
+    return first;
+  };
+  const sentTypes = () => sock().sent.map((b) => (b[0] ?? 0) >> 4);
   return { clock, s, sock, messages, closes, sentTypes };
 }
 
@@ -203,7 +215,7 @@ describe("MqttSession", () => {
     expect(x.sock().sent.length).toBe(0);
     x.sock().open();
     expect(x.sentTypes()).toEqual([CONNECT]);
-    const c = decodeConnect(new PacketReader().push(x.sock().sent[0]!)[0]!);
+    const c = decodeConnect(packet(x.sock().sent[0]));
     expect(c).toMatchObject({ clientId: "client-1", username: "user", password: "token", clean: true, keepaliveS: KEEPALIVE_S });
     expect(KEEPALIVE_S).toBe(90);
     x.sock().receive(encodeConnack(0));
@@ -261,13 +273,13 @@ describe("MqttSession", () => {
   test("subscribe resolves with SUBACK's granted codes; unsubscribe with UNSUBACK", async () => {
     const x = await connected();
     const sub = x.s.subscribe(["v1/laps", "v1/position"]);
-    const sent = new PacketReader().push(x.sock().sent.at(-1)!)[0]!;
+    const sent = packet(x.sock().sent.at(-1));
     const { packetId, topics } = decodeTopics(sent, true);
     expect(topics).toEqual(["v1/laps", "v1/position"]);
     x.sock().receive(encodeSuback(packetId, [0, 0x80]));
     expect(await sub).toEqual([0, 0x80]);
     const unsub = x.s.unsubscribe(["v1/laps"]);
-    const u = decodeTopics(new PacketReader().push(x.sock().sent.at(-1)!)[0]!, false);
+    const u = decodeTopics(packet(x.sock().sent.at(-1)), false);
     x.sock().receive(encodeUnsuback(u.packetId));
     expect(await unsub).toEqual([]);
   });
@@ -283,7 +295,7 @@ describe("MqttSession", () => {
   test("QoS 1 PUBLISH is PUBACKed with its packet id and delivered", async () => {
     const x = await connected();
     x.sock().receive(encodePublish("v1/laps", "{}", { qos: 1, packetId: 513 }));
-    expect(hex(x.sock().sent.at(-1)!)).toBe("40 02 02 01");
+    expect(hex(x.sock().sent.at(-1) ?? [])).toBe("40 02 02 01");
     expect(x.messages.length).toBe(1);
   });
 

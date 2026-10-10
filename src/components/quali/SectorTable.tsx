@@ -74,10 +74,11 @@ export function SectorTable({ entries }: { entries: CompareEntry[] }) {
               <span className={LABEL} title={r.title}>
                 {r.label}
               </span>
-              {r.values.map((v, i) => {
+              {entries.map((e, i) => {
+                const v = r.values[i];
                 const top = v != null && best != null && Math.abs(v - best) < EPS && present.length > 1;
                 return (
-                  <span key={i} className="flex min-w-0 flex-col items-end leading-tight">
+                  <span key={e.driver} className="flex min-w-0 flex-col items-end leading-tight">
                     <span className={top ? "font-semibold text-fuchsia-400" : v == null ? "text-zinc-600" : isTime ? "text-zinc-200" : "text-zinc-300"}>
                       {v == null ? "—" : r.format(v)}
                     </span>

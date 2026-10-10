@@ -81,14 +81,21 @@ export function driverBests(driver: number, laps: readonly ValidLap[]): Bests {
   const mark = (v: ValidLap, value: number): Mark => ({ value, driver, lap: v.lap.lap, start: v.lap.start, compound: v.compound, age: v.age });
   const out: Bests = [null, null, null, null, null];
   let fastest: ValidLap | null = null;
+  let fastestTime = Infinity;
   for (const v of laps) {
     for (let k = 0; k < 3; k++) {
       const s = v.lap.sectors[k];
-      if (s != null && s > 0 && (out[k] == null || s < out[k]!.value)) out[k] = mark(v, s);
+      const cur = out[k];
+      if (s != null && s > 0 && (cur == null || s < cur.value)) out[k] = mark(v, s);
     }
     const speed = speedOf(v.lap);
-    if (speed != null && speed > 0 && (out[SPEED] == null || speed > out[SPEED]!.value)) out[SPEED] = mark(v, speed);
-    if (!fastest || v.lap.duration! < fastest.lap.duration!) fastest = v;
+    const top = out[SPEED];
+    if (speed != null && speed > 0 && (top == null || speed > top.value)) out[SPEED] = mark(v, speed);
+    const time = v.lap.duration;
+    if (time != null && time < fastestTime) {
+      fastest = v;
+      fastestTime = time;
+    }
   }
   if (fastest && out[0] && out[1] && out[2]) out[IDEAL] = mark(fastest, out[0].value + out[1].value + out[2].value);
   return out;

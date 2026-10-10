@@ -55,7 +55,7 @@ const NOTE =
   "Gap: best lap that counts (no deleted laps, none under a VSC, safety car or red flag). Fuel loads aren't known.";
 
 /** The smallest step from `steps` that puts at least `minPx` between ticks. */
-const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? steps.at(-1)!;
+const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? Math.max(...steps);
 const ticks = (lo: number, hi: number, step: number) => {
   const out: number[] = [];
   for (let v = Math.ceil(lo / step - 1e-9) * step; v <= hi + 1e-9; v += step) out.push(Math.round(v * 1000) / 1000);
@@ -178,7 +178,7 @@ function SpeedVsPace() {
         const d = info.get(dot.driver);
         const label = by === "team" ? shortTeam(dot.key) : (d?.acronym ?? `#${dot.driver}`);
         // Hollow: a teammate earlier in the session's order (drivers only).
-        const hollow = by === "driver" && d != null && drivers.some((o) => o.team === d.team && o.number !== d.number && order.get(o.number)! < order.get(d.number)!);
+        const hollow = by === "driver" && d != null && drivers.some((o) => o.team === d.team && o.number !== d.number && (order.get(o.number) ?? Infinity) < (order.get(d.number) ?? Infinity));
         return { dot, x: xOf(dot.speed), y: yOf(dot.gap), label, color: d ? teamColor(d.teamColour) : AXIS, hollow };
       });
     // Kept off the gap labels on the left; they may run into the margin on the right.
@@ -229,6 +229,7 @@ function SpeedVsPace() {
         <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["driver", "team"] as const).map((v) => (
             <button
+              type="button"
               key={v}
               onClick={() => update({ by: v })}
               aria-pressed={by === v}
@@ -297,7 +298,26 @@ function SpeedVsPace() {
 
             {/* Dots, then labels on top of every dot. */}
             {chart.dots.map((p) => (
-              <g key={p.dot.key} className="cursor-pointer" onClick={() => onPick(p.dot)} onPointerEnter={() => setHover(p.dot.key)} onPointerLeave={() => setHover(null)}>
+              // biome-ignore lint/a11y/useSemanticElements: an SVG group can't be an HTML <button>
+              <g
+                key={p.dot.key}
+                role="button"
+                tabIndex={0}
+                aria-label={`${p.label}: ${Math.round(p.dot.speed)} km/h, ${p.dot.gap === 0 ? "fastest" : `+${p.dot.gap.toFixed(3)} s`}. Watch the lap`}
+                className="cursor-pointer outline-none"
+                onClick={() => onPick(p.dot)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter" && e.key !== " ") return;
+                  // Space picks the dot, not the replay's hold-to-play.
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPick(p.dot);
+                }}
+                onPointerEnter={() => setHover(p.dot.key)}
+                onPointerLeave={() => setHover(null)}
+                onFocus={() => setHover(p.dot.key)}
+                onBlur={() => setHover(null)}
+              >
                 <circle cx={p.x} cy={p.y} r={HIT_R} fill="transparent" />
                 <circle cx={p.x} cy={p.y} r={DOT_R + 1.5} fill={SURFACE} />
                 {p.hollow ? <circle cx={p.x} cy={p.y} r={DOT_R - 0.75} fill={SURFACE} stroke={p.color} strokeWidth={1.75} /> : <circle cx={p.x} cy={p.y} r={DOT_R} fill={p.color} />}

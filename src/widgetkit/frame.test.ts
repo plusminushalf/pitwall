@@ -30,19 +30,19 @@ const busy = (ms: number) => {
 const drawsOver = (frames: number, costs: ((frame: number) => number)[]) => {
   const drew: number[][] = costs.map(() => []);
   let frame = 0;
-  costs.forEach((cost, i) =>
+  costs.forEach((cost, i) => {
     add(() => {
       drew[i].push(frame);
       busy(cost(frame));
-    }),
-  );
+    });
+  });
   for (frame = 1; frame <= frames; frame++) runFrames(frame * 16.7);
   return drew;
 };
 const gaps = (frames: number[]) => frames.slice(1).map((f, i) => f - frames[i]);
 
 afterEach(() => {
-  offs.splice(0).forEach((off) => off());
+  for (const off of offs.splice(0)) off();
   useReplay.setState({ session: null });
   clockSpy?.mockRestore();
   clockSpy = null;

@@ -21,7 +21,7 @@ export function RacesButton() {
   const progress = job?.progress ?? remote?.progress ?? null;
 
   return (
-    <button
+    <button type="button"
       onClick={(e) => {
         e.currentTarget.blur();
         goHome();
@@ -68,7 +68,7 @@ export function ReadyToast() {
       <span className="min-w-0 flex-1 text-zinc-200">
         <span className="font-semibold">{toast.label}</span> is ready
       </span>
-      <button
+      <button type="button"
         onClick={(e) => {
           e.currentTarget.blur();
           watchNow(toast.key);
@@ -77,7 +77,7 @@ export function ReadyToast() {
       >
         Watch
       </button>
-      <button onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
+      <button type="button" onClick={dismiss} className="touch-hit flex h-5 w-5 shrink-0 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100" aria-label="Dismiss">
         <Icon name="close" size={12} />
       </button>
     </div>

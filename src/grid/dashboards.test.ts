@@ -22,6 +22,7 @@ import {
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { columnRange, COLUMNS, widgetIdOf, type Layout } from "./layout";
 import { parseLayout, storageKey, type GridKind } from "./storage";
+import { must } from "../lib/must";
 
 const items = new Map<string, string>();
 const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
@@ -48,7 +49,7 @@ describe("presets", () => {
       for (const p of PRESETS[kind]) {
         expect(parseLayout(p.layout, BUILTIN_WIDGETS, COLUMNS, kind)).toEqual(p.layout);
         for (const [id, e] of Object.entries(p.layout.widgets)) {
-          const range = columnRange(BUILTIN_WIDGETS.get(widgetIdOf(id, e))!, COLUMNS);
+          const range = columnRange(must(BUILTIN_WIDGETS.get(widgetIdOf(id, e))), COLUMNS);
           expect(e.width).toBeGreaterThanOrEqual(range.min);
           expect(e.width).toBeLessThanOrEqual(range.max);
           expect(e.x + e.width).toBeLessThanOrEqual(COLUMNS);
@@ -145,7 +146,7 @@ describe("storage", () => {
       },
       practice: "nonsense",
     };
-    const d = parseDashboards(raw, BUILTIN_WIDGETS)!;
+    const d = must(parseDashboards(raw, BUILTIN_WIDGETS));
     expect(Object.keys(d.race.edited)).toEqual(["strategy"]);
     expect(d.race.own.map((o) => [o.id, o.name])).toEqual([
       ["my-3", "Ok"],

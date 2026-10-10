@@ -97,17 +97,33 @@ const lastSegment = (times: (number | null)[]) => times.reduce<number>((last, t,
 const lastTime = (times: (number | null)[]) => times[lastSegment(times)] ?? null;
 const isValid = (l: Lap) => l.duration != null && deletedReason(l) == null;
 
+/** The item with the best key (the first, on a tie), skipping null keys. */
+function bestBy<T>(xs: readonly T[], key: (x: T) => number | null, better: (a: number, b: number) => boolean): T | null {
+  let best: T | null = null;
+  let bestKey = 0;
+  for (const x of xs) {
+    const k = key(x);
+    if (k != null && (best == null || better(k, bestKey))) {
+      best = x;
+      bestKey = k;
+    }
+  }
+  return best;
+}
+const minBy = <T>(xs: readonly T[], key: (x: T) => number | null) => bestBy(xs, key, (a, b) => a < b);
+const maxBy = <T>(xs: readonly T[], key: (x: T) => number | null) => bestBy(xs, key, (a, b) => a > b);
+
 const stintOf = (l: Lap) => meta.stints.find((s) => s.driver === l.driver && s.lapStart <= l.lap && l.lap <= s.lapEnd) ?? null;
 const pitIn = new Set(meta.pits.map((p) => `${p.driver}:${p.lap}`));
 
 // Races: running order and gap at the end of each lap, from the order the cars completed it.
 const lapEnd = new Map<string, { position: number; gap: number }>();
 if (isRace) {
-  const byLap = new Map<number, Lap[]>();
-  for (const l of meta.laps) if (l.end != null) byLap.set(l.lap, [...(byLap.get(l.lap) ?? []), l]);
+  const byLap = new Map<number, { l: Lap; end: Ms }[]>();
+  for (const l of meta.laps) if (l.end != null) byLap.set(l.lap, [...(byLap.get(l.lap) ?? []), { l, end: l.end }]);
   for (const ls of byLap.values()) {
-    ls.sort((a, b) => a.end! - b.end!);
-    ls.forEach((l, i) => lapEnd.set(`${l.driver}:${l.lap}`, { position: i + 1, gap: (l.end! - ls[0].end!) / 1000 }));
+    ls.sort((a, b) => a.end - b.end);
+    for (const [i, { l, end }] of ls.entries()) lapEnd.set(`${l.driver}:${l.lap}`, { position: i + 1, gap: (end - ls[0].end) / 1000 });
   }
 }
 
@@ -296,12 +312,13 @@ interface Trace {
 }
 
 const lapTraceFiles = new Map<number, DriverLapTraces | null>();
-async function lapTraceFile(driver: number) {
-  if (!lapTraceFiles.has(driver)) {
-    const f = Bun.file(`${SESSION_DIR}/laps/${driver}.json`);
-    lapTraceFiles.set(driver, (await f.exists()) ? await f.json() : null);
-  }
-  return lapTraceFiles.get(driver)!;
+async function lapTraceFile(driver: number): Promise<DriverLapTraces | null> {
+  const cached = lapTraceFiles.get(driver);
+  if (cached !== undefined) return cached;
+  const f = Bun.file(`${SESSION_DIR}/laps/${driver}.json`);
+  const traces: DriverLapTraces | null = (await f.exists()) ? await f.json() : null;
+  lapTraceFiles.set(driver, traces);
+  return traces;
 }
 
 /** A lap over distance: qualifying and practice store aligned traces; for races, cut the car data and integrate speed. */
@@ -329,7 +346,7 @@ async function traceOf(driver: number, lapNumber: number, label: string): Promis
   return { label, driver, lap: lapNumber, d, t, speed: pick(car.speed), throttle: pick(car.throttle), brake: pick(car.brake), gear: pick(car.gear), integrated: true };
 }
 
-const fastestLap = (n: number) => (lapsOf.get(n) ?? []).filter(isValid).reduce<Lap | null>((best, l) => (best == null || l.duration! < best.duration! ? l : best), null);
+const fastestLap = (n: number) => minBy((lapsOf.get(n) ?? []).filter(isValid), (l) => l.duration);
 
 const traces: Trace[] = [];
 for (const n of order) {
@@ -398,7 +415,7 @@ line(`${meta.circuit}, ${meta.country} · ${new Date(Date.parse(meta.t0) + meta.
 line();
 
 const allValid = meta.laps.filter(isValid);
-const fastest = allValid.reduce<Lap | null>((b, l) => (b == null || l.duration! < b.duration! ? l : b), null);
+const fastest = minBy(allValid, (l) => l.duration);
 
 if (isRace) {
   const finishers = meta.results.filter((r) => r.position != null);
@@ -411,12 +428,12 @@ if (isRace) {
   }
   line(`- **Podium:** ${finishers.slice(0, 3).map((r) => acr(r.driver)).join(", ")}`);
   if (fastest) line(`- **Fastest lap:** ${who(fastest.driver)}, ${lapTime(fastest.duration)} on lap ${fastest.lap}`);
-  const trap = meta.laps.filter((l) => l.speedTrap.st != null).reduce<Lap | null>((b, l) => (b == null || l.speedTrap.st! > b.speedTrap.st! ? l : b), null);
+  const trap = maxBy(meta.laps, (l) => l.speedTrap.st);
   if (trap) line(`- **Top speed (speed trap):** ${acr(trap.driver)}, ${trap.speedTrap.st} km/h on lap ${trap.lap}`);
-  const stops = meta.pits.filter((p) => p.stopDuration != null).sort((a, b) => a.stopDuration! - b.stopDuration!);
-  const lanes = meta.pits.filter((p) => p.laneDuration != null).sort((a, b) => a.laneDuration! - b.laneDuration!);
-  if (stops[0]) line(`- **Fastest pit stop:** ${acr(stops[0].driver)}, ${stops[0].stopDuration!.toFixed(1)} s stationary on lap ${stops[0].lap}`);
-  if (lanes[0]) line(`- **Quickest time through the pit lane:** ${acr(lanes[0].driver)}, ${lanes[0].laneDuration!.toFixed(1)} s on lap ${lanes[0].lap}`);
+  const stop = minBy(meta.pits, (p) => p.stopDuration);
+  const lane = minBy(meta.pits, (p) => p.laneDuration);
+  if (stop?.stopDuration != null) line(`- **Fastest pit stop:** ${acr(stop.driver)}, ${stop.stopDuration.toFixed(1)} s stationary on lap ${stop.lap}`);
+  if (lane?.laneDuration != null) line(`- **Quickest time through the pit lane:** ${acr(lane.driver)}, ${lane.laneDuration.toFixed(1)} s on lap ${lane.lap}`);
   line(`- **Pit stops:** ${meta.pits.length}`);
 
   // Neutralisations, by the leader's lap.
@@ -442,7 +459,10 @@ if (isRace) {
   for (const [key, e] of lapEnd) if (e.position === 1) led.set(Number(key.split(":")[0]), (led.get(Number(key.split(":")[0])) ?? 0) + 1);
   line(`- **Laps led:** ${[...led].sort((a, b) => b[1] - a[1]).map(([n, c]) => `${acr(n)} ${c}`).join(", ")}`);
 
-  const moves = finishers.filter((r) => gridOf.has(r.driver)).map((r) => ({ driver: r.driver, from: gridOf.get(r.driver)!, to: r.position!, gained: gridOf.get(r.driver)! - r.position! }));
+  const moves = finishers.flatMap((r) => {
+    const from = gridOf.get(r.driver);
+    return from != null && r.position != null ? [{ driver: r.driver, from, to: r.position, gained: from - r.position }] : [];
+  });
   const up = [...moves].sort((a, b) => b.gained - a.gained)[0];
   const down = [...moves].sort((a, b) => a.gained - b.gained)[0];
   if (up?.gained > 0) line(`- **Biggest climber:** ${acr(up.driver)}, P${up.from} → P${up.to} (+${up.gained})`);
@@ -479,17 +499,21 @@ if (isRace) {
   const [p1, p2] = q.results;
   line("## Headlines");
   line();
-  if (p1 && best(p1) != null) line(`- **Pole:** ${who(p1.driver)}, ${lapTime(best(p1))}${p2 && best(p2) != null ? `, ${gap(best(p2)! - best(p1)!)} ahead of ${acr(p2.driver)}` : ""}`);
+  const t1 = p1 ? best(p1) : null;
+  const t2 = p2 ? best(p2) : null;
+  if (p1 && t1 != null) line(`- **Pole:** ${who(p1.driver)}, ${lapTime(t1)}${p2 && t2 != null ? `, ${gap(t2 - t1)} ahead of ${acr(p2.driver)}` : ""}`);
   for (const s of q.segments) {
     const outHere = q.results.filter((r) => r.eliminated === s.number);
     if (!outHere.length) continue;
     const i = s.number - 1;
     const lastIn = q.results.filter((r) => r.eliminated == null || r.eliminated > s.number).at(-1);
     const firstOut = outHere[0];
-    const cut = lastIn?.times[i] != null && firstOut.times[i] != null ? ` (cut line: ${acr(lastIn.driver)} ${lapTime(lastIn.times[i])}, ${acr(firstOut.driver)} ${gap(firstOut.times[i]! - lastIn.times[i]!)} short)` : "";
+    const tIn = lastIn?.times[i];
+    const tOut = firstOut.times[i];
+    const cut = lastIn && tIn != null && tOut != null ? ` (cut line: ${acr(lastIn.driver)} ${lapTime(tIn)}, ${acr(firstOut.driver)} ${gap(tOut - tIn)} short)` : "";
     line(`- **Out in ${s.name}:** ${outHere.map((r) => acr(r.driver)).join(", ")}${cut}`);
   }
-  const trap = meta.laps.filter((l) => l.speedTrap.st != null).reduce<Lap | null>((b, l) => (b == null || l.speedTrap.st! > b.speedTrap.st! ? l : b), null);
+  const trap = maxBy(meta.laps, (l) => l.speedTrap.st);
   if (trap) line(`- **Top speed (speed trap):** ${acr(trap.driver)}, ${trap.speedTrap.st} km/h`);
   const deleted = q.laps.filter((l) => l.deleted);
   if (deleted.length) line(`- **Deleted laps:** ${deleted.length} (${deleted.map((l) => `${acr(l.driver)} ${segmentName(l.segment)}`).join(", ")})`);
@@ -511,7 +535,7 @@ if (isRace) {
   if (p1?.duration != null) line(`- **Fastest:** ${who(p1.driver)}, ${lapTime(p1.duration)}${p2?.duration != null ? `, ${gap(p2.duration - p1.duration)} ahead of ${acr(p2.driver)}` : ""}`);
   const most = [...order].sort((a, b) => lapsDone(b) - lapsDone(a))[0];
   if (most != null) line(`- **Most laps:** ${acr(most)}, ${lapsDone(most)}`);
-  const trap = meta.laps.filter((l) => l.speedTrap.st != null).reduce<Lap | null>((b, l) => (b == null || l.speedTrap.st! > b.speedTrap.st! ? l : b), null);
+  const trap = maxBy(meta.laps, (l) => l.speedTrap.st);
   if (trap) line(`- **Top speed (speed trap):** ${acr(trap.driver)}, ${trap.speedTrap.st} km/h`);
   line();
   line("## Timesheet");
@@ -535,7 +559,9 @@ for (const [team, ds] of teams) {
     const ra = meta.quali.results.find((r) => r.driver === a);
     const rb = meta.quali.results.find((r) => r.driver === b);
     const seg = ra && rb ? Math.min(...[ra, rb].map((r) => lastSegment(r.times))) : -1;
-    const delta = seg >= 0 ? rb!.times[seg]! - ra!.times[seg]! : null;
+    const ta = ra && seg >= 0 ? ra.times[seg] : null;
+    const tb = rb && seg >= 0 ? rb.times[seg] : null;
+    const delta = ta != null && tb != null ? tb - ta : null;
     pairRows.push([team, acr(a), acr(b), delta != null ? `${gap(delta)} (${meta.quali.segments[seg]?.name})` : ""]);
   } else {
     const ra = meta.results.find((r) => r.driver === a);
@@ -550,23 +576,26 @@ table(["Team", "Ahead", "Behind", isRace ? "Result" : "Gap"], pairRows);
 // Ideal laps: each driver's best sectors (valid laps) against their best lap.
 line("## Best sectors and ideal laps");
 line();
-const sectorBest = [0, 1, 2].map((i) => allValid.filter((l) => l.sectors[i] != null).reduce<Lap | null>((b, l) => (b == null || l.sectors[i]! < b.sectors[i]! ? l : b), null));
-sectorBest.forEach((l, i) => l && line(`- **Sector ${i + 1}:** ${acr(l.driver)}, ${l.sectors[i]!.toFixed(3)}`));
-const sumBest = sectorBest.every(Boolean) ? sectorBest.reduce((s, l, i) => s + l!.sectors[i]!, 0) : null;
+const sectorBest = [0, 1, 2].map((i) => {
+  const l = minBy(allValid, (x) => x.sectors[i]);
+  const time = l?.sectors[i];
+  return l && time != null ? { driver: l.driver, time } : null;
+});
+for (const [i, s] of sectorBest.entries()) if (s) line(`- **Sector ${i + 1}:** ${acr(s.driver)}, ${s.time.toFixed(3)}`);
+const sumBest = sectorBest.reduce<number | null>((sum, s) => (sum != null && s ? sum + s.time : null), 0);
 if (sumBest != null) line(`- **Ideal lap (fastest sectors of anyone):** ${lapTime(sumBest)}${fastest ? ` vs the fastest lap ${lapTime(fastest.duration)}` : ""}`);
 line();
 const ideal = order
-  .map((n) => {
+  .flatMap((n) => {
     const ls = (lapsOf.get(n) ?? []).filter(isValid);
     const sectors = [0, 1, 2].map((i) => Math.min(...ls.map((l) => l.sectors[i] ?? Infinity)));
     const bestLap = fastestLap(n)?.duration ?? null;
-    return { n, ideal: sectors.every(Number.isFinite) ? sectors.reduce((a, b) => a + b, 0) : null, bestLap };
+    return sectors.every(Number.isFinite) && bestLap != null ? [{ n, ideal: sectors.reduce((a, b) => a + b, 0), bestLap }] : [];
   })
-  .filter((r) => r.ideal != null && r.bestLap != null)
-  .sort((a, b) => a.ideal! - b.ideal!);
+  .sort((a, b) => a.ideal - b.ideal);
 table(
   ["Driver", "Ideal lap", "Best lap", "Left on the table"],
-  ideal.map((r) => [acr(r.n), lapTime(r.ideal), lapTime(r.bestLap), (r.bestLap! - r.ideal!).toFixed(3)]),
+  ideal.map((r) => [acr(r.n), lapTime(r.ideal), lapTime(r.bestLap), (r.bestLap - r.ideal).toFixed(3)]),
 );
 
 if (meta.weather.length) {

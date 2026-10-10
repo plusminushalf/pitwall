@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import type { Lap, SessionMeta } from "../types";
 import { projectedEnd, spoilerFreeEnd } from "./noSpoilers";
+import { must } from "../lib/must";
 
 type Meta = Parameters<typeof projectedEnd>[0];
 
@@ -73,7 +74,7 @@ describe.skipIf(!available)("session 11377", () => {
 
   test("the projection ends after the flag, but not long after", () => {
     const projected = projectedEnd(meta);
-    expect(projected).toBeGreaterThan(meta.chequered!);
+    expect(projected).toBeGreaterThan(must(meta.chequered));
     expect(projected - meta.duration).toBeLessThan(10 * 60_000);
   });
 });

@@ -84,7 +84,10 @@ export class Budget {
    */
   acquire(caller: string, priority: Priority = "normal", opts: { front?: boolean } = {}): Promise<Slot> {
     let c = this.callers.get(caller);
-    if (!c) this.callers.set(caller, (c = { id: caller, queue: [], inFlight: 0 }));
+    if (!c) {
+      c = { id: caller, queue: [], inFlight: 0 };
+      this.callers.set(caller, c);
+    }
     if (c.queue.length >= PER_CALLER_QUEUE) return Promise.reject(new BudgetError("rate_limited"));
     const cc = c;
     const p = new Promise<Slot>((resolve, reject) => {
@@ -175,7 +178,10 @@ export class Budget {
 
   private prune(now: number) {
     let i = 0;
-    while (i < this.starts.length && this.starts[i]! <= now - 60_000) i++;
+    for (const s of this.starts) {
+      if (s > now - 60_000) break;
+      i++;
+    }
     if (i) this.starts.splice(0, i);
   }
 
@@ -193,7 +199,8 @@ export class Budget {
     const last = this.starts.at(-1);
     const spacing = last === undefined ? 0 : last + SPACING / lim.perSecond - now;
     const cap = priority === "live" ? lim.perMinute : Math.max(1, lim.perMinute - this.reserve);
-    const minute = this.starts.length >= cap ? this.starts[this.starts.length - cap]! + 60_000 - now : 0;
+    const nth = this.starts.length >= cap ? this.starts[this.starts.length - cap] : undefined;
+    const minute = nth === undefined ? 0 : nth + 60_000 - now;
     return Math.max(spacing, minute, 0);
   }
 
@@ -204,10 +211,11 @@ export class Budget {
     const from = this.last === null ? 0 : ids.indexOf(this.last) + 1;
     for (const priority of ["live", "normal"] as const) {
       for (let k = 0; k < ids.length; k++) {
-        const c = this.callers.get(ids[(from + k) % ids.length]!)!;
-        if (c.inFlight >= PER_CALLER_IN_FLIGHT) continue;
-        const i = c.queue.findIndex((w) => w.priority === priority);
-        if (i >= 0) return { c, w: c.queue[i]! };
+        const id = ids[(from + k) % ids.length];
+        const c = id === undefined ? undefined : this.callers.get(id);
+        if (!c || c.inFlight >= PER_CALLER_IN_FLIGHT) continue;
+        const w = c.queue.find((q) => q.priority === priority);
+        if (w) return { c, w };
       }
     }
     return null;

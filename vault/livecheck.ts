@@ -82,7 +82,9 @@ async function waitUp(url: string, ms = 60_000) {
   throw new Error(`${url} didn't come up`);
 }
 function start(cmd: string[], env: Record<string, string>) {
-  const p = spawn(cmd[0]!, cmd.slice(1), { cwd: repo, env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "inherit"], detached: true });
+  const [bin, ...args] = cmd;
+  if (!bin) throw new Error("start: no command");
+  const p = spawn(bin, args, { cwd: repo, env: { ...process.env, ...env }, stdio: ["ignore", "ignore", "inherit"], detached: true });
   started.push(p);
 }
 
@@ -384,8 +386,9 @@ try {
   check("finished", false, e instanceof Error ? e.message : String(e));
 } finally {
   for (const p of started) {
+    if (p.pid === undefined) continue;
     try {
-      process.kill(-p.pid!, "SIGTERM");
+      process.kill(-p.pid, "SIGTERM");
     } catch {}
   }
 }

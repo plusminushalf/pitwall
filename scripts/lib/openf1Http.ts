@@ -35,7 +35,7 @@ let paceOverride: Pace | null = null;
 export function nextStart(reserved: readonly number[], now: number, notBefore: number, pace: Pace): number {
   const at = Math.max(now, notBefore);
   const k = reserved.length - pace.perMinute;
-  return k >= 0 ? Math.max(at, reserved[k]! + 60_000) : at;
+  return k >= 0 ? Math.max(at, reserved[k] + 60_000) : at;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -155,7 +155,7 @@ export function invalidateToken(): void {
 export function seedRequestStarts(at: readonly number[]): void {
   const now = Date.now();
   starts = [...starts, ...at.filter((t) => t > now - 60_000 && t <= now)].sort((a, b) => a - b);
-  if (starts.length) nextSlotAt = Math.max(nextSlotAt, starts[starts.length - 1]! + FREE_PACE.gapMs);
+  if (starts.length) nextSlotAt = Math.max(nextSlotAt, starts[starts.length - 1] + FREE_PACE.gapMs);
 }
 
 /** Test hook: a fixed gap between requests and no per-minute cap (null = the tier's pace). */
@@ -210,8 +210,8 @@ async function throttledFetch(url: string, bearer: string | null): Promise<Respo
 export function queryString(params: Record<string, string | number>): string {
   return Object.entries(params)
     .map(([k, v]) => {
-      const m = /^(.*?)(>=|<=|>|<)?$/.exec(k)!;
-      return `${encodeURIComponent(m[1]!)}${m[2] ?? "="}${encodeURIComponent(String(v))}`;
+      const [, name = k, op = "="] = /^(.*?)(>=|<=|>|<)?$/.exec(k) ?? [];
+      return `${encodeURIComponent(name)}${op}${encodeURIComponent(String(v))}`;
     })
     .join("&");
 }

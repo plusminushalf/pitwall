@@ -50,7 +50,13 @@ export function practiceClassification(meta: Pick<SessionMeta, "drivers" | "laps
   const rows = meta.drivers.map((d) => {
     const own = meta.laps.filter((l) => l.driver === d.number);
     let best: Lap | null = null;
-    for (const l of own) if (counts(l) && (!best || l.duration! < best.duration! || (l.duration === best.duration && l.start < best.start))) best = l;
+    let bestMs = Infinity;
+    for (const l of own) {
+      if (l.duration != null && counts(l) && (!best || l.duration < bestMs || (l.duration === bestMs && l.start < best.start))) {
+        best = l;
+        bestMs = l.duration;
+      }
+    }
     return {
       driver: d.number,
       position: 0,
@@ -59,7 +65,7 @@ export function practiceClassification(meta: Pick<SessionMeta, "drivers" | "laps
       set: best?.end ?? Infinity,
       gap: null as number | null,
       laps: own.length,
-      deleted: own.filter((l) => l.deleted && l.duration != null).map((l) => ({ lap: l.lap, reason: l.deleted!.reason })),
+      deleted: own.flatMap((l) => (l.deleted && l.duration != null ? [{ lap: l.lap, reason: l.deleted.reason }] : [])),
     };
   });
   rows.sort((a, b) => {
@@ -78,6 +84,6 @@ export function defaultPracticeLap(meta: SessionMeta, driver: number, classifica
   const traced = new Set(tracedLaps(meta, driver));
   const best = classification.find((r) => r.driver === driver)?.lap;
   if (best != null && traced.has(best)) return best;
-  const own = meta.laps.filter((l) => l.driver === driver && traced.has(l.lap) && l.duration != null).sort((a, b) => a.duration! - b.duration!);
+  const own = meta.laps.filter((l) => l.driver === driver && traced.has(l.lap) && l.duration != null).sort((a, b) => (a.duration ?? 0) - (b.duration ?? 0));
   return (own.find((l) => !l.deleted) ?? own[0])?.lap ?? null;
 }

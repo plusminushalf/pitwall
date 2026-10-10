@@ -39,7 +39,8 @@ export function liveSegments(
       segments.push(open);
       continue;
     }
-    const red = open.stopped.at(-1)?.to === null ? open.stopped.at(-1)! : null;
+    const last = open.stopped.at(-1);
+    const red = last?.to === null ? last : null;
     if ((status && /FINISHED/.test(msg)) || (m.flag === "CHEQUERED" && m.scope === "Track")) {
       open.end = m.t;
       if (red) red.to = m.t;
@@ -86,7 +87,7 @@ export function qualiStandings(
   /** Each car's best lap in `segment` that counts at t. Ties: the one set first. */
   const bestAt = (n: number, segment: number, t: Ms): Time | null => {
     let best: Time | null = null;
-    for (const x of times.get(n)!) {
+    for (const x of times.get(n) ?? []) {
       if (x.segment !== segment || x.set > t || x.until <= t) continue;
       if (!best || x.time < best.time || (x.time === best.time && x.set < best.set)) best = x;
     }
@@ -122,7 +123,9 @@ export function qualiStandings(
       });
       field = ranked.slice(0, through);
     }
-    if (!started.length) field.forEach((n, k) => rows.set(n, { position: k + 1, gap: null, interval: null }));
+    if (!started.length) {
+      for (const [k, n] of field.entries()) rows.set(n, { position: k + 1, gap: null, interval: null });
+    }
     return rows;
   };
 

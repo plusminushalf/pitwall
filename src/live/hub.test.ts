@@ -29,7 +29,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** A hub with a session on, its snapshot's recompute at least MIN_META_GAP_MS ago. */
 async function setup() {
   const sent: LiveMessage[] = [];
-  const hub = new LiveHub("simulate", { clients: () => 1, broadcast: (m) => (sent.push(m), 0) }, () => {});
+  const broadcast = (m: LiveMessage) => {
+    sent.push(m);
+    return 0;
+  };
+  const hub = new LiveHub("simulate", { clients: () => 1, broadcast }, () => {});
   const store = new LiveStore({ session, meeting: null, circuit: null, t0: start - 600_000, clock: () => start + 60_000 });
   store.ingest("drivers", driver);
   store.ingest("location", { driver_number: 1, date: at(50), x: 1, y: 1, z: 0, session_key: 99 });

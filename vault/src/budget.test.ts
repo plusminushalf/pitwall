@@ -34,11 +34,12 @@ describe("the rate limits (fake clock)", () => {
     expect(t.length).toBe(70);
     expect(peak(t, 1000)).toBeLessThanOrEqual(6);
     expect(peak(t, 60_000)).toBeLessThanOrEqual(60);
-    const gaps = t.slice(1).map((v, i) => v - t[i]!);
+    const gaps = t.slice(1).map((v, i) => v - (t[i] ?? NaN));
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(Math.floor(SPACING / 6));
     // The first 60 go in about 60 x 192 ms; the 61st waits for the first minute to roll over.
-    expect(t[59]! - t[0]!).toBeLessThan(12_000);
-    expect(t[60]! - t[0]!).toBeGreaterThanOrEqual(60_000);
+    const [first = NaN] = t;
+    expect((t[59] ?? NaN) - first).toBeLessThan(12_000);
+    expect((t[60] ?? NaN) - first).toBeGreaterThanOrEqual(60_000);
   });
 
   test("without a token: 3/s and 30/min", async () => {
@@ -49,7 +50,7 @@ describe("the rate limits (fake clock)", () => {
     expect(t.length).toBe(35);
     expect(peak(t, 1000)).toBeLessThanOrEqual(3);
     expect(peak(t, 60_000)).toBeLessThanOrEqual(30);
-    expect(t[30]! - t[0]!).toBeGreaterThanOrEqual(60_000);
+    expect((t[30] ?? NaN) - (t[0] ?? NaN)).toBeGreaterThanOrEqual(60_000);
     expect(x.budget.status()).toMatchObject({ auth: false, perSecond: 3, perMinute: 30 });
   });
 
@@ -61,7 +62,10 @@ describe("the rate limits (fake clock)", () => {
       void x.budget.acquire(i % 2 ? "a" : "b").then((s) => {
         live++;
         most = Math.max(most, live);
-        x.clock.setTimeout(() => (live--, s.release({ status: 200 })), 5_000);
+        x.clock.setTimeout(() => {
+          live--;
+          s.release({ status: 200 });
+        }, 5_000);
       });
     await x.clock.advance(3_000);
     expect(x.budget.status().inFlight).toBe(MAX_IN_FLIGHT);
@@ -71,7 +75,9 @@ describe("the rate limits (fake clock)", () => {
     for (let i = 0; i < 10; i++) void one.req("solo", "", "normal", null);
     await one.clock.advance(10_000);
     expect(one.budget.status()).toMatchObject({ inFlight: PER_CALLER_IN_FLIGHT, queued: 10 - PER_CALLER_IN_FLIGHT });
-    one.slots[0]!.release({ status: 200 });
+    const slot = one.slots[0];
+    if (!slot) throw new Error("no slot");
+    slot.release({ status: 200 });
     await one.clock.advance(1_000);
     expect(one.budget.status().inFlight).toBe(PER_CALLER_IN_FLIGHT);
   });
@@ -173,7 +179,9 @@ describe("429", () => {
     await x.clock.advance(1);
     expect(x.starts.length).toBe(1);
     // A second 429 in a row: twice the pause.
-    x.slots[0]!.release({ status: 429 });
+    const slot = x.slots[0];
+    if (!slot) throw new Error("no slot");
+    slot.release({ status: 429 });
     expect(x.budget.status().pausedUntil).toBe(x.clock.t + 2 * PAUSE_429_BASE_MS);
     // Shrunk: at most 30 in the next minute.
     for (let i = 0; i < 40; i++) void x.req("dl", `s${i}`);

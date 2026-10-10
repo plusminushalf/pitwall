@@ -6,26 +6,25 @@ import { useMemo, type ReactNode } from "react";
 import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { compareModel } from "../../data/compare";
 import type { Tyre } from "../../data/practice";
-import type { Session } from "../../data/session";
 import { useCoarsePointer } from "../../hooks/usePhone";
 import { compareStyles } from "../../lib/compareColors";
 import { lapTime, shortTeam, teamColor } from "../../lib/format";
 import { MAX_COMPARE, useQuali, type BoardTab } from "../../qualiStore";
 import { useReplay } from "../../store";
+import type { QualiData } from "../../types";
 import { Swatch } from "./CompareCharts";
 
 const ROW = "grid items-center gap-1 pl-5 pr-2";
 const HEAD = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500";
 
-function Tabs({ session }: { session: Session }) {
-  const q = session.meta.quali!;
+function Tabs({ quali: q }: { quali: QualiData }) {
   const board = useQuali((s) => s.board);
   const setBoard = useQuali((s) => s.setBoard);
   const tabs: { id: BoardTab; label: string }[] = [{ id: "result", label: "Result" }, ...q.segments.map((s) => ({ id: s.number, label: s.name }))];
   return (
     <div className="flex h-8 shrink-0 items-center gap-1 border-b border-zinc-800 px-2 pointer-coarse:h-11">
       {tabs.map((t) => (
-        <button
+        <button type="button"
           key={t.id}
           onClick={() => setBoard(t.id)}
           className={`rounded px-2 py-0.5 text-xs font-semibold pointer-coarse:px-3 pointer-coarse:py-2 ${board === t.id ? "bg-zinc-100 text-zinc-900" : "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"}`}
@@ -67,7 +66,8 @@ function Cutoff({ label }: { label: string }) {
 }
 
 export function QualiBoard() {
-  const session = useReplay((s) => s.session)!;
+  const session = useReplay((s) => s.session);
+  if (!session) throw new Error("QualiBoard: no session");
   const selected = useReplay((s) => s.selected);
   const board = useQuali((s) => s.board);
   const coarse = useCoarsePointer();
@@ -97,8 +97,13 @@ export function QualiBoard() {
   const segBest = q ? q.segments.map((_, k) => Math.min(...q.results.map((r) => r.times[k] ?? Infinity))) : [];
   const full = selected.length >= MAX_COMPARE;
 
+  const infoOf = (n: number) => {
+    const d = session.drivers.get(n);
+    if (!d) throw new Error(`QualiBoard: no driver ${n} in the session`);
+    return d.info;
+  };
   const driverCell = (n: number) => {
-    const d = session.drivers.get(n)!.info;
+    const d = infoOf(n);
     return (
       <span className="flex min-w-0 items-center gap-1.5">
         <span className="h-4 w-1 shrink-0 rounded-sm" style={{ background: teamColor(d.teamColour) }} />
@@ -143,17 +148,21 @@ export function QualiBoard() {
           return (
             <div key={r.driver}>
               {o.cutoff && i === o.cutoff.at && <Cutoff label={o.cutoff.label} />}
-              <div
-                role="button"
-                tabIndex={0}
+              <button
+                type="button"
                 onClick={() => (t != null && !selected.includes(r.driver) ? pick(r.driver, r.lap) : toggle(r.driver))}
-                onKeyDown={(e) => e.key === "Enter" && toggle(r.driver)}
+                onKeyDown={(e) => {
+                  // Enter only adds or removes the driver (a click also picks their best lap).
+                  if (e.key !== "Enter") return;
+                  e.preventDefault();
+                  toggle(r.driver);
+                }}
                 className={`${rowClass(r.driver)} ${ROW} ${cols} h-[30px] text-sm pointer-coarse:h-10`}
                 title={
                   selected.includes(r.driver)
                     ? "Remove from the comparison"
                     : t != null
-                      ? `Compare ${session.drivers.get(r.driver)!.info.acronym}'s best ${o.what}lap (lap ${r.lap})`
+                      ? `Compare ${infoOf(r.driver).acronym}'s best ${o.what}lap (lap ${r.lap})`
                       : undefined
                 }
               >
@@ -167,7 +176,7 @@ export function QualiBoard() {
                   {r.count}
                   {r.deleted.length > 0 && <span className="ml-0.5 text-red-400">✕{r.deleted.length}</span>}
                 </span>
-              </div>
+              </button>
             </div>
           );
         })}
@@ -178,7 +187,8 @@ export function QualiBoard() {
   let body: ReactNode;
   if (!q) {
     // Practice: the classification at the flag.
-    const model = compareModel(meta)!;
+    const model = compareModel(meta);
+    if (!model) throw new Error("QualiBoard: practice's laps can't be compared");
     body = standings(
       model.classification.map((r) => ({ driver: r.driver, time: r.best, lap: r.lap, count: r.laps, deleted: r.deleted, tyre: r.lap != null ? model.tyre(r.driver, r.lap) : null })),
       { what: "", countTitle: "Laps run (lap times deleted)", tyres: true },
@@ -202,6 +212,7 @@ export function QualiBoard() {
           return (
             <div key={r.driver}>
               {cut && <Cutoff label={cut} />}
+              {/* biome-ignore lint/a11y/useSemanticElements: the row holds the segment times' own buttons, and a <button> can't contain buttons */}
               <div
                 role="button"
                 tabIndex={0}
@@ -217,7 +228,7 @@ export function QualiBoard() {
                   const t = r.times[k];
                   const fastest = t != null && Math.abs(t - segBest[k]) < 1e-6;
                   return (
-                    <button
+                    <button type="button"
                       key={s.number}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -225,7 +236,7 @@ export function QualiBoard() {
                       }}
                       disabled={t == null}
                       className={`rounded px-0.5 text-right text-xs tabular-nums pointer-coarse:py-2 ${t == null ? "text-zinc-700" : fastest ? "text-fuchsia-400 hover:bg-zinc-700" : "text-zinc-300 hover:bg-zinc-700"}`}
-                      title={t != null ? `Compare ${session.drivers.get(r.driver)!.info.acronym}'s ${s.name} lap (lap ${r.laps[k]})` : undefined}
+                      title={t != null ? `Compare ${infoOf(r.driver).acronym}'s ${s.name} lap (lap ${r.laps[k]})` : undefined}
                     >
                       {t != null ? lapTime(t) : "—"}
                     </button>
@@ -258,7 +269,7 @@ export function QualiBoard() {
 
   return (
     <div className="flex h-full flex-col text-sm">
-      {q ? <Tabs session={session} /> : <Title>Classification</Title>}
+      {q ? <Tabs quali={q} /> : <Title>Classification</Title>}
       <div className="flex h-7 shrink-0 items-center border-b border-zinc-800 px-2 text-[11px] text-zinc-500">
         {selected.length > 0 ? (
           <span>

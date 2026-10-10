@@ -31,13 +31,12 @@ function Field({
   switch (field.kind) {
     case "choice":
       return (
-        <div className="flex rounded-md bg-zinc-800 p-0.5" role="radiogroup" aria-label={field.label}>
+        <fieldset className="flex min-w-0 rounded-md bg-zinc-800 p-0.5" aria-label={field.label}>
           {field.options.map((o) => (
             <button
               key={String(o.value)}
               type="button"
-              role="radio"
-              aria-checked={o.value === value}
+              aria-pressed={o.value === value}
               onClick={() => onChange(o.value)}
               className={`flex-1 whitespace-nowrap rounded px-2 py-0.5 text-xs font-semibold ${
                 o.value === value ? "bg-zinc-600 text-zinc-50" : "text-zinc-400 hover:text-zinc-100"
@@ -46,7 +45,7 @@ function Field({
               {o.label}
             </button>
           ))}
-        </div>
+        </fieldset>
       );
     case "toggle":
       return (
@@ -81,7 +80,7 @@ function Field({
       const pinned = typeof value === "number" ? value : null;
       return (
         <div className="flex flex-col gap-1.5">
-          <div className="flex rounded-md bg-zinc-800 p-0.5" role="radiogroup" aria-label={field.label ?? "Driver"}>
+          <fieldset className="flex min-w-0 rounded-md bg-zinc-800 p-0.5" aria-label={field.label ?? "Driver"}>
             {[
               { label: "Selected driver", on: pinned == null, pick: () => onChange("follow-selection") },
               // Pinning starts with whoever the widget shows now.
@@ -90,15 +89,14 @@ function Field({
               <button
                 key={o.label}
                 type="button"
-                role="radio"
-                aria-checked={o.on}
+                aria-pressed={o.on}
                 onClick={o.pick}
                 className={`flex-1 whitespace-nowrap rounded px-2 py-0.5 text-xs font-semibold ${o.on ? "bg-zinc-600 text-zinc-50" : "text-zinc-400 hover:text-zinc-100"}`}
               >
                 {o.label}
               </button>
             ))}
-          </div>
+          </fieldset>
           {pinned == null ? (
             <p className="text-[11px] leading-snug text-zinc-400">Follows the drivers you click in the tower or on the map.</p>
           ) : (

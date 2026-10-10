@@ -78,7 +78,8 @@ describe("LiveSession telemetry", () => {
     feed(0, 5);
     live.recompute();
     live.markAllSent();
-    const snap = live.snapshot()!;
+    const snap = live.snapshot();
+    if (!snap) throw new Error("no snapshot");
     expect(snap.type).toBe("snapshot");
     expect(snap.now).toBe(snap.meta.duration);
 
@@ -90,7 +91,11 @@ describe("LiveSession telemetry", () => {
     }
     expect(live.telemetryChunks()).toEqual([]); // nothing new
 
-    const decode = (t: number[]) => t.reduce<number[]>((out, d, i) => (out.push(i ? out[i - 1] + d : d), out), []);
+    const decode = (t: number[]) => {
+      const out: number[] = [];
+      for (const [i, d] of t.entries()) out.push(i ? out[i - 1] + d : d);
+      return out;
+    };
     const locTimes = [snap.telemetry[0], ...chunks].flatMap((c) => decode(c.loc.t));
     const carTimes = [snap.telemetry[0], ...chunks].flatMap((c) => decode(c.car.t));
     for (let i = 1; i < locTimes.length; i++) expect(locTimes[i]).toBeGreaterThan(locTimes[i - 1]);
@@ -108,17 +113,24 @@ describe("LiveSession quick ticks", () => {
     const car = (t: number) =>
       s.ingest("car_data", { driver_number: 1, date: at(t), speed: 200, rpm: 11000, n_gear: 7, throttle: 100, brake: 0, drs: null, session_key: 99 });
     const loc = (t: number) => s.ingest("location", { driver_number: 1, date: at(t), x: Math.round(t * 100), y: 5, z: 0, session_key: 99 });
-    for (let t = 0; t < 5; t += 0.25) (car(t), loc(t + 0.1));
+    for (let t = 0; t < 5; t += 0.25) {
+      car(t);
+      loc(t + 0.1);
+    }
     clock.now = 5;
     const live = new LiveSession(s);
     live.recompute();
     live.markAllSent();
-    const snap = live.snapshot()!;
+    const snap = live.snapshot();
+    if (!snap) throw new Error("no snapshot");
     const end = (t: number[]) => t.reduce((a, d, i) => (i ? a + d : d), 0);
     const lastLoc = end(snap.telemetry[0].loc.t);
 
     clock.now = 6;
-    for (let t = 5; t < 6; t += 0.25) (car(t), loc(t + 0.1));
+    for (let t = 5; t < 6; t += 0.25) {
+      car(t);
+      loc(t + 0.1);
+    }
     const q1 = live.quickChunks();
     expect(q1).toHaveLength(1);
     expect(q1[0].car.t).toHaveLength(4);

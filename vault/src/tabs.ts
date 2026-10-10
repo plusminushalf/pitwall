@@ -225,7 +225,7 @@ export class VaultNode {
   verify(): Promise<boolean> {
     if (this.role !== "leader") return Promise.resolve(false);
     if (!this.deps.locks) return Promise.resolve(true);
-    return (this.verifying ??= this.checkLock().then((mine) => {
+    this.verifying ??= this.checkLock().then((mine) => {
       this.verifying = null;
       if (this.role !== "leader") return false;
       if (mine) {
@@ -235,7 +235,8 @@ export class VaultNode {
       }
       this.demote();
       return false;
-    }));
+    });
+    return this.verifying;
   }
 
   /** Leader: the lease holds, or a lock check says the lead is still ours (false once demoted meanwhile). */
@@ -357,8 +358,10 @@ export class VaultNode {
    */
   private hold(name: string, opts: { ifAvailable?: boolean; steal?: boolean; signal?: AbortSignal }, onLost?: () => void): Promise<boolean> {
     return new Promise((resolve) => {
+      const locks = this.deps.locks;
+      if (!locks) return resolve(false);
       let granted = false;
-      this.deps.locks!.request(name, opts, (lock) => {
+      locks.request(name, opts, (lock) => {
         if (!lock) return resolve(false);
         granted = true;
         resolve(true);
@@ -381,8 +384,10 @@ export class VaultNode {
   }
 
   private async learnClientId() {
+    const locks = this.deps.locks;
+    if (!locks) return;
     try {
-      const q = await this.deps.locks!.query();
+      const q = await locks.query();
       this.clientId = q.held?.find((l) => l.name === this.locksOf.frame + this.id)?.clientId ?? null;
     } catch {
       // (then the lock check trusts that the leader lock is ours)
@@ -391,8 +396,10 @@ export class VaultNode {
 
   /** Whether the leader lock is held by this frame (its clientId; without clientIds, held by anyone). */
   private async checkLock(): Promise<boolean> {
+    const locks = this.deps.locks;
+    if (!locks) return true; // as when the check fails
     try {
-      const q = await this.deps.locks!.query();
+      const q = await locks.query();
       const leader = q.held?.find((l) => l.name === this.locksOf.leader);
       if (!leader) return false;
       return !this.clientId || !leader.clientId || leader.clientId === this.clientId;
@@ -444,7 +451,10 @@ export class VaultNode {
     this.watch();
     this.expireForwards(now, stalled);
     // We were the frozen one: give the leader's queued messages a chance to arrive first.
-    if (stalled) return void (this.lastHeard = now);
+    if (stalled) {
+      this.lastHeard = now;
+      return;
+    }
     if (now - this.lastHeard < TAKEOVER_MS || !(this.deps.visible?.() ?? true)) return;
     this.lastHeard = now; // one steal at a time
     this.steal();
@@ -453,7 +463,10 @@ export class VaultNode {
   /** Follower: forwarded requests fail once the leader has gone quiet (or they're very old). */
   private expireForwards(now: number, stalled: boolean) {
     // (We were the frozen one: the leader's answers may be queued behind the freeze. Not yet.)
-    if (stalled) return void (this.leaderHeardAt = now);
+    if (stalled) {
+      this.leaderHeardAt = now;
+      return;
+    }
     const quiet = now - this.leaderHeardAt > FORWARD_TIMEOUT_MS;
     for (const [id, p] of this.pending)
       if (quiet || now - p.at > FORWARD_MAX_MS) {

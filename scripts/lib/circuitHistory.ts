@@ -70,8 +70,11 @@ export function buildCircuitHistories(db: F1db, source: HistorySource): { histor
     const flagged = res.find((x) => x.polePosition);
     const pole: Timed | null = p1 ? { ...entry(p1), ...poleTime(p1) } : flagged ? { ...entry(flagged), time: null, ms: null } : null;
     const podium = res
-      .filter((x) => x.positionNumber != null && x.positionNumber <= 3)
-      .map((x): Finisher => ({ ...entry(x), position: x.positionNumber!, grid: x.gridPositionNumber, time: x.positionNumber === 1 ? x.time : x.gap, laps: x.laps }));
+      .flatMap((x): Finisher[] => {
+        const position = x.positionNumber;
+        if (position == null || position > 3) return [];
+        return [{ ...entry(x), position, grid: x.gridPositionNumber, time: position === 1 ? x.time : x.gap, laps: x.laps }];
+      });
     const fl = fastest.get(r.id)?.find((x) => x.positionNumber === 1);
     const fastestLap: FastestLap | null = fl ? { ...entry(fl), time: fl.time, ms: fl.timeMillis, lap: fl.lap } : null;
     const vote = dotd.get(r.id)?.find((x) => x.positionNumber === 1);
@@ -102,10 +105,10 @@ export function buildCircuitHistories(db: F1db, source: HistorySource): { histor
 
     const years = groupBy(runs, (r) => r.circuitLayoutId);
     const layouts = (layoutsOf.get(c.id) ?? [])
-      .filter((l) => years.has(l.id))
-      .map((l): HistoryLayout => {
-        const ys = years.get(l.id)!.map((r) => r.year);
-        return { id: l.id, current: l.effective, lengthKm: l.length, turns: l.turns, firstYear: Math.min(...ys), lastYear: Math.max(...ys) };
+      .flatMap((l): HistoryLayout[] => {
+        const ys = years.get(l.id)?.map((r) => r.year);
+        if (!ys) return [];
+        return [{ id: l.id, current: l.effective, lengthKm: l.length, turns: l.turns, firstYear: Math.min(...ys), lastYear: Math.max(...ys) }];
       })
       .sort((a, b) => a.firstYear - b.firstYear || a.lastYear - b.lastYear);
 
@@ -155,7 +158,7 @@ export function buildCircuitHistories(db: F1db, source: HistorySource): { histor
       country: h.circuit.country,
       racesHeld: h.circuit.racesHeld,
       firstYear: h.races[0].year,
-      lastYear: h.races.at(-1)!.year,
+      lastYear: h.races[h.races.length - 1].year,
     })),
   };
   return { histories, index };

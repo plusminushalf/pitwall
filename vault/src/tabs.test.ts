@@ -71,7 +71,7 @@ class Locks {
     };
   }
   kill(owner: string) {
-    for (const q of this.queue.values()) for (let i = q.length - 1; i >= 0; i--) if (q[i]!.owner === owner) q.splice(i, 1);
+    for (const q of this.queue.values()) for (let i = q.length - 1; i >= 0; i--) if (q[i]?.owner === owner) q.splice(i, 1);
     for (const [name, o] of [...this.held]) {
       if (o !== owner) continue;
       this.held.delete(name);
@@ -108,6 +108,11 @@ function world() {
     const gets: string[] = [];
     let node: VaultNode | null = null;
     let live: LiveManager | null = null;
+    // Set below; nothing calls this before then.
+    const theNode = () => {
+      if (!node) throw new Error("node not set up");
+      return node;
+    };
     const rawChannel = bus.make(channelName(version));
     const channel = gate ? gate.channel(rawChannel) : rawChannel;
     const core = new VaultCore({
@@ -131,7 +136,8 @@ function world() {
         const slot = budget ? await budget.acquire(o?.caller ?? "?", o?.priority) : null;
         gets.push(`${id}:${endpoint}`);
         callers.push(o?.caller ?? "?");
-        if (opts.restDelay) await new Promise((r) => timers.setTimeout(() => r(null), opts.restDelay!));
+        const delay = opts.restDelay;
+        if (delay) await new Promise((r) => timers.setTimeout(() => r(null), delay));
         const r = await broker.rest(endpoint, params);
         slot?.release({ status: r.status });
         return { ...r, auth: core.token() !== null };
@@ -149,7 +155,7 @@ function world() {
       rest: (e, p) => (gate ? gate.hold(rest.get(e, p, { caller: "live", priority: "live" })) : rest.get(e, p, { caller: "live", priority: "live" })),
       emit: (b) => node?.onLiveData(b),
       onStatus: () => node?.pushStatus(),
-      lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
+      lease: { ok: () => theNode().leaseOk(), verify: () => theNode().verify() },
     });
     const frameLocks = opts.deniedLocks ? DENIED_LOCKS : locks.forFrame(id);
     node = new VaultNode({
@@ -177,12 +183,17 @@ function world() {
       gets,
       callers,
       budget,
-      status: () => node!.status(),
+      status: () => node.status(),
       ns: () => got.flatMap((b) => b.messages.map((m) => m.n as number)),
+      /** Freeze this frame (one made with `gate: true`). */
+      freeze: (ms: number) => {
+        if (!gate) throw new Error("a frame without a gate");
+        gate.freeze(ms);
+      },
       /** The tab closes. */
       kill: () => {
         rawChannel.dead = true;
-        live!.stop();
+        live.stop();
         locks.kill(id);
       },
       /** A popup login completing in this frame. */
@@ -386,14 +397,16 @@ describe("VaultNode: one leader among the vault frames", () => {
     // 70 gets without a token (30/min): the last ones wait more than two minutes in the leader's budget.
     const ps = Array.from({ length: 70 }, (_, i) => b.node.get("laps", { session_key: i }, "p1"));
     const done: number[] = [];
-    ps.forEach((p, i) => p.then(() => done.push(i), () => done.push(-1)));
+    ps.forEach((p, i) => {
+      p.then(() => done.push(i), () => done.push(-1));
+    });
     await w.run(30_000);
-    expect(a.budget!.status()).toMatchObject({ auth: false, callers: 1 });
-    expect(a.budget!.status().usedThisMinute).toBeLessThanOrEqual(30);
+    expect(a.budget?.status()).toMatchObject({ auth: false, callers: 1 });
+    expect(a.budget?.status().usedThisMinute).toBeLessThanOrEqual(30);
     await w.run(150_000);
     expect(done.length).toBe(70);
     expect(done.includes(-1)).toBe(false);
-    expect(b.budget!.status().started).toBe(0); // the follower spent none of its own
+    expect(b.budget?.status().started).toBe(0); // the follower spent none of its own
   });
 
   test("a forwarded get fails once the leader has gone quiet (a hidden follower doesn't steal)", async () => {
@@ -403,7 +416,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     const b = w.frame({ visible: () => false });
     await b.node.start();
     await w.run();
-    a.gate!.freeze(120_000);
+    a.freeze(120_000);
     const p = b.node.get("laps", {}, "p0").then(() => "ok", (e: Error) => e.message);
     await w.run(FORWARD_TIMEOUT_MS - 5_000);
     const r: { v: string | null } = { v: null };
@@ -425,12 +438,12 @@ describe("VaultNode: one leader among the vault frames", () => {
     const results: string[] = [];
     for (let i = 0; i < 40; i++) b.node.get("laps", { session_key: i }, "p2").then(() => results.push("ok"), (e) => results.push(e.code ?? e.message));
     await w.run(5_000);
-    const started = a.budget!.status().started;
+    const started = a.budget?.status().started ?? NaN;
     b.node.dropCaller("p2");
     await w.run(120_000);
     expect(results.filter((r) => r === "cancelled").length).toBe(40 - results.filter((r) => r === "ok").length);
-    expect(a.budget!.status()).toMatchObject({ queued: 0, inFlight: 0 });
-    expect(a.budget!.status().started).toBeLessThanOrEqual(started + 6); // only what was already in flight
+    expect(a.budget?.status()).toMatchObject({ queued: 0, inFlight: 0 });
+    expect(a.budget?.status().started).toBeLessThanOrEqual(started + 6); // only what was already in flight
   });
 
   test("takeover: the new leader counts the old leader's last minute of requests (its heartbeat carried them)", async () => {
@@ -442,15 +455,15 @@ describe("VaultNode: one leader among the vault frames", () => {
     await w.run();
     for (let i = 0; i < 25; i++) void a.node.get("laps", { session_key: i }, "p0");
     await w.run(12_000);
-    expect(a.budget!.status().usedThisMinute).toBe(25);
+    expect(a.budget?.status().usedThisMinute).toBe(25);
     a.kill();
     await w.run(1_000);
     expect(b.node.role).toBe("leader");
-    expect(b.budget!.status().usedThisMinute).toBe(25);
+    expect(b.budget?.status().usedThisMinute).toBe(25);
     // So without a token it has 5 left this minute, not 30.
     for (let i = 0; i < 10; i++) void b.node.get("laps", { session_key: i }, "p0");
     await w.run(10_000);
-    expect(b.budget!.status().started).toBe(5);
+    expect(b.budget?.status().started).toBe(5);
   });
 
   test("subscriptions are the union across frames; the data reaches each frame", async () => {
@@ -507,7 +520,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     const all = range(1, w.published());
     expect([...c.ns()].sort((x, y) => x - y)).toEqual(all);
     expect([...b.ns()].sort((x, y) => x - y)).toEqual(all);
-    expect(b.status().stream!.gapFilled).toBeGreaterThan(0);
+    expect(b.status().stream?.gapFilled).toBeGreaterThan(0);
     expect(w.broker.max).toBeLessThanOrEqual(2);
     // The dead frame's subscriptions are pruned; c's remain.
     await w.run(6_000);
@@ -523,7 +536,8 @@ describe("VaultNode: one leader among the vault frames", () => {
     await b.node.start();
     await w.run();
     // The leader goes before answering.
-    const ch = [...w.bus.channels][0]!;
+    const [ch] = w.bus.channels;
+    if (!ch) throw new Error("no channel");
     ch.onmessage = null;
     const p = b.node.get("laps", {}, "p0");
     await w.run();
@@ -549,7 +563,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(b.ns()).toEqual(range(1, 5));
     await w.run(HEARTBEAT_MS); // (a heartbeat has told b the session's clientId)
     // The leader's tab freezes (timers, socket, channel, locks all wait). The broker keeps publishing to it.
-    a.gate!.freeze(30_000);
+    a.freeze(30_000);
     for (let i = 0; i < 5; i++) w.pub("car_data");
     await w.run(TAKEOVER_MS - 2_000);
     expect(b.status().tab?.role).toBe("follower");
@@ -597,7 +611,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     await w.run(10);
     for (let i = 0; i < 3; i++) w.pub("car_data");
     await w.run(FLUSH_MS + HEARTBEAT_MS);
-    a.gate!.freeze(30_000);
+    a.freeze(30_000);
     await w.run(2_000);
     // A new (hidden) tab joins now: its hello waits in a's frozen queue, ahead of the lock being stolen.
     const d = w.frame({ visible: () => false });
@@ -623,7 +637,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     const b = w.frame({ visible: () => false });
     await b.node.start();
     await w.run();
-    a.gate!.freeze(20_000);
+    a.freeze(20_000);
     await w.run(15_000);
     expect(b.status().tab?.role).toBe("follower");
     expect(a.status().tab?.role).toBe("leader");
@@ -637,7 +651,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(a.node.leaseOk()).toBe(true);
     await w.run(HEARTBEAT_MS * 3);
     expect(a.node.leaseOk()).toBe(true); // on-time heartbeats keep it
-    a.gate!.freeze(LEASE_MS + 2_000);
+    a.freeze(LEASE_MS + 2_000);
     w.clock.t += LEASE_MS + 1; // (read the lease mid-freeze)
     expect(a.node.leaseOk()).toBe(false);
     await w.run(3_000);

@@ -48,9 +48,12 @@ export function buildTeamHistories(db: F1db, source: HistorySource, c: Careers =
   const racesOf = new Map<string, TeamRace[]>();
   for (const race of [...c.races.values()].sort(byDate)) {
     const byTeam = new Map<string, TeamRace>();
-    for (const r of c.cars.get(race.id)!) {
+    for (const r of c.cars.get(race.id) ?? []) {
       let tr = byTeam.get(r.constructorId);
-      if (!tr) byTeam.set(r.constructorId, (tr = { ...c.ref(race), cars: [] }));
+      if (!tr) {
+        tr = { ...c.ref(race), cars: [] };
+        byTeam.set(r.constructorId, tr);
+      }
       tr.cars.push(c.car(r));
     }
     for (const [id, tr] of byTeam) {
@@ -64,7 +67,7 @@ export function buildTeamHistories(db: F1db, source: HistorySource, c: Careers =
   const driverChampion = new Map<number, string>();
   for (const s of db.seasonsDriverStandings) if (s.championshipWon) driverChampion.set(s.year, s.driverId);
   const lastTeam = new Map<string, string>();
-  for (const race of [...c.races.values()].sort(byDate)) for (const r of c.cars.get(race.id)!) lastTeam.set(key(race.year, r.driverId), r.constructorId);
+  for (const race of [...c.races.values()].sort(byDate)) for (const r of c.cars.get(race.id) ?? []) lastTeam.set(key(race.year, r.driverId), r.constructorId);
 
   // A season row per year: before ~1985 F1DB may classify a team once per engine, so rows are summed.
   const seasonsOf = new Map<string, Map<number, TeamSeason>>();
@@ -107,7 +110,7 @@ export function buildTeamHistories(db: F1db, source: HistorySource, c: Careers =
         fullName: t.fullName,
         nationality: nationality?.name ?? t.countryId,
         nationalityCode: nationality?.alpha2Code ?? "",
-        engine: engineOf(t.id, seasons.at(-1)!.year),
+        engine: engineOf(t.id, seasons[seasons.length - 1].year),
       },
       seasons,
       races,
@@ -129,7 +132,7 @@ export function buildTeamHistories(db: F1db, source: HistorySource, c: Careers =
     const number = new Map(races.flatMap((r) => r.cars.map((x) => [x.driverId, Number(x.number ?? 999)] as const)));
     const drivers = [...new Set(races.flatMap((r) => r.cars.map((x) => x.driverId)))]
       .map((id) => ({ id, lastName: h.names.drivers[id]?.lastName ?? id, current: current.has(id) }))
-      .sort((a, b) => Number(b.current) - Number(a.current) || number.get(a.id)! - number.get(b.id)!);
+      .sort((a, b) => Number(b.current) - Number(a.current) || (number.get(a.id) ?? 999) - (number.get(b.id) ?? 999));
     const { year: _, drivers: __, driversTitle: ___, ...season } = now;
     teams.push({
       id: h.team.id,

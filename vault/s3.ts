@@ -113,14 +113,18 @@ function recorderSource() {
  * past this stop's date), leaving `windowMs` until this stop's own publication. Original (unshifted) times.
  */
 export function latePits(tl: Timeline): { i: number; rec: Rec; published: number; drop: number; windowMs: number }[] {
-  const idx = [...tl.byTopic.get("pit")!];
+  const pits: { i: number; rec: Rec; at: number; dated: number }[] = [];
+  for (const i of tl.byTopic.get("pit") ?? []) {
+    const rec = tl.recs[i];
+    const at = tl.at[i];
+    if (rec && at !== undefined) pits.push({ i, rec, at, dated: Date.parse(rec.date) });
+  }
   const out: { i: number; rec: Rec; published: number; drop: number; windowMs: number }[] = [];
-  for (const x of idx) {
-    const dated = Date.parse(tl.recs[x]!.date);
-    const first = Math.min(...idx.filter((y) => Date.parse(tl.recs[y]!.date) > dated && tl.at[y]! < tl.at[x]!).map((y) => tl.at[y]!));
+  for (const x of pits) {
+    const first = Math.min(...pits.filter((y) => y.dated > x.dated && y.at < x.at).map((y) => y.at));
     if (!Number.isFinite(first) || first < tl.startOrig) continue;
-    const windowMs = tl.at[x]! - first;
-    out.push({ i: x, rec: tl.recs[x]!, published: tl.at[x]!, drop: first + Math.min(3_000, windowMs / 4), windowMs });
+    const windowMs = x.at - first;
+    out.push({ i: x.i, rec: x.rec, published: x.at, drop: first + Math.min(3_000, windowMs / 4), windowMs });
   }
   return out;
 }
@@ -378,13 +382,15 @@ export async function runS3(h: S3Helpers): Promise<void> {
     // ---------------------------------------------------------------- the comparison
     console.log("S3: comparing every tab with the source");
     const srcHash = new Float64Array(tl.at.length);
-    for (let i = 0; i < tl.at.length; i++) srcHash[i] = parseInt(hash53(canonical(JSON.parse(JSON.stringify(shift(tl.recs[i]!, offset))))), 36);
-    const simOf = (i: number) => tl.at[i]! + offset;
+    for (const [i, rec] of tl.recs.entries()) srcHash[i] = parseInt(hash53(canonical(JSON.parse(JSON.stringify(shift(rec, offset))))), 36);
+    const hashOf = (i: number) => srcHash[i] ?? NaN;
+    const simOf = (i: number) => (tl.at[i] ?? NaN) + offset;
     type Row = { tab: string; topic: string; expected: number; got: number; missing: number; dup: number; unexpected: number; skippedVersions: number; repeats: number; gapExcess: number; srcGap: number; gotGap: number; missingAt: number[] };
     const rows: Row[] = [];
     for (const run of runs) {
       for (const topic of SIM_TOPICS) {
-        const idx = tl.byTopic.get(topic)!;
+        const idx = tl.byTopic.get(topic);
+        if (!idx) throw new Error(`no ${topic} in the timeline`);
         const r = run.dump.topics[topic];
         const hs = r ? unb64(r.h) : new Float64Array(0);
         const ds = r ? unb64(r.d) : new Float64Array(0);
@@ -396,10 +402,10 @@ export async function runS3(h: S3Helpers): Promise<void> {
         const opened = simAt(run.openedWall);
         let repeats = 0;
         for (const i of idx) {
-          if (simOf(i) <= simAt(run.closedWall)) all.add(srcHash[i]!);
-          if (simOf(i) <= opened) earlier.add(srcHash[i]!);
+          if (simOf(i) <= simAt(run.closedWall)) all.add(hashOf(i));
+          if (simOf(i) <= opened) earlier.add(hashOf(i));
           else if (simOf(i) > run.fromSim && simOf(i) <= run.toSim) {
-            if (earlier.has(srcHash[i]!)) repeats++;
+            if (earlier.has(hashOf(i))) repeats++;
             else inWin.push(i);
           }
         }
@@ -409,34 +415,46 @@ export async function runS3(h: S3Helpers): Promise<void> {
         for (const n of got.values()) if (n > 1) dup += n - 1;
         let unexpected = 0;
         for (const x of got.keys()) if (!all.has(x)) unexpected++;
-        const expectedSet = new Set(inWin.map((i) => srcHash[i]!));
+        const expectedSet = new Set(inWin.map(hashOf));
         let missing = 0;
         let skipped = 0;
         const missingAt: number[] = [];
         if (VERSIONED.has(topic as SimTopic)) {
           // Each document's last version in the window must be there; earlier ones may have been replaced.
           const last = new Map<string, number>();
-          for (const i of inWin) last.set(tl.keys[i]!, i);
+          for (const i of inWin) {
+            const key = tl.keys[i];
+            if (key !== undefined) last.set(key, i);
+          }
           const finals = new Set([...last.values()]);
           for (const i of finals)
-            if (!got.has(srcHash[i]!)) {
+            if (!got.has(hashOf(i))) {
               missing++;
               missingAt.push(simOf(i));
               const versions = inWin.filter((j) => tl.keys[j] === tl.keys[i]);
-              const seen = versions.filter((j) => got.has(srcHash[j]!)).length;
+              const seen = versions.filter((j) => got.has(hashOf(j))).length;
               console.log(`    (${run.name} ${topic} ${tl.keys[i]}: final at sim ${new Date(simOf(i)).toISOString().slice(11, 23)} missing; ${versions.length} versions in the window, ${seen} received; emitted with ${tl.at.filter((a) => a === tl.at[i]).length - 1} others)`);
             }
-          const finalHashes = new Set([...finals].map((i) => srcHash[i]!));
+          const finalHashes = new Set([...finals].map(hashOf));
           for (const x of expectedSet) if (!finalHashes.has(x) && !got.has(x)) skipped++;
-        } else for (const i of inWin) if (!got.has(srcHash[i]!)) (missing++, missingAt.push(simOf(i)));
+        } else
+          for (const i of inWin)
+            if (!got.has(hashOf(i))) {
+              missing++;
+              missingAt.push(simOf(i));
+            }
         // Gaps between consecutive dates, source vs received, inside the window (dated topics).
         const gapOf = (dates: number[]) => {
           const s = [...new Set(dates.filter((d) => Number.isFinite(d) && d > run.fromSim && d <= run.toSim))].sort((a, b) => a - b);
           let g = 0;
-          for (let i = 1; i < s.length; i++) g = Math.max(g, s[i]! - s[i - 1]!);
+          let prev = s[0] ?? 0;
+          for (const d of s) {
+            g = Math.max(g, d - prev);
+            prev = d;
+          }
           return { g, n: s.length };
         };
-        const srcDates = inWin.map((i) => Date.parse(String(tl.recs[i]!.date ?? ""))).map((d) => d + offset);
+        const srcDates = inWin.map((i) => Date.parse(String(tl.recs[i]?.date ?? ""))).map((d) => d + offset);
         const src = gapOf(srcDates);
         const mine = gapOf([...ds]);
         const dated = src.n > 1 && !VERSIONED.has(topic as SimTopic) && topic !== "pit";
@@ -452,9 +470,11 @@ export async function runS3(h: S3Helpers): Promise<void> {
       const t = run.dump.arrivals.filter((a) => DENSE.includes(a[1])).map((a) => a[0]).filter((x) => x >= run.openedWall + 5000);
       let out = 0;
       let inside = 0;
-      for (let i = 1; i < t.length; i++) {
-        const g = t[i]! - t[i - 1]!;
-        const overlaps = freezeStart > 0 && t[i]! >= freezeStart && t[i - 1]! <= thawAt + 5000;
+      for (const [i, at] of t.entries()) {
+        const before = t[i - 1];
+        if (before === undefined) continue;
+        const g = at - before;
+        const overlaps = freezeStart > 0 && at >= freezeStart && before <= thawAt + 5000;
         if (overlaps) inside = Math.max(inside, g);
         else out = Math.max(out, g);
       }
@@ -468,8 +488,9 @@ export async function runS3(h: S3Helpers): Promise<void> {
     for (const run of runs) {
       const rs = rows.filter((r) => r.tab === run.name);
       const sum = (k: keyof Row) => rs.reduce((n, r) => n + (r[k] as number), 0);
-      const worst = rs.reduce((w, r) => (r.gapExcess > w.gapExcess ? r : w), rs[0]!);
-      const stall = stalls.find((s) => s.tab === run.name)!;
+      const worst = rs.reduce((w, r) => (r.gapExcess > w.gapExcess ? r : w));
+      const stall = stalls.find((s) => s.tab === run.name);
+      if (!stall) throw new Error(`no stalls for ${run.name}`);
       const win = `${new Date(run.fromSim).toISOString().slice(11, 16)}-${new Date(run.toSim).toISOString().slice(11, 16)}`;
       console.log(
         `  ${run.name.padEnd(4)} ${pad(win, 13)} ${pad(sum("expected"), 9)} ${pad(sum("got"), 9)} ${pad(sum("missing"), 8)} ${pad(sum("dup"), 6)} ${pad(sum("unexpected"), 8)} ${pad(sum("skippedVersions"), 9)} ${pad(sum("repeats"), 7)} ${pad(`${worst.topic} +${(worst.gapExcess / 1000).toFixed(1)} s (${(worst.gotGap / 1000).toFixed(1)}/${(worst.srcGap / 1000).toFixed(1)})`, 30)} ${pad(`${stall.stallSim.toFixed(0)} s / ${stall.freezeStallSim ? `${stall.freezeStallSim.toFixed(0)} s` : "-"}`, 19)}`,
@@ -484,7 +505,9 @@ export async function runS3(h: S3Helpers): Promise<void> {
     if (bad.length)
       for (const r of bad.slice(0, 20)) {
         const m = r.missingAt.sort((a, b) => a - b);
-        console.log(`    ${r.tab} ${r.topic}: expected ${r.expected}, missing ${r.missing}${m.length ? ` (sim ${hmsms(m[0]!)} .. ${hmsms(m.at(-1)!)})` : ""}, dupes ${r.dup}, unexpected ${r.unexpected}`);
+        const [first] = m;
+        const last = m.at(-1);
+        console.log(`    ${r.tab} ${r.topic}: expected ${r.expected}, missing ${r.missing}${first !== undefined && last !== undefined ? ` (sim ${hmsms(first)} .. ${hmsms(last)})` : ""}, dupes ${r.dup}, unexpected ${r.unexpected}`);
       }
     const simT = (w: number) => (w ? hmsms(simAt(w)) : "-");
     console.log(`  (sim times: A closed ${simT(runs.find((r) => r.name === "A")?.closedWall ?? 0)}, freeze ${simT(freezeStart)}, steal ${simT(stealAt)}, thaw ${simT(thawAt)})`);

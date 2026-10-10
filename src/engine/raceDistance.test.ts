@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import type { RaceControlMsg, SessionMeta } from "../types";
 import { raceDistanceAt, scheduledDistance } from "./raceDistance";
+import { must } from "../lib/must";
 
 const msg = (t: number, message: string): RaceControlMsg => ({ t, lap: 1, category: "Other", flag: null, scope: null, sector: null, driver: null, message });
 
@@ -64,7 +65,7 @@ describe.skipIf(!available)("Montreal 2026", () => {
     expect(meta.totalLaps).toBe(68);
     expect(raceDistanceAt(meta, 0).totalLaps).toBe(70);
     expect(raceDistanceAt(meta, meta.lightsOut + 60_000).totalLaps).toBe(69);
-    expect(raceDistanceAt(meta, meta.chequered! - 1).totalLaps).toBe(69);
-    expect(raceDistanceAt(meta, meta.chequered!).totalLaps).toBe(68);
+    expect(raceDistanceAt(meta, must(meta.chequered) - 1).totalLaps).toBe(69);
+    expect(raceDistanceAt(meta, must(meta.chequered)).totalLaps).toBe(68);
   });
 });

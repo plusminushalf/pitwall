@@ -133,7 +133,11 @@ export function expectedRawFiles(type: string, driverNumbers: readonly number[] 
   const { session, perDriver } = RAW_FILES[type] ?? RAW_FILES.Race;
   if (layout === "sliced") {
     const { parts, units } = slicePlan(scale);
-    const files = SLICED_ORDER.map((n) => session.find((f) => f.name === n)!);
+    const files = SLICED_ORDER.map((n) => {
+      const f = session.find((x) => x.name === n);
+      if (!f) throw new Error(`${type}: no ${n} file`);
+      return f;
+    });
     const slice = (endpoint: "location" | "car_data", i: number): RawFileSpec => ({
       name: `${endpoint}#${i}`,
       required: true,
@@ -164,7 +168,8 @@ export function placeholderFiles(files: ReadonlyMap<string, number>): Map<string
   slices.sort((a, b) => a.from - b.from);
   const next: Record<string, number> = {};
   for (const s of slices) {
-    const i = (next[s.endpoint] = (next[s.endpoint] ?? -1) + 1);
+    const i = (next[s.endpoint] ?? -1) + 1;
+    next[s.endpoint] = i;
     out.set(`${s.endpoint}#${i}`, s.bytes);
   }
   return out;
@@ -373,7 +378,7 @@ export function stepLabel(endpoint: string, params: Record<string, string | numb
   const n = params.driver_number;
   if (n == null) return base;
   const i = drivers?.indexOf(Number(n)) ?? -1;
-  return i >= 0 ? `${base} · #${n} (${i + 1}/${drivers!.length})` : `${base} · #${n}`;
+  return drivers && i >= 0 ? `${base} · #${n} (${i + 1}/${drivers.length})` : `${base} · #${n}`;
 }
 
 export function retryNotice(status: number, seconds: number): string {

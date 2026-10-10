@@ -20,7 +20,10 @@ function cached<K extends object, V>(make: (key: K) => V): (key: K) => V {
   const cache = new WeakMap<K, V>();
   return (key) => {
     let v = cache.get(key);
-    if (v === undefined) cache.set(key, (v = make(key)));
+    if (v === undefined) {
+      v = make(key);
+      cache.set(key, v);
+    }
     return v;
   };
 }
@@ -75,7 +78,7 @@ export const sessionInfoOf = cached((meta: SessionMeta): SessionInfo => {
 });
 
 /** Drivers with data, in session order. */
-export const driversOf = cached((session: Session): DriverInfo[] => session.driverNumbers.map((n) => session.drivers.get(n)!.info));
+export const driversOf = cached((session: Session): DriverInfo[] => Array.from(session.drivers.values(), (d) => d.info));
 
 /** The circuit, without the reference lap (a lap time taken from the whole race). */
 export type Track = Omit<TrackGeometry, "referenceLap">;
@@ -128,8 +131,8 @@ function byCount<V>(make: (session: Session, t: number) => V): (session: Session
 }
 
 const pitExits = cached((meta: SessionMeta) => Float64Array.from(meta.pits.map((p) => p.exit).sort((a, b) => a - b)));
-const allLaps = byCount((session, t) => new Map(session.driverNumbers.map((n) => [n, lapsAt(session.drivers.get(n)!, t)])));
-const allPits = byCount((session, t) => new Map(session.driverNumbers.map((n) => [n, pitsAt(session.drivers.get(n)!, t)])));
+const allLaps = byCount((session, t) => new Map(Array.from(session.drivers, ([n, d]) => [n, lapsAt(d, t)])));
+const allPits = byCount((session, t) => new Map(Array.from(session.drivers, ([n, d]) => [n, pitsAt(d, t)])));
 
 /** API gap: every car's completed laps by t (lapsAt), in session order; a new map only when someone completes a lap. */
 export const allLapsAt = (session: Session, t: number): ReadonlyMap<number, readonly Lap[]> =>
@@ -146,7 +149,7 @@ export function allStintsAt(session: Session, race: RaceState): ReadonlyMap<numb
   const lapOf = new Map(race.drivers.map((d) => [d.driver, d.lap]));
   const laps = session.driverNumbers.map((n) => lapOf.get(n) ?? 0).join();
   if (lastStints?.session === session && lastStints.laps === laps) return lastStints.value;
-  const value = new Map(session.driverNumbers.map((n) => [n, stintsAt(session.drivers.get(n)!, lapOf.get(n) ?? 0)]));
+  const value = new Map(Array.from(session.drivers, ([n, d]) => [n, stintsAt(d, lapOf.get(n) ?? 0)]));
   lastStints = { session, laps, value };
   return value;
 }
@@ -171,7 +174,10 @@ const neutral = byCount((session, t): NeutralPeriod[] => {
       open.end = e.t;
       open = null;
     }
-    if (status && !open) out.push((open = { status, start: e.t, end: null }));
+    if (status && !open) {
+      open = { status, start: e.t, end: null };
+      out.push(open);
+    }
   }
   return out;
 });
@@ -190,7 +196,7 @@ interface SectorIndex {
 }
 
 const sectorIndex = cached((meta: SessionMeta): SectorIndex => {
-  const laps = meta.laps.filter((l) => l.end != null).sort((a, b) => a.end! - b.end!);
+  const laps = meta.laps.filter((l): l is Lap & { end: number } => l.end != null).sort((a, b) => a.end - b.end);
   const best = [0, 1, 2].map((k) => {
     const out = new Float64Array(laps.length);
     let min = Infinity;
@@ -201,7 +207,7 @@ const sectorIndex = cached((meta: SessionMeta): SectorIndex => {
     }
     return out;
   });
-  return { ends: Float64Array.from(laps, (l) => l.end!), best };
+  return { ends: Float64Array.from(laps, (l) => l.end), best };
 });
 
 /** Fastest time in each sector (seconds) by anyone, among laps finished by t; null before any. */
@@ -258,7 +264,8 @@ let lastHeightInput: { info: SessionInfo; drivers: DriverInfo[]; track: Track } 
 export function heightInputOf(session: Session): { info: SessionInfo; drivers: DriverInfo[]; track: Track } {
   const next = { info: sessionInfoOf(session.meta), drivers: driversOf(session), track: trackOf(session.meta.track) };
   if (lastHeightInput && deepEqual(lastHeightInput, next)) return lastHeightInput;
-  return (lastHeightInput = next);
+  lastHeightInput = next;
+  return next;
 }
 
 /** Car telemetry samples, columnar: copies, so nothing past t is reachable (not even via `.buffer`). */

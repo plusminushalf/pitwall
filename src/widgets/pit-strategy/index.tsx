@@ -101,7 +101,7 @@ function duelText(d: Duel, name: (n: number) => string): { title: string; detail
         ? `Pitted L${aLap}, ahead after ${b}'s stop on L${bLap} (+${margin})`
         : `Pitted L${aLap}, still ${margin} behind after ${b}'s stop on L${bLap}`
       : `Stayed out to L${aLap} after ${b} pitted on L${bLap}, came out ${margin} ${d.worked ? "ahead" : "behind"}`;
-  const under = [d.attackerStop, d.defenderStop].filter((s) => s.under).map((s) => `${name(s.driver)} stopped ${UNDER[s.under!]}`);
+  const under = [d.attackerStop, d.defenderStop].flatMap((s) => (s.under ? [`${name(s.driver)} stopped ${UNDER[s.under]}`] : []));
   return { title, detail: [detail, ...under].join(" · ") };
 }
 
@@ -128,6 +128,7 @@ const MomentRow = memo(function MomentRow({ row, info, onRow }: { row: Row; info
   return (
     <li className="border-b border-zinc-900 hover:bg-zinc-900">
       <button
+        type="button"
         onClick={() => onRow(row)}
         className="grid w-full grid-cols-[30px_minmax(0,1fr)] gap-2 px-3 py-1.5 text-left text-xs leading-5"
         title={row.stop ? "Watch from 5 s before the stop" : "Watch the second stop, from 5 s before it"}

@@ -58,14 +58,22 @@ export function gapSeries(all: ReadonlyMap<number, Crossings>, drivers: readonly
   // Every crossing at lap n, sorted, for the interval.
   const byLap: number[][] = leader.map((_, n) => {
     const ts: number[] = [];
-    for (const c of cars) if (c[n] != null) ts.push(c[n]!);
+    for (const c of cars) {
+      const t = c[n];
+      if (t != null) ts.push(t);
+    }
     return ts.sort((a, b) => a - b);
   });
   return drivers.map((driver) => {
     const own = all.get(driver) ?? [];
     const gaps: Gap[] = own.map((t, n): Gap => {
       if (n === 0 || t == null) return null;
-      if (mode === "leader") return lappedAt(leader, n, t) ? "lapped" : (t - leader[n]!) / 1000;
+      if (mode === "leader") {
+        if (lappedAt(leader, n, t)) return "lapped";
+        // Never null: this car's own crossing at lap n is among those the leader's is the first of.
+        const lead = leader[n];
+        return lead == null ? null : (t - lead) / 1000;
+      }
       const ts = byLap[n];
       const i = ts.indexOf(t);
       return i <= 0 ? "leading" : (t - ts[i - 1]) / 1000;
@@ -80,13 +88,18 @@ export function gapSeries(all: ReadonlyMap<number, Crossings>, drivers: readonly
  */
 export function orderAtLine(all: ReadonlyMap<number, Crossings>): number[] {
   const last = (c: Crossings) => {
-    for (let n = c.length - 1; n > 0; n--) if (c[n] != null) return { lap: n, t: c[n]! };
+    for (let n = c.length - 1; n > 0; n--) {
+      const t = c[n];
+      if (t != null) return { lap: n, t };
+    }
     return null;
   };
   return [...all]
-    .map(([driver, c]) => ({ driver, at: last(c) }))
-    .filter((d) => d.at != null)
-    .sort((a, b) => b.at!.lap - a.at!.lap || a.at!.t - b.at!.t)
+    .flatMap(([driver, c]) => {
+      const at = last(c);
+      return at ? [{ driver, at }] : [];
+    })
+    .sort((a, b) => b.at.lap - a.at.lap || a.at.t - b.at.t)
     .map((d) => d.driver);
 }
 

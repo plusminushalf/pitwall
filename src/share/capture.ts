@@ -92,17 +92,18 @@ function markStuck(root: HTMLElement): HTMLElement[] {
 
 /** The app as it's drawn now. */
 export async function captureApp(): Promise<Shot> {
-  const root = document.getElementById("root")!;
+  const root = document.getElementById("root");
+  if (!root) throw new Error("no #root");
   const scale = window.devicePixelRatio || 1;
   const { left, top, width, height } = root.getBoundingClientRect();
   // A copied <select> shows the option marked selected, not the one picked (a property): mark those for the copy.
   const marked = [...root.querySelectorAll("select")].flatMap((s) => [...s.selectedOptions]).filter((o) => !o.hasAttribute("selected"));
-  marked.forEach((o) => o.setAttribute("selected", ""));
+  for (const o of marked) o.setAttribute("selected", "");
   const stuck = markStuck(root);
   const credits = [...root.querySelectorAll<HTMLElement>(`[${CREDIT}]`)].map((el) => {
     const r = el.getBoundingClientRect();
     const above = r.top - top - parseFloat(getComputedStyle(el).marginTop);
-    return { text: el.getAttribute(CREDIT)!, rect: { left: r.left - left, top: r.top - top, width: r.width, height: r.height }, above };
+    return { text: el.getAttribute(CREDIT) ?? "", rect: { left: r.left - left, top: r.top - top, width: r.width, height: r.height }, above };
   });
   try {
     // Loaded on the first share, not with the app.
@@ -119,8 +120,9 @@ export async function captureApp(): Promise<Shot> {
         if (!(cloned instanceof HTMLElement)) return;
         // Hidden, not removed: what's under it stays where the picker finds it.
         if (cloned.hasAttribute(CREDIT)) cloned.style.visibility = "hidden";
-        if (!cloned.hasAttribute(STUCK)) return;
-        const [dx, dy] = cloned.getAttribute(STUCK)!.split(" ");
+        const stuckBy = cloned.getAttribute(STUCK);
+        if (stuckBy == null) return;
+        const [dx, dy] = stuckBy.split(" ");
         const own = cloned.style.transform;
         cloned.style.transform = `translate(${dx}px, ${dy}px)${own && own !== "none" ? ` ${own}` : ""}`;
         cloned.removeAttribute(STUCK);
@@ -134,8 +136,8 @@ export async function captureApp(): Promise<Shot> {
     });
     return { canvas, scale, bounds: { left, top, width, height }, credits };
   } finally {
-    marked.forEach((o) => o.removeAttribute("selected"));
-    stuck.forEach((el) => el.removeAttribute(STUCK));
+    for (const o of marked) o.removeAttribute("selected");
+    for (const el of stuck) el.removeAttribute(STUCK);
   }
 }
 
@@ -200,7 +202,8 @@ export async function brandedImage(shot: Shot, picked: Rect, host: string, headi
   const inner = Math.max(area.width, MIN_WIDTH);
   const width = inner + 2 * margin;
   const out = document.createElement("canvas");
-  const ctx = out.getContext("2d")!;
+  const ctx = out.getContext("2d");
+  if (!ctx) throw new Error("no 2d canvas");
   const credit = [...new Set(credits.map((c) => c.text))].join(" · ");
   const creditFont = `400 12px ${FONT}`;
   const hostFont = `500 14px ${FONT}`;

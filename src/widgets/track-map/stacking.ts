@@ -20,14 +20,17 @@ export function stackOrder(
   if (!last || held) return { order: [...rest, ...top], holding: false };
   // Last frame's order for the cars it had, in the places the target gives cars it had.
   const was = new Map(last.map((n, i) => [n, i]));
-  const kept = rest.filter((n) => was.has(n)).sort((a, b) => was.get(a)! - was.get(b)!);
+  const kept = rest.filter((n) => was.has(n)).sort((a, b) => (was.get(a) ?? 0) - (was.get(b) ?? 0));
   let k = 0;
   const keep = rest.map((n) => (was.has(n) ? kept[k++] : n));
   // A swap shows only between dots that overlap: hold the order while any of those would swap.
   const at = new Map(rest.map((n, i) => [n, i]));
   for (let i = 0; i < keep.length; i++) {
+    const ai = at.get(keep[i]);
+    if (ai == null) continue;
     for (let j = i + 1; j < keep.length; j++) {
-      if (at.get(keep[i])! > at.get(keep[j])! && overlap(keep[i], keep[j])) return { order: [...keep, ...top], holding: true };
+      const aj = at.get(keep[j]);
+      if (aj != null && ai > aj && overlap(keep[i], keep[j])) return { order: [...keep, ...top], holding: true };
     }
   }
   return { order: [...rest, ...top], holding: false };

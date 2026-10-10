@@ -33,7 +33,9 @@ describe("_headers", () => {
   test("every page path gets exactly one CSP, plus the common headers; no COOP", () => {
     for (const path of ["/frame.html", "/frame", "/popup.html", "/popup"]) {
       const h = headersFor(rules, path);
-      expect(h["Content-Security-Policy"]).toBe(csp(pageOf(path)!, apps));
+      const page = pageOf(path);
+      if (!page) throw new Error(`no page for ${path}`);
+      expect(h["Content-Security-Policy"]).toBe(csp(page, apps));
       expect(h["X-Content-Type-Options"]).toBe("nosniff");
       expect(h["Referrer-Policy"]).toBe("no-referrer");
       expect(h["Cross-Origin-Resource-Policy"]).toBe("cross-origin");

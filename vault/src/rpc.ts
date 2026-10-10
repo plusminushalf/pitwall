@@ -111,7 +111,10 @@ export class Rpc {
 
   private subscribe(port: PortLike, topics: LiveTopic[], on: boolean): { topics: LiveTopic[] } {
     let s = this.subs.get(port);
-    if (!s) this.subs.set(port, (s = new Set()));
+    if (!s) {
+      s = new Set();
+      this.subs.set(port, s);
+    }
     for (const t of topics) on ? s.add(t) : s.delete(t);
     this.vault.setTopics(this.topics());
     return { topics: [...s].sort() };
@@ -158,10 +161,13 @@ export class Rpc {
         case "unsubscribe":
           if (!from) return { v: 1, id: req.id, ok: false, error: { code: "bad_request", message: "no port" } };
           return { v: 1, id: req.id, ok: true, result: this.subscribe(from, req.topics, req.type === "subscribe") };
-        case "openPort":
-          return this.attach(ports[0]!)
+        case "openPort": {
+          const port = ports[0];
+          if (!port) return { v: 1, id: req.id, ok: false, error: { code: "bad_request", message: "no port" } };
+          return this.attach(port)
             ? { v: 1, id: req.id, ok: true, result: {} }
             : { v: 1, id: req.id, ok: false, error: { code: "rate_limited", message: `at most ${MAX_PORTS} ports` } };
+        }
         default:
           if (this.debug && (DEBUG_METHODS as readonly string[]).includes(req.type)) return { v: 1, id: req.id, ok: true, result: (await this.debug(req as Request<DebugMethod>)) as VaultStatus };
           return { v: 1, id: req.id, ok: false, error: { code: "not_implemented", message: `${req.type} is not implemented yet` } };

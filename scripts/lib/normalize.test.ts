@@ -68,18 +68,18 @@ function truncate(raw: RawSessionData, cut: number): RawSessionData {
     radio: until(raw.radio),
     overtakes: until(raw.overtakes),
     results: [],
-    car: map(raw.car!),
-    location: map(raw.location!),
+    car: raw.car && map(raw.car),
+    location: raw.location && map(raw.location),
   };
 }
 
 describe.skipIf(!available)("live normalization, Baku 2026", async () => {
   const raw = available ? await loadBaku() : (null as unknown as RawSessionData);
   const t0 = available ? ms(raw.session.date_start) - 10 * 60_000 : 0;
-  const lightsOutAbs = available ? Math.min(...raw.laps.filter((l) => l.lap_number === 1).map((l) => ms(l.date_start!))) : 0;
+  const lightsOutAbs = available ? Math.min(...raw.laps.flatMap((l) => (l.lap_number === 1 && l.date_start ? [ms(l.date_start)] : []))) : 0;
   // The leader (RUS, #63) completes lap 10.
   const lap10End = available
-    ? Math.min(...raw.laps.filter((l) => l.lap_number === 10 && l.lap_duration != null).map((l) => ms(l.date_start!) + l.lap_duration! * 1000))
+    ? Math.min(...raw.laps.flatMap((l) => (l.lap_number === 10 && l.date_start && l.lap_duration != null ? [ms(l.date_start) + l.lap_duration * 1000] : [])))
     : 0;
 
   test("cut at lap 10: no throw, leader on lap ~10, duration = now, sane positions", () => {
@@ -114,7 +114,7 @@ describe.skipIf(!available)("live normalization, Baku 2026", async () => {
     expect(meta.track.marshalSectors.length).toBe(21);
 
     for (const tel of telemetry.values()) {
-      expect(tel.car.t.at(-1)!).toBeLessThanOrEqual(meta.duration);
+      expect(tel.car.t[tel.car.t.length - 1]).toBeLessThanOrEqual(meta.duration);
       expect(tel.loc.t.at(-1) ?? 0).toBeLessThanOrEqual(meta.duration);
       for (let i = 1; i < tel.loc.t.length; i++) expect(tel.loc.t[i]).toBeGreaterThan(tel.loc.t[i - 1]);
     }
@@ -128,7 +128,7 @@ describe.skipIf(!available)("live normalization, Baku 2026", async () => {
     expect(meta.lightsOutEstimated).toBe(true);
     expect(meta.lightsOut).toBeGreaterThanOrEqual(meta.duration);
     expect(meta.track.referenceLap).toEqual({ driver: 0, lap: 0, duration: 0 });
-    expect(meta.track.outline.x.length).toBe(raw.circuit!.x!.length);
+    expect<number | undefined>(meta.track.outline.x.length).toBe(raw.circuit?.x?.length);
     expect(meta.track.marshalSectors.length).toBe(21);
     expect(meta.totalLaps).toBe(51);
     expect(meta.grid.length).toBe(22);
@@ -165,8 +165,9 @@ describe.skipIf(!available)("live normalization, Baku 2026", async () => {
 
   test("incremental cleaning matches cleaning everything at once", () => {
     const n = 16;
-    const car = raw.car!.get(n)!;
-    const loc = raw.location!.get(n)!;
+    const car = raw.car?.get(n);
+    const loc = raw.location?.get(n);
+    if (!car || !loc) throw new Error(`no telemetry for #${n}`);
     const cut = lap10End;
     const batch = new DriverSamples(n, t0);
     for (const c of car) batch.addCar(c);

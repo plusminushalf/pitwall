@@ -69,18 +69,32 @@ export function validLaps(laps: readonly PaceLap[], stints: readonly PaceStint[]
 /** A driver's best valid lap so far, with its tyre and the ideal lap; null without one. */
 export function bestLap(driver: number, laps: readonly PaceLap[], stints: readonly PaceStint[], neutral: readonly NeutralPeriod[], deletedBy: number): Best | null {
   const valid = validLaps(laps, stints, neutral, deletedBy);
-  if (!valid.length) return null;
   // The first of equal times: it was set first.
-  const best = valid.reduce((b, l) => (l.duration! < b.duration! ? l : b));
-  const sectors = [0, 1, 2].map((i) => Math.min(...valid.map((l) => (l.sectors[i] ?? 0) > 0 ? l.sectors[i]! : Infinity)));
+  let best: PaceLap | null = null;
+  let time = Infinity;
+  for (const l of valid) {
+    if (l.duration != null && l.duration < time) {
+      best = l;
+      time = l.duration;
+    }
+  }
+  if (!best) return null;
+  const sectors = [0, 1, 2].map((i) =>
+    Math.min(
+      ...valid.map((l) => {
+        const s = l.sectors[i] ?? 0;
+        return s > 0 ? s : Infinity;
+      }),
+    ),
+  );
   const ideal = sectors.every(Number.isFinite) ? sectors.reduce((a, b) => a + b, 0) : null;
   const tyre = tyreOf(stints, best.lap);
   return {
     driver,
     lap: best.lap,
-    time: best.duration!,
+    time,
     start: best.start,
-    end: best.end ?? best.start + best.duration! * 1000,
+    end: best.end ?? best.start + time * 1000,
     compound: tyre?.compound ?? "UNKNOWN",
     age: tyre?.age ?? 0,
     ideal,

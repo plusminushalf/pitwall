@@ -79,11 +79,11 @@ export function StreamLoading() {
           </>
         )}
         <div className="mt-5 flex items-center gap-2">
-          <button onClick={goHome} className={`touch-hit ${SECONDARY}`}>
+          <button type="button" onClick={goHome} className={`touch-hit ${SECONDARY}`}>
             ← All races
           </button>
           {failed && row && (
-            <button onClick={() => retry(row)} className={`touch-hit ${SECONDARY}`}>
+            <button type="button" onClick={() => retry(row)} className={`touch-hit ${SECONDARY}`}>
               Try again
             </button>
           )}
@@ -157,7 +157,7 @@ export function StreamBuffering() {
           </>
         )}
         {row && (
-          <button onClick={() => resume(row)} className="touch-hit pointer-events-auto shrink-0 rounded px-1.5 font-semibold text-zinc-100 hover:bg-zinc-800">
+          <button type="button" onClick={() => resume(row)} className="touch-hit pointer-events-auto shrink-0 rounded px-1.5 font-semibold text-zinc-100 hover:bg-zinc-800">
             Resume
           </button>
         )}

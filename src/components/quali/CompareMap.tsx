@@ -71,11 +71,12 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [size, setSize] = useState({ w: 0, h: 0 });
-  const withTrace = useMemo(() => entries.filter((e) => e.trace != null), [entries]);
+  const withTrace = useMemo(() => entries.filter((e): e is CompareEntry & { trace: DecodedLap } => e.trace != null), [entries]);
   const ref = withTrace[0]?.trace ?? null;
 
   useEffect(() => {
-    const el = wrapRef.current!;
+    const el = wrapRef.current;
+    if (!el) return;
     const ro = new ResizeObserver(([e]) => setSize({ w: Math.floor(e.contentRect.width), h: Math.floor(e.contentRect.height) }));
     ro.observe(el);
     return () => ro.disconnect();
@@ -88,7 +89,8 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
     const canvas = document.createElement("canvas");
     canvas.width = size.w * dpr;
     canvas.height = size.h * dpr;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
     ctx.scale(dpr, dpr);
     const tf = makeTrackTransform(track, size.w, size.h, PADDING);
     ctx.lineJoin = "round";
@@ -140,7 +142,8 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
     if (!canvas || !layer) return;
     canvas.width = layer.canvas.width;
     canvas.height = layer.canvas.height;
-    const ctx = canvas.getContext("2d")!;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
     const { tf, dpr } = layer;
     const cssW = layer.canvas.width / dpr;
     const cssH = layer.canvas.height / dpr;
@@ -179,7 +182,7 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
       }
       if (hover != null) {
         for (const e of withTrace) {
-          const p = positionAtDistance(e.trace!, hover);
+          const p = positionAtDistance(e.trace, hover);
           const [cx, cy] = tf(p.x, p.y);
           ctx.strokeStyle = e.style.color;
           ctx.lineWidth = 2.5;
@@ -197,7 +200,7 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
         // Reference on top.
         for (let k = withTrace.length - 1; k >= 0; k--) {
           const e = withTrace[k];
-          const lap = e.trace!;
+          const lap = e.trace;
           const p = positionAtTime(lap, t);
           const [cx, cy] = tf(p.x, p.y);
           ctx.fillStyle = e.style.color;

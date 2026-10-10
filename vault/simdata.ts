@@ -168,9 +168,11 @@ export function buildTimeline(repo: string, sessionKey: number, startS: number):
   const startOrig = lightsOut + startS * 1000;
   const first = Math.min(t0Orig, startOrig);
 
-  const events: { at: number; t: number; rec: Rec; telemetry: boolean }[] = [];
+  const events: { at: number; t: number; topic: SimTopic; rec: Rec; telemetry: boolean }[] = [];
   const push = (topic: SimTopic, at: number, rec: Rec, telemetry = false) => {
-    if (Number.isFinite(at)) events.push({ at, t: TOPIC_INDEX.get(topic)!, rec, telemetry });
+    const t = TOPIC_INDEX.get(topic);
+    if (t === undefined) throw new Error(`not a sim topic: ${topic}`);
+    if (Number.isFinite(at)) events.push({ at, t, topic, rec, telemetry });
   };
 
   const lapStart = new Map<string, number>();
@@ -229,15 +231,14 @@ export function buildTimeline(repo: string, sessionKey: number, startS: number):
   const recs: Rec[] = new Array(n);
   const keys: string[] = new Array(n);
   const perTopic = SIM_TOPICS.map(() => [] as number[]);
-  for (let i = 0; i < n; i++) {
-    const e = kept[i]!;
+  for (const [i, e] of kept.entries()) {
     at[i] = e.at;
     topic[i] = e.t;
     recs[i] = e.rec;
-    keys[i] = KEYS[SIM_TOPICS[e.t]!](e.rec);
-    perTopic[e.t]!.push(i);
+    keys[i] = KEYS[e.topic](e.rec);
+    perTopic[e.t]?.push(i);
   }
-  const byTopic = new Map<SimTopic, Uint32Array>(SIM_TOPICS.map((t, i) => [t, Uint32Array.from(perTopic[i]!)]));
+  const byTopic = new Map<SimTopic, Uint32Array>(SIM_TOPICS.map((t, i) => [t, Uint32Array.from(perTopic[i] ?? [])]));
   const label = [session.circuit_short_name ?? session.location, session.session_name].filter(Boolean).join(" ");
   return { sessionKey, label, lightsOut, startOrig, endOrig, at, topic, recs, keys, byTopic, session, meeting: meeting ?? null };
 }
@@ -267,7 +268,7 @@ export function shift(rec: Rec, offset: number): Rec {
 export function countUntil(at: Float64Array, orig: number, lo = 0, hi = at.length): number {
   while (lo < hi) {
     const mid = (lo + hi) >>> 1;
-    if (at[mid]! <= orig) lo = mid + 1;
+    if ((at[mid] ?? Infinity) <= orig) lo = mid + 1;
     else hi = mid;
   }
   return lo;
@@ -275,7 +276,9 @@ export function countUntil(at: Float64Array, orig: number, lo = 0, hi = at.lengt
 
 /** The MQTT payload of event i (as OpenF1 would send it: `_id`, `_key`). */
 export function payload(tl: Timeline, i: number, offset: number): string {
-  return JSON.stringify({ ...shift(tl.recs[i]!, offset), _id: i + 1, _key: tl.keys[i] });
+  const rec = tl.recs[i];
+  if (!rec) throw new Error(`no event ${i}`);
+  return JSON.stringify({ ...shift(rec, offset), _id: i + 1, _key: tl.keys[i] });
 }
 
 // ---------------------------------------------------------------- REST
@@ -293,12 +296,17 @@ export function restQuery(tl: Timeline, clock: SimClock, endpoint: string, searc
   else {
     const idx = tl.byTopic.get(endpoint as SimTopic);
     if (!idx) return null;
+    // The original emission time of the topic's j-th event (j is always in range).
+    const atOf = (j: number) => {
+      const i = idx[j];
+      return i === undefined ? Infinity : (tl.at[i] ?? Infinity);
+    };
     // idx is in emission order: the prefix emitted by now.
     let lo = 0;
     let hi = idx.length;
     while (lo < hi) {
       const mid = (lo + hi) >>> 1;
-      if (tl.at[idx[mid]!]! <= orig) lo = mid + 1;
+      if (atOf(mid) <= orig) lo = mid + 1;
       else hi = mid;
     }
     const upTo = lo;
@@ -308,7 +316,10 @@ export function restQuery(tl: Timeline, clock: SimClock, endpoint: string, searc
     const picked: number[] = [];
     if (VERSIONED.has(endpoint as SimTopic) || endpoint === "drivers" || endpoint === "sessions" || endpoint === "session_result") {
       const latest = new Map<string, number>();
-      for (let j = 0; j < upTo; j++) latest.set(tl.keys[idx[j]!]!, idx[j]!);
+      for (const i of idx.subarray(0, upTo)) {
+        const key = tl.keys[i];
+        if (key !== undefined) latest.set(key, i);
+      }
       picked.push(...[...latest.values()].sort((a, b) => a - b));
     } else {
       let from = 0;
@@ -320,14 +331,18 @@ export function restQuery(tl: Timeline, clock: SimClock, endpoint: string, searc
         let b = upTo;
         while (a < b) {
           const mid = (a + b) >>> 1;
-          if (tl.at[idx[mid]!]! < t) a = mid + 1;
+          if (atOf(mid) < t) a = mid + 1;
           else b = mid;
         }
         from = a;
       }
-      for (let j = from; j < upTo; j++) picked.push(idx[j]!);
+      for (const i of idx.subarray(from, upTo)) picked.push(i);
     }
-    rows = picked.map((i) => shift(tl.recs[i]!, offset));
+    rows = [];
+    for (const i of picked) {
+      const rec = tl.recs[i];
+      if (rec) rows.push(shift(rec, offset));
+    }
   }
   const filters = parseFilters(search);
   return rows.filter((r) => filters.every((f) => match(r, f, tl.sessionKey)));
@@ -345,7 +360,9 @@ function parseFilters(search: string): Filter[] {
       continue;
     }
     const m = /^([a-z_]+)(>=|<=|>|<|=)(.*)$/.exec(raw);
-    if (m) out.push({ key: m[1]!, op: m[2]!, value: m[3]! });
+    if (!m) continue;
+    const [, key, op, value] = m;
+    if (key !== undefined && op !== undefined && value !== undefined) out.push({ key, op, value });
   }
   return out;
 }

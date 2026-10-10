@@ -91,6 +91,7 @@ function RadioButton({ url }: { url: string }) {
   if (unavailable) return <span className="shrink-0 pt-0.5 text-[11px] uppercase tracking-wide text-zinc-400">unavailable</span>;
   return (
     <button
+      type="button"
       onClick={() => (playing ? stop() : play(url))}
       className={`${TAP_CLASS} flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${
         playing ? "bg-zinc-100 text-zinc-900" : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-white"
@@ -141,7 +142,7 @@ const FeedRow = memo(function FeedRow({
   const driver = item.driver != null ? info.get(item.driver) : undefined;
   return (
     <li className="flex items-start gap-2 border-b border-zinc-900 px-3 py-1.5 hover:bg-zinc-900">
-      <button onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 rounded-sm text-left" title="Jump to 5 s before this">
+      <button type="button" onClick={() => onItem(item)} className="grid min-w-0 flex-1 grid-cols-[50px_minmax(0,1fr)] gap-2 rounded-sm text-left" title="Jump to 5 s before this">
         <span className="pt-0.5 text-[11px] tabular-nums text-zinc-400">{raceClock(item.t - lightsOut)}</span>
         <span className="text-xs leading-5 text-zinc-300">
           {item.postRace && (
@@ -204,6 +205,7 @@ function RaceFeed() {
           <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
             {(["all", "selected"] as const).map((v) => (
               <button
+                type="button"
                 key={v}
                 onClick={() => update({ show: v })}
                 aria-pressed={show === v}
@@ -220,6 +222,7 @@ function RaceFeed() {
             const on = groups[g.id];
             return (
               <button
+                type="button"
                 key={g.id}
                 onClick={() => setGroups((s) => ({ ...s, [g.id]: !s[g.id] }))}
                 aria-pressed={on}
@@ -237,6 +240,7 @@ function RaceFeed() {
               <div className="flex rounded-md bg-zinc-900 p-0.5">
                 {PASSES.map((p) => (
                   <button
+                    type="button"
                     key={p.id}
                     onClick={() => update({ passes: p.id })}
                     aria-pressed={passes === p.id}

@@ -84,6 +84,7 @@ export function LapZoom({ edges, value: win, pct, timeAt, onChange, onHover }: P
   );
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: a pointer-only convenience; the grips are the keyboard sliders (Escape on one is the double-click)
     <div
       className="group/zoom absolute inset-x-0 top-[60px] h-2 cursor-crosshair rounded-full bg-zinc-900"
       onPointerDown={onPointerDown}

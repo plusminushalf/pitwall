@@ -4,6 +4,12 @@
 import type { NeutralPeriod } from "widget-kit";
 import { bestLap, leftOf, paceRows, tyreOf, validLaps, watching, withPin, type Best, type PaceLap, type PaceStint } from "./pace";
 
+/** The value, or the test fails here. */
+function must<T>(v: T | null | undefined): T {
+  if (v == null) throw new Error("expected a value");
+  return v;
+}
+
 /** A lap's spec: its sectors (the duration is their sum), "o" an out-lap, null untimed. */
 type Spec = [number, number, number] | "o" | null;
 
@@ -62,7 +68,7 @@ describe("best lap", () => {
   test("the quickest valid lap, its set and age, and the ideal lap from the best sectors", () => {
     const laps = lapsOf(["o", [30.1, 40.2, 20.3], [40, 50, 30], [29.9, 40.4, 20.1], null]);
     const stints: PaceStint[] = [{ lapStart: 1, compound: "SOFT", ageAtStart: 3 }];
-    const b = bestLap(4, laps, stints, [], 0)!;
+    const b = must(bestLap(4, laps, stints, [], 0));
     expect(b).toMatchObject({ driver: 4, lap: 4, compound: "SOFT", age: 6, start: (120 + 90.6 + 120) * 1000 });
     expect(b.time).toBeCloseTo(90.4, 6);
     expect(b.ideal).toBeCloseTo(29.9 + 40.2 + 20.1, 6);
@@ -72,9 +78,9 @@ describe("best lap", () => {
   test("sectors of laps that don't count aren't in the ideal lap; a missing sector leaves it unknown", () => {
     // The out-lap's and the deleted lap's quick sectors aren't used.
     const laps = lapsOf(["o", [30, 40, 20], [28, 39, 19]], { 1: { sectors: [1, 1, 1] }, 3: { deleted: { t: 0 } } });
-    expect(bestLap(4, laps, soft, [], 0)!.ideal).toBeCloseTo(90, 6);
+    expect(bestLap(4, laps, soft, [], 0)?.ideal).toBeCloseTo(90, 6);
     const gap = lapsOf(["o", [30, 40, 20]], { 2: { sectors: [30, null, 20] } });
-    const b = bestLap(4, gap, soft, [], 0)!;
+    const b = must(bestLap(4, gap, soft, [], 0));
     expect(b.ideal).toBeNull();
     expect(leftOf(b)).toBeNull();
   });

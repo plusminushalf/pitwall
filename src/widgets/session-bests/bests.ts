@@ -86,7 +86,11 @@ const better = (id: RecordId, a: Mark, b: Mark) => (a.value !== b.value ? (HIGHE
 /** Each value a car's lap or stop gives, by record. */
 function marksOf(car: CarInput, t: number, race: boolean, deletedBy: number): Partial<Record<RecordId, Mark[]>> {
   const out: Partial<Record<RecordId, Mark[]>> = {};
-  const add = (id: RecordId, m: Mark) => (out[id] ??= []).push(m);
+  const add = (id: RecordId, m: Mark) => {
+    const marks = out[id];
+    if (marks) marks.push(m);
+    else out[id] = [m];
+  };
   for (const l of car.laps) {
     if (l.end == null || l.end > t) continue;
     const base = { driver: car.driver, lap: l.lap, at: l.start, set: l.end, ...tyreOn(car.stints, l.lap) };

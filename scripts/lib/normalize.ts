@@ -185,6 +185,14 @@ function derive<R extends object, E>(cache: WeakMap<object, { t0: number; e: E }
   cache.set(rec, { t0, e });
   return e;
 }
+/** A per-driver entry, set for every driver. */
+function perDriver<V>(map: ReadonlyMap<number, V>, driver: number): V {
+  const v = map.get(driver);
+  if (v === undefined) throw new Error(`no entry for #${driver}`);
+  return v;
+}
+type DatedLap = RawLap & { date_start: string };
+const isDated = (l: RawLap): l is DatedLap => !!l.date_start;
 const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)] ?? NaN;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -443,14 +451,14 @@ export function endingFlag<T extends { flag: string | null; date: string }>(race
  */
 export function replayWindow(raw: Pick<RawSessionData, "session" | "laps" | "raceControl">): { lightsOut: number; t0: number; end: number } {
   const practice = isFreePractice(raw.session);
-  const lap1Starts = raw.laps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
+  const lap1Starts = raw.laps.flatMap((l) => (l.lap_number === 1 && l.date_start ? [abs(l.date_start)] : []));
   const firstLap = lap1Starts.length ? Math.min(...lap1Starts) : abs(raw.session.date_start);
   const lightsOut = practice ? (practiceStart(raw.raceControl) ?? firstLap) : firstLap;
   const chequered =
     raw.raceControl.find((m) => m.flag === "CHEQUERED") ??
     (practice ? raw.raceControl.find((m) => m.category === "SessionStatus" && /FINISHED/i.test(m.message)) : undefined);
   const lastLapEnd = Math.max(
-    ...raw.laps.filter((l) => l.date_start && l.lap_duration != null).map((l) => abs(l.date_start!) + l.lap_duration! * 1000),
+    ...raw.laps.flatMap((l) => (l.date_start && l.lap_duration != null ? [abs(l.date_start) + l.lap_duration * 1000] : [])),
   );
   const end = Math.max((chequered ? abs(chequered.date) : lastLapEnd) + POST_FINISH_MS, lastLapEnd + 30_000);
   return { lightsOut, t0: lightsOut - (practice ? PRACTICE_PRE_MS : PRE_START_MS), end };
@@ -482,7 +490,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   // ---------------------------------------------------------------- time window
 
-  const lap1Starts = rawLaps.filter((l) => l.lap_number === 1 && l.date_start).map((l) => abs(l.date_start!));
+  const lap1Starts = rawLaps.flatMap((l) => (l.lap_number === 1 && l.date_start ? [abs(l.date_start)] : []));
   const window = { session, laps: rawLaps, raceControl: raw.raceControl };
   // Practice and qualifying, live: the green light, or until it shows the scheduled start (>= the live edge).
   const green = clocked ? practiceStart(raw.raceControl) : null;
@@ -531,11 +539,10 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   // ---------------------------------------------------------------- telemetry
 
-  let samples = raw.samples;
-  if (samples) {
+  const samples = raw.samples ?? new Map<number, DriverSamples>();
+  if (raw.samples) {
     for (const s of samples.values()) if (s.t0 !== t0) throw new Error(`samples for #${s.driver} use a different t0`);
   } else {
-    samples = new Map();
     for (const n of driverNumbers) {
       const s = new DriverSamples(n, t0);
       for (const c of raw.car?.get(n) ?? []) s.addCar(c);
@@ -546,15 +553,16 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   let staleLoc = 0;
   const telemetry = new Map<number, CleanTelemetry>();
+  // Location per driver, reused for pit detection and track geometry.
+  const locTimes = new Map<number, number[]>();
+  const carTimes = new Map<number, number[]>();
   for (const n of driverNumbers) {
     const { telemetry: tel, stale } = (samples.get(n) ?? new DriverSamples(n, t0)).view(duration);
     staleLoc += stale;
     telemetry.set(n, tel);
+    locTimes.set(n, tel.loc.t);
+    carTimes.set(n, tel.car.t);
   }
-
-  // Location per driver, reused for pit detection and track geometry.
-  const locTimes = new Map(driverNumbers.map((n) => [n, telemetry.get(n)!.loc.t]));
-  const carTimes = new Map(driverNumbers.map((n) => [n, telemetry.get(n)!.car.t]));
 
   function meanSpeed(driver: number, from: Ms, to: Ms): number | null {
     const times = carTimes.get(driver) ?? [];
@@ -571,10 +579,10 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   /** Distance travelled (location units, i.e. decimetres) between two times, from the speed trace. */
   const carDistance = new Map<number, number[]>();
   function distanceAt(driver: number, t: Ms): number {
-    const times = carTimes.get(driver)!;
+    const times = perDriver(carTimes, driver);
     let dist = carDistance.get(driver);
     if (!dist) {
-      dist = samples!.get(driver)?.distance() ?? [];
+      dist = samples.get(driver)?.distance() ?? [];
       carDistance.set(driver, dist);
     }
     const i = firstAtOrAfter(times, t);
@@ -584,8 +592,8 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const travelled = (driver: number, from: Ms, to: Ms) => distanceAt(driver, to) - distanceAt(driver, from);
 
   function locAt(driver: number, t: Ms): { x: number; y: number } | null {
-    const times = locTimes.get(driver)!;
-    const { x, y } = telemetry.get(driver)!.loc;
+    const times = perDriver(locTimes, driver);
+    const { x, y } = perDriver(telemetry, driver).loc;
     const i = times.findIndex((ti) => ti >= t);
     if (i <= 0) return null;
     const f = (t - times[i - 1]) / (times[i] - times[i - 1]);
@@ -607,9 +615,11 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   // ---------------------------------------------------------------- timing
 
-  const drivers: DriverInfo[] = driverNumbers.map((n) => {
-    const d = rawDrivers.find((r) => r.driver_number === n)!;
-    return {
+  // (Every number is a driver's.)
+  const drivers: DriverInfo[] = driverNumbers.flatMap((n) => {
+    const d = rawDrivers.find((r) => r.driver_number === n);
+    if (!d) return [];
+    const info: DriverInfo = {
       number: n,
       acronym: d.name_acronym,
       fullName: d.full_name,
@@ -618,6 +628,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       teamColour: d.team_colour ?? "888888",
       headshotUrl: d.headshot_url,
     };
+    return [info];
   });
 
   // OpenF1 occasionally misses a timing-line crossing (2026 Melbourne: the end of lap 1, for every
@@ -650,9 +661,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     let hx = 0;
     let hy = 0;
     for (const l of rawLaps) {
-      if (l.lap_number < 2 || l.is_pit_out_lap || !l.date_start || !locTimes.has(l.driver_number)) continue;
-      const times = locTimes.get(l.driver_number)!;
-      const { x, y } = telemetry.get(l.driver_number)!.loc;
+      const times = locTimes.get(l.driver_number);
+      if (l.lap_number < 2 || l.is_pit_out_lap || !l.date_start || !times) continue;
+      const { x, y } = perDriver(telemetry, l.driver_number).loc;
       const t = rel(l.date_start);
       const i = firstAtOrAfter(times, t);
       if (i === 0 || i >= times.length || times[i] - times[i - 1] > 1_500) continue;
@@ -676,8 +687,8 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   function lineCrossings(driver: number): Ms[] {
     if (!timingLine) return [];
     const { x: px, y: py, ux, uy } = timingLine;
-    const times = locTimes.get(driver)!;
-    const { x, y } = telemetry.get(driver)!.loc;
+    const times = perDriver(locTimes, driver);
+    const { x, y } = perDriver(telemetry, driver).loc;
     const out: Ms[] = [];
     for (let i = 1; i < times.length; i++) {
       const a = (x[i - 1] - px) * ux + (y[i - 1] - py) * uy;
@@ -691,7 +702,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   }
 
   interface LapSource {
-    raw: RawLap | null; // null: a lap OpenF1 merged into the previous record
+    raw: DatedLap | null; // null: a lap OpenF1 merged into the previous record
     start: Ms;
   }
   const crossings = new Map(driverNumbers.map((n) => [n, lineCrossings(n)]));
@@ -701,8 +712,8 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       const all = rawLaps.filter((l) => l.driver_number === n);
       // Lap 1 starts at lights out for every car, but is occasionally undated.
       const fill = all.some((l) => l.lap_number > 1 && l.date_start);
-      const dated = all.flatMap((l) => {
-        if (l.date_start) return [l];
+      const dated = all.flatMap((l): DatedLap[] => {
+        if (isDated(l)) return [l];
         if (l.lap_number !== 1 || !fill) return [];
         undatedLap1++;
         return [{ ...l, date_start: new Date(lightsOutAbs).toISOString() }];
@@ -715,15 +726,16 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   let restarted = 0;
   const lapStarts = new Map<number, Ms[]>();
   for (const n of driverNumbers) {
-    const own = ownLaps.get(n)!;
+    const own = perDriver(ownLaps, n);
+    const crossed = perDriver(crossings, n);
     lapStarts.set(
       n,
       own.map((l, i) => {
-        const start = Math.round(rel(l.date_start!));
+        const start = Math.round(rel(l.date_start));
         const prev = own[i - 1];
         if (!prev || prev.lap_duration == null || l.lap_number !== prev.lap_number + 1) return start;
-        const prevEnd = rel(prev.date_start!) + prev.lap_duration * 1000;
-        if (Math.abs(start - prevEnd) <= 2_000 || !crossings.get(n)!.some((c) => Math.abs(c - prevEnd) < 3_000)) return start;
+        const prevEnd = rel(prev.date_start) + prev.lap_duration * 1000;
+        if (Math.abs(start - prevEnd) <= 2_000 || !crossed.some((c) => Math.abs(c - prevEnd) < 3_000)) return start;
         restarted++;
         return Math.round(prevEnd);
       }),
@@ -732,8 +744,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   const splitSources = new Map<number, LapSource[]>();
   for (const n of driverNumbers) {
-    const own = ownLaps.get(n)!;
-    const starts = lapStarts.get(n)!;
+    const own = perDriver(ownLaps, n);
+    const starts = perDriver(lapStarts, n);
+    const crossed = perDriver(crossings, n);
     const sources: LapSource[] = [];
     own.forEach((l, i) => {
       const start = starts[i];
@@ -759,7 +772,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       }
       // Further missed laps: timing-line crossings with (nearly) a lap driven on both sides; this
       // excludes cars moved along the pit lane under a red flag.
-      for (const c of crossings.get(n)!) {
+      for (const c of crossed) {
         if (c - last < 3_000 || !fullLapsAround(last, c)) continue;
         sources.push({ raw: null, start: Math.round(c) });
         last = c;
@@ -774,17 +787,19 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   /** Per renumbered driver: OpenF1 lap number -> corrected lap number. */
   const lapRenumber = new Map<number, Map<number, number>>();
-  const lapSources = new Map<number, LapSource[]>();
+  // With the lap number each is (corrected).
+  const lapSources = new Map<number, (LapSource & { lap: number })[]>();
   for (const n of driverNumbers) {
-    const split = splitSources.get(n)!;
-    const own = ownLaps.get(n)!;
+    const split = perDriver(splitSources, n);
+    const own = perDriver(ownLaps, n);
     if (repairLaps && split.length > own.length) {
       const renumber = new Map<number, number>();
-      split.forEach((s, j) => s.raw && renumber.set(s.raw.lap_number, own[0].lap_number + j));
+      for (const [j, s] of split.entries()) if (s.raw) renumber.set(s.raw.lap_number, own[0].lap_number + j);
       lapRenumber.set(n, renumber);
-      lapSources.set(n, split);
+      lapSources.set(n, split.map((s, j) => ({ ...s, lap: own[0].lap_number + j })));
     } else {
-      lapSources.set(n, own.map((l, i) => ({ raw: l, start: lapStarts.get(n)![i] })));
+      const starts = perDriver(lapStarts, n);
+      lapSources.set(n, own.map((l, i) => ({ raw: l, start: starts[i], lap: l.lap_number })));
     }
   }
 
@@ -793,35 +808,31 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     const renumber = lapRenumber.get(driver);
     if (!renumber) return lap;
     // Anchor on the next known record: a missing record sits right before one.
-    const known = [...renumber.keys()].sort((a, b) => a - b);
-    const anchor = known.find((k) => k >= lap) ?? known.at(-1)!;
-    return renumber.get(anchor)! + (lap - anchor);
+    const known = [...renumber].sort((a, b) => a[0] - b[0]);
+    const [anchor, mapped] = known.find(([k]) => k >= lap) ?? known[known.length - 1];
+    return mapped + (lap - anchor);
   }
 
   // Classified finishers: OpenF1 lap count and whether later records are cool-down laps.
-  const finisherLaps = new Map(
-    rawResults.filter((r) => !r.dnf && !r.dns && !r.dsq && r.number_of_laps != null).map((r) => [r.driver_number, r.number_of_laps!]),
-  );
+  const finisherLaps = new Map<number, number>();
+  for (const r of rawResults) if (!r.dnf && !r.dns && !r.dsq && r.number_of_laps != null) finisherLaps.set(r.driver_number, r.number_of_laps);
   const chequeredRel = chequeredAbs != null ? chequeredAbs - t0 : null;
 
   const laps: Lap[] = [];
   let droppedCoolDown = 0;
   let finishFromLine = 0;
   for (const n of driverNumbers) {
-    const sources = lapSources.get(n)!;
-    const renumbered = lapRenumber.has(n);
-    const number = (j: number) => (renumbered ? sources[0].raw!.lap_number + j : sources[j].raw!.lap_number);
+    const sources = perDriver(lapSources, n);
     const own: Lap[] = sources.map((s, j) => {
       const l = s.raw;
       const next = sources[j + 1];
       // A split record's duration may span both laps.
       const d = l?.lap_duration ?? null;
       const duration = d != null && next?.raw === null && Math.abs(s.start + d * 1000 - next.start) > 3_000 ? null : d;
-      const end =
-        duration != null ? Math.round(s.start + duration * 1000) : next && number(j + 1) === number(j) + 1 ? next.start : null;
+      const end = duration != null ? Math.round(s.start + duration * 1000) : next && next.lap === s.lap + 1 ? next.start : null;
       return {
         driver: n,
-        lap: number(j),
+        lap: s.lap,
         start: s.start,
         end,
         duration,
@@ -846,12 +857,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
       }
       // A finisher's last lap without a duration ends where the car next crosses the line.
       if (lap.lap === finalLap && lap.end == null) {
-        const line = crossings
-          .get(n)!
-          .find(
-            (c) =>
-              c - lap.start >= minLapMs && c - lap.start <= 3 * typicalLapMs && covered(lap.start, c) && !(travelled(n, lap.start, c) < minLapDistance),
-          );
+        const line = perDriver(crossings, n).find(
+          (c) => c - lap.start >= minLapMs && c - lap.start <= 3 * typicalLapMs && covered(lap.start, c) && !(travelled(n, lap.start, c) < minLapDistance),
+        );
         if (line != null) {
           lap.end = Math.round(line);
           finishFromLine++;
@@ -884,7 +892,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   // OpenF1 occasionally lists one stop twice (seconds apart, same lane time, a bogus lap number).
   // Real stops are at least a lap apart: keep the record whose lap number matches the car's lap.
   const rawLapAt = (driver: number, t: number) =>
-    ownLaps.get(driver)?.filter((l) => abs(l.date_start!) <= t).at(-1)?.lap_number ?? 0;
+    ownLaps.get(driver)?.filter((l) => abs(l.date_start) <= t).at(-1)?.lap_number ?? 0;
   const pitLapError = (p: RawPit) => Math.abs(p.lap_number - rawLapAt(p.driver_number, abs(p.date)));
   const uniquePits = rawPits.filter(
     (p, i) =>
@@ -901,14 +909,14 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   // pit-lane window at pit-limiter speed across all stops.
   const laneSeconds = (p: RawPit) => p.lane_duration ?? p.pit_duration;
   const pitSpeeds = (dateIsExit: boolean) =>
-    uniquePits
-      .filter((p) => laneSeconds(p) != null)
-      .map((p) => {
-        const t = rel(p.date);
-        const lane = laneSeconds(p)! * 1000;
-        return meanSpeed(p.driver_number, dateIsExit ? t - lane : t, dateIsExit ? t : t + lane);
-      })
-      .filter((s): s is number => s != null);
+    uniquePits.flatMap((p) => {
+      const seconds = laneSeconds(p);
+      if (seconds == null) return [];
+      const t = rel(p.date);
+      const lane = seconds * 1000;
+      const speed = meanSpeed(p.driver_number, dateIsExit ? t - lane : t, dateIsExit ? t : t + lane);
+      return speed != null ? [speed] : [];
+    });
   const speedIfExit = median(pitSpeeds(true));
   const speedIfEntry = median(pitSpeeds(false));
   const pitDateIsExit = !(speedIfEntry < speedIfExit);
@@ -932,10 +940,10 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
 
   // A dropped duplicate may be the only record of a real stop that OpenF1 mis-dated: when the car
   // began a pit-out lap right after that lap, rebuild the stop around its pit-lane line crossing.
-  const pitOutStarts = (driver: number) =>
-    (ownLaps.get(driver) ?? []).flatMap((l, i) =>
-      l.is_pit_out_lap && l.lap_number > 1 ? [{ lap: l.lap_number, start: lapStarts.get(driver)![i] }] : [],
-    );
+  const pitOutStarts = (driver: number) => {
+    const starts = lapStarts.get(driver) ?? []; // (set with ownLaps)
+    return (ownLaps.get(driver) ?? []).flatMap((l, i) => (l.is_pit_out_lap && l.lap_number > 1 ? [{ lap: l.lap_number, start: starts[i] }] : []));
+  };
   const pitNear = (driver: number, t: Ms) => datedPits.some((p) => p.driver === driver && p.entry - 5_000 <= t && t <= p.exit + 5_000);
   // Where the pit lane's timing line sits: time from pit entry to crossing it.
   const lineAfterEntry = median(
@@ -1206,7 +1214,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     for (let i = 1; i < n; i++) if (Math.hypot(trace.x[i] - trace.x[i - 1], trace.y[i] - trace.y[i - 1]) > 1_500) return false;
     return Math.hypot(trace.x[n - 1] - trace.x[0], trace.y[n - 1] - trace.y[0]) < 2_000;
   }
-  const isClean = (l: Lap) =>
+  const isClean = (l: Lap): l is Lap & { duration: number; end: Ms } =>
     l.lap > 1 &&
     l.duration != null &&
     l.end != null &&
@@ -1219,12 +1227,12 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const refLap =
     pinnedLap && isClean(pinnedLap)
       ? pinnedLap
-      : laps.filter(isClean).reduce<Lap | null>((best, l) => (!best || l.duration! < best.duration! ? l : best), null);
+      : laps.filter(isClean).reduce<(Lap & { duration: number; end: Ms }) | null>((best, l) => (!best || l.duration < best.duration ? l : best), null);
   if (!refLap && !live && !partial) throw new Error("No clean lap found to build the track outline");
 
   // Live (or partial), before any clean lap: the MultiViewer circuit trace (same frame, starts at the line).
   const outline: Polyline = refLap
-    ? slice(refLap.driver, refLap.start, refLap.end!)
+    ? slice(refLap.driver, refLap.start, refLap.end)
     : { x: [...(circuit?.x ?? [])], y: [...(circuit?.y ?? [])], z: (circuit?.x ?? []).map(() => 0) };
   const s1 = refLap?.sectors[0] ?? null;
   const s2 = refLap?.sectors[1] ?? null;
@@ -1238,8 +1246,8 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   // passes through the pit lane, not the visits to the garage.)
   const passes = pits.filter((p) => p.laneDuration != null && p.laneDuration < 60);
   const pitTraces = (clocked && passes.length ? passes : pits)
-    .filter((p) => p.laneDuration != null)
-    .sort((a, b) => a.laneDuration! - b.laneDuration!)
+    .filter((p): p is PitStop & { laneDuration: number } => p.laneDuration != null)
+    .sort((a, b) => a.laneDuration - b.laneDuration)
     .map((p) => slice(p.driver, p.entry - 2_000, p.exit + 2_000))
     .filter((trace) => trace.x.length >= 20);
   const pitLane = pitTraces[Math.floor(pitTraces.length / 2)] ?? null;
@@ -1284,7 +1292,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     bounds: allX.length
       ? { minX: Math.min(...allX), maxX: Math.max(...allX), minY: Math.min(...allY), maxY: Math.max(...allY) }
       : { minX: 0, maxX: 0, minY: 0, maxY: 0 },
-    referenceLap: refLap ? { driver: refLap.driver, lap: refLap.lap, duration: refLap.duration! } : { driver: 0, lap: 0, duration: 0 },
+    referenceLap: refLap ? { driver: refLap.driver, lap: refLap.lap, duration: refLap.duration } : { driver: 0, lap: 0, duration: 0 },
     rotation: circuit?.rotation ?? 0,
     corners,
     marshalSectors,
@@ -1301,7 +1309,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   const loop = { x: [...outline.x, outline.x[0]], y: [...outline.y, outline.y[0]], z: [...outline.z, outline.z[0]] };
   const loopS: number[] = [0];
   for (let i = 1; i < loop.x.length; i++) loopS.push(loopS[i - 1] + Math.hypot(loop.x[i] - loop.x[i - 1], loop.y[i] - loop.y[i - 1]));
-  const outlineLength = loopS.at(-1)!;
+  const outlineLength = loopS[loopS.length - 1];
   // Outline length per unit of distance driven (the racing line is not the outline's line).
   const outlinePerDistance = Number.isFinite(minLapDistance) && minLapDistance > 0 ? (0.8 * outlineLength) / minLapDistance : 1;
 
@@ -1336,13 +1344,13 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     const own = laps.filter((l) => l.driver === n); // sorted by start
     const result = results.find((r) => r.driver === n);
     // Live: a running car's feed ends at its latest car sample, the live edge.
-    const edge = live ? (carTimes.get(n)!.at(-1) ?? null) : (own.at(-1)?.end ?? null);
+    const edge = live ? (perDriver(carTimes, n).at(-1) ?? null) : (own.at(-1)?.end ?? null);
     const until = result?.finish ?? result?.retired ?? edge;
     if (!own.length || until == null || outlineLength <= 0) continue;
     const trailingGap = live && result?.finish == null && result?.retired == null ? LIVE_EDGE_GAP_MS : LOC_GAP_MS;
 
     // Gaps between fixes (indices into the fixes; -1 = no fix at that end).
-    const times = locTimes.get(n)!;
+    const times = perDriver(locTimes, n);
     const gaps: { from: Ms; to: Ms; a: number; b: number }[] = [];
     let prev = own[0].start;
     let prevIndex = -1;
@@ -1364,9 +1372,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     if (tail - prev > trailingGap) gaps.push({ from: prev, to: tail, a: prevIndex, b: -1 });
     if (!gaps.length) continue;
 
-    const ct = carTimes.get(n)!;
+    const ct = perDriver(carTimes, n);
     const distAt = (t: Ms) => distanceAt(n, t);
-    const { x, y } = telemetry.get(n)!.loc;
+    const { x, y } = perDriver(telemetry, n).loc;
 
     const synth: { t: Ms; x: number; y: number; z: number }[] = [];
     let li = 0;
@@ -1392,8 +1400,9 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
         // (Partial telemetry: not across a gap, where the distance driven isn't known.)
         if (lap.start > t || !covered(lap.start, t)) continue;
         const done = distAt(t) - distAt(lap.start);
-        const whole = lap.end != null && t <= lap.end && covered(lap.start, lap.end);
-        const lapDist = whole ? distAt(lap.end!) - distAt(lap.start) : 0;
+        const end = lap.end;
+        const whole = end != null && t <= end && covered(lap.start, end);
+        const lapDist = whole ? distAt(end) - distAt(lap.start) : 0;
         // A lap still running (live), or whose end isn't in yet (partial): scale the distance driven to the outline.
         const along = live || (spans && !whole) ? done * outlinePerDistance : done;
         synth.push({ t, ...outlineAt(lapDist > 0 ? (done / lapDist) * outlineLength : Math.min(along, outlineLength * 0.999)) });
@@ -1402,7 +1411,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
     if (!synth.length) continue;
 
     // Both sorted by time (synthetic samples fill gaps between real ones): merge, real first on ties.
-    const tel = telemetry.get(n)!;
+    const tel = perDriver(telemetry, n);
     const loc = tel.loc;
     const merged: CleanTelemetry["loc"] = { t: [], x: [], y: [], z: [] };
     for (let a = 0, b = 0; a < times.length || b < synth.length; ) {

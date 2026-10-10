@@ -10,6 +10,12 @@ import { formatVersion, isCurrentFormat } from "./formatVersion";
 import { buildPracticeTraces, endInLapsAtPitEntry, practiceStandings, practiceStart, preparePracticeLaps, TRACE_RATIO } from "./practice";
 import type { Lap, PitStop } from "../../src/types";
 
+/** A test's subject: missing fails the test. */
+function found<T>(x: T | undefined, what: string): T {
+  if (x === undefined) throw new Error(`${what} not found`);
+  return x;
+}
+
 const lap = (driver: number, n: number, start: number, duration: number | null, extra: Partial<Lap> = {}): Lap => ({
   driver,
   lap: n,
@@ -29,7 +35,11 @@ function screenAt(s: ReturnType<typeof practiceStandings>, t: number) {
   const gap = new Map<number, number | string | null>();
   const int = new Map<number, number | string | null>();
   for (const p of s.positions) if (p.t <= t) pos.set(p.driver, p.position);
-  for (const i of s.intervals) if (i.t <= t) (gap.set(i.driver, i.gapToLeader), int.set(i.driver, i.interval));
+  for (const i of s.intervals) {
+    if (i.t > t) continue;
+    gap.set(i.driver, i.gapToLeader);
+    int.set(i.driver, i.interval);
+  }
   return [...pos].sort((a, b) => a[1] - b[1]).map(([n, p]) => `P${p} #${n} ${gap.get(n) ?? "-"} ${int.get(n) ?? "-"}`);
 }
 
@@ -169,10 +179,10 @@ describe.skipIf(!available)("2026 Australian GP FP2 (raw cache)", () => {
     const end = meta.duration;
     const screen = new Map<number, { position: number; gap: number | string | null }>();
     for (const p of meta.positions) if (p.t <= end) screen.set(p.driver, { position: p.position, gap: null });
-    for (const i of meta.intervals) if (i.t <= end) screen.get(i.driver)!.gap = i.gapToLeader;
+    for (const i of meta.intervals) if (i.t <= end) found(screen.get(i.driver), `#${i.driver} on the screen`).gap = i.gapToLeader;
     for (const r of meta.results) {
-      expect(screen.get(r.driver)?.position).toBe(r.position!);
-      if (r.position! > 1 && typeof r.gapToLeader === "number") expect(screen.get(r.driver)?.gap).toBe(r.gapToLeader);
+      expect<number | null | undefined>(screen.get(r.driver)?.position).toBe(r.position);
+      if (r.position != null && r.position > 1 && typeof r.gapToLeader === "number") expect(screen.get(r.driver)?.gap).toBe(r.gapToLeader);
     }
   });
 
@@ -181,30 +191,33 @@ describe.skipIf(!available)("2026 Australian GP FP2 (raw cache)", () => {
     const laps = structuredClone(meta.laps);
     const { traces } = buildPracticeTraces({ meta, telemetry });
     expect(meta.laps).toEqual(laps);
-    const p = meta.practice!;
+    const p = meta.practice;
+    if (p?.lapLength == null || !p.sectorDistances || !p.traced) throw new Error("no practice lap traces");
     expect(p.lapLength).toBeGreaterThan(5200);
     expect(p.lapLength).toBeLessThan(5260);
-    expect(p.sectorDistances![0]).toBeLessThan(p.sectorDistances![1]);
-    expect(p.traced!.map((t) => t.driver)).toEqual([...traces.keys()]);
+    expect(p.sectorDistances[0]).toBeLessThan(p.sectorDistances[1]);
+    expect(p.traced.map((t) => t.driver)).toEqual([...traces.keys()]);
     const best = new Map<number, number>();
     for (const l of meta.laps) if (l.duration != null && !l.pitOut) best.set(l.driver, Math.min(best.get(l.driver) ?? Infinity, l.duration));
     let count = 0;
-    for (const { driver, laps: traced } of p.traced!) {
-      expect(traces.get(driver)!.laps.map((l) => l.lap)).toEqual(traced);
-      for (const lt of traces.get(driver)!.laps) {
-        const l = meta.laps.find((x) => x.driver === driver && x.lap === lt.lap)!;
+    for (const { driver, laps: traced } of p.traced) {
+      const own = found(traces.get(driver), `#${driver}'s traces`).laps;
+      expect(own.map((l) => l.lap)).toEqual(traced);
+      for (const lt of own) {
+        const l = found(meta.laps.find((x) => x.driver === driver && x.lap === lt.lap), `#${driver} lap ${lt.lap}`);
         expect(l.pitOut).toBe(false);
-        expect(l.duration!).toBeLessThanOrEqual(TRACE_RATIO * best.get(driver)!);
+        if (l.duration == null) throw new Error(`#${driver} lap ${lt.lap} has no time`);
+        expect(l.duration).toBeLessThanOrEqual(TRACE_RATIO * found(best.get(driver), `#${driver}'s best`));
         // From line to line: the lap time, and the lap length.
-        expect(lt.t.reduce((a, b) => a + b, 0)).toBe(Math.round(l.duration! * 1000));
-        expect(lt.d.reduce((a, b) => a + b, 0)).toBe(Math.round(p.lapLength! * 10));
+        expect(lt.t.reduce((a, b) => a + b, 0)).toBe(Math.round(l.duration * 1000));
+        expect(lt.d.reduce((a, b) => a + b, 0)).toBe(Math.round(p.lapLength * 10));
         count++;
       }
     }
     // Every driver's best lap with a time has one.
     for (const [driver, time] of best) {
-      const l = meta.laps.find((x) => x.driver === driver && x.duration === time)!;
-      expect(p.traced!.find((t) => t.driver === driver)?.laps).toContain(l.lap);
+      const l = found(meta.laps.find((x) => x.driver === driver && x.duration === time), `#${driver}'s best lap`);
+      expect(p.traced.find((t) => t.driver === driver)?.laps).toContain(l.lap);
     }
     expect(count).toBe(225);
   });

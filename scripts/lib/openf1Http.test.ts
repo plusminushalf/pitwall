@@ -12,7 +12,7 @@ test("pace: a burst at the gap, then no more than the per-minute cap in any 60 s
   // The first 24 come 0.5 s apart; the 25th waits for the first to leave the minute.
   expect(starts.slice(0, 24)).toEqual(Array.from({ length: 24 }, (_, i) => i * 500));
   expect(starts[24]).toBe(60_000);
-  for (let i = FREE_PACE.perMinute; i < starts.length; i++) expect(starts[i]! - starts[i - FREE_PACE.perMinute]!).toBeGreaterThanOrEqual(60_000);
+  for (let i = FREE_PACE.perMinute; i < starts.length; i++) expect(starts[i] - starts[i - FREE_PACE.perMinute]).toBeGreaterThanOrEqual(60_000);
 });
 
 test("query: comparison suffixes are written the way OpenF1 reads them", () => {

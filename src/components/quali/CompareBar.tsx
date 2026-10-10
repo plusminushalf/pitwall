@@ -57,7 +57,7 @@ export function CompareBar({ model, entries }: { model: CompareModel; entries: C
               Ref
             </span>
           ) : (
-            <button
+            <button type="button"
               onClick={() => {
                 const sel = useReplay.getState().selected;
                 useReplay.setState({ selected: [e.driver, ...sel.filter((n) => n !== e.driver)] });
@@ -81,7 +81,7 @@ export function CompareBar({ model, entries }: { model: CompareModel; entries: C
           )}
           {e.loading && <span className="text-[10px] text-zinc-500">loading…</span>}
           {!e.loading && e.lapNo != null && !e.trace && <span className="text-[10px] text-amber-400">no telemetry</span>}
-          <button
+          <button type="button"
             onClick={() => useReplay.getState().toggleSelected(e.driver)}
             className="flex h-5 w-5 items-center justify-center rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
             aria-label={`Remove ${e.info.acronym}`}
@@ -97,7 +97,7 @@ export function CompareBar({ model, entries }: { model: CompareModel; entries: C
           <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">Laps</span>
           <div className="flex overflow-hidden rounded border border-zinc-800 text-xs">
             {presets.map((p) => (
-              <button
+              <button type="button"
                 key={p.id}
                 onClick={() => setPreset(p.id)}
                 className={`px-2 py-0.5 ${preset === p.id ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}

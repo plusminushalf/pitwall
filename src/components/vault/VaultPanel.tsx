@@ -104,7 +104,7 @@ export function VaultPanel() {
         times.push(performance.now() - t0);
       }
       const sorted = [...times].sort((a, b) => a - b);
-      setPing({ last: times.at(-1)!, median: sorted[sorted.length >> 1]!, n: times.length });
+      setPing({ last: times[times.length - 1], median: sorted[sorted.length >> 1], n: times.length });
     } catch (e) {
       setPing({ error: e instanceof Error ? e.message : String(e) });
     } finally {
@@ -170,7 +170,7 @@ export function VaultPanel() {
       </dl>
       {status?.budget && <BudgetSection budget={status.budget} />}
       {status && <LiveSection status={status} ready={state.phase === "ready"} />}
-      <button
+      <button type="button"
         onClick={() => void measure()}
         disabled={busy || state.phase !== "ready"}
         className="mt-3 rounded border border-zinc-700 px-2 py-0.5 font-semibold text-zinc-300 hover:border-zinc-500 hover:text-zinc-100 disabled:opacity-40"
@@ -179,25 +179,25 @@ export function VaultPanel() {
       </button>
       {DEV && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          <button onClick={() => void getLatest()} disabled={state.phase !== "ready"} className={knobButton}>
+          <button type="button" onClick={() => void getLatest()} disabled={state.phase !== "ready"} className={knobButton}>
             get /v1/sessions?session_key=latest
           </button>
-          <button onClick={() => void run("spoil", () => getVault().debug.spoilToken())} disabled={state.phase !== "ready"} className={knobButton} title="Corrupt the vault's in-memory token: the next get gets a real 401 and refreshes">
+          <button type="button" onClick={() => void run("spoil", () => getVault().debug.spoilToken())} disabled={state.phase !== "ready"} className={knobButton} title="Corrupt the vault's in-memory token: the next get gets a real 401 and refreshes">
             Spoil token
           </button>
-          <button onClick={() => void run("refresh", () => getVault().debug.refreshNow())} disabled={state.phase !== "ready"} className={knobButton}>
+          <button type="button" onClick={() => void run("refresh", () => getVault().debug.refreshNow())} disabled={state.phase !== "ready"} className={knobButton}>
             Refresh now
           </button>
-          <button onClick={() => void run("fake 120 s", () => getVault().debug.fakeExpiry(120))} disabled={state.phase !== "ready"} className={knobButton} title="New tokens last 120 s (applies from the next token: click Refresh now)">
+          <button type="button" onClick={() => void run("fake 120 s", () => getVault().debug.fakeExpiry(120))} disabled={state.phase !== "ready"} className={knobButton} title="New tokens last 120 s (applies from the next token: click Refresh now)">
             Fake 120 s tokens
           </button>
-          <button onClick={() => void run("real expiry", () => getVault().debug.fakeExpiry(0))} disabled={state.phase !== "ready"} className={knobButton}>
+          <button type="button" onClick={() => void run("real expiry", () => getVault().debug.fakeExpiry(0))} disabled={state.phase !== "ready"} className={knobButton}>
             Real expiry
           </button>
-          <button onClick={() => void run("503 ×2", () => getVault().debug.failToken(503, 2).then(() => getVault().debug.refreshNow()))} disabled={state.phase !== "ready"} className={knobButton} title="The next two /token calls answer 503, then refresh: watch the backoff (5 s, 10 s) and the recovery">
+          <button type="button" onClick={() => void run("503 ×2", () => getVault().debug.failToken(503, 2).then(() => getVault().debug.refreshNow()))} disabled={state.phase !== "ready"} className={knobButton} title="The next two /token calls answer 503, then refresh: watch the backoff (5 s, 10 s) and the recovery">
             /token 503 ×2
           </button>
-          <button onClick={() => void run("401", () => getVault().debug.failToken(401, 1).then(() => getVault().debug.refreshNow()))} disabled={state.phase !== "ready"} className={knobButton} title="The next /token call answers 401 (password changed), then refresh: the reconnect banner">
+          <button type="button" onClick={() => void run("401", () => getVault().debug.failToken(401, 1).then(() => getVault().debug.refreshNow()))} disabled={state.phase !== "ready"} className={knobButton} title="The next /token call answers 401 (password changed), then refresh: the reconnect banner">
             /token 401
           </button>
         </div>
@@ -328,6 +328,7 @@ function LiveSection({ status, ready }: { status: VaultStatus; ready: boolean })
         </div>
         <div className="flex h-8 items-end gap-px bg-zinc-950" data-testid="vault-strip" role="img" aria-label={`messages per second over the last ${STRIP_SECONDS} seconds`}>
           {stats.perSecond.map((v, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: a fixed-length strip of one-second slots: the slot is the bar
             <div key={i} className={v ? "flex-1 bg-emerald-500" : "flex-1 bg-zinc-800"} style={{ height: v ? `${Math.max(8, (v / peak) * 100)}%` : "1px" }} />
           ))}
         </div>
@@ -378,13 +379,13 @@ function SimSection({ sim, ready }: { sim: SimStatus; ready: boolean }) {
         tokens {sim.tokenS} s{sim.dropEveryMin ? `, drop every ${sim.dropEveryMin} min` : ""}{sim.jitterMs ? `, jitter ${sim.jitterMs} ms` : ""}
       </div>
       <div className="mt-1 flex flex-wrap gap-1.5">
-        <button className={knobButton} disabled={!ready} onClick={() => act("drop", () => getVault().debug.sim("drop"))} title="The simulated broker drops every session: reconnect + gap-fill">
+        <button type="button" className={knobButton} disabled={!ready} onClick={() => act("drop", () => getVault().debug.sim("drop"))} title="The simulated broker drops every session: reconnect + gap-fill">
           Drop now
         </button>
-        <button className={knobButton} disabled={!ready} onClick={() => act("refuse", () => getVault().debug.sim("refuse").then(() => getVault().debug.refreshNow()))} title="The next CONNECT gets CONNACK 5, then a refresh: connection limit reached">
+        <button type="button" className={knobButton} disabled={!ready} onClick={() => act("refuse", () => getVault().debug.sim("refuse").then(() => getVault().debug.refreshNow()))} title="The next CONNECT gets CONNACK 5, then a refresh: connection limit reached">
           CONNACK 5 + refresh
         </button>
-        <button className={knobButton} disabled={!ready} onClick={() => act("freeze 20 s", () => getVault().debug.freeze(20_000))} title="Freeze this tab's vault frame for 20 s: if it leads, a visible follower steals the lead after ~10 s">
+        <button type="button" className={knobButton} disabled={!ready} onClick={() => act("freeze 20 s", () => getVault().debug.freeze(20_000))} title="Freeze this tab's vault frame for 20 s: if it leads, a visible follower steals the lead after ~10 s">
           Freeze this tab 20 s
         </button>
       </div>
@@ -410,6 +411,7 @@ function CoverageStrips({ sim, topics }: { sim: SimStatus | undefined; topics: L
           <div key={t} className="flex items-center gap-1" data-testid={`vault-coverage-${t}`}>
             <span className="w-16 shrink-0 truncate font-mono text-[9px] text-zinc-500">{t}</span>
             <svg className="h-2.5 flex-1 bg-zinc-950" viewBox={`0 0 ${COVERAGE_SECONDS} 10`} preserveAspectRatio="none" role="img" aria-label={`${t}: messages per second of message time`}>
+              {/* biome-ignore lint/suspicious/noArrayIndexKey: a fixed-length row of one-second slots: the slot (its x) is the bar */}
               {row.map((v, i) => (v ? <rect key={i} x={i} y={10 - Math.max(2, (v / peak) * 10)} width={1} height={Math.max(2, (v / peak) * 10)} className="fill-sky-500" /> : null))}
             </svg>
           </div>

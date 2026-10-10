@@ -147,9 +147,10 @@ async function dumpStorage(caps: { file: number; total: number }): Promise<Recor
   out.sessionStorage = ser(Object.fromEntries(Object.entries(sessionStorage)));
 
   for (const info of await indexedDB.databases()) {
-    if (!info.name) continue;
+    const name = info.name;
+    if (!name) continue;
     const db = await new Promise<IDBDatabase>((res, rej) => {
-      const r = indexedDB.open(info.name!);
+      const r = indexedDB.open(name);
       r.onsuccess = () => res(r.result);
       r.onerror = () => rej(r.error);
     });

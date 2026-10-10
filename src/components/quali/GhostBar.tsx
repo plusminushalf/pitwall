@@ -1,6 +1,6 @@
 import { useRef } from "react";
 import { Icon } from "../../widgetkit/ui/Icon";
-import { deltaAt, distanceAtTime } from "../../engine/compare";
+import { deltaAt, distanceAtTime, type DecodedLap } from "../../engine/compare";
 import type { CompareEntry } from "../../hooks/useCompare";
 import { usePhone } from "../../hooks/usePhone";
 import { GHOST_SPEEDS, useQuali } from "../../qualiStore";
@@ -23,16 +23,20 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
   const phone = usePhone();
   const barRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
-  const withTrace = entries.filter((e) => e.trace);
+  const withTrace = entries.filter((e): e is CompareEntry & { trace: DecodedLap } => e.trace != null);
   const ref = withTrace[0]?.trace ?? null;
   const span = Math.max(1, maxDuration);
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), span) / span) * 100}%`;
   const timeAt = (clientX: number) => {
-    const r = barRef.current!.getBoundingClientRect();
+    const el = barRef.current;
+    if (!el) throw new Error("timeAt: the scrubber isn't mounted");
+    const r = el.getBoundingClientRect();
     return Math.min(Math.max((clientX - r.left) / r.width, 0), 1) * span;
   };
   const refLap = withTrace[0]?.lap;
-  const sectorTicks = refLap?.sectors[0] != null ? [refLap.sectors[0], refLap.sectors[1] != null ? refLap.sectors[0] + refLap.sectors[1] : null] : [];
+  const s1 = refLap?.sectors[0];
+  const s2 = refLap?.sectors[1];
+  const sectorTicks = s1 != null ? [{ label: "S2", at: s1 }, ...(s2 != null ? [{ label: "S3", at: s1 + s2 }] : [])] : [];
 
   // The scrubber: pointer events (so a finger drags it too), and touch-none so that drag never scrolls or goes
   // Back. On touch the hit area grows to 44 px; the track itself stays where it is.
@@ -58,15 +62,13 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
       <div className="absolute inset-x-0 top-4 h-1.5 overflow-hidden rounded bg-zinc-800 pointer-coarse:top-5">
         <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
       </div>
-      {sectorTicks.map((s, i) =>
-        s == null ? null : (
-          <div key={i} className="absolute top-3 h-3.5 w-px bg-zinc-500 pointer-coarse:top-4" style={{ left: pct(s * 1000) }}>
-            <span className="absolute left-1 top-3 text-[9px] text-zinc-500">S{i + 2}</span>
-          </div>
-        ),
-      )}
+      {sectorTicks.map((s) => (
+        <div key={s.label} className="absolute top-3 h-3.5 w-px bg-zinc-500 pointer-coarse:top-4" style={{ left: pct(s.at * 1000) }}>
+          <span className="absolute left-1 top-3 text-[9px] text-zinc-500">{s.label}</span>
+        </div>
+      ))}
       {withTrace.map((e) => (
-        <div key={e.driver} className="absolute top-2 h-5 w-0.5 -translate-x-1/2 rounded pointer-coarse:top-3" style={{ left: pct(e.trace!.duration), background: e.style.color }} title={`${e.info.acronym} finishes the lap`} />
+        <div key={e.driver} className="absolute top-2 h-5 w-0.5 -translate-x-1/2 rounded pointer-coarse:top-3" style={{ left: pct(e.trace.duration), background: e.style.color }} title={`${e.info.acronym} finishes the lap`} />
       ))}
       <div className="pointer-events-none absolute top-2.5 h-4 w-1 -translate-x-1/2 rounded bg-white shadow pointer-coarse:top-3.5" style={{ left: pct(t) }} />
     </div>
@@ -79,10 +81,10 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
       {/* A phone's row wraps: transport, speeds and the clock first, the gaps under them when all don't fit 390 px. */}
       <div className={phone ? "flex flex-wrap items-center gap-x-3 gap-y-1" : "contents"}>
         <div className="flex items-center gap-1">
-          <button onClick={() => seekGhost(0)} className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white pointer-coarse:h-11 pointer-coarse:w-11" title="Back to the line (Home)" aria-label="Back to the line">
+          <button type="button" onClick={() => seekGhost(0)} className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white pointer-coarse:h-11 pointer-coarse:w-11" title="Back to the line (Home)" aria-label="Back to the line">
             <Icon name="previous" size={14} />
           </button>
-          <button
+          <button type="button"
             onClick={() => useReplay.getState().togglePlay()}
             disabled={!withTrace.length}
             className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11 ${playing ? "bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"}`}
@@ -93,20 +95,20 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
           </button>
         </div>
         {/* The race timeline's segmented control: the play button stays the one white button. */}
-        <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label="Ghost speed">
+        <fieldset className="flex min-w-0 rounded-md bg-zinc-900 p-0.5" aria-label="Ghost speed">
           {GHOST_SPEEDS.map((s) => (
-            <button key={s} onClick={() => setGhostSpeed(s)} aria-pressed={s === speed} className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors pointer-coarse:py-2.5 ${s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}>
+            <button type="button" key={s} onClick={() => setGhostSpeed(s)} aria-pressed={s === speed} className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors pointer-coarse:py-2.5 ${s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}>
               {s < 1 ? `${s}` : s}×
             </button>
           ))}
-        </div>
+        </fieldset>
 
         {!phone && scrubber}
 
         <div className={`text-right text-sm tabular-nums text-zinc-200 ${phone ? "ml-auto" : "w-16"}`}>{clockText(t)}</div>
         <div className={`flex items-center gap-2 text-[11px] tabular-nums ${phone ? "" : "min-w-40"}`}>
           {withTrace.slice(1).map((e) => {
-            const lap = e.trace!;
+            const lap = e.trace;
             const gap = !ref || t <= 0 ? null : t >= lap.duration ? (lap.duration - ref.duration) / 1000 : deltaAt(ref, lap, distanceAtTime(lap, t));
             return (
               <span key={e.driver} className="flex items-center gap-1" title={`${e.info.acronym}'s gap to ${withTrace[0].info.acronym} at this point of the lap`}>

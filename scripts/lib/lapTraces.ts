@@ -198,10 +198,9 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   // (2026 Monza: 307 km/h, 7th gear, full throttle straight through the first chicane). Such samples
   // are dropped, and the gap they leave is bridged below.
   const frozenCache = new Map<number, Uint8Array>();
-  function frozenOf(n: number): Uint8Array {
+  function frozenOf(n: number, c: CleanTelemetry["car"]): Uint8Array {
     let mask = frozenCache.get(n);
     if (mask) return mask;
-    const c = carOf(n)!;
     mask = new Uint8Array(c.t.length);
     const same = (a: number, b: number) =>
       c.speed[a] === c.speed[b] && c.rpm[a] === c.rpm[b] && c.gear[a] === c.gear[b] && c.throttle[a] === c.throttle[b] && c.brake[a] === c.brake[b];
@@ -216,6 +215,9 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   }
 
   interface Integrated {
+    lap: Lap;
+    end: number; // the lap's end
+    car: CleanTelemetry["car"];
     t: number[]; // ms since t0: the lap's good car samples, plus exact samples on the line at both ends
     v: number[]; // km/h
     gap: boolean[]; // gap[k]: no car data between samples k - 1 and k (dropout or frozen feed)
@@ -225,7 +227,7 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   function integrate(l: Lap): Integrated | null {
     const car = carOf(l.driver);
     if (!car || l.end == null || car.t.length < 3) return null;
-    const frozen = frozenOf(l.driver);
+    const frozen = frozenOf(l.driver, car);
     let before = lastAtOrBefore(car.t, l.start);
     while (before >= 0 && frozen[before]) before--;
     if (before < 0) return null;
@@ -242,10 +244,11 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
     if (after < 0 || !inside.length) return null;
     const vAt = (t: number, a: number, b: number) => car.speed[a] + ((t - car.t[a]) / (car.t[b] - car.t[a] || 1)) * (car.speed[b] - car.speed[a]);
     const t = [l.start, ...inside.map((i) => car.t[i]), l.end];
-    const v = [vAt(l.start, before, inside[0]), ...inside.map((i) => car.speed[i]), vAt(l.end, inside.at(-1)!, after)];
+    const last = inside[inside.length - 1];
+    const v = [vAt(l.start, before, inside[0]), ...inside.map((i) => car.speed[i]), vAt(l.end, last, after)];
     const gap = t.map((x, k) => k > 0 && x - t[k - 1] > GAP_MS);
     // Around the line the neighbouring samples count too.
-    const edgeGaps = [inside[0], after].map((i, k) => car.t[i] - car.t[k === 0 ? before : inside.at(-1)!]);
+    const edgeGaps = [inside[0], after].map((i, k) => car.t[i] - car.t[k === 0 ? before : last]);
     let gapTime = 0;
     for (let k = 1; k < t.length; k++) {
       const dt = t[k] - t[k - 1];
@@ -255,7 +258,7 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
     if (Math.max(...edgeGaps) > TRACE_MAX_GAP_MS || gapTime > MAX_GAP_SHARE * (l.end - l.start)) return null;
     const D = [0];
     for (let k = 1; k < t.length; k++) D.push(D[k - 1] + (((v[k - 1] + v[k]) / 2 / 3.6) * (t[k] - t[k - 1])) / 1000);
-    return { t, v, gap, D };
+    return { lap: l, end: l.end, car, t, v, gap, D };
   }
 
   let filledGaps = 0;
@@ -297,7 +300,10 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
       const span = anchors[j + 1][1] - anchors[j][1];
       let good = 0;
       let missing = 0;
-      for (let k = from + 1; k <= to; k++) (gg[k] ? (missing += inc[k]) : (good += inc[k]));
+      for (let k = from + 1; k <= to; k++) {
+        if (gg[k]) missing += inc[k];
+        else good += inc[k];
+      }
       let goodScale = good + missing > 0 ? span / (good + missing) : 0;
       let gapScale = goodScale;
       if (missing > 0 && good < span && (span - good) / missing >= 0.25 && (span - good) / missing <= 2.5) {
@@ -313,12 +319,10 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   }
 
   const integrated = new Map<string, Integrated>();
-  const lapByKey = new Map<string, Lap>();
   let dropouts = 0;
   for (const l of laps) {
     if (l.duration == null || l.end == null) continue;
     const key = `${l.driver}:${l.lap}`;
-    lapByKey.set(key, l);
     const it = integrate(l);
     if (it) integrated.set(key, it);
     else dropouts++;
@@ -329,18 +333,18 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   const lengths: number[] = [];
   const f1s: number[] = [];
   const f2s: number[] = [];
-  const sectorTimes = (l: Lap): [number | null, number | null] => {
+  const sectorTimes = (l: Lap, end: number): [number | null, number | null] => {
     const [s1, s2] = l.sectors;
     const a = s1 != null ? l.start + s1 * 1000 : null;
     const b = s1 != null && s2 != null ? l.start + (s1 + s2) * 1000 : null;
-    return [a != null && a < l.end! ? a : null, b != null && b < l.end! ? b : null];
+    return [a != null && a < end ? a : null, b != null && b < end ? b : null];
   };
-  for (const [key, it] of integrated) {
-    const l = lapByKey.get(key)!;
+  for (const it of integrated.values()) {
+    const l = it.lap;
     if (!measure(l) || it.gap.some(Boolean)) continue;
-    const total = it.D.at(-1)!;
+    const total = it.D[it.D.length - 1];
     lengths.push(total);
-    const [a, b] = sectorTimes(l);
+    const [a, b] = sectorTimes(l, it.end);
     if (a != null) f1s.push(lerpAt(it.t, it.D, a) / total);
     if (b != null) f2s.push(lerpAt(it.t, it.D, b) / total);
   }
@@ -353,18 +357,18 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   const spread: number[] = []; // integrated lap distance / lap length - 1 (complete laps)
   for (const [key, it] of integrated) {
     if (!Number.isFinite(lapLength)) break;
-    const l = lapByKey.get(key)!;
-    const [a, b] = sectorTimes(l);
+    const l = it.lap;
+    const [a, b] = sectorTimes(l, it.end);
     const anchors: [number, number][] = [[l.start, 0]];
     if (a != null && Number.isFinite(sectorDistances[0])) anchors.push([a, sectorDistances[0]]);
     if (b != null && Number.isFinite(sectorDistances[1])) anchors.push([b, sectorDistances[1]]);
-    anchors.push([l.end!, lapLength]);
-    if (!it.gap.some(Boolean)) spread.push(it.D.at(-1)! / lapLength - 1);
+    anchors.push([it.end, lapLength]);
+    if (!it.gap.some(Boolean)) spread.push(it.D[it.D.length - 1] / lapLength - 1);
     const { t: ts, v: vs, d } = align(it, anchors);
     d[d.length - 1] = lapLength;
     for (let k = 1; k < d.length; k++) d[k] = Math.max(d[k], d[k - 1]);
 
-    const car = carOf(l.driver)!;
+    const { car } = it;
     const loc = locOf(l.driver);
     // Step channels (brake, gear) hold their last value; the line samples take the neighbour's.
     const step = (arr: number[], t: number) => arr[Math.max(0, lastAtOrBefore(car.t, t))];
@@ -379,8 +383,12 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
       x: ts.map((t) => (loc?.t.length ? Math.round(lerpAt(loc.t, loc.x, t)) : 0)),
       y: ts.map((t) => (loc?.t.length ? Math.round(lerpAt(loc.t, loc.y, t)) : 0)),
     };
-    if (!traces.has(l.driver)) traces.set(l.driver, { driver: l.driver, laps: [] });
-    traces.get(l.driver)!.laps.push(trace);
+    let tr = traces.get(l.driver);
+    if (!tr) {
+      tr = { driver: l.driver, laps: [] };
+      traces.set(l.driver, tr);
+    }
+    tr.laps.push(trace);
     traced.add(key);
   }
   for (const tr of traces.values()) tr.laps.sort((a, b) => a.lap - b.lap);
@@ -391,7 +399,7 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   const oy = [...outline.y, outline.y[0]];
   const os = [0];
   for (let i = 1; i < ox.length; i++) os.push(os[i - 1] + Math.hypot(ox[i] - ox[i - 1], oy[i] - oy[i - 1]));
-  const outlineLength = os.at(-1)! / 10; // m
+  const outlineLength = os[os.length - 1] / 10; // m
   const scale = lapLength / outlineLength;
   function project(x: number, y: number, near: number): number {
     // Nearest outline point within ±400 m of where the aligned distance says the car is.
@@ -418,7 +426,10 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
   for (const tr of traces.values()) {
     for (const lt of tr.laps) {
       let acc = 0;
-      const d = lt.d.map((x) => (acc += x) / 10);
+      const d = lt.d.map((x) => {
+        acc += x;
+        return acc / 10;
+      });
       const diffs: number[] = [];
       d.forEach((dist, k) => {
         const s = project(lt.x[k], lt.y[k], dist);

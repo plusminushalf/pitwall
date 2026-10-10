@@ -14,11 +14,11 @@ const SMALL_LABEL = "text-[11px] font-semibold uppercase tracking-wider";
 export function ColumnGuides({ columns, width, strong }: { columns: number; width: number; strong: boolean }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
-      {Array.from({ length: columns - 1 }, (_, i) => (
+      {Array.from({ length: columns - 1 }, (_, i) => i + 1).map((edge) => (
         <div
-          key={i}
+          key={edge}
           className={`absolute inset-y-0 w-px transition-colors ${strong ? "bg-zinc-100/[0.09]" : "bg-zinc-100/[0.05]"}`}
-          style={{ left: Math.round(((i + 1) * width) / columns) }}
+          style={{ left: Math.round((edge * width) / columns) }}
         />
       ))}
     </div>
@@ -29,8 +29,8 @@ export function ColumnGuides({ columns, width, strong }: { columns: number; widt
 export function RowGuides({ height }: { height: number }) {
   return (
     <div className="pointer-events-none absolute inset-0 z-[5]" aria-hidden>
-      {Array.from({ length: Math.max(Math.ceil(height / ROW) - 1, 0) }, (_, i) => (
-        <div key={i} className="absolute inset-x-0 h-px bg-zinc-100/[0.09]" style={{ top: (i + 1) * ROW }} />
+      {Array.from({ length: Math.max(Math.ceil(height / ROW) - 1, 0) }, (_, i) => i + 1).map((line) => (
+        <div key={line} className="absolute inset-x-0 h-px bg-zinc-100/[0.09]" style={{ top: line * ROW }} />
       ))}
     </div>
   );
@@ -150,6 +150,7 @@ export function WidgetChrome({
           <span className={`h-6 ${side === "left" ? "border-l-2" : "border-r-2"} ${handle("width")}`} />
         </div>
       ))}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: a mouse-only grip like the width grips beside it; the grid has no keyboard resizing, and double-click is the grip's own shortcut */}
       <div
         title="Drag to change the height · double-click to fit the contents"
         onPointerDown={(e) => {

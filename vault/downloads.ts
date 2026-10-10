@@ -131,7 +131,7 @@ export async function runDownloads(h: DownloadHelpers): Promise<void> {
     await h.waitUp(h.APP);
   }
   if (await h.up(`${h.VAULT}/frame.html`)) {
-    check(`downloads need :5174 free (this run starts the production vault there and stops it mid-download)`, false, "something else is serving it");
+    check("downloads need :5174 free (this run starts the production vault there and stops it mid-download)", false, "something else is serving it");
     return;
   }
   execSync("bun run vault:build", { cwd: h.repo, stdio: ["ignore", "ignore", "inherit"] });

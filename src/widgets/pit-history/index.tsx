@@ -25,8 +25,8 @@ function PitHistory() {
   const step = span > 16 ? 4 : span > 8 ? 2 : 1;
   const ticks = shown.length ? Array.from({ length: Math.floor(span / step) + 1 }, (_, i) => lo + i * step).map((v) => ({ value: v, text: `${v}` })) : [];
   const quickest = data.races
-    .flatMap((r) => r.pits.filter((p) => p.stationary != null).map((p) => ({ race: r, p })))
-    .sort((a, b) => a.p.stationary! - b.p.stationary!)[0];
+    .flatMap((r) => r.pits.flatMap((p) => (p.stationary != null ? [{ race: r, p, stationary: p.stationary }] : [])))
+    .sort((a, b) => a.stationary - b.stationary)[0];
   const code = (r: PastRace, n: number) => r.drivers.find((d) => d.number === n)?.code ?? `#${n}`;
   return (
     <CircuitFrame
@@ -35,7 +35,7 @@ function PitHistory() {
       done={
         quickest && (
           <span className="tabular-nums text-zinc-300" title="The shortest time stationary of these races (timed from 2024)">
-            Quickest stop {quickest.p.stationary!.toFixed(1)} s · {code(quickest.race, quickest.p.driver)} {quickest.race.year}
+            Quickest stop {quickest.stationary.toFixed(1)} s · {code(quickest.race, quickest.p.driver)} {quickest.race.year}
           </span>
         )
       }
@@ -50,9 +50,9 @@ function PitHistory() {
             <div className="relative h-4">
               <div className="absolute inset-x-0 top-1/2 h-px bg-zinc-800" />
               {Number.isFinite(m) && <div className="absolute top-0 h-4 w-0.5 -translate-x-1/2 rounded-full bg-zinc-50" style={{ left: `${x(m) * 100}%` }} title={`Median under green: ${m.toFixed(1)} s`} />}
-              {stops.map((p, i) => (
+              {stops.map((p) => (
                 <div
-                  key={i}
+                  key={`${p.driver}-${p.lap}`}
                   className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full ring-2 ring-zinc-950"
                   style={{ left: `${x(p.lane) * 100}%`, background: p.neutral ? NEUTRAL : GREEN }}
                   title={`${code(race, p.driver)}, lap ${p.lap}: ${p.lane.toFixed(1)} s in the pit lane${p.stationary != null ? `, ${p.stationary.toFixed(1)} s stationary` : ""}${p.neutral ? ", under a safety car" : ""}`}

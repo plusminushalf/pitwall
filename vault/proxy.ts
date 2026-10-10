@@ -49,9 +49,11 @@ export function parseQuery(search: string): Params | null {
     }
     const m = /^([a-z_]+)(>=|<=|>|<|=)(.*)$/.exec(raw);
     if (!m) return null;
-    const key = m[2] === "=" ? m[1]! : `${m[1]}${m[2]}`;
+    const [, name, op, value] = m;
+    if (name === undefined || value === undefined) return null;
+    const key = op === "=" ? name : `${name}${op}`;
     if (key in out) return null;
-    out[key] = m[3]!;
+    out[key] = value;
   }
   return validParams(out) ? out : null;
 }

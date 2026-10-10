@@ -72,7 +72,7 @@ const compoundColor = (c: string) => (COMPOUND[c] ?? COMPOUND.UNKNOWN).color;
 const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase();
 
 /** The smallest step from `steps` that puts at least `minPx` between ticks. */
-const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? steps.at(-1)!;
+const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? Math.max(...steps);
 
 /** 92.5 -> "1:32.5" (decimals 1) or "1:32" (decimals 0). */
 function tickTime(seconds: number, decimals: number): string {
@@ -352,7 +352,7 @@ function StintPace() {
       const info = drivers.find((d) => d.number === n);
       if (!info) return;
       // Hollow: a teammate earlier in the session's order is shown too.
-      const hollow = shown.some((m) => m !== n && drivers.find((d) => d.number === m)?.team === info.team && order.get(m)! < order.get(n)!);
+      const hollow = shown.some((m) => m !== n && drivers.find((d) => d.number === m)?.team === info.team && (order.get(m) ?? Infinity) < (order.get(n) ?? Infinity));
       const points = pacePoints(laps[i], stints[i], neutral);
       out.push({ n, info, team: teamColor(info.teamColour), hollow, points, fits: stintFits(points, stints[i]) });
     });

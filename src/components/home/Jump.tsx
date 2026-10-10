@@ -85,7 +85,7 @@ export function Jump({ children }: { children: ReactNode }) {
 
   return (
     <>
-      <div role="search" className="relative">
+      <search className="relative block">
         <label htmlFor="jump" className="sr-only">
           Jump to a session
         </label>
@@ -109,7 +109,7 @@ export function Jump({ children }: { children: ReactNode }) {
           }}
           onKeyDown={onKeyDown}
           placeholder={phone ? "Jump: monza 24 quali, spa race, r15" : "Jump to a session: monza 24 quali, spa race, japan fp2, r15"}
-          className={`peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-2 focus:outline-zinc-400`}
+          className="peer h-12 w-full rounded-md border border-zinc-800 bg-zinc-900 pl-11 pr-24 text-base text-zinc-50 placeholder:text-zinc-400 hover:border-zinc-700 focus:border-zinc-500 focus:outline-2 focus:outline-zinc-400"
         />
         {coarse ? (
           searching && (
@@ -135,7 +135,7 @@ export function Jump({ children }: { children: ReactNode }) {
             )}
           </span>
         )}
-      </div>
+      </search>
 
       {searching ? (
         <section aria-label="Matching sessions" className="mt-6">
@@ -149,7 +149,7 @@ export function Jump({ children }: { children: ReactNode }) {
             <p className="mb-3 flex flex-wrap items-center gap-2 px-3">
               <span className={LABEL}>{circuits.length === 1 ? "Circuit" : "Circuits"}</span>
               {circuits.map((c) => (
-                <button
+                <button type="button"
                   key={c}
                   onClick={(e) => {
                     e.currentTarget.blur();

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useReplay } from "../store";
 
 /** Whether the spoiler prompt is up: a race opened and no-spoiler mode not chosen for it yet. */
@@ -12,6 +12,11 @@ export function SpoilerPrompt() {
   const open = useSpoilerPrompt();
   const meta = useReplay((s) => s.session?.meta);
   const [remember, setRemember] = useState(false);
+  const hideRef = useRef<HTMLButtonElement>(null);
+  const shown = open && meta != null;
+  useEffect(() => {
+    if (shown) hideRef.current?.focus();
+  }, [shown]);
   if (!open || !meta) return null;
 
   const choose = (hide: boolean) => {
@@ -35,10 +40,10 @@ export function SpoilerPrompt() {
             : "The timeline will only show what you've watched so far. Safety cars, retirements, penalties and the finish stay hidden until you get to them."}
         </p>
         <div className="mt-4 flex gap-2 max-md:flex-col">
-          <button autoFocus onClick={() => choose(true)} className="flex-1 rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white pointer-coarse:min-h-11">
+          <button type="button" ref={hideRef} onClick={() => choose(true)} className="flex-1 rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white pointer-coarse:min-h-11">
             Hide spoilers
           </button>
-          <button
+          <button type="button"
             onClick={() => choose(false)}
             className="flex-1 rounded border border-zinc-700 px-3 py-1.5 text-sm font-semibold text-zinc-200 hover:border-zinc-500 hover:text-white pointer-coarse:min-h-11"
           >

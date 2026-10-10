@@ -33,7 +33,10 @@ export function useCoverage(sim: SimStatus | undefined): Coverage {
     const buckets = new Map<LiveTopic, Map<number, number>>();
     const off = getVault().onData((topic, messages) => {
       let b = buckets.get(topic);
-      if (!b) buckets.set(topic, (b = new Map()));
+      if (!b) {
+        b = new Map();
+        buckets.set(topic, b);
+      }
       for (const m of messages) {
         const t = dateOf(m);
         if (Number.isNaN(t)) continue;

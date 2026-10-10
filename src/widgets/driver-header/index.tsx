@@ -80,6 +80,7 @@ function FocusChips({ drivers, selected, focused, onFocus }: { drivers: readonly
         const active = n === focused;
         return (
           <button
+            type="button"
             key={n}
             onClick={() => onFocus(active ? null : n)}
             aria-pressed={active}
@@ -132,6 +133,7 @@ function DriverHeader() {
           <Position s={s} />
           {canClear && (
             <button
+              type="button"
               onClick={clear}
               className={`${TAP_CLASS} -mr-1 flex h-5 w-5 shrink-0 items-center justify-center self-start rounded text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100`}
               title="Clear selection (show everyone on the map and the leader here)"

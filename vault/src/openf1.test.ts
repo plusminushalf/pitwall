@@ -48,18 +48,20 @@ describe("parseTokenResponse", () => {
 
 describe("requestToken", () => {
   test("posts a form body, no cookies, no referrer", async () => {
-    let seen: { url: string; init: Parameters<Fetch>[1] } | null = null;
+    const seen: { url: string; init: Parameters<Fetch>[1] }[] = [];
     const fetch: Fetch = async (url, init) => {
-      seen = { url, init };
+      seen.push({ url, init });
       return { status: 200, text: async () => JSON.stringify({ access_token: JWT, token_type: "bearer", expires_in: "3600" }) };
     };
     const r = await requestToken(fetch, "a@b.co", "p&ss=w rd", () => 5);
     expect(r.ok).toBe(true);
-    expect(seen!.url).toBe(TOKEN_URL);
-    expect(seen!.init.method).toBe("POST");
-    expect(seen!.init.headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
-    expect(Object.fromEntries(new URLSearchParams(seen!.init.body))).toEqual({ username: "a@b.co", password: "p&ss=w rd" });
-    expect(seen!.init.credentials).toBe("omit");
+    const [req] = seen;
+    if (!req) throw new Error("no request");
+    expect(req.url).toBe(TOKEN_URL);
+    expect(req.init.method).toBe("POST");
+    expect(req.init.headers["Content-Type"]).toBe("application/x-www-form-urlencoded");
+    expect(Object.fromEntries(new URLSearchParams(req.init.body))).toEqual({ username: "a@b.co", password: "p&ss=w rd" });
+    expect(req.init.credentials).toBe("omit");
   });
   test("a failed fetch is a network error, without the password in it", async () => {
     const r = await requestToken(async () => {
@@ -73,7 +75,15 @@ describe("requestToken", () => {
   });
   test("expiry counts from when the request was sent", async () => {
     let t = 1000;
-    const r = await requestToken(async () => ((t = 9000), { status: 200, text: async () => JSON.stringify({ access_token: JWT, expires_in: "60" }) }), "a@b.co", "x", () => t);
+    const r = await requestToken(
+      async () => {
+        t = 9000;
+        return { status: 200, text: async () => JSON.stringify({ access_token: JWT, expires_in: "60" }) };
+      },
+      "a@b.co",
+      "x",
+      () => t,
+    );
     expect(r.ok && r.token.expiresAt).toBe(1000 + 60_000);
   });
 });

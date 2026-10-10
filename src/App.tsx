@@ -29,6 +29,7 @@ function LoadingScreen() {
         <div className="max-w-lg text-center [overflow-wrap:anywhere]">
           <p className="text-red-400">{error}</p>
           <button
+            type="button"
             onClick={() => useReplay.getState().goHome()}
             className="mt-3 rounded border border-zinc-700 px-2.5 py-1 text-xs font-semibold text-zinc-200 hover:border-zinc-500 hover:text-white"
           >

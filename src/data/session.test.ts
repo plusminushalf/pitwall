@@ -4,7 +4,10 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import type { DriverTelemetry, SessionMeta } from "../types";
+import { must } from "../lib/must";
 import { appendTelemetry, buildSession, withMeta, type DriverData, type Session } from "./session";
+
+const driverIn = (s: Session, n: number) => must(s.drivers.get(n), `#${n}`);
 
 const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
 const available = existsSync(`${dir}meta.json`);
@@ -70,7 +73,7 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
 
   test("a snapshot plus streamed chunks equals the whole session", () => {
     const cut = meta.lightsOut + 20 * 60_000;
-    const late = meta.drivers.at(-1)!.number; // no samples in the snapshot: joins mid-stream
+    const late = must(meta.drivers.at(-1)).number; // no samples in the snapshot: joins mid-stream
     let s = buildSession(
       meta,
       decoded.filter((d) => d.tel.driver !== late).map((d) => window(d, -Infinity, cut)),
@@ -99,7 +102,7 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
     expect(replaced).toBe(1); // only when the late driver's first samples arrived
     expect(s.meta).toBe(first.meta);
     expect(s.driverNumbers.sort((a, b) => a - b)).toEqual(full.driverNumbers.sort((a, b) => a - b));
-    for (const n of full.driverNumbers) expect(columns(s.drivers.get(n)!)).toEqual(columns(full.drivers.get(n)!));
+    for (const n of full.driverNumbers) expect(columns(driverIn(s, n))).toEqual(columns(driverIn(full, n)));
     // Capacity doubling: a handful of reallocations for thousands of appends.
     expect(buffers.size).toBeLessThan(12);
   });
@@ -109,9 +112,9 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
     const s = buildSession(meta, [window(d, -Infinity, meta.lightsOut)]);
     const chunk = window(d, meta.lightsOut, meta.lightsOut + 10_000);
     appendTelemetry(s, [chunk]);
-    const once = columns(s.drivers.get(d.tel.driver)!);
+    const once = columns(driverIn(s, d.tel.driver));
     appendTelemetry(s, [chunk, window(d, meta.lightsOut + 5_000, meta.lightsOut + 10_000)]);
-    expect(columns(s.drivers.get(d.tel.driver)!)).toEqual(once);
+    expect(columns(driverIn(s, d.tel.driver))).toEqual(once);
     const ts = once.loc[0];
     expect(ts.every((t, i) => i === 0 || t > ts[i - 1])).toBe(true);
   });
@@ -120,13 +123,13 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
     const d = decoded[0];
     const s = buildSession(meta, [window(d, -Infinity, meta.lightsOut)]);
     appendTelemetry(s, [window(d, meta.lightsOut, meta.lightsOut + 2_000)]);
-    const before = s.drivers.get(d.tel.driver)!.loc;
+    const before = driverIn(s, d.tel.driver).loc;
     const len = before.t.length;
     const last = before.t[len - 1];
     appendTelemetry(s, [window(d, meta.lightsOut + 2_000, meta.lightsOut + 4_000)]);
     expect(before.t.length).toBe(len);
     expect(before.t[len - 1]).toBe(last);
-    expect(s.drivers.get(d.tel.driver)!.loc.t.length).toBeGreaterThan(len);
+    expect(driverIn(s, d.tel.driver).loc.t.length).toBeGreaterThan(len);
   });
 
   test("withMeta rebuilds timing from the new meta and reuses the decoded telemetry", () => {
@@ -146,8 +149,8 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
     expect(next.meta.track).toBe(s.meta.track); // unchanged track keeps its identity
     expect(next.lapStartTimes.length).toBe(11);
     for (const n of s.driverNumbers) {
-      const a = s.drivers.get(n)!;
-      const b = next.drivers.get(n)!;
+      const a = driverIn(s, n);
+      const b = driverIn(next, n);
       expect(b.loc).toBe(a.loc);
       expect(b.car).toBe(a.car);
       expect(b.laps.every((l) => l.lap <= 10)).toBe(true);
@@ -156,15 +159,15 @@ describe.skipIf(!available)("live session helpers (Baku 2026)", () => {
     const moved = withMeta(next, { ...partial, track: { ...partial.track, rotation: partial.track.rotation + 90 } });
     expect(moved.meta.track).not.toBe(next.meta.track);
     // Growing the new session leaves the old one as it was.
-    const lenBefore = s.drivers.get(s.driverNumbers[0])!.loc.t.length;
+    const lenBefore = driverIn(s, s.driverNumbers[0]).loc.t.length;
     appendTelemetry(next, decoded.map((d) => window(d, cut, cut + 30_000)));
-    expect(s.drivers.get(s.driverNumbers[0])!.loc.t.length).toBe(lenBefore);
-    expect(next.drivers.get(s.driverNumbers[0])!.loc.t.length).toBeGreaterThan(lenBefore);
+    expect(driverIn(s, s.driverNumbers[0]).loc.t.length).toBe(lenBefore);
+    expect(driverIn(next, s.driverNumbers[0]).loc.t.length).toBeGreaterThan(lenBefore);
   });
 
   test("buildSession groups per-driver timing exactly like filtering the meta", () => {
     for (const n of full.driverNumbers) {
-      const d = full.drivers.get(n)!;
+      const d = driverIn(full, n);
       expect(d.laps).toEqual(meta.laps.filter((l) => l.driver === n).sort((a, b) => a.lap - b.lap));
       expect(d.stints).toEqual(meta.stints.filter((s) => s.driver === n).sort((a, b) => a.stint - b.stint));
       expect(d.pits).toEqual(meta.pits.filter((p) => p.driver === n));

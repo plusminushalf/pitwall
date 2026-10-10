@@ -52,7 +52,10 @@ function blankNonImports(code: string): string {
         out += c;
         i++;
         blank(j);
-        if (i < code.length) (out += code[i]), i++;
+        if (i < code.length) {
+          out += code[i];
+          i++;
+        }
       }
     } else {
       out += c;

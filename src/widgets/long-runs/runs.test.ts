@@ -4,6 +4,12 @@
 import type { NeutralPeriod } from "widget-kit";
 import { byCompound, degText, listRows, longRuns, pinAt, pinFor, PIN_LEAD_MS, type LongRun, type PinnedRun, type RunLap, type RunStint } from "./runs";
 
+/** The value, or the test fails here. */
+function must<T>(v: T | null | undefined): T {
+  if (v == null) throw new Error("expected a value");
+  return v;
+}
+
 /** A run from the garage: its compound, the set's age, and its laps ("o" the out-lap, null untimed: the in-lap). */
 type Spec = { compound: string; age?: number; laps: (number | "o" | null)[] };
 
@@ -72,7 +78,7 @@ describe("long runs", () => {
     const { laps } = session(specs);
     // Three slow laps in a row: two runs of three laps, neither a long run.
     expect(runsOf(specs)).toEqual([]);
-    const vsc: NeutralPeriod = { status: "VSC", start: laps[4].start + 10_000, end: laps[6].end! - 10_000 };
+    const vsc: NeutralPeriod = { status: "VSC", start: laps[4].start + 10_000, end: must(laps[6].end) - 10_000 };
     expect(runsOf(specs, [vsc])[0]).toMatchObject({ laps: [2, 3, 4, 8, 9, 10], skipped: 3 });
     // Still out: every lap from its start on is touched.
     expect(runsOf(specs, [{ ...vsc, end: null }])).toEqual([]);
@@ -128,7 +134,7 @@ describe("the run being watched (pinned)", () => {
   const quicker: LongRun = { ...had, driver: 63, stint: 3, average: had.average - 0.4, start: 0, ends: [80_000] };
   const slower: LongRun = { ...had, driver: 30, stint: 2, average: had.average + 0.3, start: 0, ends: [90_000] };
   const pin: PinnedRun = { run: had, rank: 2, gap: 0.4, sessionKey: 11228 };
-  const end = had.ends.at(-1)!;
+  const end = must(had.ends.at(-1));
 
   test("is watched from a little before its first lap until it ends, in its session", () => {
     expect(pinAt(pin, had.start, 11228)).toEqual({ lap: 1, of: 10, fraction: 0 });
@@ -138,7 +144,7 @@ describe("the run being watched (pinned)", () => {
     // Three laps done: on the fourth.
     expect(pinAt(pin, had.ends[2] + 1, 11228)).toMatchObject({ lap: 4, of: 10 });
     expect(pinAt(pin, end - 1, 11228)).toMatchObject({ lap: 10 });
-    expect(pinAt(pin, end - 1, 11228)!.fraction).toBeCloseTo(1, 4);
+    expect(pinAt(pin, end - 1, 11228)?.fraction).toBeCloseTo(1, 4);
     // Past its end the list has it again; another session drops it.
     expect(pinAt(pin, end, 11228)).toBeNull();
     expect(pinAt(pin, had.start, 9183)).toBeNull();
@@ -166,7 +172,7 @@ describe("the run being watched (pinned)", () => {
   test("replaces its own run so far (once five of its laps are done), and nothing else is added", () => {
     const soFar = longRuns(6, laps.slice(0, 7), stints, [])[0];
     expect(soFar.laps).toHaveLength(6);
-    const rows = listRows([soFar, quicker], pin, pinAt(pin, laps[6].end!, 11228))[0].rows;
+    const rows = listRows([soFar, quicker], pin, pinAt(pin, must(laps[6].end), 11228))[0].rows;
     expect(rows.map((r) => [r.run.driver, r.run.laps.length, r.pinned?.lap])).toEqual([
       [63, 10, undefined],
       [6, 10, 7],
@@ -178,8 +184,8 @@ describe("the run being watched (pinned)", () => {
     const first = pinFor(rows[1], null, 11228);
     expect(first).toEqual({ run: slower, rank: 2, gap: rows[1].gap, sessionKey: 11228 });
     const watching = listRows([quicker], first, pinAt(first, slower.start, 11228))[0].rows;
-    expect(pinFor(watching.find((r) => r.pinned)!, first, 11228)).toBe(first);
-    expect(pinFor(watching.find((r) => !r.pinned)!, first, 11228)).toMatchObject({ run: quicker, rank: 1, gap: null });
+    expect(pinFor(must(watching.find((r) => r.pinned)), first, 11228)).toBe(first);
+    expect(pinFor(must(watching.find((r) => !r.pinned)), first, 11228)).toMatchObject({ run: quicker, rank: 1, gap: null });
   });
 
   test("not watched: the list is just the runs at t", () => {

@@ -102,7 +102,7 @@ function RecordRow({ r, info, narrow, onPick }: { r: SessionRecord; info: Readon
   const title = `${LABELS[id]} ${valueText(id, best.value)}${unit(id)}: ${nameOf(info, best.driver)}, ${isPit(id) ? `lap ${best.lap}, ` : ""}${what}.${behind} Click to watch it.`;
   return (
     <li className="border-b border-zinc-800/70">
-      <button onClick={() => onPick(r)} title={title} className={`${narrow ? NARROW_COLS : COLS} h-7 w-full px-3 text-left hover:bg-zinc-900`}>
+      <button type="button" onClick={() => onPick(r)} title={title} className={`${narrow ? NARROW_COLS : COLS} h-7 w-full px-3 text-left hover:bg-zinc-900`}>
         <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-zinc-400">{LABELS[id]}</span>
         <span className={`text-right text-xs font-semibold tabular-nums ${purple ? "text-fuchsia-400" : "text-zinc-50"}`}>
           {valueText(id, best.value)}
@@ -143,9 +143,10 @@ function IdealRow({ ideal, info, narrow }: { ideal: IdealLap; info: ReadonlyMap<
         <Who n={ideal.drivers[0]} info={info} />
       ) : (
         <span className="flex min-w-0 items-center gap-1">
-          {ideal.drivers.map((n, k) => (
-            <DriverTag key={k} driver={info.get(n)} number={n} title={`S${k + 1}`} />
-          ))}
+          {ideal.drivers.map((n, k) => {
+            const sector = `S${k + 1}`;
+            return <DriverTag key={sector} driver={info.get(n)} number={n} title={sector} />;
+          })}
         </span>
       )}
       <span className={`${narrow ? "" : "col-span-2"} truncate text-right text-[11px] tabular-nums text-zinc-400`}>{ideal.under != null && ideal.under > 0.0005 ? `−${ideal.under.toFixed(3)} on the lap` : ""}</span>
@@ -216,6 +217,7 @@ function SessionBests() {
           {so ? `So far, lap ${leaderLap} of ${totalLaps}` : "The fastest by anyone, and the next best"}
         </span>
         <button
+          type="button"
           data-shot-control=""
           onClick={copy}
           disabled={bests.records.length === 0}

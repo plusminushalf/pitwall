@@ -23,7 +23,10 @@ export interface DecodedLap {
 function cumulative(deltas: number[], scale = 1): Float64Array {
   const out = new Float64Array(deltas.length);
   let acc = 0;
-  for (let i = 0; i < deltas.length; i++) out[i] = (acc += deltas[i]) / scale;
+  for (let i = 0; i < deltas.length; i++) {
+    acc += deltas[i];
+    out[i] = acc / scale;
+  }
   return out;
 }
 

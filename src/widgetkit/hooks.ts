@@ -250,11 +250,13 @@ let telemetryCache: { session: Session; t: number; byDriver: Map<number, Telemet
 function telemetryOf(session: Session, n: number, t: number): Telemetry | null {
   if (telemetryCache?.session !== session || telemetryCache.t !== t) telemetryCache = { session, t, byDriver: new Map() };
   const { byDriver } = telemetryCache;
-  if (!byDriver.has(n)) {
+  let tel = byDriver.get(n);
+  if (tel === undefined) {
     const d = session.drivers.get(n);
-    byDriver.set(n, d ? telemetryAt(d, t) : null);
+    tel = d ? telemetryAt(d, t) : null;
+    byDriver.set(n, tel);
   }
-  return byDriver.get(n)!;
+  return tel;
 }
 
 /** Speed, gear, RPM, throttle, brake and DRS of car n at t (10 Hz); null before its first sample. */

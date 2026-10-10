@@ -50,7 +50,8 @@ const { meta, telemetry, report, quali, practice, sizes, outDir: OUT_DIR } = awa
 });
 const { duration, lightsOut, chequered, totalLaps, trackStatus, pits, results, drivers, track } = meta;
 const { outline, pitLane, corners, marshalSectors, pitLoss } = track;
-const refLap = report.refLap!;
+const refLap = report.refLap;
+if (!refLap) throw new Error("no reference lap");
 
 // ---------------------------------------------------------------- sanity summary
 
@@ -63,7 +64,7 @@ const mb = (b: number) => `${(b / 1e6).toFixed(2)} MB`;
 console.log(`\n${meta.year} ${meta.meetingName} — ${meta.sessionName} (${meta.circuit})`);
 console.log(`window ${fmt(duration)} from ${meta.t0} | lights out +${fmt(lightsOut)} | chequered ${chequered != null ? `+${fmt(chequered)}` : "none"} | ${totalLaps} laps`);
 
-console.log(`\ntrack status:`);
+console.log("\ntrack status:");
 for (const e of trackStatus) console.log(`  +${fmt(e.t)}  ${e.status}`);
 
 const rep = report;
@@ -88,13 +89,14 @@ console.log(`\npits: ${pits.length}, date read as ${rep.pitDateIsExit ? "exit" :
 console.log(`reference lap: #${refLap.driver} lap ${refLap.lap} (${refLap.duration}s), ${outline.x.length} outline points, pit lane ${pitLane?.x.length ?? 0} points`);
 console.log(`circuit: rotation ${track.rotation}°, ${corners.length} corners, ${marshalSectors.length} marshal sectors, pit loss ${pitLoss ? `${pitLoss.normal}s` : "unknown"}`);
 
-console.log(`\n pos  drv  laps  result  loc     car     loc Hz  status`);
+console.log("\n pos  drv  laps  result  loc     car     loc Hz  status");
 for (const r of results) {
-  const d = drivers.find((x) => x.number === r.driver)!;
-  const t = telemetry.get(r.driver)!;
+  const d = drivers.find((x) => x.number === r.driver);
+  const t = telemetry.get(r.driver);
+  const lt = report.locFixes.get(r.driver);
+  if (!d || !t || !lt) throw new Error(`#${r.driver}: no driver or telemetry`);
   const lapCount = meta.laps.filter((l) => l.driver === r.driver).length;
-  const lt = report.locFixes.get(r.driver)!;
-  const hz = lt.length > 1 ? (lt.length - 1) / ((lt.at(-1)! - lt[0]) / 1000) : 0;
+  const hz = lt.length > 1 ? (lt.length - 1) / ((lt[lt.length - 1] - lt[0]) / 1000) : 0;
   const status = r.dsq ? "DSQ" : r.dns ? "DNS" : r.dnf ? "DNF" : meta.practice ? "classified" : "finished";
   // A retiring (or non-starting) car starts one lap it never completes. In practice OpenF1 also counts the pit-lane
   // crossing after the cool-down lap (dropped).
@@ -125,7 +127,7 @@ if (meta.practice) {
 }
 
 if (quali) {
-  console.log(`\nqualifying:`);
+  console.log("\nqualifying:");
   for (const line of quali.report.lines) console.log(`  ${line}`);
   for (const p of quali.report.problems) console.log(`  <-- ${p}`);
 }

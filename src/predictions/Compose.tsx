@@ -56,7 +56,11 @@ export function Compose() {
       clearTimeout(t);
     };
   }, [saved]);
-  const image = () => (png.current ??= cardPng(cardRef.current!));
+  const image = () => {
+    const el = cardRef.current;
+    png.current ??= el ? cardPng(el) : Promise.reject(new Error("no card to draw"));
+    return png.current;
+  };
 
   if (!race) {
     const next = nextRace(now);
@@ -79,7 +83,8 @@ export function Compose() {
   const slug = race.short.toLowerCase().replace(/\W+/g, "-");
   const lock = () => {
     if (driver == null || saved) return;
-    const d = driverIn(race.id, driver)!;
+    const d = driverIn(race.id, driver);
+    if (!d) throw new Error(`#${driver} isn't in the race's top five`);
     setCalls(saveCall(callKey(questionOf(race.id), race.id), { driver, at: Date.now() }));
     // How many calls, and for whom: a path per driver, with where they start.
     countEvent(`/predictions/lock/${slug}/p${d.grid}-${d.code.toLowerCase()}`);

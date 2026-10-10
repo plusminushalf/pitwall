@@ -62,7 +62,7 @@ function RunRow({ row, info, live, narrow, onPick }: { row: ListRow; info: Drive
   const { run, rank, gap, pinned } = row;
   const name = info?.acronym ?? `#${run.driver}`;
   const from = run.laps[0];
-  const to = run.laps.at(-1)!;
+  const to = run.laps.at(-1) ?? from;
   const what =
     `${name} on ${run.compound.toLowerCase()}s ${run.age === 0 ? "from new" : `${plural(run.age, "lap")} old`}: laps ${from}–${to}, ` +
     `${plural(run.laps.length, "lap")} counted${run.skipped ? ` (${run.skipped} slow or under a neutral period left out)` : ""}, ` +
@@ -72,7 +72,7 @@ function RunRow({ row, info, live, narrow, onPick }: { row: ListRow; info: Drive
     : `${what} Click to watch it from lap ${from}.`;
   return (
     <li className={pinned ? "relative bg-zinc-800/80" : undefined}>
-      <button onClick={() => onPick(row)} className={`${colsOf(narrow)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
+      <button type="button" onClick={() => onPick(row)} className={`${colsOf(narrow)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
         {pinned ? (
           <span className="rounded-sm bg-zinc-100 text-center text-[10px] font-bold leading-4 tabular-nums text-zinc-900">{rank}</span>
         ) : (
@@ -157,6 +157,7 @@ function LongRuns() {
         <div className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["all", "selected"] as const).map((v) => (
             <button
+              type="button"
               key={v}
               onClick={() => update({ show: v })}
               aria-pressed={show === v}

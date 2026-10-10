@@ -29,19 +29,20 @@ export function applyUrl() {
   // Off Home already, so opening doesn't push an entry.
   useReplay.setState({ view: "replay" });
   const opts = { t: url.t, drivers: url.drivers, focus: url.focus, view: url.view, range: url.range };
-  if (url.live) {
+  const key = url.session;
+  // No session only when live (Home returned above).
+  if (url.live || key == null) {
     library.setLink(null);
     // Live too can be opened on a dashboard: shown once the live session is (requestDashboard waits for it).
     if (url.dash) useLayout.getState().requestDashboard(url.dash, null);
     return useReplay.getState().enterLive({ session: url.session, ...opts });
   }
   // A shared link's set-up: shown when its session is (the address bar drops it once the session's open).
-  if (url.compare) useQuali.getState().applyLink(url.session!, url.compare);
+  if (url.compare) useQuali.getState().applyLink(key, url.compare);
   if (url.layout) void decodeLayout(url.layout).then((shared) => shared && useLayout.getState().showShared(shared.kind, shared.layout));
   else if (url.dash) useLayout.getState().requestDashboard(url.dash, url.live ? null : url.session);
   // A shared link: open it if it's here; carry on streaming it if its download is under way (a reload); otherwise
   // offer to watch it (downloading it, from `t`).
-  const key = url.session!;
   if (useReplay.getState().index.some((e) => e.sessionKey === key)) return library.watchNow(key, opts);
   const row = rowForKey(key, library);
   const state = row ? rowState(row, library) : null;

@@ -62,7 +62,10 @@ export function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
   const meetings = new Map<number, Meeting>();
   for (const r of rows) {
     let m = meetings.get(r.meetingKey);
-    if (!m) meetings.set(r.meetingKey, (m = { key: r.meetingKey, name: r.meetingName, year: r.year, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true }));
+    if (!m) {
+      m = { key: r.meetingKey, name: r.meetingName, year: r.year, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true };
+      meetings.set(r.meetingKey, m);
+    }
     m.round ??= r.round;
     m.cancelled &&= r.cancelled;
     if (filter === "all" || r.sessionType === filter) m.rows.push(r);
@@ -84,7 +87,7 @@ function ToCircuit({ meeting, className, children }: { meeting: Meeting; classNa
   const openCircuit = useReplay((s) => s.openCircuit);
   if (!meeting.circuit) return <span className={className}>{children}</span>;
   return (
-    <button
+    <button type="button"
       onClick={(e) => {
         e.currentTarget.blur();
         openCircuit(circuitSlug(meeting.circuit));
@@ -147,7 +150,7 @@ function Cell({
 
   if (waitUntil != null && (state.kind === "available" || state.kind === "partial")) {
     return (
-      <button
+      <button type="button"
         onClick={() => stream(row)}
         className={`group/cell ${base} text-amber-300 hover:bg-zinc-800`}
         aria-label={`Watch ${name} (downloads wait until about ${clockTime(waitUntil)})`}
@@ -169,7 +172,7 @@ function Cell({
         // Live mode follows it (when this site can follow anything live): the cell takes you there.
         const followed = liveVia() != null && isFollowedLive({ session_type: row.sessionType, session_name: row.sessionName });
         return followed ? (
-          <button
+          <button type="button"
             onClick={(e) => {
               e.currentTarget.blur();
               useReplay.getState().enterLive();
@@ -205,7 +208,7 @@ function Cell({
       );
     case "ready":
       return (
-        <button
+        <button type="button"
           onClick={() => watchNow(row.sessionKey)}
           className={`${base} bg-zinc-800 font-semibold text-zinc-50 hover:bg-zinc-700`}
           aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name} (stored)`}
@@ -220,7 +223,7 @@ function Cell({
       );
     case "stale":
       return (
-        <button
+        <button type="button"
           onClick={() => reprocess(state.entry)}
           className={`${base} bg-zinc-800 font-semibold text-amber-300 hover:bg-zinc-700`}
           aria-label={`Update ${name} (re-processed from the stored data, no download)`}
@@ -235,7 +238,7 @@ function Cell({
       );
     case "partial":
       return (
-        <button
+        <button type="button"
           onClick={() => stream(row)}
           className={`${base} text-zinc-100 hover:bg-zinc-800`}
           aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name}`}
@@ -251,7 +254,7 @@ function Cell({
       );
     case "available":
       return (
-        <button
+        <button type="button"
           onClick={() => stream(row)}
           className={`group/cell ${base} text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50 focus-visible:text-zinc-50`}
           aria-label={`Watch ${name}`}
@@ -270,7 +273,7 @@ function Cell({
     case "remote": {
       const p = state.job.progress;
       return (
-        <button disabled className={`${base} cursor-default text-zinc-300`} aria-label={`${name} is downloading in another tab`} title="Downloading in another tab">
+        <button type="button" disabled className={`${base} cursor-default text-zinc-300`} aria-label={`${name} is downloading in another tab`} title="Downloading in another tab">
           {p && <Fill frac={p.progress} className="bg-zinc-800" />}
           <Label>
             {tag}
@@ -283,7 +286,7 @@ function Cell({
       const { job } = state;
       if (job.phase === "failed") {
         return (
-          <button
+          <button type="button"
             onClick={() => stream(row)}
             className={`${base} text-red-400 hover:bg-zinc-800 hover:text-red-300`}
             aria-label={`Retry ${name}`}
@@ -300,7 +303,7 @@ function Cell({
       const waiting = job.phase === "queued" || job.phase === "paused";
       const pct = job.progress ? Math.round(job.progress.progress * 100) : 0;
       return (
-        <button
+        <button type="button"
           onClick={() => (job.info.mode === "download" ? stream(row) : watchNow(row.sessionKey))}
           className={`${base} hover:bg-zinc-800 ${waiting ? "text-amber-300" : "text-zinc-50"}`}
           aria-label={`Watch ${name} (${waiting ? (job.phase === "paused" ? "waiting" : "queued") : `${pct}% downloaded`})`}
@@ -323,25 +326,27 @@ function Cell({
 /** One line of errors or waiting notices for a weekend, or null. `wrap`: on a phone, as many lines as it takes (no hover for the rest). */
 function Notice({ meeting, states, now, wrap = false }: { meeting: Meeting; states: RowState[]; now: number; wrap?: boolean }) {
   const otherTab = useLibrary((s) => s.otherTab);
-  const notes: { text: string; tone: string }[] = [];
+  const notes: { key: number; text: string; tone: string }[] = [];
   meeting.rows.forEach((r, i) => {
     const s = states[i];
     if (s.kind !== "job") return;
     const { job } = s;
     const who = r.sessionName;
-    if (job.phase === "failed") notes.push({ text: `${who}: ${job.error ?? "download failed"}`, tone: "text-red-400" });
+    const key = r.sessionKey;
+    if (job.phase === "failed") notes.push({ key, text: `${who}: ${job.error ?? "download failed"}`, tone: "text-red-400" });
     else if (job.phase === "paused") {
-      const wait = job.resumeAt != null ? Math.max(0, job.resumeAt - now) : null;
-      const at = wait == null ? "" : wait > 90_000 ? ` Starts by itself at ${clockTime(job.resumeAt!)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`;
-      notes.push({ text: `${who}: ${job.notice ?? "Paused"}${at}`, tone: "text-amber-300" });
-    } else if (job.phase === "queued" && otherTab) notes.push({ text: `${who}: another tab is downloading; this starts when it's done.`, tone: "text-zinc-300" });
-    else if (job.progress?.notice) notes.push({ text: `${who}: ${job.progress.notice}`, tone: "text-amber-300" });
+      const resumeAt = job.resumeAt;
+      const wait = resumeAt != null ? Math.max(0, resumeAt - now) : 0;
+      const at = resumeAt == null ? "" : wait > 90_000 ? ` Starts by itself at ${clockTime(resumeAt)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`;
+      notes.push({ key, text: `${who}: ${job.notice ?? "Paused"}${at}`, tone: "text-amber-300" });
+    } else if (job.phase === "queued" && otherTab) notes.push({ key, text: `${who}: another tab is downloading; this starts when it's done.`, tone: "text-zinc-300" });
+    else if (job.progress?.notice) notes.push({ key, text: `${who}: ${job.progress.notice}`, tone: "text-amber-300" });
   });
   if (!notes.length) return null;
   return (
     <p className={wrap ? "pb-1 pt-2 text-xs" : "truncate pb-2 pl-11 text-xs"} title={wrap ? undefined : notes.map((n) => n.text).join("\n")}>
       {notes.map((n, i) => (
-        <span key={i} className={n.tone}>
+        <span key={n.key} className={n.tone}>
           {i > 0 && <span className="text-zinc-500"> · </span>}
           {n.text}
         </span>
@@ -414,8 +419,11 @@ function WeekendRow({
   // Several sessions stored: pick which one to delete first.
   const [picking, setPicking] = useState(false);
   const first = meeting.rows[0];
-  const last = meeting.rows.at(-1)!;
-  const deletable = meeting.rows.flatMap((r, i) => (storedBytes(states[i]) != null ? [{ row: r, bytes: storedBytes(states[i])! }] : []));
+  const last = meeting.rows[meeting.rows.length - 1];
+  const deletable = meeting.rows.flatMap((r, i) => {
+    const bytes = storedBytes(states[i]);
+    return bytes != null ? [{ row: r, bytes }] : [];
+  });
   const confirming = deletable.find((d) => d.row.sessionKey === confirm);
   const span = { gridColumn: `span ${columns.length + 1} / -1` };
   const sheet = sheetOf(columns);
@@ -427,10 +435,10 @@ function WeekendRow({
         <span className="whitespace-nowrap text-xs text-zinc-200">
           Delete {confirming.row.sessionName} ({size(confirming.bytes)})?
         </span>
-        <button onClick={() => void remove(confirming.row.sessionKey)} className={DANGER}>
+        <button type="button" onClick={() => void remove(confirming.row.sessionKey)} className={DANGER}>
           Delete
         </button>
-        <button onClick={() => askDelete(null)} className={SECONDARY}>
+        <button type="button" onClick={() => askDelete(null)} className={SECONDARY}>
           Keep
         </button>
       </div>
@@ -440,7 +448,7 @@ function WeekendRow({
       <div className="flex items-center justify-end gap-1.5" style={span}>
         <span className="text-xs text-zinc-300">Delete which?</span>
         {deletable.map((d) => (
-          <button
+          <button type="button"
             key={d.row.sessionKey}
             onClick={() => {
               setPicking(false);
@@ -452,7 +460,7 @@ function WeekendRow({
             {d.row.sessionName}
           </button>
         ))}
-        <button onClick={() => setPicking(false)} className={SECONDARY}>
+        <button type="button" onClick={() => setPicking(false)} className={SECONDARY}>
           Keep
         </button>
       </div>
@@ -472,7 +480,7 @@ function WeekendRow({
         })}
         <div className="flex justify-end">
           {deletable.length > 0 && (
-            <button
+            <button type="button"
               onClick={() => (deletable.length === 1 ? askDelete(deletable[0].row.sessionKey) : setPicking(true))}
               className={`flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:opacity-100 ${FOCUS}`}
               aria-label={`Delete ${meeting.name} sessions from this browser`}
@@ -545,8 +553,11 @@ function PhoneWeekend({
   const remove = useLibrary((s) => s.remove);
   const [picking, setPicking] = useState(false);
   const first = meeting.rows[0];
-  const last = meeting.rows.at(-1)!;
-  const deletable = meeting.rows.flatMap((r, i) => (storedBytes(states[i]) != null ? [{ row: r, bytes: storedBytes(states[i])! }] : []));
+  const last = meeting.rows[meeting.rows.length - 1];
+  const deletable = meeting.rows.flatMap((r, i) => {
+    const bytes = storedBytes(states[i]);
+    return bytes != null ? [{ row: r, bytes }] : [];
+  });
   const confirming = deletable.find((d) => d.row.sessionKey === confirm);
   const tall = "min-h-11 px-3";
 
@@ -557,10 +568,10 @@ function PhoneWeekend({
         <span className="text-xs text-zinc-200">
           Delete {confirming.row.sessionName} ({size(confirming.bytes)})?
         </span>
-        <button onClick={() => void remove(confirming.row.sessionKey)} className={`${DANGER} ${tall}`}>
+        <button type="button" onClick={() => void remove(confirming.row.sessionKey)} className={`${DANGER} ${tall}`}>
           Delete
         </button>
-        <button onClick={() => askDelete(null)} className={`${SECONDARY} ${tall}`}>
+        <button type="button" onClick={() => askDelete(null)} className={`${SECONDARY} ${tall}`}>
           Keep
         </button>
       </>
@@ -570,7 +581,7 @@ function PhoneWeekend({
       <>
         <span className="text-xs text-zinc-300">Delete which?</span>
         {deletable.map((d) => (
-          <button
+          <button type="button"
             key={d.row.sessionKey}
             onClick={() => {
               setPicking(false);
@@ -582,7 +593,7 @@ function PhoneWeekend({
             {d.row.sessionName}
           </button>
         ))}
-        <button onClick={() => setPicking(false)} className={`${SECONDARY} ${tall}`}>
+        <button type="button" onClick={() => setPicking(false)} className={`${SECONDARY} ${tall}`}>
           Keep
         </button>
       </>
@@ -599,7 +610,7 @@ function PhoneWeekend({
           );
         })}
         {deletable.length > 0 && (
-          <button
+          <button type="button"
             onClick={() => (deletable.length === 1 ? askDelete(deletable[0].row.sessionKey) : setPicking(true))}
             className={`flex h-11 w-11 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`}
             aria-label={`Delete ${meeting.name} sessions from this browser`}
@@ -649,9 +660,9 @@ type Item = { kind: "weekend" | "next"; meeting: Meeting; states: RowState[] } |
 /** A row of pressed/unpressed buttons (the replay screen's segmented control). */
 export function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
   return (
-    <div className="flex rounded-md bg-zinc-900 p-0.5" role="group" aria-label={label}>
+    <fieldset className="flex min-w-0 rounded-md bg-zinc-900 p-0.5" aria-label={label}>
       {options.map((o) => (
-        <button
+        <button type="button"
           key={o.id}
           onClick={() => onChange(o.id)}
           aria-pressed={o.id === value}
@@ -660,7 +671,7 @@ export function Segmented<T extends string | number>({ label, value, options, on
           {o.label}
         </button>
       ))}
-    </div>
+    </fieldset>
   );
 }
 
@@ -710,9 +721,9 @@ export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meet
   if (phone) {
     return (
       <ul aria-label={label} className="border-t border-zinc-800">
-        {items.map((it, i) =>
+        {items.map((it) =>
           it.kind === "cancelled" ? (
-            <li key={`c${i}`} className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400">
+            <li key={`c${it.meetings[0].key}`} className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400">
               <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
             </li>
           ) : (
@@ -757,9 +768,9 @@ export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meet
             <span />
           </div>
           <ul aria-label={label}>
-            {items.map((it, i) =>
+            {items.map((it) =>
               it.kind === "cancelled" ? (
-                <li key={`c${i}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
+                <li key={`c${it.meetings[0].key}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
                   <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
                 </li>
               ) : (
@@ -795,12 +806,12 @@ export function Season({ heading }: { heading: ReactNode }) {
   const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
   const phone = usePhone();
 
-  let body;
+  let body: ReactNode;
   if (!rows) {
     body = state?.error ? (
       <div className="border-y border-zinc-800 px-3 py-4 text-sm">
         <p className="text-red-400">{state.error}</p>
-        <button onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
+        <button type="button" onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
           Try again
         </button>
       </div>

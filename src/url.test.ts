@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readUrl, upgradeUrl, urlFor } from "./url";
+import { must } from "./lib/must";
 
 describe("readUrl", () => {
   test("Home", () => {
@@ -115,7 +116,7 @@ describe("urlFor", () => {
       "/session/11730?drivers=1,44&zoom=120-560&preset=2&laps=1:14,44:12&mini=50&names=1",
       "/session/11731?t=60&layout=abc_-9", "/session/11731?t=60&drivers=1,44&range=12-30", "/live?session=11377&t=90&drivers=4", "/live"]) {
       const [path, search = ""] = url.split("?");
-      expect(urlFor(readUrl(path!, search ? `?${search}` : ""))).toBe(url);
+      expect(urlFor(readUrl(must(path), search ? `?${search}` : ""))).toBe(url);
     }
   });
 });

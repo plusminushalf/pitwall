@@ -51,7 +51,7 @@ export function repairStints(
       before.lapEnd = Math.min(before.lapEnd, outLap - 1);
       added++;
     }
-    own.forEach((s, k) => (s.stint = k + 1));
+    for (const [k, s] of own.entries()) s.stint = k + 1;
   }
   return { stints: [...byDriver.values()].flat().sort((a, b) => a.driver - b.driver || a.stint - b.stint), added };
 }

@@ -94,7 +94,7 @@ export function pitLapsOf(car: CarLaps, pitEntries: readonly { driver: number; t
     if (outLap > 1) pit.add(outLap - 1);
     pit.add(outLap);
   };
-  car.stintStarts.forEach((s, i) => i > 0 && mark(s));
+  for (let i = 1; i < car.stintStarts.length; i++) mark(car.stintStarts[i]);
   for (const l of car.laps) if (l.pitOut && l.lap > 1) mark(l.lap);
   for (const p of pitEntries) {
     if (p.driver !== car.driver) continue;
@@ -111,6 +111,14 @@ interface Car {
   end: Map<number, number>;
   clean: Map<number, boolean>;
   pit: Set<number>;
+}
+
+interface Pair {
+  ahead: number;
+  behind: number;
+  gap: number;
+  ea: number;
+  eb: number;
 }
 
 const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
@@ -136,22 +144,39 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
   }
 
   // Each lap: the cars on clean laps in crossing order, and every car's place at the line.
-  const order: number[][] = [];
+  const order: { driver: number; end: number }[][] = [];
   const place: Map<number, number>[] = [];
   for (let k = 1; k <= maxLap; k++) {
-    const crossed = [...cars.values()].filter((c) => c.end.has(k)).sort((a, b) => a.end.get(k)! - b.end.get(k)!);
-    place[k] = new Map(crossed.map((c, i) => [c.driver, i + 1]));
-    order[k] = crossed.filter((c) => c.clean.get(k)).map((c) => c.driver);
+    const crossed: { car: Car; end: number }[] = [];
+    for (const c of cars.values()) {
+      const end = c.end.get(k);
+      if (end != null) crossed.push({ car: c, end });
+    }
+    crossed.sort((x, y) => x.end - y.end);
+    place[k] = new Map(crossed.map((x, i) => [x.car.driver, i + 1]));
+    order[k] = crossed.filter((x) => x.car.clean.get(k)).map((x) => ({ driver: x.car.driver, end: x.end }));
   }
 
-  /** The pair at the end of lap k: who was ahead and by how much, if both ran it clean. */
-  const at = (k: number, a: number, b: number): { ahead: number; behind: number; gap: number } | null => {
-    const ca = cars.get(a)!;
-    const cb = cars.get(b)!;
-    if (!ca.clean.get(k) || !cb.clean.get(k)) return null;
-    const ea = ca.end.get(k)!;
-    const eb = cb.end.get(k)!;
-    return ea <= eb ? { ahead: a, behind: b, gap: eb - ea } : { ahead: b, behind: a, gap: ea - eb };
+  const car = (n: number): Car => {
+    const c = cars.get(n);
+    if (!c) throw new Error(`battles: no laps for car ${n}`);
+    return c;
+  };
+
+  /** The pair at the end of lap k: who was ahead and by how much, if both ran it clean; `ea`/`eb` are when a and b crossed. */
+  const at = (k: number, a: number, b: number): Pair | null => {
+    const ca = car(a);
+    const cb = car(b);
+    const ea = ca.end.get(k);
+    const eb = cb.end.get(k);
+    if (!ca.clean.get(k) || !cb.clean.get(k) || ea == null || eb == null) return null;
+    return ea <= eb ? { ahead: a, behind: b, gap: eb - ea, ea, eb } : { ahead: b, behind: a, gap: ea - eb, ea, eb };
+  };
+  /** at() on a lap the pair is known to have run clean. */
+  const atClean = (k: number, a: number, b: number): Pair => {
+    const pair = at(k, a, b);
+    if (!pair) throw new Error(`battles: ${a} and ${b} not both clean on lap ${k}`);
+    return pair;
   };
 
   // Laps each pair spent next to each other within the gap.
@@ -159,22 +184,25 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
   for (let k = 1; k <= maxLap; k++) {
     const o = order[k];
     for (let i = 0; i + 1 < o.length; i++) {
-      const [a, b] = [o[i], o[i + 1]];
-      if (cars.get(b)!.end.get(k)! - cars.get(a)!.end.get(k)! > gapMs) continue;
+      const [a, b] = [o[i].driver, o[i + 1].driver];
+      if (o[i + 1].end - o[i].end > gapMs) continue;
       const key = pairKey(a, b);
       let entry = close.get(key);
-      if (!entry) close.set(key, (entry = { a: Math.min(a, b), b: Math.max(a, b), laps: [] }));
+      if (!entry) {
+        entry = { a: Math.min(a, b), b: Math.max(a, b), laps: [] };
+        close.set(key, entry);
+      }
       entry.laps.push(k);
     }
   }
 
-  /** The feed's overtake for a flip on lap k, else the line crossing that showed it. */
-  const passOn = (k: number, by: number, on: number): Pass => {
-    const cb = cars.get(by)!;
-    const co = cars.get(on)!;
-    const lo = Math.min(cb.end.get(k - 1)!, co.end.get(k - 1)!) - 1_000;
-    const crossing = Math.min(cb.end.get(k)!, co.end.get(k)!);
-    const hi = Math.max(cb.end.get(k)!, co.end.get(k)!) + 500;
+  /** The feed's overtake for a flip on lap k (the pair `before` at the end of k - 1, `now` at the end of k), else the line crossing that showed it. */
+  const passOn = (k: number, before: Pair, now: Pair): Pass => {
+    const by = now.ahead;
+    const on = now.behind;
+    const lo = Math.min(before.ea, before.eb) - 1_000;
+    const crossing = Math.min(now.ea, now.eb);
+    const hi = Math.max(now.ea, now.eb) + 500;
     const hit = input.passes.filter((p) => p.by === by && p.on === on && p.t > lo && p.t <= hi).at(-1);
     return hit ? { lap: k, by, on, t: hit.t, exact: true } : { lap: k, by, on, t: crossing, exact: false };
   };
@@ -198,32 +226,33 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
       let closest = Infinity;
       let prev = at(from - 1, a, b);
       for (let k = from; k <= to; k++) {
-        const now = at(k, a, b)!;
+        const now = atClean(k, a, b);
         closest = Math.min(closest, now.gap);
-        if (prev && prev.ahead !== now.ahead) passes.push(passOn(k, now.ahead, now.behind));
+        if (prev && prev.ahead !== now.ahead) passes.push(passOn(k, prev, now));
         prev = now;
       }
-      const lastAt = at(to, a, b)!;
+      const firstAt = atClean(from, a, b);
+      const lastAt = atClean(to, a, b);
       let ahead = lastAt.ahead;
       let behind = lastAt.behind;
 
       // How it ended, or that it hasn't yet.
       const next = to + 1;
-      const ca = cars.get(a)!;
-      const cb = cars.get(b)!;
+      const ca = car(a);
+      const cb = car(b);
       let end: Battle["end"] = null;
       if (ca.end.has(next) && cb.end.has(next)) {
         const after = at(next, a, b);
         if (after) {
           // Clean but apart (or split by a third car); a pass that broke it still counts.
           if (after.ahead !== ahead) {
-            passes.push(passOn(next, after.ahead, after.behind));
+            passes.push(passOn(next, lastAt, after));
             [ahead, behind] = [after.ahead, after.behind];
           }
           end = ended("gap");
         } else {
-          const pitted = [a, b].find((n) => cars.get(n)!.pit.has(next));
-          end = pitted != null ? ended("pit", pitted) : ended("neutral", null, spellAfter(Math.min(ca.end.get(to)!, cb.end.get(to)!)));
+          const pitted = ca.pit.has(next) ? a : cb.pit.has(next) ? b : null;
+          end = pitted != null ? ended("pit", pitted) : ended("neutral", null, spellAfter(Math.min(lastAt.ea, lastAt.eb)));
         }
       } else if (ca.out || cb.out) {
         end = ended("retired", ca.out ? a : b);
@@ -231,23 +260,25 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
         end = ended("flag");
       } else {
         // Already known before the lap ends: one of them went into the pits, or the race was neutralised.
-        const sinceLine = Math.max(ca.end.get(to)!, cb.end.get(to)!);
-        const pitted = input.pitEntries.find((p) => (p.driver === a || p.driver === b) && p.t > cars.get(p.driver)!.end.get(to)!);
+        const sinceLine = Math.max(lastAt.ea, lastAt.eb);
+        const pitted = input.pitEntries.find((p) => (p.driver === a || p.driver === b) && p.t > (p.driver === a ? lastAt.ea : lastAt.eb));
         const spell = spellAfter(sinceLine);
         if (pitted) end = ended("pit", pitted.driver);
         else if (spell) end = ended("neutral", null, spell);
       }
 
+      const position = place[to].get(lastAt.ahead);
+      if (position == null) throw new Error(`battles: ${lastAt.ahead} has no place on lap ${to}`);
       battles.push({
         key: `${pairKey(a, b)}-${from}`,
         ahead,
         behind,
         from,
         to,
-        t: Math.min(ca.end.get(from)!, cb.end.get(from)!),
+        t: Math.min(firstAt.ea, firstAt.eb),
         closest: closest / 1000,
         last: lastAt.gap / 1000,
-        position: place[to].get(lastAt.ahead)!,
+        position,
         passes,
         ongoing: end == null,
         end,

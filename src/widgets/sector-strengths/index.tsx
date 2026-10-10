@@ -57,6 +57,7 @@ function StrengthCell({ k, cell, who, onPick }: { k: number; cell: Cell | null; 
   const style = first ? undefined : { background: `rgb(244 244 245 / ${(0.03 + 0.27 * strength(cell)).toFixed(3)})` };
   return (
     <button
+      type="button"
       onClick={() => onPick(mark)}
       title={title}
       style={style}
@@ -123,6 +124,7 @@ function SectorStrengths() {
         <div data-shot-control="" className="ml-auto flex shrink-0 rounded-md bg-zinc-900 p-0.5">
           {(["teams", "drivers"] as const).map((v) => (
             <button
+              type="button"
               key={v}
               onClick={() => update({ by: v })}
               aria-pressed={by === v}
@@ -150,7 +152,7 @@ function SectorStrengths() {
             <li key={r.key.label} className={`${COLS} h-6 border-b border-zinc-800/70`}>
               <RowName label={r.key.label} colour={r.key.colour} />
               {r.cells.map((c, k) => (
-                <StrengthCell key={k} k={k} cell={c} who={who} onPick={onPick} />
+                <StrengthCell key={COLUMNS[k]} k={k} cell={c} who={who} onPick={onPick} />
               ))}
             </li>
           ))}

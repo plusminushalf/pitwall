@@ -95,7 +95,9 @@ export class FakeBroker {
   }
 
   get port() {
-    return this.server.port!;
+    const port = this.server.port;
+    if (port === undefined) throw new Error("fake broker: no port");
+    return port;
   }
   /** http://127.0.0.1:PORT */
   get origin() {
@@ -166,7 +168,10 @@ export class FakeBroker {
     for (const ws of this.clients) if (ws.data.open && (ws.data.subs.has(`v1/${topic}`) || ws.data.subs.has("v1/#") || ws.data.subs.has("#"))) ws.sendBinary(bytes);
     const { _id, _key, ...rest } = withId as Rec;
     let list = this.records.get(topic);
-    if (!list) this.records.set(topic, (list = []));
+    if (!list) {
+      list = [];
+      this.records.set(topic, list);
+    }
     list.push(rest);
     this.log.push({ topic, msg: withId });
     this.stats.published++;
@@ -177,7 +182,7 @@ export class FakeBroker {
   synthetic(topic: string): Rec {
     const n = ++this.n;
     const base = { session_key: SESSION_KEY, meeting_key: 1, date: openf1Date(Date.now()), n };
-    const driver = [1, 4, 16, 44, 63, 81][n % 6]!;
+    const driver = [1, 4, 16, 44, 63, 81][n % 6] ?? 1;
     switch (topic) {
       case "car_data":
         return { ...base, driver_number: driver, speed: 200 + (n % 120), rpm: 11000, n_gear: 7, throttle: 99, brake: 0, drs: 0 };
@@ -206,7 +211,8 @@ export class FakeBroker {
     if (rate <= 0) return;
     let i = 0;
     this.stream = setInterval(() => {
-      const topic = topics[i++ % topics.length]!;
+      const topic = topics[i++ % topics.length];
+      if (topic === undefined) return;
       this.publish(topic, this.synthetic(topic));
     }, 1000 / rate);
   }
@@ -250,11 +256,11 @@ export class FakeBroker {
     const cors = { "Access-Control-Allow-Origin": "*", "Access-Control-Allow-Headers": "authorization", "Access-Control-Allow-Methods": "GET, POST" };
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const json = (x: unknown, status = 200) => new Response(JSON.stringify(x), { status, headers: { ...cors, "Content-Type": "application/json" } });
-    const rest = /^\/v1\/([a-z_]+)$/.exec(url.pathname);
-    if (rest && req.method === "GET") {
+    const endpoint = /^\/v1\/([a-z_]+)$/.exec(url.pathname)?.[1];
+    if (endpoint !== undefined && req.method === "GET") {
       this.stats.restRequests++;
       if (req.headers.get("authorization")?.startsWith("Bearer ")) this.stats.restAuthorized++;
-      return json(this.query(rest[1]!, url.search.slice(1)));
+      return json(this.query(endpoint, url.search.slice(1)));
     }
     if (url.pathname.startsWith("/control/") && req.method === "POST") {
       const q = url.searchParams;
@@ -308,7 +314,7 @@ export class FakeBroker {
 if (import.meta.main) {
   const arg = (name: string, d: string) => {
     const i = process.argv.indexOf(`--${name}`);
-    return i >= 0 ? process.argv[i + 1]! : d;
+    return i >= 0 ? (process.argv[i + 1] ?? d) : d;
   };
   const broker = new FakeBroker({ port: Number(arg("port", "5191")), hostname: "localhost" });
   const rate = Number(arg("rate", "20"));

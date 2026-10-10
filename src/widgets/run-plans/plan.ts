@@ -85,7 +85,7 @@ export function planRow(driver: number, laps: readonly PlanLapInput[], stints: r
     return [{ l, end, s, why }];
   });
 
-  const valid = shaped.filter((x) => x.why == null).map((x) => x.l.duration!);
+  const valid = shaped.flatMap((x) => (x.why == null && x.l.duration != null ? [x.l.duration] : []));
   const best = valid.length ? Math.min(...valid) : null;
 
   return {
@@ -94,9 +94,10 @@ export function planRow(driver: number, laps: readonly PlanLapInput[], stints: r
     laps: shaped.map(({ l, end, s, why }): PlanLap => {
       let kind: LapKind = "slow";
       let reason = why;
-      if (why == null && best != null) {
-        if (l.duration! <= best * PUSH) kind = "push";
-        else if (l.duration! <= best * PACE) kind = "pace";
+      // (A lap with no reason against it is timed.)
+      if (why == null && best != null && l.duration != null) {
+        if (l.duration <= best * PUSH) kind = "push";
+        else if (l.duration <= best * PACE) kind = "pace";
         else reason = "slow";
       }
       return {
@@ -121,8 +122,12 @@ export function byTeam<R extends { driver: number; best: number | null }>(rows: 
   const teams = new Map<string, R[]>();
   for (const r of rows) {
     const team = teamOf(r.driver);
-    if (!teams.has(team)) teams.set(team, []);
-    teams.get(team)!.push(r);
+    let own = teams.get(team);
+    if (!own) {
+      own = [];
+      teams.set(team, own);
+    }
+    own.push(r);
   }
   const key = (b: number | null) => b ?? Infinity;
   const groups = [...teams.values()].map((g) => [...g].sort((a, b) => key(a.best) - key(b.best)));

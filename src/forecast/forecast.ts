@@ -115,7 +115,11 @@ export function sessionForecast(f: Forecast, start: number, end: number): Sessio
   const from = Math.floor(start / HOUR) * HOUR;
   const hours = f.times.flatMap((t, i) => (t >= from && t < Math.max(end, from + HOUR) && f.temperature[i] != null ? [i] : []));
   if (!hours.length) return null;
-  const nums = (xs: (number | null)[]) => hours.flatMap((i) => (xs[i] != null ? [xs[i]!] : []));
+  const nums = (xs: (number | null)[]) =>
+    hours.flatMap((i) => {
+      const x = xs[i];
+      return x != null ? [x] : [];
+    });
   const temps = nums(f.temperature);
   const chances = nums(f.rainChance);
   const windiest = hours.reduce((a, i) => ((f.wind[i] ?? -1) > (f.wind[a] ?? -1) ? i : a), hours[0]);

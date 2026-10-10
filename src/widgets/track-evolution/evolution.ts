@@ -137,14 +137,21 @@ export function evolution(
   points.sort((a, b) => a.end - b.end || a.driver - b.driver);
 
   const records: FastestStep[] = [];
-  for (const p of points) if (records.length === 0 || p.time < records.at(-1)!.time) records.push({ at: p.end, time: p.time, driver: p.driver });
+  for (const p of points) {
+    const last = records.at(-1);
+    if (!last || p.time < last.time) records.push({ at: p.end, time: p.time, driver: p.driver });
+  }
 
   const byWindow = new Map<number, number[]>();
   for (const p of points) {
     if (!p.push) continue;
     const w = Math.floor((p.end - greenLight) / WINDOW_MS);
-    if (!byWindow.has(w)) byWindow.set(w, []);
-    byWindow.get(w)!.push(p.time);
+    let times = byWindow.get(w);
+    if (!times) {
+      times = [];
+      byWindow.set(w, times);
+    }
+    times.push(p.time);
   }
   const windows: EvoWindow[] = [...byWindow]
     .filter(([, times]) => times.length >= MIN_WINDOW_LAPS)
@@ -160,9 +167,9 @@ export function evolution(
  */
 export function gainOf(windows: readonly EvoWindow[], now: number, end: number | null): EvoGain | null {
   const run = windows.filter((w) => Math.min(w.to, now, end ?? Infinity) - w.from >= WINDOW_MS / 2);
-  if (run.length < 2) return null;
+  const last = run.at(-1);
+  if (run.length < 2 || !last) return null;
   const first = run[0];
-  const last = run.at(-1)!;
   return { first, last, gain: first.median - last.median };
 }
 

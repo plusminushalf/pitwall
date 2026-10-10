@@ -120,7 +120,8 @@ describe("VaultCore", () => {
     // The ticket is used up: a replay is ignored.
     expect(await v.send(login("device"))).toBeNull();
     // What's stored: sealed, with only the masked account in the clear.
-    const stored = v.store.value!;
+    const stored = v.store.value;
+    if (!stored) throw new Error("nothing stored");
     expect(stored.mode).toBe("device");
     expect(stored.account).toBe("s***@example.com");
     expect(new TextDecoder().decode(stored.sealed.ciphertext)).not.toContain(PASS);
@@ -200,8 +201,8 @@ describe("VaultCore", () => {
     expect(await v.send({ type: "popup:passkey", credentialId, prf })).toMatchObject({ ok: true, next: "done" });
     expect(new Uint8Array(prf).every((b) => b === 0)).toBe(true); // wiped after use
     expect(v.core.status()).toMatchObject({ state: "connected", mode: "passkey" });
-    const stored = v.store.value!;
-    if (stored.mode !== "passkey") throw new Error();
+    const stored = v.store.value;
+    if (stored?.mode !== "passkey") throw new Error();
     expect(new Uint8Array(stored.prfSalt)).toEqual(new Uint8Array(welcome.prfSalt));
 
     const next = setup({ store: v.store });

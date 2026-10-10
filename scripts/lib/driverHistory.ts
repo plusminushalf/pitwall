@@ -41,7 +41,7 @@ const add = (a: DriverTotals, b: DriverTotals): DriverTotals => ({
 function racesByDriver(c: Careers): Map<string, DriverRace[]> {
   const out = new Map<string, DriverRace[]>();
   for (const race of [...c.races.values()].sort(byDate)) {
-    const cars = c.cars.get(race.id)!;
+    const cars = c.cars.get(race.id) ?? [];
     for (const r of cars) {
       // A shared car (the 1950s) is in the sheet once per driver: one race.
       const list = out.get(r.driverId) ?? [];
@@ -124,7 +124,7 @@ export function buildDriverHistories(db: F1db, source: HistorySource, c: Careers
       .at(-1)?.car;
     const seasons = seasonsOf.get(driverId) ?? [];
     const thisSeason = seasons.find((s) => s.year === year);
-    const teamId = last?.constructorId ?? list.at(-1)!.team;
+    const teamId = last?.constructorId ?? list[list.length - 1].team;
     drivers.push({
       id: driverId,
       name: bio.name,

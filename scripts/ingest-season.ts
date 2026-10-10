@@ -109,7 +109,8 @@ const nameWidth = Math.max(7, ...all.map((s) => s.session.session_name.length));
 console.log(` key    date        circuit            ${"session".padEnd(nameWidth)}  time    result`);
 for (const s of all) {
   const { session_key, date_start, circuit_short_name, session_name } = s.session;
-  const o = outcomes.get(session_key)!;
+  const o = outcomes.get(session_key);
+  if (!o) throw new Error(`no outcome for session ${session_key}`);
   const time = o.seconds != null ? `${Math.floor(o.seconds / 60)}m${String(Math.round(o.seconds % 60)).padStart(2, "0")}s` : "";
   console.log(
     ` ${String(session_key).padEnd(6)} ${date_start.slice(0, 10)}  ${circuit_short_name.padEnd(17)}  ${session_name.padEnd(nameWidth)}  ${time.padEnd(6)}  ${o.result}`,

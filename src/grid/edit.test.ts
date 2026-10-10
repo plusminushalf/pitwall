@@ -23,6 +23,7 @@ import {
   type EditContext,
 } from "./edit";
 import { columnRange, COLUMNS, DIVIDER, MIN_HEIGHT, pack, ROW, type GridInput, type Layout, type Placement } from "./layout";
+import { must } from "../lib/must";
 
 const widget = (id: string, height: WidgetDefinition["height"], width = { min: 10, default: 20, max: 50 }, sessions: WidgetDefinition["sessions"] = ["race"]) =>
   ({ id, name: id, version: "1.0.0", height, width, sessions, settings: {}, Component: () => null }) as WidgetDefinition;
@@ -254,7 +255,7 @@ describe("resize", () => {
     const narrow = resizeWidget(DRIVER_LAYOUT, c, "timing-tower", "right", 2);
     expect(xw(narrow, "timing-tower")).toEqual([0, 8]);
     expect(xw(narrow, "track-map")).toEqual([8, 22]);
-    const max = columnRange(BUILTIN_WIDGETS.get("timing-tower")!, COLUMNS).max;
+    const max = columnRange(must(BUILTIN_WIDGETS.get("timing-tower")), COLUMNS).max;
     const wide = resizeWidget(DRIVER_LAYOUT, c, "timing-tower", "right", 30);
     expect(xw(wide, "timing-tower")).toEqual([0, max]);
     expect(xw(wide, "track-map")).toEqual([max, RIGHT - max]);
@@ -354,7 +355,7 @@ describe("resize height", () => {
   });
 
   test("under a stretching widget, a widget's top is what moves: it snaps to a line and the stretching widget gives way", () => {
-    const l = addWidget(DRIVER_LAYOUT, c, "weather")!;
+    const l = must(addWidget(DRIVER_LAYOUT, c, "weather"));
     expect(heightEdge(l, c, "weather")).toEqual({ side: "top", y: 767 - 72 - DIVIDER });
     const up = resizeHeight(l, c, "weather", 604);
     const p = byId(placed(up, c));
@@ -405,7 +406,7 @@ describe("free slots", () => {
 describe("add", () => {
   test("into a full driver layout: at the bottom of the roomiest columns (under the map, which gives way)", () => {
     const c = ctx(767);
-    const l = addWidget(DRIVER_LAYOUT, c, "weather")!;
+    const l = must(addWidget(DRIVER_LAYOUT, c, "weather"));
     expect(DRIVER_LAYOUT).toEqual(frozen);
     expect(l.widgets.weather).toEqual({ widgetVersion: "1.0.0", x: TOWER, y: 10, width: 4, settings: {} });
     const p = byId(placed(l, c));
@@ -416,7 +417,7 @@ describe("add", () => {
 
   test("prefers empty space on screen: with the feed gone, the panel's free bottom", () => {
     const c = ctx(767);
-    const l = addWidget(removeWidget(DRIVER_LAYOUT, "race-feed"), c, "weather")!;
+    const l = must(addWidget(removeWidget(DRIVER_LAYOUT, "race-feed"), c, "weather"));
     expect(xw(l, "weather")).toEqual([RIGHT, 4]);
     expect(byId(placed(l, c))["track-map"].height).toBe(767);
   });
@@ -425,10 +426,10 @@ describe("add", () => {
     const c = ctx(767);
     const l = removeWidget(DRIVER_LAYOUT, "race-feed");
     const [slot] = freeSlots(placed(l, c), COLUMNS, 767);
-    const back = addWidget(l, c, "race-feed", slot)!;
+    const back = must(addWidget(l, c, "race-feed", slot));
     expect(xw(back, "race-feed")).toEqual([RIGHT, 8]);
     expect(placed(back, c).map((p) => [p.id, p.x, p.width, p.top, p.height])).toEqual(placed(DRIVER_LAYOUT, c).map((p) => [p.id, p.x, p.width, p.top, p.height]));
-    const narrow = addWidget(l, c, "weather", { ...slot, width: 3 })!;
+    const narrow = must(addWidget(l, c, "weather", { ...slot, width: 3 }));
     expect(xw(narrow, "weather")).toEqual([RIGHT, 3]);
     expect(byId(placed(narrow, c)).weather.top).toBeCloseTo(slot.top + DIVIDER, 6);
     // Narrower than the widget's minimum (weather's is 3 columns).
@@ -438,8 +439,8 @@ describe("add", () => {
   test("into the gap above a multi-column widget: nothing else moves", () => {
     const c = ctx(400, small);
     const l = grid({ a: at(0, 0, 2), b: at(2, 0, 2), wide: at(0, 1, 4) });
-    const gap = freeSlots(placed(l, c), 10, 400).find((s) => s.x === 2)!;
-    const next = addWidget(l, c, "tiny", gap)!;
+    const gap = must(freeSlots(placed(l, c), 10, 400).find((s) => s.x === 2));
+    const next = must(addWidget(l, c, "tiny", gap));
     const before = byId(placed(l, c));
     const p = byId(placed(next, c));
     expect([p.tiny.x, p.tiny.width, p.tiny.top - DIVIDER]).toEqual([2, 2, 50]);
@@ -454,7 +455,7 @@ describe("add", () => {
     const full = grid({ full: at(0, 0, 10) });
     expect(addWidget(full, c, "b")).toBeNull();
     expect(canAdd(full, c, "b")).toBe(false);
-    expect(addWidget(full, ctx(200, small), "b")!.widgets.b).toEqual({ widgetVersion: "1.0.0", x: 0, y: 1, width: 2, settings: {} });
+    expect(must(addWidget(full, ctx(200, small), "b")).widgets.b).toEqual({ widgetVersion: "1.0.0", x: 0, y: 1, width: 2, settings: {} });
     // Another of a widget that's placed: only if there's room for it.
     expect(addWidget(full, c, "full")).toBeNull();
     expect(addWidget(full, c, "nope")).toBeNull();
@@ -463,17 +464,17 @@ describe("add", () => {
 
   test("a widget that's placed already can be placed again, under a key of its own, with settings of its own", () => {
     const c = ctx(767);
-    const two = addWidget(DRIVER_LAYOUT, c, "lap-times")!;
+    const two = must(addWidget(DRIVER_LAYOUT, c, "lap-times"));
     expect(two.widgets["lap-times:2"]).toMatchObject({ widget: "lap-times", settings: {} });
     expect(two.widgets["lap-times"]).toEqual({ ...DRIVER_LAYOUT.widgets["lap-times"], y: two.widgets["lap-times"].y });
     const p = byId(placed(two, c));
     expect(p["lap-times:2"].widget.id).toBe("lap-times");
     expect(p["lap-times:2"].height).toBe(p["lap-times"].height);
     // Keys: the least free n from 2; the widget's own id again once it's free.
-    const three = addWidget(two, c, "lap-times")!;
+    const three = must(addWidget(two, c, "lap-times"));
     expect(Object.keys(three.widgets).filter((k) => k.startsWith("lap-times"))).toEqual(expect.arrayContaining(["lap-times", "lap-times:2", "lap-times:3"]));
     expect(newKey(removeWidget(three, "lap-times:2"), "lap-times")).toBe("lap-times:2");
-    const again = addWidget(removeWidget(DRIVER_LAYOUT, "lap-times"), c, "lap-times")!;
+    const again = must(addWidget(removeWidget(DRIVER_LAYOUT, "lap-times"), c, "lap-times"));
     expect(again.widgets["lap-times"]).not.toHaveProperty("widget");
     // Edits address the copy by its key.
     const wider = resizeWidget(three, c, "lap-times:3", "right", three.widgets["lap-times:3"].x + 9);

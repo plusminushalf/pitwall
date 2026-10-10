@@ -224,10 +224,25 @@ export function onTrackPasses(
   ctx: { laps: readonly RawLap[]; pits: readonly RawPit[]; neutral: readonly NeutralLaps[]; retiredAfter: ReadonlyMap<number, number> },
 ): PastPass[] {
   const starts = new Map<number, { at: number; lap: number }[]>();
-  for (const l of ctx.laps) if (l.date_start) (starts.get(l.driver_number) ?? starts.set(l.driver_number, []).get(l.driver_number)!).push({ at: Date.parse(l.date_start), lap: l.lap_number });
+  for (const l of ctx.laps) {
+    if (!l.date_start) continue;
+    let own = starts.get(l.driver_number);
+    if (!own) {
+      own = [];
+      starts.set(l.driver_number, own);
+    }
+    own.push({ at: Date.parse(l.date_start), lap: l.lap_number });
+  }
   for (const s of starts.values()) s.sort((a, b) => a.at - b.at);
   const pitLaps = new Map<number, Set<number>>();
-  for (const p of ctx.pits) (pitLaps.get(p.driver_number) ?? pitLaps.set(p.driver_number, new Set()).get(p.driver_number)!).add(p.lap_number);
+  for (const p of ctx.pits) {
+    let own = pitLaps.get(p.driver_number);
+    if (!own) {
+      own = new Set();
+      pitLaps.set(p.driver_number, own);
+    }
+    own.add(p.lap_number);
+  }
   const pitted = (d: number, lap: number) => pitLaps.get(d)?.has(lap) || pitLaps.get(d)?.has(lap - 1);
   const neutral = (lap: number) => ctx.neutral.some((p) => lap >= p.from && lap <= p.to);
   const all = raw.map((o) => ({ at: Date.parse(o.date), by: o.overtaking_driver_number, on: o.overtaken_driver_number, lap: lapAt(starts.get(o.overtaking_driver_number), Date.parse(o.date)) }));
@@ -272,13 +287,18 @@ export function summarize(
   const laps = Math.max(0, ...finish.filter((f) => f.position === 1).map((f) => f.laps), 0) || Math.max(0, ...finish.map((f) => f.laps));
   const lapsOf = new Map(finish.map((f) => [f.driver, f.laps]));
   const stints = raw.stints
-    .filter((s) => s.lap_start != null)
-    .map((s) => ({
-      driver: s.driver_number,
-      compound: (s.compound ?? "UNKNOWN").toUpperCase(),
-      from: s.lap_start!,
-      to: s.lap_end ?? lapsOf.get(s.driver_number) ?? laps,
-    }))
+    .flatMap((s) =>
+      s.lap_start == null
+        ? []
+        : [
+            {
+              driver: s.driver_number,
+              compound: (s.compound ?? "UNKNOWN").toUpperCase(),
+              from: s.lap_start,
+              to: s.lap_end ?? lapsOf.get(s.driver_number) ?? laps,
+            },
+          ],
+    )
     .filter((s) => s.to >= s.from)
     .sort((a, b) => a.driver - b.driver || a.from - b.from);
   const neutral = neutralLaps(raw.raceControl, laps);
@@ -295,11 +315,11 @@ export function summarize(
   const classified = new Set(finish.filter((f) => f.position != null).map((f) => f.driver));
   const pace: PastPace[] = [];
   for (const d of classified) {
-    const own = rawLaps.filter(
-      (l) => l.driver_number === d && l.lap_number > 1 && l.lap_duration != null && !l.is_pit_out_lap && !inLaps.has(`${d}:${l.lap_number}`) && !isNeutral(l.lap_number),
+    const own = rawLaps.flatMap((l) =>
+      l.driver_number === d && l.lap_number > 1 && l.lap_duration != null && !l.is_pit_out_lap && !inLaps.has(`${d}:${l.lap_number}`) && !isNeutral(l.lap_number) ? [l.lap_duration] : [],
     );
-    const mid = median(own.map((l) => l.lap_duration!));
-    const kept = own.filter((l) => l.lap_duration! <= mid * 1.07).map((l) => l.lap_duration!);
+    const mid = median(own);
+    const kept = own.filter((ms) => ms <= mid * 1.07);
     if (kept.length) pace.push({ driver: d, laps: kept });
   }
   let fastest: PastRace["fastest"] = null;

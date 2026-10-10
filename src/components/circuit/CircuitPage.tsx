@@ -202,11 +202,15 @@ function History({ h }: { h: CircuitHistory }) {
 function PastRaces({ slug }: { slug: string }) {
   const scope = useMemo(() => ({ slug }), [slug]);
   // Each a panel of its own in a screenshot (shift-click for several), as on the grid.
-  const host = (id: string, className: string) => (
-    <div key={id} data-shot="" className={`border-b border-r border-zinc-800 ${className}`}>
-      <WidgetHost widget={BUILTIN_WIDGETS.get(id)!} circuit={scope} className="h-full" />
-    </div>
-  );
+  const host = (id: string, className: string) => {
+    const widget = BUILTIN_WIDGETS.get(id);
+    if (!widget) throw new Error(`No built-in widget "${id}"`);
+    return (
+      <div key={id} data-shot="" className={`border-b border-r border-zinc-800 ${className}`}>
+        <WidgetHost widget={widget} circuit={scope} className="h-full" />
+      </div>
+    );
+  };
   return (
     <section aria-label="Earlier races" className="mt-8 grid grid-cols-1 border-l border-t border-zinc-800 md:grid-cols-2">
       {/* The four small ones in pairs of the same height, so the frame closes; Strategies across the bottom. */}
@@ -260,7 +264,7 @@ export function CircuitPage({ slug }: { slug: string }) {
     [coming, years],
   );
 
-  let sessions;
+  let sessions: ReactNode;
   if (rows.length) sessions = <WeekendSheet meetings={meetings} filter="all" lead="year" label={`Weekends at ${name}`} />;
   else if (loading) sessions = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the seasons from OpenF1…</p>;
   else
@@ -305,7 +309,7 @@ export function CircuitPage({ slug }: { slug: string }) {
             {failed.length > 0 && (
               <p className="mb-2 flex flex-wrap items-center gap-3 text-xs text-amber-300">
                 Couldn't load {failed.join(", ")} from OpenF1.
-                <button onClick={() => failed.forEach((y) => void useLibrary.getState().loadYear(y, { force: true }))} className={SECONDARY}>
+                <button type="button" onClick={() => failed.forEach((y) => void useLibrary.getState().loadYear(y, { force: true }))} className={SECONDARY}>
                   Try again
                 </button>
               </p>

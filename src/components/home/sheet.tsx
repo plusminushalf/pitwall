@@ -50,7 +50,7 @@ export function SheetRow({
 }) {
   return (
     <li data-shot="" className="border-b border-zinc-800/70">
-      <button
+      <button type="button"
         onClick={(e) => {
           e.currentTarget.blur();
           onOpen();

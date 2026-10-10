@@ -62,6 +62,8 @@ describe("live rebuilds", () => {
     // An unchanged visible feed is element-for-element the same list (so useFeed doesn't re-render).
     const again = withMeta(rebuilt, meta([rc(10_000, "A"), rc(15_000, "NEW"), rc(20_000, "B"), rc(90_000, "LATER")], 130_000));
     expect(visible(again, 50_000)).toEqual(after);
-    visible(again, 50_000).forEach((e, i) => expect(e).toBe(after[i]));
+    visible(again, 50_000).forEach((e, i) => {
+      expect(e).toBe(after[i]);
+    });
   });
 });

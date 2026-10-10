@@ -4,6 +4,12 @@ import { buildDriverHistories } from "./driverHistory";
 import { buildTeamHistories } from "./teamHistory";
 import type { F1db, F1dbRaceResult, F1dbSeasonDriver } from "./f1dbTypes";
 
+/** A test's subject: missing fails the test. */
+function found<T>(x: T | undefined, what: string): T {
+  if (x === undefined) throw new Error(`${what} not found`);
+  return x;
+}
+
 const driver = (id: string, nationalityCountryId = "netherlands") => ({
   id,
   name: `Driver ${id}`,
@@ -141,7 +147,7 @@ const db: F1db = {
 
 describe("buildDriverHistories", () => {
   const { histories, index } = buildDriverHistories(db, historySource("v2026.16.1", "2026-10-10T00:00:00Z"));
-  const max = histories.find((h) => h.driver.id === "max")!;
+  const max = found(histories.find((h) => h.driver.id === "max"), "max");
 
   test("a file for every driver with a season, its seasons oldest first (Friday practice isn't one), titles from the standings", () => {
     expect(histories.map((h) => h.driver.id)).toEqual(["max", "yuki", "liam"]);
@@ -170,7 +176,7 @@ describe("buildDriverHistories", () => {
   });
 
   test("careers to the end of last season apart from this one's", () => {
-    const d = index.drivers.find((x) => x.id === "max")!;
+    const d = found(index.drivers.find((x) => x.id === "max"), "max");
     expect(d.before).toMatchObject({ starts: 4, wins: 3, titles: 1, points: 75.6 });
     expect(d.season).toMatchObject({ starts: 2, wins: 1, titles: 0, position: 2 });
   });
@@ -178,8 +184,8 @@ describe("buildDriverHistories", () => {
 
 describe("a driver's races", () => {
   const { histories } = buildDriverHistories(db, historySource("v2026.16.1", "2026-10-10T00:00:00Z"));
-  const max = histories.find((h) => h.driver.id === "max")!;
-  const yuki = histories.find((h) => h.driver.id === "yuki")!;
+  const max = found(histories.find((h) => h.driver.id === "max"), "max");
+  const yuki = found(histories.find((h) => h.driver.id === "yuki"), "yuki");
 
   test("every Grand Prix started, oldest first, with teammates; a non-start left out", () => {
     expect(max.races.map((r) => [r.raceId, r.car.text, r.mates.length])).toEqual([
@@ -199,7 +205,7 @@ describe("a driver's races", () => {
 
 describe("buildTeamHistories", () => {
   const { histories, index } = buildTeamHistories(db, historySource("v2026.16.1", "2026-10-10T00:00:00Z"));
-  const rb = histories.find((h) => h.team.id === "red-bull")!;
+  const rb = found(histories.find((h) => h.team.id === "red-bull"), "red-bull");
 
   test("a file per team with a race, its seasons with drivers and titles, its races with every car", () => {
     expect(histories.map((h) => h.team.id)).toEqual(["red-bull", "racing-bulls"]);

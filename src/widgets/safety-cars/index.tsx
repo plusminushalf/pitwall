@@ -39,9 +39,9 @@ function SafetyCars() {
         entries={entries}
         plot={(race) => (
           <div className="relative h-3 rounded-sm bg-zinc-800/80">
-            {race.neutral.map((p, i) => (
+            {race.neutral.map((p) => (
               <div
-                key={i}
+                key={`${p.kind}-${p.from}-${p.to}`}
                 className="absolute inset-y-0 rounded-[1px]"
                 style={{ left: `${((p.from - 1) / maxLaps) * 100}%`, width: `max(3px, ${((p.to - p.from + 1) / maxLaps) * 100}%)`, background: KIND[p.kind].background }}
                 title={`${KIND[p.kind].label}, ${p.from === p.to ? `lap ${p.from}` : `laps ${p.from}–${p.to}`}`}

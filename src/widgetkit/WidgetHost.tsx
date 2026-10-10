@@ -86,7 +86,8 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   // Measured before paint, and the widget mounts only once it's measured: its first render knows its size.
   // Browser zoom (and moving to another screen) changes the pixel ratio and fires a resize.
   useLayoutEffect(() => {
-    const el = ref.current!;
+    const el = ref.current;
+    if (!el) return;
     const measure = (box: { width: number; height: number } = el.getBoundingClientRect()) => {
       const width = Math.floor(box.width);
       const height = Math.floor(box.height);
@@ -104,8 +105,10 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
     };
   }, [ratio]);
   useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
     const io = new IntersectionObserver(([entry]) => visibility.set(entry.isIntersecting));
-    io.observe(ref.current!);
+    io.observe(el);
     return () => io.disconnect();
   }, [visibility]);
 
@@ -114,8 +117,10 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   const hosted = useRef<HostedWidget>({ widget, settings: overrides, circuit });
   hosted.current = { widget, settings: overrides, circuit };
   useLayoutEffect(() => {
-    HOSTED.set(ref.current!, hosted);
-    CARD_STATES.set(ref.current!, cardStateValue);
+    const el = ref.current;
+    if (!el) return;
+    HOSTED.set(el, hosted);
+    CARD_STATES.set(el, cardStateValue);
   }, [cardStateValue]);
   const update = useCallback((patch: Partial<WidgetSettings>) => {
     const next = { ...latest.current.overrides, ...patch };

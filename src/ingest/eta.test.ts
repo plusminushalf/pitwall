@@ -25,6 +25,7 @@ import {
 } from "./eta";
 import { JobTracker, telemetryAt, type JobInfo } from "./runner";
 import { TIER_PACE } from "./eta";
+import { must } from "../lib/must";
 
 const DRIVERS_2026 = [1, 3, 5, 6, 10, 11, 12, 14, 16, 18, 22, 23, 27, 30, 31, 41, 43, 44, 55, 63, 77, 87];
 const cachedOf = (names: string[], size = 100) => new Map(names.map((n) => [n, size]));
@@ -110,7 +111,7 @@ describe("estimates", () => {
 
   test("free tier: the burst's gap or a quarter of the work (4 in flight); signed in (the vault, 6 in flight): a sixth", () => {
     const [sessions] = expectedRawFiles("Race", [1]);
-    const car = expectedRawFiles("Race", [1]).find((f) => f.name === "car_data_1")!;
+    const car = must(expectedRawFiles("Race", [1]).find((f) => f.name === "car_data_1"));
     expect(fileSeconds(sessions, "free", 1)).toBe(0.5);
     expect(fileSeconds(car, "free", 1)).toBeCloseTo((0.64 + 295_000 * 5.4e-6) / 4);
     expect(fileSeconds(sessions, "sponsor", 1)).toBeCloseTo(1.15 / 6);
@@ -203,7 +204,10 @@ describe("ETA", () => {
     const startAt = files.map((_, i) => 60 * Math.floor(i / perMinute) + (i % perMinute) * gapS);
     const landAt: number[] = [];
     let t = 0;
-    files.forEach((_, i) => landAt.push((t = Math.max(t + actualSeconds(i), startAt[i] + actualSeconds(i)))));
+    for (let i = 0; i < files.length; i++) {
+      t = Math.max(t + actualSeconds(i), startAt[i] + actualSeconds(i));
+      landAt.push(t);
+    }
     const total = t + PROCESSING_PRIOR_S;
     const etas: { t: number; eta: number; actual: number }[] = [];
     let ratio = 1;
@@ -228,7 +232,10 @@ describe("ETA", () => {
 
   // Deterministic noise.
   function rng(seed: number) {
-    return () => ((seed = (seed * 1664525 + 1013904223) % 2 ** 32) / 2 ** 32);
+    return () => {
+      seed = (seed * 1664525 + 1013904223) % 2 ** 32;
+      return seed / 2 ** 32;
+    };
   }
 
   test("sensible from the first second and steady on a typical download", () => {

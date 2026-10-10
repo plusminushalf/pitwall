@@ -40,9 +40,9 @@ export class RestError extends Error {
  */
 export function restUrl(endpoint: RestEndpoint, params: Params, base = REST_BASE): string {
   const parts = Object.entries(params).map(([k, v]) => {
-    const m = /^(.*?)(>=|<=|>|<)?$/.exec(k)!;
-    const name = encodeURIComponent(m[1]!);
-    return `${name}${m[2] ?? "="}${encodeURIComponent(String(v))}`;
+    const m = /^(.*?)(>=|<=|>|<)?$/.exec(k);
+    const name = encodeURIComponent(m?.[1] ?? k);
+    return `${name}${m?.[2] ?? "="}${encodeURIComponent(String(v))}`;
   });
   return `${base}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`;
 }
@@ -82,7 +82,7 @@ export class Rest {
     /** The rate budget (frame.ts always passes one; unit tests may not). */
     private budget: Pick<Budget, "acquire"> | null = null,
     /** The vault's pass-through (`/openf1/v1/` on its own origin), for authenticated requests OpenF1 refuses to browsers; null: none. */
-    private proxy: string | null = null,
+    private readonly proxy: string | null = null,
     private now: () => number = Date.now,
   ) {}
 
@@ -104,7 +104,7 @@ export class Rest {
       const proxied = token !== null && this.proxy !== null && (viaProxy || this.now() < this.proxyUntil);
       let res: GetResult & { retryAfterMs?: number };
       try {
-        res = await this.once(restUrl(endpoint, params, proxied ? this.proxy! : this.base), token, opts.timeoutMs ?? TIMEOUT_MS);
+        res = await this.once(restUrl(endpoint, params, proxied ? this.proxy : this.base), token, opts.timeoutMs ?? TIMEOUT_MS);
       } catch (e) {
         slot?.release({ status: null });
         // OpenF1 out of reach with a token: what its refused preflight looks like during a live session. Again through

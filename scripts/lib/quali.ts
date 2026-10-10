@@ -112,27 +112,27 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   const stopped = segments.map(() => [] as { from: Ms; to: Ms | null }[]);
   for (const [i, seg] of segments.entries()) {
     status.push({ t: seg.start, status: "GREEN" });
-    let red = false;
+    let red: { from: Ms; to: Ms | null } | null = null;
     for (const m of meta.raceControl) {
       if (m.t <= seg.start || m.t >= seg.end) continue;
       const msg = m.message.toUpperCase();
       if (!red && (m.flag === "RED" || msg.startsWith("RED FLAG"))) {
         status.push({ t: m.t, status: "RED" });
-        stopped[i].push({ from: m.t, to: null });
-        red = true;
+        red = { from: m.t, to: null };
+        stopped[i].push(red);
       } else if (red && ((m.category === "SessionStatus" && /STARTED|RESUMED/.test(msg)) || (m.flag === "GREEN" && m.scope === "Track"))) {
         status.push({ t: m.t, status: "GREEN" });
-        stopped[i].at(-1)!.to = m.t;
-        red = false;
+        red.to = m.t;
+        red = null;
       }
     }
-    if (red) stopped[i].at(-1)!.to = seg.end;
+    if (red) red.to = seg.end;
     status.push({ t: seg.end, status: "CHEQUERED" });
   }
   meta.trackStatus = status.filter((e, i, arr) => e.t <= meta.duration && (i === 0 || arr[i - 1].status !== e.status));
   if (segments.length) {
     meta.lightsOut = segments[0].start;
-    meta.chequered = segments.at(-1)!.end;
+    meta.chequered = segments[segments.length - 1].end;
   }
   meta.grid = [];
 
@@ -140,8 +140,12 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
 
   const lapsOf = new Map<number, Lap[]>();
   for (const l of meta.laps) {
-    if (!lapsOf.has(l.driver)) lapsOf.set(l.driver, []);
-    lapsOf.get(l.driver)!.push(l);
+    let own = lapsOf.get(l.driver);
+    if (!own) {
+      own = [];
+      lapsOf.set(l.driver, own);
+    }
+    own.push(l);
   }
   for (const own of lapsOf.values()) own.sort((a, b) => a.lap - b.lap);
 
@@ -205,7 +209,7 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
     }
     return { segment: null, afterFlag: false };
   };
-  const timed = meta.laps.filter((l) => l.duration != null && !l.pitOut).map((l) => l.duration!);
+  const timed = meta.laps.flatMap((l) => (l.duration != null && !l.pitOut ? [l.duration] : []));
   const fastest = Math.min(...timed);
   const carOf = (n: number): CleanTelemetry["car"] | null => telemetry.get(n)?.car ?? null;
   function speedAt(n: number, t: Ms): number | null {
@@ -239,13 +243,13 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   // ---------------------------------------------------------------- classification
 
   const counting = (n: number, seg: number) =>
-    (lapsOf.get(n) ?? []).filter((l) => {
-      const q = qlap.get(`${n}:${l.lap}`)!;
-      return l.duration != null && q.segment === seg && !q.afterFlag && !q.deleted && q.kind !== "out" && q.kind !== "in";
+    (lapsOf.get(n) ?? []).filter((l): l is Lap & { duration: number } => {
+      const q = qlap.get(`${n}:${l.lap}`);
+      return q != null && l.duration != null && q.segment === seg && !q.afterFlag && !q.deleted && q.kind !== "out" && q.kind !== "in";
     });
   // OpenF1 publishes the results a while after the session: until then, the order by each segment's best counting lap.
   function provisional(): RawResult[] {
-    const best = (n: number, seg: number) => Math.min(Infinity, ...counting(n, seg).map((l) => l.duration!));
+    const best = (n: number, seg: number) => Math.min(Infinity, ...counting(n, seg).map((l) => l.duration));
     const out: number[][] = [];
     let field = [...lapsOf.keys()].sort((a, b) => a - b);
     for (const [k, s] of segments.entries()) {
@@ -276,17 +280,18 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
       const own = lapsOf.get(n) ?? [];
       const laps = segments.map((s, k) => {
         const time = official[k];
-        const mine = counting(n, s.number).sort((a, b) => a.duration! - b.duration!)[0] ?? null;
+        const mine = counting(n, s.number).sort((a, b) => a.duration - b.duration)[0] ?? null;
         if (time == null) {
-          if (mine) problems.push(`#${n} ${s.name}: lap ${mine.lap} (${fmtLap(mine.duration!)}) counts here but there's no official time`);
+          if (mine) problems.push(`#${n} ${s.name}: lap ${mine.lap} (${fmtLap(mine.duration)}) counts here but there's no official time`);
           return null;
         }
-        if (mine && Math.abs(mine.duration! - time) < TIME_EPS) return mine.lap;
+        if (mine && Math.abs(mine.duration - time) < TIME_EPS) return mine.lap;
         // Not what we computed: find the lap that did set the official time.
         const match = own.find((l) => l.duration != null && Math.abs(l.duration - time) < TIME_EPS);
+        const mq = match ? qlap.get(`${n}:${match.lap}`) : undefined;
         problems.push(
-          `#${n} ${s.name}: official ${fmtLap(time)} but computed ${mine ? `${fmtLap(mine.duration!)} (lap ${mine.lap})` : "none"}` +
-            (match ? `; official time is lap ${match.lap} (${qlap.get(`${n}:${match.lap}`)?.segment ? `${prefix}${qlap.get(`${n}:${match.lap}`)!.segment}` : "no segment"}${qlap.get(`${n}:${match.lap}`)?.deleted ? ", deleted" : ""})` : ""),
+          `#${n} ${s.name}: official ${fmtLap(time)} but computed ${mine ? `${fmtLap(mine.duration)} (lap ${mine.lap})` : "none"}` +
+            (match ? `; official time is lap ${match.lap} (${mq?.segment ? `${prefix}${mq.segment}` : "no segment"}${mq?.deleted ? ", deleted" : ""})` : ""),
         );
         return match?.lap ?? null;
       });
@@ -307,10 +312,16 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
 
   // Push and cool-down laps, measured on the push laps.
   const lapByKey = new Map(meta.laps.map((l) => [`${l.driver}:${l.lap}`, l]));
-  const traceable = qualiLaps.filter((q) => q.kind === "push" || q.kind === "cool").map((q) => lapByKey.get(`${q.driver}:${q.lap}`)!);
-  const built = buildLapTraces(traceable, (l) => qlap.get(`${l.driver}:${l.lap}`)!.kind === "push", telemetry, meta.track);
+  const traceable = qualiLaps.flatMap((q) => {
+    const l = q.kind === "push" || q.kind === "cool" ? lapByKey.get(`${q.driver}:${q.lap}`) : undefined;
+    return l ? [l] : [];
+  });
+  const built = buildLapTraces(traceable, (l) => qlap.get(`${l.driver}:${l.lap}`)?.kind === "push", telemetry, meta.track);
   problems.push(...built.problems);
-  for (const key of built.traced) qlap.get(key)!.trace = true;
+  for (const key of built.traced) {
+    const q = qlap.get(key);
+    if (q) q.trace = true;
+  }
   const { traces, lapLength, sectorDistances } = built;
 
   lines.push(
@@ -333,7 +344,7 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   // So the replay is the live screen's (segment clock, cut, the order by segment) with its dashboards: the segments
   // with their running times and red flags, and the timing screen's order and gaps in place of OpenF1's.
   const lengths = segmentLengths(prefix === "SQ", raw.session.year);
-  const timing: LiveQualiSegment[] = segments.map((s, i) => ({ ...s, length: lengths[i] ?? lengths.at(-1)!, stopped: stopped[i] }));
+  const timing: LiveQualiSegment[] = segments.map((s, i) => ({ ...s, length: lengths[i] ?? lengths[lengths.length - 1], stopped: stopped[i] }));
   meta.qualiLive = { segments: timing };
   const standings = qualiStandings(meta.laps, meta.drivers.map((d) => d.number), timing);
   meta.positions = standings.positions;

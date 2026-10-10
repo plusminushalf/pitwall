@@ -24,8 +24,11 @@ export interface CardProps {
 
 /** Dark ink on light team colours, white on dark ones. */
 function inkOn(hex: string): string {
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255).map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b! > 0.3 ? "#0a0a0d" : "#ffffff";
+  const linear = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linear(1) + 0.7152 * linear(3) + 0.0722 * linear(5) > 0.3 ? "#0a0a0d" : "#ffffff";
 }
 
 export function Card({ race, call, at, host, tz, ref }: CardProps & { ref?: Ref<HTMLDivElement> }) {
@@ -155,7 +158,8 @@ export function ScaledCard({ cardRef, className = "", ...props }: CardProps & { 
   const box = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
   useLayoutEffect(() => {
-    const el = box.current!;
+    const el = box.current;
+    if (!el) return;
     const ro = new ResizeObserver(() => setScale(el.clientWidth / CARD_W));
     ro.observe(el);
     setScale(el.clientWidth / CARD_W);

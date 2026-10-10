@@ -230,7 +230,7 @@ function LiveLaps() {
     if (best == null) return out;
     for (const [n, laps] of all) {
       const l = [...laps].reverse().find((x) => x.duration != null && !x.pitOut && x.duration <= best * PUSH_RATIO);
-      if (l) out[n] = { lap: l.lap, duration: l.duration! };
+      if (l?.duration != null) out[n] = { lap: l.lap, duration: l.duration };
     }
     return out;
   });

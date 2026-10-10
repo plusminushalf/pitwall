@@ -8,6 +8,7 @@ import type { LiveSink, StatusPatch } from "./hub";
 import { backfill, backfillEarlier, finished, OpenF1Live, QUICK_TELEMETRY_MS, TELEMETRY_PIECE_MS, type FeedHooks, type Params } from "./openf1";
 import type { LiveState } from "./protocol";
 import { LiveStore, type Rec } from "./store";
+import { must } from "../lib/must";
 
 const MIN = 60_000;
 const now = Date.parse("2026-10-04T07:20:00Z");
@@ -135,7 +136,7 @@ describe("OpenF1Live", () => {
     const tel = () => calls.filter(([e]) => e === "car_data").map(([, p]) => [p["date>"], p["date<="] ?? null]);
     // On screen with the quick piece alone (the earlier requests are out, their answers not in yet).
     expect(hub.log.at(-1)).toBe("start");
-    expect(hub.stores[0].samples.get(1)!.car.t).toEqual([now - MIN - t0]);
+    expect(must(hub.stores[0].samples.get(1)).car.t).toEqual([now - MIN - t0]);
     expect(tel()).toEqual([
       [iso(now - QUICK_TELEMETRY_MS), null],
       [iso(t0 + 2 * TELEMETRY_PIECE_MS), iso(now - QUICK_TELEMETRY_MS)],
@@ -143,7 +144,7 @@ describe("OpenF1Live", () => {
       [iso(t0), iso(t0 + TELEMETRY_PIECE_MS)],
     ]);
     while (hub.log.at(-1) !== "refresh") await Bun.sleep(1);
-    expect(hub.stores[0].samples.get(1)!.car.t).toEqual([now - 28 * MIN - t0, now - 12 * MIN - t0, now - MIN - t0]);
+    expect(must(hub.stores[0].samples.get(1)).car.t).toEqual([now - 28 * MIN - t0, now - 12 * MIN - t0, now - MIN - t0]);
     await live.shutdown();
   });
 
@@ -299,7 +300,7 @@ describe("backfill", () => {
     expect(calls.filter(([e]) => e === "location")).toHaveLength(3);
     expect(calls.every(([, p]) => p.session_key === 11731)).toBe(true);
     expect(calls.some(([, p]) => "driver_number" in p)).toBe(false);
-    expect(store.samples.get(1)!.car.t).toEqual([MIN, 12 * MIN, 24 * MIN]);
+    expect(must(store.samples.get(1)).car.t).toEqual([MIN, 12 * MIN, 24 * MIN]);
   });
 
   test("backfillEarlier: telemetry only, t0 up to `to`, newest piece first", async () => {

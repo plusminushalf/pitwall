@@ -99,7 +99,7 @@ export const isTicket = (x: unknown): x is Ticket => typeof x === "string" && TI
 
 /** Each method: its arguments (besides v, id, type), its result, and how many ports come with the request. */
 export type Methods = {
-  status: { args: {}; result: VaultStatus };
+  status: { args: object; result: VaultStatus };
   /**
    * The app has just opened the setup popup (`popup.html#mode=connect&ticket=…`) from a click: expect it.
    * The login itself goes popup -> frame directly (PopupMessage), never through the app.
@@ -110,7 +110,7 @@ export type Methods = {
   /** The popup was closed: stop expecting it (and drop a half-finished setup). Ignored for a stale ticket. */
   cancel: { args: { ticket: Ticket }; result: VaultStatus };
   /** Forget the stored login (storage and memory) and close the live connection. */
-  disconnect: { args: {}; result: VaultStatus };
+  disconnect: { args: object; result: VaultStatus };
   /**
    * Live topics for this port. The leader frame streams the union across every tab (one MQTT connection per
    * browser) and pushes `data` events for these topics. Result: this port's topics after the change.
@@ -130,20 +130,20 @@ export type Methods = {
    * A second port (transferred with the request) that speaks this same protocol, e.g. for the download worker.
    * At most MAX_PORTS (rpc.ts) are open; at the cap, the one idle longest is dropped for the new one.
    */
-  openPort: { args: {}; result: {} };
+  openPort: { args: object; result: Record<string, never> };
   /**
    * Done with this port (MessagePorts have no close event): its queued gets are dropped, its subscriptions
    * removed, and nothing more is answered on it.
    */
-  close: { args: {}; result: {} };
+  close: { args: object; result: Record<string, never> };
   // Dev-only testing knobs (DEBUG_METHODS). A production vault is built without them and rejects these as
   // unknown types, so no app code can make it misuse the token or hammer /token.
   /** Corrupt the in-memory token: the next authenticated get gets a real 401 from OpenF1. */
-  "debug:spoilToken": { args: {}; result: VaultStatus };
+  "debug:spoilToken": { args: object; result: VaultStatus };
   /** Treat every new token as lasting `seconds` (0: the real lifetime). Applies from the next token. */
   "debug:fakeExpiry": { args: { seconds: number }; result: VaultStatus };
   /** Refresh the token now (the same path a scheduled refresh takes). */
-  "debug:refreshNow": { args: {}; result: VaultStatus };
+  "debug:refreshNow": { args: object; result: VaultStatus };
   /** The next `times` /token calls answer `status` without reaching OpenF1 (0 times: clear). */
   "debug:failToken": { args: { status: 401 | 429 | 503; times: number }; result: VaultStatus };
   /**

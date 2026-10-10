@@ -23,10 +23,14 @@ export const lastPodiums = (h: CircuitHistory, n = 5): HistoryRace[] =>
 /** The fastest of `pick` over the races on a layout; the earliest wins a tie, as the record stood first. */
 function fastestOn<T extends { ms: number | null }>(h: CircuitHistory, layoutId: string | undefined, pick: (r: HistoryRace) => T | null) {
   let best: { race: HistoryRace; lap: T } | null = null;
+  let bestMs = Infinity;
   for (const race of h.races) {
     const lap = pick(race);
     if (race.layoutId !== layoutId || lap?.ms == null) continue;
-    if (!best || lap.ms < best.lap.ms!) best = { race, lap };
+    if (!best || lap.ms < bestMs) {
+      best = { race, lap };
+      bestMs = lap.ms;
+    }
   }
   return best;
 }

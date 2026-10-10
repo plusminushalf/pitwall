@@ -47,8 +47,9 @@ export function endInLapsAtPitEntry(lapsOf: ReadonlyMap<number, Lap[]>, pits: re
     const entries = pits.filter((p) => p.driver === n).map((p) => p.entry);
     own.forEach((l, i) => {
       const next = own[i + 1];
-      if (l.duration != null || l.end == null || !next?.pitOut || next.lap !== l.lap + 1) return;
-      const entry = entries.find((e) => e > l.start && e < l.end!);
+      const end = l.end;
+      if (l.duration != null || end == null || !next?.pitOut || next.lap !== l.lap + 1) return;
+      const entry = entries.find((e) => e > l.start && e < end);
       if (entry != null) l.end = entry;
     });
   }
@@ -145,19 +146,24 @@ export function buildPracticeTraces({ meta, telemetry }: Pick<NormalizeResult, "
   const laps = meta.laps.map((l) => ({ ...l }));
   const lapsOf = new Map<number, Lap[]>();
   for (const l of laps) {
-    if (!lapsOf.has(l.driver)) lapsOf.set(l.driver, []);
-    lapsOf.get(l.driver)!.push(l);
+    let own = lapsOf.get(l.driver);
+    if (!own) {
+      own = [];
+      lapsOf.set(l.driver, own);
+    }
+    own.push(l);
   }
   for (const own of lapsOf.values()) own.sort((a, b) => a.lap - b.lap);
   const line = timingLine(laps, telemetry);
   const { moves, brokenRuns } = chainLapStarts(lapsOf, (n) => lineCrossings(line, telemetry.get(n)?.loc));
 
-  const timed = [...lapsOf.values()].flat().filter((l) => l.duration != null && l.end != null && !l.pitOut);
+  const timed = [...lapsOf.values()].flat().filter((l): l is Lap & { duration: number } => l.duration != null && l.end != null && !l.pitOut);
   const best = new Map<number, number>();
-  for (const l of timed) best.set(l.driver, Math.min(best.get(l.driver) ?? Infinity, l.duration!));
+  for (const l of timed) best.set(l.driver, Math.min(best.get(l.driver) ?? Infinity, l.duration));
   const fastest = Math.min(...best.values());
-  const atPace = timed.filter((l) => l.duration! <= TRACE_RATIO * best.get(l.driver)!);
-  const built = buildLapTraces(atPace, (l) => l.duration! <= TRACE_RATIO * fastest, telemetry, meta.track);
+  // (Every timed lap's driver has a best.)
+  const atPace = timed.filter((l) => l.duration <= TRACE_RATIO * (best.get(l.driver) ?? Infinity));
+  const built = buildLapTraces(atPace, (l) => l.duration != null && l.duration <= TRACE_RATIO * fastest, telemetry, meta.track);
 
   const traces = new Map([...built.traces].sort(([a], [b]) => a - b));
   if (traces.size && Number.isFinite(built.lapLength) && meta.practice) {

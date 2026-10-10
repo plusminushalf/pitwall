@@ -42,7 +42,10 @@ beforeAll(async () => {
   for (const n of [1, 44]) put(`car_data_${n}`, Array.from({ length: 4 * 2400 }, (_, i) => ({ session_key: KEY, meeting_key: 1, driver_number: n, date: iso(T - 60_000 + i * 250 + n), speed: i % 300, rpm: 10000, n_gear: 7, throttle: 90, brake: 0, drs: 0 })));
   sim = new SimServer(repo, { sessionKey: KEY, speed: 20, startS: 0, tokenS: 60, dropEveryMin: 0, refuseAtMin: null, jitterMs: 5, keepaliveCheck: true, lock: false });
   server = createServer((req, res) => {
-    if (!sim.handle(req, res)) (res.statusCode = 404), res.end();
+    if (!sim.handle(req, res)) {
+      res.statusCode = 404;
+      res.end();
+    }
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const addr = server.address();
@@ -57,7 +60,7 @@ afterAll(() => {
 describe("simdata", () => {
   test("the timeline: laps at start, after each sector and complete; telemetry from 10 min before the session", () => {
     const tl = buildTimeline(repo, KEY, 0);
-    const laps = [...tl.byTopic.get("laps")!].map((i) => tl.recs[i]!);
+    const laps = [...(tl.byTopic.get("laps") ?? [])].flatMap((i) => tl.recs[i] ?? []);
     expect(laps.filter((l) => l.driver_number === 1 && l.lap_number === 3).map((l) => [l.duration_sector_1, l.duration_sector_2, l.lap_duration])).toEqual([
       [null, null, null],
       [30, null, null],
@@ -65,32 +68,36 @@ describe("simdata", () => {
       [30, 30, 90],
     ]);
     // Telemetry stops at the end (5 min after the last lap); nothing is published after it.
-    const cd = [...tl.byTopic.get("car_data")!];
+    const cd = [...(tl.byTopic.get("car_data") ?? [])];
     expect(cd.length).toBeLessThan(2 * 4 * 2400);
-    expect(cd.every((i) => tl.at[i]! <= tl.endOrig)).toBe(true);
-    expect(Math.max(...cd.map((i) => tl.at[i]!))).toBeGreaterThan(tl.endOrig - 1000);
-    expect(tl.byTopic.get("sessions")!.length).toBe(1);
+    expect(cd.every((i) => (tl.at[i] ?? Infinity) <= tl.endOrig)).toBe(true);
+    expect(Math.max(...cd.map((i) => tl.at[i] ?? NaN))).toBeGreaterThan(tl.endOrig - 1000);
+    expect(tl.byTopic.get("sessions")?.length).toBe(1);
     // Emission order.
-    for (let i = 1; i < tl.at.length; i++) expect(tl.at[i]! >= tl.at[i - 1]!).toBe(true);
+    let prev = -Infinity;
+    for (const at of tl.at) {
+      expect(at >= prev).toBe(true);
+      prev = at;
+    }
   });
 
   test("REST as of a sim time: published rows only, each document's latest version, OpenF1's filters", () => {
     const tl = buildTimeline(repo, KEY, 0);
     const clock = { anchorWall: 1_000_000_000_000, startOrig: tl.startOrig, speed: 1 };
     const now = simNow(clock, clock.anchorWall + 100_000); // lap 2 is 10 s in (sector 1 not done)
-    const laps = restQuery(tl, clock, "laps", "session_key=latest&driver_number=1", now)!;
+    const laps = restQuery(tl, clock, "laps", "session_key=latest&driver_number=1", now) ?? [];
     expect(laps.map((l) => [l.lap_number, l.lap_duration, l.duration_sector_1])).toEqual([
       [1, 90, 30],
       [2, null, null],
     ]);
     expect(laps.every((l) => !("_id" in l) && !("_key" in l))).toBe(true);
     const from = iso(now - 10_000);
-    const cd = restQuery(tl, clock, "car_data", `session_key=${KEY}&date>=${encodeURIComponent(from)}`, now)!;
+    const cd = restQuery(tl, clock, "car_data", `session_key=${KEY}&date>=${encodeURIComponent(from)}`, now) ?? [];
     expect(Math.abs(cd.length - 2 * 40)).toBeLessThanOrEqual(2); // 4 Hz x 2 drivers x 10 s (boundaries inclusive)
     expect(cd.every((r) => Date.parse(r.date) >= Date.parse(from) && Date.parse(r.date) <= now)).toBe(true);
     expect(restQuery(tl, clock, "nothing", "", now)).toBeNull();
     // Dates are on the sim clock and written OpenF1's way.
-    expect(cd[0]!.date).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$/);
+    expect(cd[0]?.date).toMatch(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{6}\+00:00$/);
   });
 });
 
@@ -160,7 +167,11 @@ describe("SimBroker + simserver: the vault's real stream code against the simula
       return hash53(canonical(rest));
     };
     for (const topic of ["car_data", "position"] as const) {
-      const want = [...tl.byTopic.get(topic)!].filter((i) => tl.at[i]! + off > from && tl.at[i]! + off <= to).map((i) => hash53(canonical(JSON.parse(JSON.stringify(shift(tl.recs[i]!, off))))));
+      const want = [...(tl.byTopic.get(topic) ?? [])].flatMap((i) => {
+        const at = tl.at[i];
+        const rec = tl.recs[i];
+        return at !== undefined && rec && at + off > from && at + off <= to ? [hash53(canonical(JSON.parse(JSON.stringify(shift(rec, off)))))] : [];
+      });
       const mine = got.filter((b) => b.topic === topic).flatMap((b) => b.messages.map(idOf));
       expect(mine.length - new Set(mine).size).toBe(0);
       const have = new Set(mine);
@@ -227,7 +238,10 @@ describe("simserver: OpenF1's lock during a session", () => {
     // Its own simulation (the one above keeps its clock): from lights out, i.e. inside the window.
     const locked = new SimServer(repo, { sessionKey: KEY, speed: 1, startS: 0, tokenS: 3600, dropEveryMin: 0, refuseAtMin: null, jitterMs: 0, keepaliveCheck: true, lock: true });
     const srv = createServer((req, res) => {
-      if (!locked.handle(req, res)) (res.statusCode = 404), res.end();
+      if (!locked.handle(req, res)) {
+        res.statusCode = 404;
+        res.end();
+      }
     });
     await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
     const addr = srv.address();
@@ -243,7 +257,7 @@ describe("simserver: OpenF1's lock during a session", () => {
       // The pass-through asks as a server does: answered.
       const viaProxy = await locked.fetchRest("http://vault/openf1/v1/sessions?session_key=latest", { headers: auth });
       expect(viaProxy.status).toBe(200);
-      expect(((await viaProxy.json()) as { session_key: number }[])[0]!.session_key).toBe(KEY);
+      expect(((await viaProxy.json()) as { session_key: number }[])[0]?.session_key).toBe(KEY);
       // (A client may retry a dropped connection once.)
       expect(locked.stats.restLocked).toBeGreaterThanOrEqual(1);
       expect(locked.stats.restProxied).toBe(1);

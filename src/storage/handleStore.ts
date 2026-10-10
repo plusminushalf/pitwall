@@ -62,11 +62,18 @@ export function handleStore(backend: StoreBackend, root: () => Promise<FileSyste
     }
   }
 
+  /** The last of `parts`: the name in the directory the others lead to. */
+  function leaf(parts: string[]): string {
+    const name = parts.at(-1);
+    if (name === undefined) throw new Error("an empty path");
+    return name;
+  }
+
   async function readFile(parts: string[]): Promise<File | undefined> {
     const d = await dir(parts.slice(0, -1));
     if (!d) return undefined;
     try {
-      return await (await d.getFileHandle(parts.at(-1)!)).getFile();
+      return await (await d.getFileHandle(leaf(parts))).getFile();
     } catch (e) {
       if (missing(e)) return undefined;
       throw e;
@@ -74,8 +81,9 @@ export function handleStore(backend: StoreBackend, root: () => Promise<FileSyste
   }
 
   async function writeFile(parts: string[], bytes: Bytes): Promise<void> {
-    const d = (await dir(parts.slice(0, -1), true))!;
-    const name = parts.at(-1)!;
+    const d = await dir(parts.slice(0, -1), true);
+    if (!d) throw new Error(`couldn't create ${parts.slice(0, -1).join("/")}`);
+    const name = leaf(parts);
     if (hasWritable) {
       const w = await (await d.getFileHandle(name, { create: true })).createWritable();
       await w.write(bytes);
@@ -95,7 +103,7 @@ export function handleStore(backend: StoreBackend, root: () => Promise<FileSyste
     const d = await dir(parts.slice(0, -1));
     if (!d) return;
     try {
-      await d.removeEntry(parts.at(-1)!, { recursive: true });
+      await d.removeEntry(leaf(parts), { recursive: true });
     } catch (e) {
       if (!missing(e)) throw e;
     }

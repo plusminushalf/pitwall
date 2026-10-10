@@ -82,7 +82,11 @@ describe("Rpc", () => {
     await tick();
     expect(extra.sent).toEqual([{ v: 1, id: 1, ok: true, result: status }]);
     const more: FakePort[] = [];
-    for (let i = 2; i < MAX_PORTS; i++) main.deliver({ v: 1, id: i, type: "openPort" }, [(more[i] = new FakePort())]);
+    for (let i = 2; i < MAX_PORTS; i++) {
+      const port = new FakePort();
+      more[i] = port;
+      main.deliver({ v: 1, id: i, type: "openPort" }, [port]);
+    }
     await tick();
     expect(rpc.portCount).toBe(MAX_PORTS);
     // At the cap: `extra` (idle longest) makes room.
@@ -157,9 +161,18 @@ describe("Rpc", () => {
     const calls: string[] = [];
     const rpc = new Rpc(
       fake({
-        expect: (kind, ticket) => (calls.push(`${kind} ${ticket}`), kind === "unlock" ? { ok: false, code: "not_connected", message: "nothing to unlock" } : { ok: true, status }),
-        cancel: (t) => (calls.push(`cancel ${t}`), status),
-        disconnect: async () => (calls.push("disconnect"), status),
+        expect: (kind, ticket) => {
+          calls.push(`${kind} ${ticket}`);
+          return kind === "unlock" ? { ok: false, code: "not_connected", message: "nothing to unlock" } : { ok: true, status };
+        },
+        cancel: (t) => {
+          calls.push(`cancel ${t}`);
+          return status;
+        },
+        disconnect: async () => {
+          calls.push("disconnect");
+          return status;
+        },
       }),
     );
     const a = new FakePort();
@@ -214,7 +227,10 @@ describe("Rpc", () => {
     for (const req of [{ type: "debug:spoilToken" }, { type: "debug:refreshNow" }, { type: "debug:fakeExpiry", seconds: 120 }])
       expect(await prod.handle({ v: 1, id: 1, ...req }, [])).toEqual({ v: 1, id: 1, ok: false, error: { code: "bad_request", message: "unknown type" } });
     const seen: string[] = [];
-    const dev = new Rpc(fake(), async (req) => (seen.push(req.type), status));
+    const dev = new Rpc(fake(), async (req) => {
+      seen.push(req.type);
+      return status;
+    });
     expect(await dev.handle({ v: 1, id: 2, type: "debug:spoilToken" }, [])).toEqual({ v: 1, id: 2, ok: true, result: status });
     expect(await dev.handle({ v: 1, id: 3, type: "debug:fakeExpiry", seconds: 120 }, [])).toMatchObject({ ok: true });
     expect(await dev.handle({ v: 1, id: 4, type: "debug:fakeExpiry", seconds: 5 }, [])).toMatchObject({ ok: false, error: { code: "bad_request" } });

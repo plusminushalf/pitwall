@@ -23,7 +23,11 @@ export type TeamId = (typeof TEAMS)[number]["id"];
 export type Team = (typeof TEAMS)[number];
 
 const TEAM_BY_ID = new Map<string, Team>(TEAMS.map((t) => [t.id, t]));
-export const team = (id: TeamId): Team => TEAM_BY_ID.get(id)!;
+export const team = (id: TeamId): Team => {
+  const t = TEAM_BY_ID.get(id);
+  if (!t) throw new Error(`no team ${id}`);
+  return t;
+};
 
 export interface Race {
   /** OpenF1's session key of the race, so a pit-stop feed can find it later. */

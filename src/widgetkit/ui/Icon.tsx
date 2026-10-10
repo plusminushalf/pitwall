@@ -35,9 +35,9 @@ const PATHS = {
     <>
       <circle {...STROKE} cx="8" cy="8" r="2" />
       <circle {...STROKE} cx="8" cy="8" r="4.6" />
-      {Array.from({ length: 8 }, (_, i) => {
-        const a = (i * Math.PI) / 4;
-        return <line key={i} stroke="currentColor" strokeWidth="2.2" x1={8 + Math.cos(a) * 4.6} y1={8 + Math.sin(a) * 4.6} x2={8 + Math.cos(a) * 6.6} y2={8 + Math.sin(a) * 6.6} />;
+      {Array.from({ length: 8 }, (_, i) => i).map((tooth) => {
+        const a = (tooth * Math.PI) / 4;
+        return <line key={tooth} stroke="currentColor" strokeWidth="2.2" x1={8 + Math.cos(a) * 4.6} y1={8 + Math.sin(a) * 4.6} x2={8 + Math.cos(a) * 6.6} y2={8 + Math.sin(a) * 6.6} />;
       })}
     </>
   ),

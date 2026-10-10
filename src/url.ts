@@ -92,6 +92,7 @@ export function readUrl(pathname: string, search: string): UrlState {
       : [];
   const live = LIVE_PATH.test(pathname) || q.get("live") === "1";
   const session = path ? Number(path[1]) : num("session");
+  const dash = q.get("dash");
   return {
     live,
     session,
@@ -101,7 +102,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     ...(path && (q.get("view") === "laps" || q.get("view") === "replay") ? { view: q.get("view") as "laps" | "replay" } : {}),
     ...(path && range && Number(range[1]) >= 1 && Number(range[1]) < Number(range[2]) ? { range: [Number(range[1]), Number(range[2])] as [number, number] } : {}),
     ...(path ? readShared(q) : {}),
-    ...(DASHBOARD_ID.test(q.get("dash") ?? "") ? { dash: q.get("dash")! } : {}),
+    ...(dash != null && DASHBOARD_ID.test(dash) ? { dash } : {}),
     ...(circuit && !live && session == null ? { circuit } : {}),
     ...(driver && !live && session == null ? { driver } : {}),
     ...(team && !live && session == null ? { team } : {}),
@@ -150,7 +151,7 @@ export function urlFor(v: UrlState): string {
     if (c.names) q.push("names=1");
     if (v.layout) q.push(`layout=${v.layout}`);
   }
-  const path = v.live ? livePath : sessionPath(v.session!);
+  const path = v.live || v.session == null ? livePath : sessionPath(v.session);
   return q.length > 0 ? `${path}?${q.join("&")}` : path;
 }
 

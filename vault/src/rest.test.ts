@@ -46,11 +46,11 @@ describe("Rest", () => {
     expect(r.status).toBe(200);
     expect(r.auth).toBe(true);
     expect(new TextDecoder().decode(r.body)).toBe("[{}]");
-    expect(api.seen[0]!.auth).toBe("Bearer good");
+    expect(api.seen[0]?.auth).toBe("Bearer good");
     tok = null;
     const u = await rest.get("sessions", {});
     expect(u).toMatchObject({ status: 200, auth: false });
-    expect(api.seen[1]!.auth).toBeUndefined();
+    expect(api.seen[1]?.auth).toBeUndefined();
   });
 
   test("401: onUnauthorized, then one retry with the new token", async () => {
@@ -58,7 +58,11 @@ describe("Rest", () => {
     const calls: string[] = [];
     const tokens: TokenSource = {
       current: () => tok,
-      onUnauthorized: async (used) => (calls.push(used), (tok = "new"), "retry"),
+      onUnauthorized: async (used) => {
+        calls.push(used);
+        tok = "new";
+        return "retry";
+      },
     };
     const api = fakeApi(new Set(["new"]));
     const r = await new Rest(api.fetch, tokens).get("laps", {});
@@ -76,7 +80,13 @@ describe("Rest", () => {
 
   test("a retry that 401s again is returned, not retried again", async () => {
     let n = 0;
-    const tokens: TokenSource = { current: () => `t${n}`, onUnauthorized: async () => (n++, "retry") };
+    const tokens: TokenSource = {
+      current: () => `t${n}`,
+      onUnauthorized: async () => {
+        n++;
+        return "retry";
+      },
+    };
     const api = fakeApi(new Set());
     expect((await new Rest(api.fetch, tokens).get("laps", {})).status).toBe(401);
     expect(api.seen.length).toBe(2);
@@ -154,7 +164,7 @@ describe("dev knobs (debug.ts) with a real scheduler", () => {
     await v.knobs.handle({ v: 1, id: 1, type: "debug:spoilToken" });
     const r = await v.rest.get("sessions", { session_key: "latest" });
     expect(r).toMatchObject({ status: 200, auth: true });
-    expect(v.api.seen.slice(1).map((s) => s.auth !== undefined && v.api.seen[0]!.auth !== s.auth)).toEqual([true, true]);
+    expect(v.api.seen.slice(1).map((s) => s.auth !== undefined && v.api.seen[0]?.auth !== s.auth)).toEqual([true, true]);
     expect(v.scheduler.status().refreshCount).toBe(1);
     // The spoil is over: the new token is sent as is.
     expect((await v.rest.get("sessions", {})).status).toBe(200);
@@ -183,7 +193,10 @@ describe("dev knobs (debug.ts) with a real scheduler", () => {
   test("failToken: the next N /token calls fail without reaching OpenF1", async () => {
     const knobs = new DevKnobs({} as TokenScheduler, 0, () => ({}));
     let real = 0;
-    const f = knobs.tokenFetch(async () => (real++, { status: 200, text: async () => "{}" }));
+    const f = knobs.tokenFetch(async () => {
+      real++;
+      return { status: 200, text: async () => "{}" };
+    });
     const init = { method: "POST", headers: {}, body: "", credentials: "omit", referrerPolicy: "no-referrer" } as const;
     await knobs.handle({ v: 1, id: 1, type: "debug:failToken", status: 503, times: 2 });
     expect((await f("https://api.openf1.org/token", init)).status).toBe(503);
@@ -218,16 +231,22 @@ describe("Rest with the budget", () => {
     let tok = "old";
     const at: number[] = [];
     const x = budgeted(
-      async (u, i) => (at.push(x.clock.t), api.fetch(u, i)),
+      async (u, i) => {
+        at.push(x.clock.t);
+        return api.fetch(u, i);
+      },
       () => tok,
-      async () => ((tok = "new"), "retry"),
+      async () => {
+        tok = "new";
+        return "retry";
+      },
     );
     const all = Promise.all([x.rest.get("laps", {}, { caller: "a" }), x.rest.get("laps", {}, { caller: "a" })]);
     await x.clock.advance(5_000);
     const rs = await all;
     expect(rs.map((r) => r.status)).toEqual([200, 200]);
     expect(at.length).toBeGreaterThanOrEqual(3);
-    const gaps = at.slice(1).map((t, i) => t - at[i]!);
+    const gaps = at.slice(1).map((t, i) => t - (at[i] ?? NaN));
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(Math.floor(1150 / 6));
     expect(x.budget.status().started).toBe(at.length);
   });
@@ -261,7 +280,13 @@ describe("Rest with the budget", () => {
 
   test("the request timeout reaches fetch (live gap-fills get a short one)", async () => {
     const seen: number[] = [];
-    const rest = new Rest(async (_u, i) => (seen.push(i.timeoutMs), { status: 200, arrayBuffer: async () => buf("[]") }), { current: () => null, onUnauthorized: async () => "give_up" });
+    const rest = new Rest(
+      async (_u, i) => {
+        seen.push(i.timeoutMs);
+        return { status: 200, arrayBuffer: async () => buf("[]") };
+      },
+      { current: () => null, onUnauthorized: async () => "give_up" },
+    );
     await rest.get("laps", {}, { caller: "live", priority: "live", timeoutMs: 30_000 });
     await rest.get("laps", {});
     expect(seen).toEqual([30_000, 120_000]);
@@ -289,15 +314,15 @@ describe("Rest: the pass-through during a live session", () => {
     const r = await rest.get("laps", { session_key: 9 });
     expect(r).toMatchObject({ status: 200, auth: true });
     expect(api.seen.map((s) => s.url)).toEqual(["https://api.openf1.org/v1/laps?session_key=9", `${PROXY}laps?session_key=9`]);
-    expect(api.seen[1]!.auth).toBe("Bearer tok");
+    expect(api.seen[1]?.auth).toBe("Bearer tok");
     await rest.get("drivers", { session_key: 9 });
-    expect(api.seen.at(-1)!.url).toBe(`${PROXY}drivers?session_key=9`);
+    expect(api.seen.at(-1)?.url).toBe(`${PROXY}drivers?session_key=9`);
     expect(api.seen).toHaveLength(3);
     // Later: direct again.
     now += 11 * 60_000;
     api.open();
     await rest.get("drivers", { session_key: 9 });
-    expect(api.seen.at(-1)!.url).toBe("https://api.openf1.org/v1/drivers?session_key=9");
+    expect(api.seen.at(-1)?.url).toBe("https://api.openf1.org/v1/drivers?session_key=9");
   });
 
   test("never without a token; and a real outage (the pass-through out of reach too) is still a network error", async () => {

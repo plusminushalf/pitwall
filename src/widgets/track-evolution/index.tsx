@@ -45,7 +45,7 @@ const compoundColor = (c: string) => (COMPOUND[c] ?? COMPOUND.UNKNOWN).color;
 const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase();
 
 /** The smallest step from `steps` that puts at least `minPx` between ticks. */
-const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? steps.at(-1)!;
+const tickStep = (span: number, px: number, minPx: number, steps: readonly number[]) => steps.find((s) => (s / span) * px >= minPx) ?? Math.max(...steps);
 
 /** 92.5 -> "1:32.5" (decimals 1) or "1:32" (decimals 0). */
 function tickTime(seconds: number, decimals: number): string {
@@ -76,6 +76,7 @@ function Dots({ points, scale, info, onPick }: { points: EvoPoint[]; scale: Scal
       {ordered.map((p) => {
         const name = info.get(p.driver)?.acronym ?? `#${p.driver}`;
         return (
+          // biome-ignore lint/a11y/useSemanticElements: an SVG circle can't be an HTML <button>
           <circle
             key={`${p.driver}:${p.lap}`}
             cx={xOf(scale, p.end)}
@@ -86,8 +87,18 @@ function Dots({ points, scale, info, onPick }: { points: EvoPoint[]; scale: Scal
             // The push laps ringed in the ground colour; the rest get a wider, unseen edge to click.
             stroke={p.push ? SURFACE : "transparent"}
             strokeWidth={p.push ? 1.5 : 6}
-            className="cursor-pointer"
+            role="button"
+            tabIndex={0}
+            aria-label={`${name} lap ${p.lap}, ${lapTime(p.time)}${p.push ? ", push lap" : ""}. Watch it`}
+            className="cursor-pointer outline-none focus-visible:stroke-zinc-50"
             onClick={() => onPick(p)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" && e.key !== " ") return;
+              // Space picks the lap, not the replay's hold-to-play.
+              e.preventDefault();
+              e.stopPropagation();
+              onPick(p);
+            }}
           >
             <title>
               {`${name} ${lapTime(p.time)}, lap ${p.lap}${p.push ? " (push lap)" : ""}\n${compoundName(p.compound)}, ${p.age} ${p.age === 1 ? "lap" : "laps"} old\nClick to watch it`}
@@ -277,7 +288,8 @@ function Lines({ model, scale, t }: { model: Evolution; scale: Scale; t: number 
     const y = yOf(scale, r.time);
     step += i === 0 ? `M${x} ${y}` : `H${x}V${y}`;
   });
-  if (records.length) step += `H${xOf(scale, Math.min(Math.max(t, records.at(-1)!.at), scale.x1))}`;
+  const last = records.at(-1);
+  if (last) step += `H${xOf(scale, Math.min(Math.max(t, last.at), scale.x1))}`;
   const medians = windows.map((win) => ({ x: xOf(scale, (win.from + Math.min(win.to, Math.max(t, win.from))) / 2), y: yOf(scale, win.median), win }));
   const lastMedian = medians.at(-1);
   return (

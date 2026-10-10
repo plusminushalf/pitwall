@@ -6,13 +6,13 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TyreBadge } from "../../widgetkit/ui/TyreBadge";
 import { cornerLabel } from "../../data/circuits";
 import { compareModel, type CompareModel } from "../../data/compare";
-import { miniSectors } from "../../engine/compare";
+import { miniSectors, type DecodedLap } from "../../engine/compare";
 import { useCompare, type CompareEntry } from "../../hooks/useCompare";
 import { useCoarsePointer, usePhone } from "../../hooks/usePhone";
 import { lapTime } from "../../lib/format";
 import { ghost, GHOST_SPEEDS, MINI_SECTOR_COUNTS, useQuali } from "../../qualiStore";
 import { useReplay } from "../../store";
-import type { SessionMeta } from "../../types";
+import type { QualiData, SessionMeta } from "../../types";
 import { ScreenSwitch, SessionPicker } from "../Header";
 import { RacesButton } from "../Navigation";
 import { ShareButton } from "../../share/ShareShot";
@@ -41,7 +41,7 @@ const SHORTCUTS: [string, string][] = [
 function Help() {
   return (
     <div className="group relative">
-      <button className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 text-xs font-bold text-zinc-400 hover:border-zinc-500 hover:text-zinc-100" aria-label="Keyboard shortcuts">
+      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full border border-zinc-700 text-xs font-bold text-zinc-400 hover:border-zinc-500 hover:text-zinc-100" aria-label="Keyboard shortcuts">
         ?
       </button>
       <div className="pointer-events-none absolute right-0 top-full z-30 mt-2 hidden w-72 rounded-md border border-zinc-800 bg-zinc-900 p-3 shadow-xl group-focus-within:block group-hover:block">
@@ -62,8 +62,7 @@ function Help() {
 }
 
 /** Qualifying: the best time of each segment, and pole. */
-function QualiSummary({ meta }: { meta: SessionMeta }) {
-  const q = meta.quali!;
+function QualiSummary({ quali: q }: { quali: QualiData }) {
   return (
     <div className="flex items-center gap-3">
       {q.segments.map((s) => (
@@ -161,7 +160,7 @@ function CompareHeader({ meta, model }: { meta: SessionMeta; model: CompareModel
       </div>
       <div className="flex items-center gap-5">
         <span className="text-xl font-black uppercase tracking-tight">{meta.sessionName}</span>
-        {meta.quali ? <QualiSummary meta={meta} /> : <PracticeSummary meta={meta} model={model} />}
+        {meta.quali ? <QualiSummary quali={meta.quali} /> : <PracticeSummary meta={meta} model={model} />}
       </div>
       <div className="flex items-center justify-end gap-4">
         {top && topInfo && (
@@ -251,9 +250,11 @@ function Dominance({ entries, sectors }: { entries: CompareEntry[]; sectors: Ret
 }
 
 export function QualiView({ overlay }: { overlay?: ReactNode }) {
-  const session = useReplay((s) => s.session)!;
+  const session = useReplay((s) => s.session);
+  if (!session) throw new Error("QualiView: no session");
   const meta = session.meta;
-  const model = compareModel(meta)!;
+  const model = compareModel(meta);
+  if (!model) throw new Error("QualiView: the session's laps can't be compared");
   const entries = useCompare();
   const zoom = useQuali((s) => s.zoom);
   const miniCount = useQuali((s) => s.miniCount);
@@ -271,12 +272,12 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
     }
   }, [meta.sessionKey, model]);
 
-  const withTrace = useMemo(() => entries.filter((e) => e.trace), [entries]);
-  const maxDuration = Math.max(0, ...withTrace.map((e) => e.trace!.duration));
+  const withTrace = useMemo(() => entries.filter((e): e is CompareEntry & { trace: DecodedLap } => e.trace != null), [entries]);
+  const maxDuration = Math.max(0, ...withTrace.map((e) => e.trace.duration));
   useGhostLoop(maxDuration);
   useGhostKeys();
 
-  const sectors = useMemo(() => miniSectors(withTrace.map((e) => e.trace!), miniCount), [withTrace, miniCount]);
+  const sectors = useMemo(() => miniSectors(withTrace.map((e) => e.trace), miniCount), [withTrace, miniCount]);
 
   // Corner numbers along the lap, from the reference lap's path.
   const corners = useMemo(() => {
@@ -328,7 +329,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
               </span>
               {/* Touch has its own Reset zoom button over the charts (CompareCharts.tsx). */}
               {!coarse && (
-                <button onClick={() => useQuali.getState().setZoom(null)} className="rounded px-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white">
+                <button type="button" onClick={() => useQuali.getState().setZoom(null)} className="rounded px-1.5 font-semibold text-zinc-300 hover:bg-zinc-800 hover:text-white">
                   Reset zoom
                 </button>
               )}
@@ -350,7 +351,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
           <span className={LABEL}>Fastest per mini-sector</span>
           <div className="flex overflow-hidden rounded border border-zinc-800 text-[10px]">
             {MINI_SECTOR_COUNTS.map((n) => (
-              <button key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums pointer-coarse:px-3 pointer-coarse:py-2 ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+              <button type="button" key={n} onClick={() => setMiniCount(n)} className={`px-1.5 py-0.5 tabular-nums pointer-coarse:px-3 pointer-coarse:py-2 ${n === miniCount ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
                 {n}
               </button>
             ))}
@@ -363,7 +364,7 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
         <div className="flex shrink-0 items-center justify-between gap-2 px-3 pb-1 text-[10px] text-zinc-600">
           <p>{coarse ? "Touch the track to follow the charts' cursor · tap a mini-sector to zoom to it" : "Hover to follow the charts' cursor · click a mini-sector to zoom to it"}</p>
           {meta.track.corners.some((c) => c.name) && (
-            <button onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 pointer-coarse:px-3 pointer-coarse:py-2 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
+            <button type="button" onClick={() => setCornerNames(!cornerNames)} aria-pressed={cornerNames} className={`shrink-0 rounded px-1.5 py-0.5 pointer-coarse:px-3 pointer-coarse:py-2 ${cornerNames ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}>
               Corner names
             </button>
           )}

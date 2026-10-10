@@ -49,7 +49,11 @@ function at(cars: CarInput[], t: number): CarInput[] {
   });
 }
 
-const endOf = (c: CarInput, lap: number) => c.laps.find((l) => l.lap === lap)!.end;
+const endOf = (c: CarInput, lap: number) => {
+  const l = c.laps.find((x) => x.lap === lap);
+  if (!l) throw new Error(`no lap ${lap}`);
+  return l.end;
+};
 
 describe("undercuts and overcuts", () => {
   // HAM (44) 1.5 s behind LEC (16) at the end of lap 17. HAM stops after lap 18, LEC after lap 21;

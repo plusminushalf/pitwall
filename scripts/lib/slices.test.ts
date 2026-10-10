@@ -30,7 +30,7 @@ describe("slice plan", () => {
     // Everything ahead taken: the units before the playhead, nearest first.
     const back = new SlicePlan(span);
     back.next(T + 23 * U);
-    expect(units(back.next(T + 23 * U))).toEqual([`location:17-23`, `car_data:17-23`]);
+    expect(units(back.next(T + 23 * U))).toEqual(["location:17-23", "car_data:17-23"]);
   });
 
   test("a playhead just before a grid line: the first slice takes the next unit too", () => {
@@ -55,9 +55,9 @@ describe("slice plan", () => {
   test("a failed part is missing again; done once everything is stored", () => {
     const p = new SlicePlan({ from: T, to: T + 2 * U });
     const [loc, car] = p.next(T);
-    p.release(loc!);
+    p.release(loc);
     expect(units(p.next(T))).toEqual(["location:0-1"]);
-    for (const part of [loc!, car!]) p.stored(part);
+    for (const part of [loc, car]) p.stored(part);
     expect(p.done()).toBe(false);
     const rest = p.next(T);
     for (const part of rest) p.stored(part);

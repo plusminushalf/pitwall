@@ -115,6 +115,7 @@ function statusText(live: LiveInfo, hasSession: boolean): Status | null {
 /** The status in words (`className` on the words: the header truncates them), then its button if it has one. */
 export function StatusLine({ status, short = false, className = "" }: { status: Status; short?: boolean; className?: string }) {
   const text = (short && status.short) || status.text;
+  const { action } = status;
   return (
     <>
       <span className={`${status.tone === "error" ? "text-red-400" : "text-zinc-400"} ${className}`} title={status.code ? `${status.text} ${status.code}` : status.text} data-testid="live-status">
@@ -126,17 +127,17 @@ export function StatusLine({ status, short = false, className = "" }: { status: 
           </>
         )}
       </span>
-      {status.action && (
+      {action && (
         <button
           type="button"
           data-testid="live-account-action"
           onClick={(e) => {
             e.currentTarget.blur();
-            status.action!.run();
+            action.run();
           }}
           className="touch-hit shrink-0 rounded bg-zinc-100 px-1.5 py-px text-[11px] font-semibold text-zinc-900 hover:bg-white"
         >
-          {status.action.label}
+          {action.label}
         </button>
       )}
     </>
@@ -209,7 +210,7 @@ export function GoLiveButton({ className = "" }: { className?: string }) {
     );
   }
   return (
-    <button
+    <button type="button"
       onClick={(e) => {
         e.currentTarget.blur();
         goLive();
@@ -244,7 +245,7 @@ export function LiveControl() {
       {live.via === "vault" && <VaultBits />}
       {!phone && <GoLiveButton className="shrink-0" />}
       {status && (!phone || status.tone === "error") && <StatusLine status={status} short className={`truncate text-[11px] ${phone ? "max-w-[9rem]" : "max-w-[16rem]"}`} />}
-      <button
+      <button type="button"
         onClick={(e) => {
           e.currentTarget.blur();
           exitLive();
@@ -281,7 +282,7 @@ export function LiveScreen() {
             Or try a simulated race: <code className="rounded bg-zinc-800 px-1 py-0.5 text-zinc-300">bun run live:sim</code>. Retrying automatically.
           </p>
         )}
-        <button onClick={exitLive} className="mt-1 rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white pointer-coarse:min-h-11 pointer-coarse:px-4">
+        <button type="button" onClick={exitLive} className="mt-1 rounded border border-zinc-700 px-3 py-1 text-xs text-zinc-300 hover:border-zinc-500 hover:text-white pointer-coarse:min-h-11 pointer-coarse:px-4">
           Back to replays
         </button>
       </div>

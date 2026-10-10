@@ -153,10 +153,11 @@ export class IdbStore implements LoginStore {
       req.onerror = () => reject(req.error);
       req.onblocked = () => reject(new Error("blocked"));
     });
-    return (this.db ??= bounded(opening, "indexedDB.open").catch((e) => {
+    this.db ??= bounded(opening, "indexedDB.open").catch((e) => {
       this.db = null;
       throw e;
-    }));
+    });
+    return this.db;
   }
 
   private async run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {

@@ -29,9 +29,9 @@ describe("REST pass-through", () => {
     expect(await res.text()).toBe('[{"lap_number":1}]');
     expect(res.headers.get("cache-control")).toBe("no-store");
     expect(sent).toHaveLength(1);
-    expect(sent[0]!.url).toBe(`${UPSTREAM}laps?session_key=11731&date>=2026-10-04T07%3A00%3A00.000Z`);
-    expect(sent[0]!.init.headers).toEqual({ Authorization: TOKEN, Accept: "application/json" });
-    expect(sent[0]!.init.method).toBe("GET");
+    expect(sent[0]?.url).toBe(`${UPSTREAM}laps?session_key=11731&date>=2026-10-04T07%3A00%3A00.000Z`);
+    expect(sent[0]?.init.headers).toEqual({ Authorization: TOKEN, Accept: "application/json" });
+    expect(sent[0]?.init.method).toBe("GET");
   });
 
   test("OpenF1's errors come back as they are (404 no results, 401, 429 with Retry-After)", async () => {
@@ -72,7 +72,11 @@ describe("REST pass-through", () => {
     }) as unknown as typeof fetch;
     expect((await handleProxy(req("/openf1/v1/laps?session_key=1"), { fetch: down })).status).toBe(502);
     const slow = ((_: string, init: RequestInit) =>
-      new Promise((_r, reject) => init.signal!.addEventListener("abort", () => reject(init.signal!.reason)))) as unknown as typeof fetch;
+      new Promise((_r, reject) => {
+        const signal = init.signal;
+        if (!signal) return reject(new Error("no signal"));
+        signal.addEventListener("abort", () => reject(signal.reason));
+      })) as unknown as typeof fetch;
     expect((await handleProxy(req("/openf1/v1/laps?session_key=1"), { fetch: slow, timeoutMs: 20 })).status).toBe(504);
     const redirect = upstream(302, "", { Location: "https://elsewhere.example/" });
     expect((await handleProxy(req("/openf1/v1/laps?session_key=1"), { fetch: redirect.f })).status).toBe(502);
@@ -94,7 +98,14 @@ describe("REST pass-through", () => {
 
   test("the Worker: /openf1/ to the pass-through, everything else to the static files", async () => {
     const assets: string[] = [];
-    const env = { ASSETS: { fetch: async (r: Request) => (assets.push(new URL(r.url).pathname), new Response("file")) } };
+    const env = {
+      ASSETS: {
+        fetch: async (r: Request) => {
+          assets.push(new URL(r.url).pathname);
+          return new Response("file");
+        },
+      },
+    };
     expect(await (await worker.fetch(new Request(`${ORIGIN}/frame.html`), env)).text()).toBe("file");
     const res = await worker.fetch(new Request(`${ORIGIN}/openf1/v1/laps?session_key=1`, { method: "POST" }), env);
     expect(res.status).toBe(405);

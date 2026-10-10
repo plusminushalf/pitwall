@@ -11,6 +11,7 @@ import { buildSession, mergeTelemetry, streamSession, withMeta, type Session } f
 import type { DriverTelemetry, SessionMeta } from "../types";
 import type { StreamUpdate } from "./protocol";
 import { StreamBuilder } from "./stream";
+import { must } from "../lib/must";
 
 const KEY = 11377;
 const rawDir = new URL(`../../data/raw/${KEY}/`, import.meta.url).pathname;
@@ -70,13 +71,13 @@ async function streamRace(playhead: () => number | null) {
 function apply(updates: StreamUpdate[]): Session {
   let session: Session | null = null;
   for (const u of updates) {
-    if (!session) session = streamSession(u.meta!, u.chunks);
+    if (!session) session = streamSession(must(u.meta), u.chunks);
     else {
       if (u.meta) session = withMeta(session, u.meta, false);
       session = mergeTelemetry(session, u.chunks);
     }
   }
-  return session!;
+  return must(session);
 }
 
 describe.skipIf(!available)(`streaming a race while it downloads (${KEY})`, () => {
@@ -95,9 +96,9 @@ describe.skipIf(!available)(`streaming a race while it downloads (${KEY})`, () =
   ] as const) {
     test(`${name}: the first update starts the replay, each span comes once, and it ends up as the stored replay`, async () => {
       const updates = await streamRace(playhead);
-      const first = updates[0]!;
+      const first = must(updates[0]);
       expect(first.meta).not.toBeNull();
-      expect(first.meta!.laps.length).toBe(meta.laps.length);
+      expect(must(first.meta).laps.length).toBe(meta.laps.length);
       expect(first.chunks.length).toBeGreaterThan(0);
       // Every 5-minute unit's telemetry once: chunks of a driver never overlap.
       const seen = new Map<number, [number, number][]>();
@@ -109,9 +110,9 @@ describe.skipIf(!available)(`streaming a race while it downloads (${KEY})`, () =
           seen.set(c.driver, spans);
         }
       }
-      const last = updates.at(-1)!;
-      expect(last.spans[0]![0]).toBeLessThanOrEqual(0);
-      expect(last.spans.at(-1)![1]).toBeGreaterThanOrEqual(meta.duration);
+      const last = must(updates.at(-1));
+      expect(must(last.spans[0])[0]).toBeLessThanOrEqual(0);
+      expect(must(last.spans.at(-1))[1]).toBeGreaterThanOrEqual(meta.duration);
       expect(last.spans.length).toBe(1);
 
       const session = apply(updates);
@@ -122,8 +123,8 @@ describe.skipIf(!available)(`streaming a race while it downloads (${KEY})`, () =
       expect(session.meta.results).toEqual(meta.results);
       expect(session.meta.stints).toEqual(meta.stints);
       for (const n of stored.driverNumbers) {
-        const a = stored.drivers.get(n)!;
-        const b = session.drivers.get(n)!;
+        const a = must(stored.drivers.get(n));
+        const b = must(session.drivers.get(n));
         expect(b.car.t.length).toBe(a.car.t.length);
         expect([...b.car.speed]).toEqual([...a.car.speed]);
         // Locations: the same samples, give or take dead reckoning across a span edge.

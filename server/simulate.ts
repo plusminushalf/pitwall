@@ -116,7 +116,7 @@ export async function simulate(hub: Hub, opts: SimulateOptions): Promise<void> {
     : lap1.length
       ? Math.min(...lap1)
       : ms(session.date_start) + LIGHTS_OUT_AFTER_START_MS;
-  const lapEnds = laps.filter((l) => l.date_start && l.lap_duration != null).map((l) => ms(l.date_start) + l.lap_duration! * 1000);
+  const lapEnds = laps.flatMap((l) => (l.date_start && l.lap_duration != null ? [ms(l.date_start) + l.lap_duration * 1000] : []));
   const lastLapEnd = lapEnds.length ? Math.max(...lapEnds) : lightsOut + 90 * 60_000;
   const chequered = ms(raceControl.find((m) => m.flag === "CHEQUERED")?.date);
   const endOrig = Math.max(Number.isFinite(chequered) ? chequered : lastLapEnd, lastLapEnd) + END_AFTER_FINISH_MS;

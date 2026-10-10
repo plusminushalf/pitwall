@@ -82,7 +82,7 @@ export function NameLink({
 }) {
   const open = useReplay((s) => (kind === "driver" ? s.openDriver : s.openTeam));
   return (
-    <button
+    <button type="button"
       onClick={(e) => {
         e.currentTarget.blur();
         open(id);

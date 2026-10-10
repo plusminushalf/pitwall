@@ -6,6 +6,7 @@ import { BUILTIN_WIDGETS } from "./builtins";
 import { DEFAULT_LAYOUT, PRACTICE_LAYOUT } from "./defaultLayout";
 import { DRIVER_LAYOUT } from "./driverLayout";
 import { boxesOf, COLUMNS, columnRange, DIVIDER, pack, phoneColumn, phoneHeight, type GridInput, type Layout, type Placement } from "./layout";
+import { must } from "../lib/must";
 
 const widget = (id: string, height: WidgetDefinition["height"], width = { min: 10, default: 20, max: 50 }) =>
   ({ id, name: id, version: "1.0.0", height, width, sessions: ["race"], settings: {}, Component: () => null }) as WidgetDefinition;
@@ -97,7 +98,7 @@ describe("pack", () => {
   });
 
   test("widths (percent of the grid) snap to whole columns and clamp; unknown widgets are left out", () => {
-    expect(columnRange(widgets.get("wide")!, 10)).toEqual({ min: 5, max: 5 });
+    expect(columnRange(must(widgets.get("wide")), 10)).toEqual({ min: 5, max: 5 });
     const placed = pack(layout({ wide: at(9, 0, 1), gone: at(0, 0, 2) }), widgets, input(), 500);
     expect(placed.map((p) => [p.id, p.x, p.width])).toEqual([["wide", 5, 5]]);
   });
@@ -112,7 +113,7 @@ describe("default layout", () => {
     expect(Object.keys(DEFAULT_LAYOUT.widgets).sort()).toEqual(["battles", "gap-chart", "pit-strategy", "race-feed", "stint-pace", "timing-tower", "track-map"]);
     expect(DEFAULT_LAYOUT.columns).toBe(COLUMNS);
     for (const [id, e] of Object.entries(DEFAULT_LAYOUT.widgets)) {
-      const { min, max } = columnRange(BUILTIN_WIDGETS.get(id)!, COLUMNS);
+      const { min, max } = columnRange(must(BUILTIN_WIDGETS.get(id)), COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
       expect(e.width).toBeLessThanOrEqual(max);
     }
@@ -168,7 +169,7 @@ describe("driver layout", () => {
     expect(Object.keys(DRIVER_LAYOUT.widgets).sort()).toEqual([...BUILTIN_WIDGETS.keys()].filter((id) => !NOT_IN_IT.includes(id)).sort());
     expect(DRIVER_LAYOUT.columns).toBe(COLUMNS);
     for (const [id, e] of Object.entries(DRIVER_LAYOUT.widgets)) {
-      const { min, max } = columnRange(BUILTIN_WIDGETS.get(id)!, COLUMNS);
+      const { min, max } = columnRange(must(BUILTIN_WIDGETS.get(id)), COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
       expect(e.width).toBeLessThanOrEqual(max);
     }
@@ -237,7 +238,7 @@ describe("practice's default layout", () => {
     expect(Object.keys(PRACTICE_LAYOUT.widgets).sort()).toEqual(["long-runs", "race-feed", "stint-pace", "timing-tower", "track-map"]);
     expect(PRACTICE_LAYOUT.columns).toBe(COLUMNS);
     for (const [id, e] of Object.entries(PRACTICE_LAYOUT.widgets)) {
-      const widget = BUILTIN_WIDGETS.get(id)!;
+      const widget = must(BUILTIN_WIDGETS.get(id));
       expect(widget.sessions).toContain("practice");
       const { min, max } = columnRange(widget, COLUMNS);
       expect(e.width).toBeGreaterThanOrEqual(min);
@@ -367,11 +368,11 @@ describe("phone column", () => {
   const heightInput = (): HeightInput => ({ ...input(), settings: {} });
 
   test("fixed widgets are their own height; stretching ones a chart's worth, or their minimum if that's more", () => {
-    expect(phoneHeight(widgets.get("a")!, heightInput())).toBe("100px");
-    expect(phoneHeight(widgets.get("fill")!, heightInput())).toBe("260px");
-    expect(phoneHeight(widgets.get("tall")!, heightInput())).toBe("400px");
-    expect(phoneHeight(BUILTIN_WIDGETS.get("timing-tower")!, heightInput())).toBe("clamp(240px, 55dvh, 520px)");
-    expect(phoneHeight(BUILTIN_WIDGETS.get("track-map")!, heightInput())).toBe("clamp(240px, 55dvh, 520px)");
+    expect(phoneHeight(must(widgets.get("a")), heightInput())).toBe("100px");
+    expect(phoneHeight(must(widgets.get("fill")), heightInput())).toBe("260px");
+    expect(phoneHeight(must(widgets.get("tall")), heightInput())).toBe("400px");
+    expect(phoneHeight(must(BUILTIN_WIDGETS.get("timing-tower")), heightInput())).toBe("clamp(240px, 55dvh, 520px)");
+    expect(phoneHeight(must(BUILTIN_WIDGETS.get("track-map")), heightInput())).toBe("clamp(240px, 55dvh, 520px)");
   });
 
   test("heights follow the selection, and the entry's settings sit on the widget's defaults", () => {

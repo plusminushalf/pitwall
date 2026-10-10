@@ -57,6 +57,15 @@ async function boot(parent: string) {
   let knobs: DevKnobs | null = null;
   let node: VaultNode | null = null;
   let live: LiveManager | null = null;
+  // Both are set below (each needs things made first); nothing calls these before then.
+  const theNode = () => {
+    if (!node) throw new Error("vault node not set up");
+    return node;
+  };
+  const theKnobs = () => {
+    if (!knobs) throw new Error("dev knobs not set up");
+    return knobs;
+  };
   // /token gets the scheduler's timeout on every call, a login's too (not just refreshes): a hung request then
   // fails as a network error instead of leaving the popup unanswered.
   const tokenInit = (init: RequestInit): RequestInit => ({ ...init, signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS) });
@@ -65,23 +74,23 @@ async function boot(parent: string) {
     // Simulate mode keeps its (fake) login apart from the real one.
     store: new IdbStore(sim ? "f1-vault-sim" : undefined),
     // Dev vault only: /token through the failure injection (debug:failToken), and to the simulation's /token.
-    fetch: __VAULT_DEV__ ? (url, init) => knobs!.tokenFetch((u, i) => tokenFetch(u, i))(url, init) : (url, init) => fetch(url, tokenInit(init)),
+    fetch: __VAULT_DEV__ ? (url, init) => theKnobs().tokenFetch((u, i) => tokenFetch(u, i))(url, init) : (url, init) => fetch(url, tokenInit(init)),
     now: Date.now,
     ...(gate && { setTimeout: timers.setTimeout, clearTimeout: timers.clearTimeout }),
     version: __VAULT_VERSION__,
     onStatus: () => node?.onCoreStatus(),
     announceWipe: () => node?.announceWipe(),
     // Dev vault only (vault:build replaces __VAULT_DEV__ with false and drops this).
-    ...(__VAULT_DEV__ && { tokenFilter: (t) => knobs!.filter(t) }),
+    ...(__VAULT_DEV__ && { tokenFilter: (t) => theKnobs().filter(t) }),
     leading: () => node?.role === "leader",
     onShared: (s) => node?.onShared(s),
     onToken: () => live?.onToken(),
   });
-  if (__VAULT_DEV__) knobs = new DevKnobs(core.scheduler, __VAULT_FAKE_EXPIRES_IN__, () => node!.status());
+  if (__VAULT_DEV__) knobs = new DevKnobs(core.scheduler, __VAULT_FAKE_EXPIRES_IN__, () => theNode().status());
   // Requests in parallel within one budget (budget.ts: OpenF1's rate limits, priorities, fairness), each with a
   // timeout so a hung one frees its slot.
   const restFetch: RestFetch = (url, { timeoutMs, ...init }) => gFetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs) });
-  const tokens: TokenSource = __VAULT_DEV__ ? knobs!.tokens() : core.scheduler;
+  const tokens: TokenSource = __VAULT_DEV__ ? theKnobs().tokens() : core.scheduler;
   const budget = new Budget({ ...timers, random: Math.random, authenticated: () => tokens.current() !== null, onChange: () => node?.budgetChanged() });
   // The pass-through on the vault's own origin (proxy.ts: the Worker in production, the dev server here).
   const rest = new Rest(restFetch, tokens, sim ? `${simBase}/v1/` : fake ? `${fake}/v1/` : REST_BASE, budget, `${location.origin}/openf1/v1/`);
@@ -101,7 +110,7 @@ async function boot(parent: string) {
     rest: (endpoint, params) => rest.get(endpoint, params, { caller: "live", priority: "live", timeoutMs: 30_000 }),
     emit: (batches) => node?.onLiveData(batches),
     onStatus: () => node?.pushStatus(),
-    lease: { ok: () => node!.leaseOk(), verify: () => node!.verify() },
+    lease: { ok: () => theNode().leaseOk(), verify: () => theNode().verify() },
   });
   // Dev vault only: this frame's own status additions (simulate mode, freezes).
   const withDev = (s: VaultStatus): VaultStatus => (sim ? { ...s, sim: sim.status() } : s);
@@ -117,7 +126,7 @@ async function boot(parent: string) {
     onStatus: (status) => rpc?.broadcast({ v: 1, type: "event", event: "status", status: withDev(status) } satisfies VaultEvent),
     deliver: (batches) => rpc?.deliver(batches),
     visible: () => document.visibilityState === "visible",
-    ...(__VAULT_DEV__ && { debug: (req) => knobs!.handle(req) }),
+    ...(__VAULT_DEV__ && { debug: (req) => theKnobs().handle(req) }),
   });
   const n = node;
 
@@ -144,7 +153,10 @@ async function boot(parent: string) {
       const r = core.expect(kind, ticket);
       return r.ok ? { ok: true, status: withDev(n.status()) } : r;
     },
-    cancel: (ticket) => (core.cancel(ticket), withDev(n.status())),
+    cancel: (ticket) => {
+      core.cancel(ticket);
+      return withDev(n.status());
+    },
     disconnect: () => n.disconnect(),
     get: (endpoint, params, caller) => n.get(endpoint, params, caller),
     dropCaller: (caller) => n.dropCaller(caller),
@@ -156,7 +168,7 @@ async function boot(parent: string) {
       ? async (req) => {
           // These two act on this frame (not the leader): freeze it, or a fault at the simulated broker.
           if (req.type === "debug:freeze") {
-            realTimers.setTimeout(() => gate!.freeze(req.ms), 0); // after this answer has gone
+            realTimers.setTimeout(() => gate?.freeze(req.ms), 0); // after this answer has gone
             return vault.status();
           }
           if (req.type === "debug:sim") {
@@ -180,8 +192,9 @@ async function boot(parent: string) {
 
   let attached = false;
   const onHello = (e: MessageEvent) => {
-    if (attached || !fromParent(e, window.parent, parent, __VAULT_APP_ORIGINS__) || !isHello(e.data, e.ports.length)) return;
-    attached = r.attach(gatedPort(e.ports[0]!), { main: true });
+    const port = e.ports[0];
+    if (attached || !fromParent(e, window.parent, parent, __VAULT_APP_ORIGINS__) || !isHello(e.data, e.ports.length) || !port) return;
+    attached = r.attach(gatedPort(port), { main: true });
     // One hello per frame: after it, the app's window messages are never looked at again.
     window.removeEventListener("message", onHello);
   };

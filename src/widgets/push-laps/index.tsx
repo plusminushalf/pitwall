@@ -60,7 +60,7 @@ function SetRow({ set, rank, info, pinned, narrow, onPick }: { set: SetPushes; r
     `${pinned ? "Watching. " : ""}Click to watch from the first push.`;
   return (
     <li className={pinned ? "bg-zinc-800/80" : undefined}>
-      <button onClick={() => onPick(set)} className={`${colsOf(narrow)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
+      <button type="button" onClick={() => onPick(set)} className={`${colsOf(narrow)} w-full px-3 py-1 text-left ${pinned ? "" : "hover:bg-zinc-900"}`} title={title} aria-current={pinned ? "true" : undefined}>
         <span className="text-[11px] font-semibold tabular-nums text-zinc-400">{rank}</span>
         <span className="flex items-center gap-1">
           <DriverChip n={set.driver} d={info} />
@@ -113,8 +113,12 @@ function PushLaps() {
     const deleted = new Map<number, Set<number>>();
     for (const k of deletedKeys) {
       const [n, lap] = k.split(":").map(Number);
-      if (!deleted.has(n)) deleted.set(n, new Set());
-      deleted.get(n)!.add(lap);
+      let own = deleted.get(n);
+      if (!own) {
+        own = new Set();
+        deleted.set(n, own);
+      }
+      own.add(lap);
     }
     const sets = [...laps].flatMap(([n, own]) => pushSets(n, slimLaps(own, deleted.get(n) ?? new Set()), slimStints(stints.get(n) ?? []), neutral));
     return byCompound(withPin(sets, held ? pin : null));

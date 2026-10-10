@@ -4,6 +4,12 @@
 import type { NeutralPeriod } from "widget-kit";
 import { byCompound, dropText, pinHolds, pushSets, withPin, type PushLap, type PushStint } from "./pushes";
 
+/** The value, or the test fails here. */
+function must<T>(v: T | null | undefined): T {
+  if (v == null) throw new Error("expected a value");
+  return v;
+}
+
 /** A run from the garage: its compound, the set's age, and its laps ("o" the out-lap, null untimed: the in-lap). */
 type Spec = { compound: string; age?: number; laps: (number | "o" | null)[] };
 
@@ -76,7 +82,7 @@ describe("push laps", () => {
   test("laps under a neutral period or deleted by now don't count", () => {
     const specs: Spec[] = [{ compound: "SOFT", laps: ["o", 90.0, 120.0, 90.3, 120.0, 90.4, null] }];
     const { laps } = session(specs);
-    const vsc: NeutralPeriod = { status: "VSC", start: laps[3].start + 10_000, end: laps[3].end! - 10_000 };
+    const vsc: NeutralPeriod = { status: "VSC", start: laps[3].start + 10_000, end: must(laps[3].end) - 10_000 };
     expect(setsOf(specs, [vsc])[0].laps).toEqual([2, 6]);
     // The best lap deleted: the next one is the 1st push and the best.
     expect(setsOf(specs, [], [2])[0]).toMatchObject({ laps: [4, 6], first: 90.3, best: 90.3 });

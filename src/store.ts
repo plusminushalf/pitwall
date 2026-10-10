@@ -510,8 +510,9 @@ export const useReplay = create<ReplayState>((set, get) => {
           const selected = [...new Set(opts?.drivers ?? [])].filter((n) => session.drivers.has(n));
           const focused = opts?.focus != null && session.drivers.has(opts.focus) ? opts.focus : null;
           const target = liveTarget(wall);
-          const dvr = opts?.t != null && opts.session === session.meta.sessionKey && opts.t < target - followSnap();
-          clock.t = dvr ? Math.max(0, opts!.t!) : target;
+          const at = opts?.t;
+          const dvr = at != null && opts?.session === session.meta.sessionKey && at < target - followSnap();
+          clock.t = dvr ? Math.max(0, at) : target;
           set({ session, liveEdge: msg.now, followLive: !dvr, playing: false, latched: false, selected, focused, watchedTo: 0, lapWindow: null });
         }
         get().publish();

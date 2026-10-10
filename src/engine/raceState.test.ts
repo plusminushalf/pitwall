@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { buildSession, type DriverData, type Session } from "../data/session";
 import type { DriverTelemetry, Lap, SessionMeta } from "../types";
 import { carPositionAt, driverStateAt, feedAt, leaderLapAt, mapOpacity, raceStateAt, telemetryAt } from "./raceState";
+import { must } from "../lib/must";
 
 const dir = new URL("../../data/sessions/11377/", import.meta.url).pathname;
 const available = existsSync(`${dir}meta.json`);
@@ -19,7 +20,7 @@ function load(): Session {
 
 describe.skipIf(!available)("Baku 2026 replay", () => {
   const s = available ? load() : (null as unknown as Session);
-  const driver = (n: number) => s.drivers.get(n)!;
+  const driver = (n: number) => must(s.drivers.get(n));
 
   test("at lights out every car is running lap 1 in grid order", () => {
     const race = raceStateAt(s, s.meta.lightsOut + 1_000);
@@ -29,7 +30,7 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
   });
 
   test("SAI (#55) pits after lap 20 and changes tyres", () => {
-    const pit = s.meta.pits.find((p) => p.driver === 55 && p.lap === 20)!;
+    const pit = must(s.meta.pits.find((p) => p.driver === 55 && p.lap === 20));
     const before = driverStateAt(driver(55), pit.entry - 5_000);
     const during = driverStateAt(driver(55), (pit.entry + pit.exit) / 2);
     const after = driverStateAt(driver(55), pit.exit + 5_000);
@@ -39,7 +40,7 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
     expect(after.status).toBe("RUNNING");
     expect(after.stint).toBe(2);
     expect(after.pitStops).toBe(1);
-    const stint2 = s.meta.stints.find((x) => x.driver === 55 && x.stint === 2)!;
+    const stint2 = must(s.meta.stints.find((x) => x.driver === 55 && x.stint === 2));
     expect(after.compound).toBe(stint2.compound);
     expect(after.tyreAge).toBe(stint2.ageAtStart);
   });
@@ -59,16 +60,16 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
     const classified = s.meta.results.filter((r) => !r.dnf).map((r) => r.driver);
     // P1-P12 are unaffected by BOR's post-race penalty (13th on the road, classified 15th).
     expect(race.drivers.slice(0, 12).map((d) => d.driver)).toEqual(classified.slice(0, 12));
-    for (const n of classified) expect(race.drivers.find((d) => d.driver === n)!.status).toBe("FINISHED");
+    for (const n of classified) expect(must(race.drivers.find((d) => d.driver === n)).status).toBe("FINISHED");
   });
 
   test("retired cars go OUT and leave the map", () => {
     const stroll = driver(18);
-    const retired = stroll.result!.retired!;
+    const retired = must(stroll.result?.retired);
     expect(driverStateAt(stroll, retired - 5_000).status).not.toBe("OUT");
     expect(driverStateAt(stroll, retired + 1_000).status).toBe("OUT");
     expect(mapOpacity(stroll, retired + 60_000)).toBe(0);
-    expect(raceStateAt(s, 30 * 60_000).drivers.at(-1)!.driver).toBe(18);
+    expect(must(raceStateAt(s, 30 * 60_000).drivers.at(-1)).driver).toBe(18);
   });
 
   test("interpolated positions stay on the track outline under green", () => {
@@ -85,7 +86,7 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
         for (const d of s.drivers.values()) {
           const nearPit = d.pits.some((p) => t > p.entry - 15_000 && t < p.exit + 15_000);
           if (nearPit || driverStateAt(d, t).status !== "RUNNING") continue;
-          const p = carPositionAt(d, t)!;
+          const p = must(carPositionAt(d, t));
           expect(distToOutline(p.x, p.y)).toBeLessThan(400); // 40 m (units are 10 cm)
           checked++;
         }
@@ -101,7 +102,7 @@ describe.skipIf(!available)("Baku 2026 replay", () => {
   });
 
   test("telemetry is sane mid-race", () => {
-    const tel = telemetryAt(driver(63), s.lapStartTimes[10] + 30_000)!;
+    const tel = must(telemetryAt(driver(63), s.lapStartTimes[10] + 30_000));
     expect(tel.speed).toBeGreaterThan(50);
     expect(tel.speed).toBeLessThan(370);
     expect(tel.gear).toBeGreaterThanOrEqual(1);
