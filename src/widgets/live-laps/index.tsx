@@ -27,11 +27,11 @@ import {
 
 /** Followed at once. */
 const MAX = 4;
-/** On a push lap: on the fastest lap's pace (within this share of its time to the same distance, plus SLACK_MS). */
+/** A finished lap kept as a driver's last push lap: within this share of the fastest lap's time. */
 const PUSH_RATIO = 1.05;
-const SLACK_MS = 1_000;
-/** Too early in the lap to tell a push lap from a cool-down lap. */
-const MIN_DISTANCE = 300;
+/** Dropped from the list only when this far off the fastest lap's pace: every lap counts as a push lap until then. */
+const OFF_PACE_RATIO = 1.1;
+const OFF_PACE_SLACK_MS = 2_000;
 const ROW_H = 26;
 const FONT = "9px ui-sans-serif, system-ui, sans-serif";
 
@@ -39,10 +39,9 @@ const FONT = "9px ui-sans-serif, system-ui, sans-serif";
 const deltaOf = (ref: LapTrace, distance: number, elapsed: number) => (elapsed - timeAtDistance(ref, distance)) / 1000;
 const signed = (s: number) => `${s > 0 ? "+" : s < 0 ? "−" : "±"}${Math.abs(s).toFixed(3)}`;
 
-/** On a push lap: not an out-lap, and on the reference's pace so far. */
+/** On a push lap, optimistically: any lap in progress, until it falls well off the reference's pace. */
 function pushing(p: Pick<LapProgress, "pitOut" | "distance" | "elapsed">, ref: LapTrace | null): boolean {
-  if (p.pitOut || p.distance < MIN_DISTANCE) return false;
-  return ref == null || p.elapsed <= PUSH_RATIO * timeAtDistance(ref, p.distance) + SLACK_MS;
+  return ref == null || p.elapsed <= OFF_PACE_RATIO * timeAtDistance(ref, p.distance) + OFF_PACE_SLACK_MS;
 }
 
 interface Line {
