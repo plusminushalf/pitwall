@@ -1,15 +1,15 @@
-// Home's drivers: the season's championship as a board, from F1DB's index (built at deploy, ../../history/careers.ts).
-// A cell opens the driver's page (../career/DriverPage.tsx): their season and career. Each leads with the position,
-// then the flag, name, car number and team, the season's wins, podiums and poles, and ends on the points and the gap
-// to the leader. Drivers who raced this season but not the latest round (stand-ins, drivers replaced) follow, quieter.
+// Home's drivers: the season's championship as a timing sheet, from F1DB's index (built at deploy,
+// ../../history/careers.ts). A row opens the driver's page (../career/DriverPage.tsx): their season and career. Each
+// reads position, flag, name and car number, team, the season's wins, podiums and poles, points and the gap to the
+// leader. Drivers who raced this season but not the latest round (stand-ins, drivers replaced) follow, quieter.
 
 import type { ReactNode } from "react";
 import { byStanding, fetchDriverIndex } from "../../history/careers";
 import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, StandingPoints, useHistoryFile } from "../career/common";
-import { FOCUS, LABEL } from "./common";
+import { SeasonNote, useHistoryFile } from "../career/common";
+import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, SheetTitle, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchDriverIndex(signal);
 
@@ -25,51 +25,39 @@ function rounds(list: number[]): string {
   return out.join(", ");
 }
 
-/**
- * A driver's cell, as a standings row on the Circuits board's grid: the championship position as its figure, then
- * who (flag, name, car number) and for whom, the season's wins, podiums and poles, and the points at the end.
- */
-function Cell({ d, leader, quiet }: { d: SeasonDriver; leader: number; quiet: boolean }) {
+function Row({ d, leader, quiet }: { d: SeasonDriver; leader: number; quiet: boolean }) {
   const openDriver = useReplay((s) => s.openDriver);
-  const titles = d.before.titles + d.season.titles;
-  const facts = [count(d.season.wins, "win"), count(d.season.podiums, "podium"), count(d.season.poles, "pole")].join(" · ");
+  const team = (
+    <>
+      {d.team}
+      {quiet && <span className="text-zinc-400"> · R{rounds(d.rounds)}</span>}
+    </>
+  );
   return (
-    <li data-shot="" className="border-b border-r border-zinc-800">
-      <button
-        onClick={(e) => {
-          e.currentTarget.blur();
-          openDriver(d.id);
-        }}
-        className={`flex h-full w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900 focus-visible:-outline-offset-2 sm:gap-4 sm:px-4 ${FOCUS}`}
-        title={`${d.name}: the season and the career`}
+    <SheetRow grid={STANDINGS_GRID} onOpen={() => openDriver(d.id)} title={`${d.name}: the season and the career`}>
+      <span
+        className={`font-bold tabular-nums ${quiet ? "text-zinc-400" : "text-zinc-50"}`}
+        aria-label={d.season.position != null ? `P${d.season.position} in the championship` : undefined}
       >
-        <span
-          className={`w-7 shrink-0 text-xl font-black tabular-nums leading-6 tracking-tight sm:w-9 ${quiet ? "text-zinc-400" : "text-zinc-50"}`}
-          aria-label={d.season.position != null ? `P${d.season.position} in the championship` : undefined}
-        >
-          {d.season.position ?? "–"}
+        {d.season.position ?? "–"}
+      </span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-2">
+          <Flag country={d.nationalityCode} code className={`h-3 shrink-0 ${quiet ? "opacity-45 grayscale-[60%]" : ""}`} />
+          <span className={`min-w-0 truncate font-semibold ${quiet ? "text-zinc-300" : "text-zinc-50"}`}>{d.name}</span>
+          {d.number && <span className="shrink-0 text-xs tabular-nums text-zinc-400">{d.number}</span>}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex h-6 items-center gap-2">
-            <Flag country={d.nationalityCode} code className={`h-3.5 ${quiet ? "opacity-45 grayscale-[60%]" : ""}`} />
-            <span className={`min-w-0 truncate text-[15px] font-semibold ${quiet ? "text-zinc-300" : "text-zinc-50"}`}>{d.name}</span>
-            {d.number && <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{d.number}</span>}
-          </span>
-          <span className="block truncate text-xs text-zinc-300">
-            {d.team}
-            {titles > 0 && <span className="text-zinc-400"> · {titles}× champion</span>}
-            {quiet && <span className="text-zinc-400"> · raced R{rounds(d.rounds)}</span>}
-          </span>
-          <span className="mt-1.5 block truncate text-xs tabular-nums text-zinc-400">{facts}</span>
-        </span>
-        <StandingPoints points={d.season.points} leader={leader} quiet={quiet} />
-      </button>
-    </li>
+        {/* Narrowest: the team under the name. */}
+        <span className="block truncate text-xs text-zinc-300 @[40rem]:hidden">{team}</span>
+      </span>
+      <span className={`${AT_40} truncate ${quiet ? "text-zinc-300" : "text-zinc-200"}`}>{team}</span>
+      <Figure n={d.season.wins} className={AT_52} />
+      <Figure n={d.season.podiums} className={AT_52} />
+      <Figure n={d.season.poles} className={AT_52} />
+      <PointsCells points={d.season.points} leader={leader} quiet={quiet} />
+    </SheetRow>
   );
 }
-
-/** The board: cells framed and divided by hairlines, as the Circuits board is. */
-const BOARD = "grid grid-cols-1 border-l border-t border-zinc-800 min-[420px]:grid-cols-2 lg:grid-cols-3";
 
 export function Drivers({ heading }: { heading: ReactNode }) {
   const index = useHistoryFile("index", loadIndex);
@@ -84,20 +72,20 @@ export function Drivers({ heading }: { heading: ReactNode }) {
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
-        <SeasonNote through={through} source={index.source} className="mb-3" />
-        <ul aria-label={`${index.year} drivers`} className={BOARD}>
+        <SeasonNote through={through} source={index.source} className="mb-3 px-3" />
+        <Sheet label={`${index.year} drivers' championship`} grid={STANDINGS_GRID} columns={<StandingsColumns who="Driver" with="Team" />}>
           {grid.map((d) => (
-            <Cell key={d.id} d={d} leader={leader} quiet={false} />
+            <Row key={d.id} d={d} leader={leader} quiet={false} />
           ))}
-        </ul>
+        </Sheet>
         {others.length > 0 && (
           <>
-            <h3 className={`${LABEL} mb-2 mt-8`}>Also raced in {index.year}</h3>
-            <ul aria-label={`Other ${index.year} drivers`} className={BOARD}>
+            <SheetTitle>Also raced in {index.year}</SheetTitle>
+            <Sheet label={`Other ${index.year} drivers`} grid={STANDINGS_GRID} columns={<StandingsColumns who="Driver" with="Team · rounds" />}>
               {others.map((d) => (
-                <Cell key={d.id} d={d} leader={leader} quiet />
+                <Row key={d.id} d={d} leader={leader} quiet />
               ))}
-            </ul>
+            </Sheet>
           </>
         )}
       </>

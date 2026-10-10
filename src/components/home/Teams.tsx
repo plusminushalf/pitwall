@@ -1,56 +1,44 @@
-// Home's teams: the constructors' championship as a board, from F1DB's index (built at deploy,
-// ../../history/careers.ts). A cell opens the team's page (../career/TeamPage.tsx): its season and history. Each leads
-// with the position, then the flag, name and drivers, the season's results, and ends on the points and the gap.
+// Home's teams: the constructors' championship as a timing sheet, from F1DB's index (built at deploy,
+// ../../history/careers.ts), with the drivers' sheet's columns (./Drivers.tsx). A row opens the team's page
+// (../career/TeamPage.tsx): its season and history. Each reads position, flag and name, its drivers, the season's
+// wins, podiums and poles, points and the gap to the leader.
 
 import type { ReactNode } from "react";
 import { byStanding, fetchTeamIndex } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, StandingPoints, useHistoryFile } from "../career/common";
-import { FOCUS } from "./common";
+import { SeasonNote, useHistoryFile } from "../career/common";
+import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchTeamIndex(signal);
 
-/** A team's cell, as a driver's: position, flag and name, its drivers, the season's results, its points. */
-function Cell({ t, leader }: { t: SeasonTeam; leader: number }) {
+function Row({ t, leader }: { t: SeasonTeam; leader: number }) {
   const openTeam = useReplay((s) => s.openTeam);
-  const drivers = t.drivers.filter((d) => d.current);
+  const current = t.drivers.filter((d) => d.current);
+  const drivers = (current.length ? current : t.drivers).map((d) => d.lastName).join(" · ");
   const s = t.season;
-  const facts = [count(s.wins, "win"), count(s.podiums, "podium"), count(s.poles, "pole"), s.oneTwos > 0 ? count(s.oneTwos, "1-2", "1-2s") : null]
-    .filter(Boolean)
-    .join(" · ");
   return (
-    <li data-shot="" className="border-b border-r border-zinc-800">
-      <button
-        onClick={(e) => {
-          e.currentTarget.blur();
-          openTeam(t.id);
-        }}
-        className={`flex h-full w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900 focus-visible:-outline-offset-2 sm:gap-4 sm:px-4 ${FOCUS}`}
-        title={`${t.name}: its season and history`}
-      >
-        <span
-          className="w-7 shrink-0 text-xl font-black tabular-nums leading-6 tracking-tight text-zinc-50 sm:w-9"
-          aria-label={s.position != null ? `P${s.position} in the championship` : undefined}
-        >
-          {s.position ?? "–"}
+    <SheetRow grid={STANDINGS_GRID} onOpen={() => openTeam(t.id)} title={`${t.name}: its season and history`}>
+      <span className="font-bold tabular-nums text-zinc-50" aria-label={s.position != null ? `P${s.position} in the championship` : undefined}>
+        {s.position ?? "–"}
+      </span>
+      <span className="min-w-0">
+        <span className="flex items-center gap-2">
+          <Flag country={t.nationalityCode} code className="h-3 shrink-0" />
+          <span className="min-w-0 truncate font-semibold text-zinc-50">{t.name}</span>
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex h-6 items-center gap-2">
-            <Flag country={t.nationalityCode} code className="h-3.5" />
-            <span className="min-w-0 truncate text-[15px] font-semibold text-zinc-50">{t.name}</span>
-          </span>
-          <span className="block truncate text-xs text-zinc-300">{(drivers.length ? drivers : t.drivers).map((d) => d.lastName).join(" · ")}</span>
-          <span className="mt-1.5 block truncate text-xs tabular-nums text-zinc-400">{facts}</span>
-        </span>
-        <StandingPoints points={s.points} leader={leader} />
-      </button>
-    </li>
+        {/* Narrowest: the drivers under the name. */}
+        <span className="block truncate text-xs text-zinc-300 @[40rem]:hidden">{drivers}</span>
+      </span>
+      <span className={`${AT_40} truncate text-zinc-200`}>{drivers}</span>
+      <Figure n={s.wins} className={AT_52} />
+      <Figure n={s.podiums} className={AT_52} />
+      <Figure n={s.poles} className={AT_52} />
+      <PointsCells points={s.points} leader={leader} />
+    </SheetRow>
   );
 }
-
-const BOARD = "grid grid-cols-1 border-l border-t border-zinc-800 min-[420px]:grid-cols-2 lg:grid-cols-3";
 
 export function Teams({ heading }: { heading: ReactNode }) {
   const index = useHistoryFile("index", loadIndex);
@@ -63,12 +51,12 @@ export function Teams({ heading }: { heading: ReactNode }) {
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
-        <SeasonNote through={through} source={index.source} className="mb-3" />
-        <ul aria-label={`${index.year} teams`} className={BOARD}>
+        <SeasonNote through={through} source={index.source} className="mb-3 px-3" />
+        <Sheet label={`${index.year} constructors' championship`} grid={STANDINGS_GRID} columns={<StandingsColumns who="Team" with="Drivers" />}>
           {byStanding(index.teams).map((t) => (
-            <Cell key={t.id} t={t} leader={leader} />
+            <Row key={t.id} t={t} leader={leader} />
           ))}
-        </ul>
+        </Sheet>
       </>
     );
   }

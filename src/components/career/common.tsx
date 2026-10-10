@@ -41,9 +41,6 @@ export function SeasonNote({ through, source, className = "" }: { through: strin
   );
 }
 
-/** "1 win", "71 wins". */
-export const count = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString()} ${n === 1 ? one : many}`;
-
 /** Points as a table prints them: 3632.5, 421. */
 export const points = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 
@@ -98,20 +95,6 @@ export function NameLink({
 
 /** "2016 Spanish GP". */
 export const raceName = (r: RaceRef, names: HistoryNames) => `${r.year} ${names.gps[r.gp]?.short ?? r.gp}`;
-
-/** The championship figures a cell ends on: points, and how far off the leader. */
-export function StandingPoints({ points, leader, quiet = false }: { points: number; leader: number; quiet?: boolean }) {
-  const gap = Math.round((leader - points) * 100) / 100;
-  return (
-    <span className="flex shrink-0 flex-col items-end leading-tight">
-      <span className={`text-lg font-bold tabular-nums tracking-tight ${quiet ? "text-zinc-300" : "text-zinc-50"}`}>
-        {points.toLocaleString()}
-        <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">pts</span>
-      </span>
-      <span className="text-xs tabular-nums text-zinc-400">{gap > 0 ? `−${gap.toLocaleString()}` : "Leader"}</span>
-    </span>
-  );
-}
 
 /** A figure under its label: a section's lead row (DESIGN.md's stat role: 20px, black, tabular). */
 export function Stat({ label, children, note, title }: { label: string; children: ReactNode; note?: string | null; title?: string }) {
