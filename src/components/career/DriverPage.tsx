@@ -1,7 +1,6 @@
 // A driver's page (/driver/<F1DB id>, ../../url.ts): who they are and their career in figures; their season (the one
 // under way, or their last): figures, against their teammate, race by race; their career's highlights (firsts and
-// lasts, runs, teammates, teams, best circuits); and every season. From F1DB (../../history/careers.ts). The season
-// under way counts only once shown (./common.tsx): until then it's hidden, and left out of the rest.
+// lasts, runs, teammates, teams, best circuits); and every season. From F1DB (../../history/careers.ts).
 // Reached from Home's Drivers tab and from names on team pages; its back button goes back to where it was opened from.
 
 import { useEffect, useMemo } from "react";
@@ -14,7 +13,7 @@ import { Flag } from "../Flag";
 import { LABEL } from "../controls";
 import { BestCircuits, Milestones, Runs, Tally, Teammates } from "./Highlights";
 import { SeasonStrip } from "./SeasonStrip";
-import { CareerPage, F1dbCredit, Fact, HiddenSeason, NameLink, points, SeasonNote, Section, tenth, useCounts, useHistoryFile } from "./common";
+import { CareerPage, F1dbCredit, Fact, NameLink, points, SeasonNote, Section, tenth, useHistoryFile } from "./common";
 
 const NONE: DriverTotals = { starts: 0, wins: 0, podiums: 0, poles: 0, fastestLaps: 0, points: 0, titles: 0 };
 
@@ -30,8 +29,8 @@ function age(from: string, to: string): number {
 /** "29%": a share of starts, or nothing with none. */
 const share = (n: number, of: number) => (of > 0 && n > 0 ? `${Math.round((n / of) * 100)}%` : null);
 
-/** Newest first; the season under way hidden until it counts. */
-function Seasons({ seasons, counts }: { seasons: DriverSeason[]; counts: boolean }) {
+/** Newest first. */
+function Seasons({ seasons }: { seasons: DriverSeason[] }) {
   const cell = "px-3 py-2 text-right tabular-nums";
   return (
     <table className="w-full text-left text-sm">
@@ -53,17 +52,11 @@ function Seasons({ seasons, counts }: { seasons: DriverSeason[]; counts: boolean
       </thead>
       <tbody>
         {[...seasons].reverse().map((s) => {
-          const hidden = s.year === currentYear() && !counts;
           return (
             <tr key={s.year} className="border-b border-zinc-800/70">
               <td className="px-3 py-2 tabular-nums text-zinc-400">{s.year}</td>
               <td className="px-3 py-2 text-zinc-100">{s.teams.join(", ") || "—"}</td>
-              {hidden ? (
-                <td colSpan={6} className="px-3 py-2 text-right text-xs text-zinc-500">
-                  Hidden: spoilers
-                </td>
-              ) : (
-                <>
+              <>
                   <td className={`${cell} ${s.titles ? "font-bold text-zinc-50" : "text-zinc-200"}`} title={s.titles ? "Champion" : undefined}>
                     {s.position ?? "—"}
                     {s.titles > 0 && <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-300">Champion</span>}
@@ -74,7 +67,6 @@ function Seasons({ seasons, counts }: { seasons: DriverSeason[]; counts: boolean
                   <td className={`${cell} hidden sm:table-cell ${s.poles ? "text-zinc-200" : "text-zinc-500"}`}>{s.poles}</td>
                   <td className={`${cell} hidden text-zinc-400 md:table-cell`}>{s.starts}</td>
                 </>
-              )}
             </tr>
           );
         })}
@@ -137,16 +129,14 @@ function Season({ h, year, races }: { h: DriverHistory; year: number; races: Dri
 
 function Career({ h }: { h: DriverHistory }) {
   const year = currentYear();
-  const counts = useCounts(year);
-  const counted = useMemo(() => h.races.filter((r) => r.year !== year || counts), [h, year, counts]);
-  const outings = useMemo(() => driverOutings(counted), [counted]);
-  const t = h.seasons.filter((s) => s.year !== year || counts).reduce<DriverTotals>(sumTotals, NONE);
+  const outings = useMemo(() => driverOutings(h.races), [h]);
+  const t = h.seasons.reduce<DriverTotals>(sumTotals, NONE);
   const first = h.seasons[0]?.year;
   const last = h.seasons.at(-1)?.year;
   const underWay = last === year;
   const seasonYear = h.races.at(-1)?.year;
   const seasonRaces = useMemo(() => h.races.filter((r) => r.year === seasonYear), [h, seasonYear]);
-  const mates = useMemo(() => headToHeads(counted).slice(0, 8), [counted]);
+  const mates = useMemo(() => headToHeads(h.races).slice(0, 8), [h]);
   const teams = useMemo(() => tally(outings, "team"), [outings]);
 
   return (
@@ -165,7 +155,7 @@ function Career({ h }: { h: DriverHistory }) {
         <Fact label="Points">{points(t.points)}</Fact>
       </dl>
       {underWay ? (
-        <SeasonNote year={year} through={counts ? "the latest race weekend F1DB has" : null} source={h.source} className="mt-3 px-3" />
+        <SeasonNote through="the latest race weekend F1DB has" source={h.source} className="mt-3 px-3" />
       ) : (
         <p data-shot-credit={`History: F1DB (${h.source.license})`} className="mt-3 px-3 text-xs text-zinc-400">
           {first === last ? `${first}` : `${first}–${last}`}, {h.seasons.length} {h.seasons.length === 1 ? "season" : "seasons"}. <F1dbCredit source={h.source} />.
@@ -174,12 +164,12 @@ function Career({ h }: { h: DriverHistory }) {
 
       {seasonYear != null && (
         <Section title={seasonYear === year ? `${year} so far` : `Last season, ${seasonYear}`}>
-          {seasonYear === year && !counts ? <HiddenSeason year={year} /> : <Season h={h} year={seasonYear} races={seasonRaces} />}
+          <Season h={h} year={seasonYear} races={seasonRaces} />
         </Section>
       )}
 
       {outings.length > 0 && (
-        <Section title="Career" aside={underWay && !counts ? <span className="text-xs text-zinc-400">to the end of {year - 1}</span> : null}>
+        <Section title="Career">
           <Milestones outings={outings} names={h.names} />
           <Runs outings={outings} names={h.names} />
           <div className="mt-8 grid grid-cols-1 gap-x-8 gap-y-8 lg:grid-cols-2">
@@ -195,7 +185,7 @@ function Career({ h }: { h: DriverHistory }) {
       )}
 
       <Section title="Seasons">
-        <Seasons seasons={h.seasons} counts={counts} />
+        <Seasons seasons={h.seasons} />
       </Section>
     </>
   );

@@ -1,22 +1,21 @@
 // Home's teams: a board of the season's teams, from F1DB's index (built at deploy, ../../history/careers.ts). A cell
 // opens the team's page (../career/TeamPage.tsx): its season and history. Each says the flag, name, engine and
-// drivers, and its history in figures: to the end of last season unless this one counts (../career/common.tsx), and
-// then the championship position too.
+// drivers, and its history in figures, and the championship position.
 
 import type { ReactNode } from "react";
 import { fetchTeamIndex, sumTotals } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, useCounts, useHistoryFile } from "../career/common";
+import { count, SeasonNote, useHistoryFile } from "../career/common";
 import { FOCUS } from "./common";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchTeamIndex(signal);
 
-function Cell({ t, counts }: { t: SeasonTeam; counts: boolean }) {
+function Cell({ t }: { t: SeasonTeam }) {
   const openTeam = useReplay((s) => s.openTeam);
   const { position, ...season } = t.season;
-  const history = counts ? sumTotals(t.before, season) : t.before;
+  const history = sumTotals(t.before, season);
   const facts =
     history.starts === 0
       ? "First season"
@@ -37,7 +36,7 @@ function Cell({ t, counts }: { t: SeasonTeam; counts: boolean }) {
             <Flag country={t.nationalityCode} code className="h-3.5" />
             <span className="min-w-0 truncate text-[15px] font-semibold text-zinc-50">{t.name}</span>
             <span className="flex-1" />
-            {counts && position != null && (
+            {position != null && (
               <span className="shrink-0 text-xs tabular-nums text-zinc-300" title={`${t.season.points} points this season`}>
                 P{position}
               </span>
@@ -58,8 +57,6 @@ const BOARD = "grid grid-cols-1 border-l border-t border-zinc-800 min-[420px]:gr
 
 export function Teams({ heading }: { heading: ReactNode }) {
   const index = useHistoryFile("index", loadIndex);
-  const year = index && index !== "none" ? index.year : 0;
-  const counts = useCounts(year);
 
   let body;
   if (index == null) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the teams…</p>;
@@ -68,10 +65,10 @@ export function Teams({ heading }: { heading: ReactNode }) {
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
-        <SeasonNote year={index.year} through={through} source={index.source} className="mb-3" />
+        <SeasonNote through={through} source={index.source} className="mb-3" />
         <ul aria-label={`${index.year} teams`} className={BOARD}>
           {index.teams.map((t) => (
-            <Cell key={t.id} t={t} counts={counts} />
+            <Cell key={t.id} t={t} />
           ))}
         </ul>
       </>

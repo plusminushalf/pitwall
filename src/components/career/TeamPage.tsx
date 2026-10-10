@@ -1,7 +1,6 @@
 // A team's page (/team/<F1DB constructor id>, ../../url.ts): what it is and its history in figures; its season (the one
 // under way, or its last): figures, its drivers' shares, race by race; its history's highlights (firsts and lasts,
-// runs, its drivers, best circuits); and every season. From F1DB (../../history/careers.ts). The season under way
-// counts only once shown (./common.tsx). Reached from Home's Teams tab and from team names on driver pages.
+// runs, its drivers, best circuits); and every season. From F1DB (../../history/careers.ts). Reached from Home's Teams tab and from team names on driver pages.
 
 import { useEffect, useMemo } from "react";
 import { fetchTeamHistory, sumTotals } from "../../history/careers";
@@ -13,7 +12,7 @@ import { Flag } from "../Flag";
 import { LABEL } from "../controls";
 import { BestCircuits, Milestones, Runs, Tally } from "./Highlights";
 import { SeasonStrip } from "./SeasonStrip";
-import { CareerPage, F1dbCredit, Fact, HiddenSeason, NameLink, points, SeasonNote, Section, tenth, useCounts, useHistoryFile } from "./common";
+import { CareerPage, F1dbCredit, Fact, NameLink, points, SeasonNote, Section, tenth, useHistoryFile } from "./common";
 
 const NONE: TeamTotals = { starts: 0, wins: 0, podiums: 0, oneTwos: 0, poles: 0, fastestLaps: 0, points: 0, titles: 0 };
 
@@ -100,8 +99,8 @@ function Season({ h, year, races }: { h: TeamHistory; year: number; races: TeamR
   );
 }
 
-/** Newest first; the season under way hidden until it counts. */
-function Seasons({ h, counts }: { h: TeamHistory; counts: boolean }) {
+/** Newest first. */
+function Seasons({ h }: { h: TeamHistory }) {
   const cell = "px-3 py-2 text-right tabular-nums";
   return (
     <table className="w-full text-left text-sm">
@@ -120,16 +119,10 @@ function Seasons({ h, counts }: { h: TeamHistory; counts: boolean }) {
       </thead>
       <tbody>
         {[...h.seasons].reverse().map((s: TeamSeason) => {
-          const hidden = s.year === currentYear() && !counts;
           return (
             <tr key={s.year} className="border-b border-zinc-800/70">
               <td className="px-3 py-2 tabular-nums text-zinc-400">{s.year}</td>
-              {hidden ? (
-                <td colSpan={5} className="px-3 py-2 text-right text-xs text-zinc-500">
-                  Hidden: spoilers
-                </td>
-              ) : (
-                <>
+              <>
                   <td className={`${cell} ${s.titles ? "font-bold text-zinc-50" : "text-zinc-200"}`} title={s.titles ? "Constructors' champion" : undefined}>
                     {s.position ?? "—"}
                     {s.titles > 0 && <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-300">Champion</span>}
@@ -139,7 +132,6 @@ function Seasons({ h, counts }: { h: TeamHistory; counts: boolean }) {
                   <td className={`${cell} hidden sm:table-cell ${s.podiums ? "text-zinc-200" : "text-zinc-500"}`}>{s.podiums}</td>
                   <td className={`${cell} hidden sm:table-cell ${s.poles ? "text-zinc-200" : "text-zinc-500"}`}>{s.poles}</td>
                 </>
-              )}
               <td className="hidden px-3 py-2 text-zinc-300 md:table-cell">
                 {s.drivers.slice(0, 4).map((id, i) => (
                   <span key={id}>
@@ -147,7 +139,7 @@ function Seasons({ h, counts }: { h: TeamHistory; counts: boolean }) {
                     <NameLink kind="driver" id={id}>
                       {h.names.drivers[id]?.lastName ?? id}
                     </NameLink>
-                    {!hidden && s.driversTitle === id && <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Champion</span>}
+                    {s.driversTitle === id && <span className="ml-1 text-[11px] font-semibold uppercase tracking-wider text-zinc-400">Champion</span>}
                   </span>
                 ))}
                 {s.drivers.length > 4 && <span className="text-zinc-500"> +{s.drivers.length - 4}</span>}
@@ -162,12 +154,9 @@ function Seasons({ h, counts }: { h: TeamHistory; counts: boolean }) {
 
 function History({ h }: { h: TeamHistory }) {
   const year = currentYear();
-  const counts = useCounts(year);
-  const countedSeasons = h.seasons.filter((s) => s.year !== year || counts);
-  const t = countedSeasons.reduce<TeamTotals>(sumTotals, NONE);
-  const driversTitles = countedSeasons.filter((s) => s.driversTitle).length;
-  const counted = useMemo(() => h.races.filter((r) => r.year !== year || counts), [h, year, counts]);
-  const outings = useMemo(() => teamOutings(counted), [counted]);
+  const t = h.seasons.reduce<TeamTotals>(sumTotals, NONE);
+  const driversTitles = h.seasons.filter((s) => s.driversTitle).length;
+  const outings = useMemo(() => teamOutings(h.races), [h]);
   const drivers = useMemo(() => tally(outings, "driver").slice(0, 10), [outings]);
   const first = h.seasons[0]?.year;
   const last = h.seasons.at(-1)?.year;
@@ -192,7 +181,7 @@ function History({ h }: { h: TeamHistory }) {
         <Fact label="Points">{points(t.points)}</Fact>
       </dl>
       {underWay ? (
-        <SeasonNote year={year} through={counts ? "the latest race weekend F1DB has" : null} source={h.source} className="mt-3 px-3" />
+        <SeasonNote through="the latest race weekend F1DB has" source={h.source} className="mt-3 px-3" />
       ) : (
         <p data-shot-credit={`History: F1DB (${h.source.license})`} className="mt-3 px-3 text-xs text-zinc-400">
           {first === last ? `${first}` : `${first}–${last}`}, {h.seasons.length} {h.seasons.length === 1 ? "season" : "seasons"}. <F1dbCredit source={h.source} />.
@@ -201,12 +190,12 @@ function History({ h }: { h: TeamHistory }) {
 
       {seasonYear != null && (
         <Section title={seasonYear === year ? `${year} so far` : `Last season, ${seasonYear}`}>
-          {seasonYear === year && !counts ? <HiddenSeason year={year} /> : <Season h={h} year={seasonYear} races={seasonRaces} />}
+          <Season h={h} year={seasonYear} races={seasonRaces} />
         </Section>
       )}
 
       {outings.length > 0 && (
-        <Section title="History" aside={underWay && !counts ? <span className="text-xs text-zinc-400">to the end of {year - 1}</span> : null}>
+        <Section title="History">
           <Milestones outings={outings} names={h.names} team />
           <Runs outings={outings} names={h.names} />
           <div className="mt-8 grid grid-cols-1 gap-x-8 gap-y-8 lg:grid-cols-2">
@@ -217,7 +206,7 @@ function History({ h }: { h: TeamHistory }) {
       )}
 
       <Section title="Seasons">
-        <Seasons h={h} counts={counts} />
+        <Seasons h={h} />
       </Section>
     </>
   );

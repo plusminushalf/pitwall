@@ -1,7 +1,7 @@
 // Home's drivers: a board of the season's grid, by team, from F1DB's index (built at deploy, ../../history/careers.ts).
 // A cell opens the driver's page (../career/DriverPage.tsx): their season and career. Each says the car number,
-// flag, name and team, and the career in figures: to the end of last season unless this one counts
-// (../career/common.tsx), and then the championship position too. Drivers who raced this season but not the latest
+// flag, name and team, the career in figures, and the
+// championship position. Drivers who raced this season but not the latest
 // round (stand-ins, drivers replaced) follow, quieter.
 
 import type { ReactNode } from "react";
@@ -9,7 +9,7 @@ import { fetchDriverIndex, sumTotals } from "../../history/careers";
 import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, useCounts, useHistoryFile } from "../career/common";
+import { count, SeasonNote, useHistoryFile } from "../career/common";
 import { FOCUS, LABEL } from "./common";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchDriverIndex(signal);
@@ -27,9 +27,10 @@ function rounds(list: number[]): string {
 }
 
 /** A driver's cell, as a circuit's on the Circuits board: the number as its figure, then who, and the career. */
-function Cell({ d, counts, quiet }: { d: SeasonDriver; counts: boolean; quiet: boolean }) {
+function Cell({ d, quiet }: { d: SeasonDriver; quiet: boolean }) {
   const openDriver = useReplay((s) => s.openDriver);
-  const career = counts ? sumTotals(d.before, d.season) : d.before;
+  const { position: _, ...season } = d.season;
+  const career = sumTotals(d.before, season);
   const facts =
     career.starts === 0
       ? "First season"
@@ -57,7 +58,7 @@ function Cell({ d, counts, quiet }: { d: SeasonDriver; counts: boolean; quiet: b
             <Flag country={d.nationalityCode} code className={`h-3.5 ${quiet ? "opacity-45 grayscale-[60%]" : ""}`} />
             <span className={`min-w-0 truncate text-[15px] font-semibold ${quiet ? "text-zinc-400" : "text-zinc-50"}`}>{d.name}</span>
             <span className="flex-1" />
-            {counts && d.season.position != null && (
+            {d.season.position != null && (
               <span className="shrink-0 text-xs tabular-nums text-zinc-300" title={`${d.season.points} points this season`}>
                 P{d.season.position}
               </span>
@@ -79,8 +80,6 @@ const BOARD = "grid grid-cols-1 border-l border-t border-zinc-800 min-[420px]:gr
 
 export function Drivers({ heading }: { heading: ReactNode }) {
   const index = useHistoryFile("index", loadIndex);
-  const year = index && index !== "none" ? index.year : 0;
-  const counts = useCounts(year);
 
   let body;
   if (index == null) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the drivers…</p>;
@@ -91,10 +90,10 @@ export function Drivers({ heading }: { heading: ReactNode }) {
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
-        <SeasonNote year={index.year} through={through} source={index.source} className="mb-3" />
+        <SeasonNote through={through} source={index.source} className="mb-3" />
         <ul aria-label={`${index.year} drivers`} className={BOARD}>
           {grid.map((d) => (
-            <Cell key={d.id} d={d} counts={counts} quiet={false} />
+            <Cell key={d.id} d={d} quiet={false} />
           ))}
         </ul>
         {others.length > 0 && (
@@ -102,7 +101,7 @@ export function Drivers({ heading }: { heading: ReactNode }) {
             <h3 className={`${LABEL} mb-2 mt-8`}>Also raced in {index.year}</h3>
             <ul aria-label={`Other ${index.year} drivers`} className={BOARD}>
               {others.map((d) => (
-                <Cell key={d.id} d={d} counts={counts} quiet />
+                <Cell key={d.id} d={d} quiet />
               ))}
             </ul>
           </>
