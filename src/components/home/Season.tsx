@@ -5,117 +5,196 @@
 // chips, nothing scrolling sideways. A weekend's Grand Prix opens its circuit's page, whose sheet (WeekendSheet) is of
 // the circuit's weekends over the years.
 
-import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
-import { isFollowedLive } from "../../../scripts/lib/season";
-import { isLive, type CatalogRow } from "../../ingest/catalog";
-import { liveVia } from "../../live/client";
-import { usePhone } from "../../hooks/usePhone";
-import { useReplay } from "../../store";
-import { circuitSlug } from "../../circuit";
-import { loadLearned } from "../../ingest/runner";
-import { rowState, useLibrary, YEARS, type RaceFilter, type RowState } from "../../library";
-import { LiveDot } from "../LiveControl";
-import { resumeClocks } from "./resume";
-import { approx, clockTime, dateRange, dayTime, DANGER, day, FOCUS, Glyph, LABEL, SECONDARY, sessionTime, shortGp, size, storedBytes, useDownloadBlock, useNow, waitText } from "./common";
+import { type CSSProperties, type ReactNode, useMemo, useState } from "react"
+import { isFollowedLive } from "../../../scripts/lib/season"
+import { circuitSlug } from "../../circuit"
+import { usePhone } from "../../hooks/usePhone"
+import { type CatalogRow, isLive } from "../../ingest/catalog"
+import { loadLearned } from "../../ingest/runner"
+import {
+    type RaceFilter,
+    type RowState,
+    rowState,
+    useLibrary,
+    YEARS
+} from "../../library"
+import { liveVia } from "../../live/client"
+import { useReplay } from "../../store"
+import { LiveDot } from "../LiveControl"
+import {
+    approx,
+    clockTime,
+    DANGER,
+    dateRange,
+    day,
+    dayTime,
+    FOCUS,
+    Glyph,
+    LABEL,
+    SECONDARY,
+    sessionTime,
+    shortGp,
+    size,
+    storedBytes,
+    useDownloadBlock,
+    useNow,
+    waitText
+} from "./common"
+import { resumeClocks } from "./resume"
 
 const FILTERS: { id: RaceFilter; label: string }[] = [
-  { id: "all", label: "All" },
-  { id: "Race", label: "Races" },
-  { id: "Qualifying", label: "Qualifying" },
-  { id: "Practice", label: "Practice" },
-];
+    { id: "all", label: "All" },
+    { id: "Race", label: "Races" },
+    { id: "Qualifying", label: "Qualifying" },
+    { id: "Practice", label: "Practice" }
+]
 
 interface Column {
-  id: string;
-  label: string;
-  title: string;
-  match: (r: CatalogRow) => boolean;
+    id: string
+    label: string
+    title: string
+    match: (r: CatalogRow) => boolean
 }
 
-const SQ: Column = { id: "sq", label: "SQ", title: "Sprint qualifying (Sprint Shootout in 2023)", match: (r) => r.sessionType === "Qualifying" && r.sessionName !== "Qualifying" };
-const SPRINT: Column = { id: "sprint", label: "Sprint", title: "Sprint", match: (r) => r.sessionName === "Sprint" };
-const QUALI: Column = { id: "quali", label: "Quali", title: "Qualifying", match: (r) => r.sessionName === "Qualifying" };
-const RACE: Column = { id: "race", label: "Race", title: "Race", match: (r) => r.sessionName === "Race" };
-const fp = (n: number): Column => ({ id: `fp${n}`, label: `FP${n}`, title: `Free practice ${n}`, match: (r) => r.sessionName === `Practice ${n}` });
-const [FP1, FP2, FP3] = [fp(1), fp(2), fp(3)];
+const SQ: Column = {
+    id: "sq",
+    label: "SQ",
+    title: "Sprint qualifying (Sprint Shootout in 2023)",
+    match: (r) =>
+        r.sessionType === "Qualifying" && r.sessionName !== "Qualifying"
+}
+const SPRINT: Column = {
+    id: "sprint",
+    label: "Sprint",
+    title: "Sprint",
+    match: (r) => r.sessionName === "Sprint"
+}
+const QUALI: Column = {
+    id: "quali",
+    label: "Quali",
+    title: "Qualifying",
+    match: (r) => r.sessionName === "Qualifying"
+}
+const RACE: Column = {
+    id: "race",
+    label: "Race",
+    title: "Race",
+    match: (r) => r.sessionName === "Race"
+}
+const fp = (n: number): Column => ({
+    id: `fp${n}`,
+    label: `FP${n}`,
+    title: `Free practice ${n}`,
+    match: (r) => r.sessionName === `Practice ${n}`
+})
+const [FP1, FP2, FP3] = [fp(1), fp(2), fp(3)]
 const COLUMNS: Record<RaceFilter, Column[]> = {
-  all: [FP1, FP2, FP3, SQ, SPRINT, QUALI, RACE],
-  Race: [SPRINT, RACE],
-  Qualifying: [SQ, QUALI],
-  Practice: [FP1, FP2, FP3],
-};
+    all: [FP1, FP2, FP3, SQ, SPRINT, QUALI, RACE],
+    Race: [SPRINT, RACE],
+    Qualifying: [SQ, QUALI],
+    Practice: [FP1, FP2, FP3]
+}
 
 export interface Meeting {
-  key: number;
-  name: string;
-  year: number;
-  round: number | null;
-  circuit: string;
-  country: string;
-  rows: CatalogRow[];
-  /** Every session of the weekend was cancelled (before filtering). */
-  cancelled: boolean;
+    key: number
+    name: string
+    year: number
+    round: number | null
+    circuit: string
+    country: string
+    rows: CatalogRow[]
+    /** Every session of the weekend was cancelled (before filtering). */
+    cancelled: boolean
 }
 
 /** Rows (in date order) grouped by meeting; meetings left without rows by the filter are dropped. */
 export function byMeeting(rows: CatalogRow[], filter: RaceFilter): Meeting[] {
-  const meetings = new Map<number, Meeting>();
-  for (const r of rows) {
-    let m = meetings.get(r.meetingKey);
-    if (!m) {
-      m = { key: r.meetingKey, name: r.meetingName, year: r.year, round: r.round, circuit: r.circuit, country: r.country, rows: [], cancelled: true };
-      meetings.set(r.meetingKey, m);
+    const meetings = new Map<number, Meeting>()
+    for (const r of rows) {
+        let m = meetings.get(r.meetingKey)
+        if (!m) {
+            m = {
+                key: r.meetingKey,
+                name: r.meetingName,
+                year: r.year,
+                round: r.round,
+                circuit: r.circuit,
+                country: r.country,
+                rows: [],
+                cancelled: true
+            }
+            meetings.set(r.meetingKey, m)
+        }
+        m.round ??= r.round
+        m.cancelled &&= r.cancelled
+        if (filter === "all" || r.sessionType === filter) m.rows.push(r)
     }
-    m.round ??= r.round;
-    m.cancelled &&= r.cancelled;
-    if (filter === "all" || r.sessionType === filter) m.rows.push(r);
-  }
-  return [...meetings.values()].filter((m) => m.rows.length);
+    return [...meetings.values()].filter((m) => m.rows.length)
 }
 
-const fullName = (r: CatalogRow) => `${r.year} ${r.meetingName} ${r.sessionName}`;
+const fullName = (r: CatalogRow) =>
+    `${r.year} ${r.meetingName} ${r.sessionName}`
 
 /**
  * What leads a weekend's row: its round in a season's sheet, its year in a circuit's (where the circuit isn't said
  * again: it's the page's).
  */
-export type Lead = "round" | "year";
-const leadOf = (m: Meeting, lead: Lead) => (lead === "year" ? String(m.year) : m.round != null ? `R${m.round}` : "–");
+export type Lead = "round" | "year"
+const leadOf = (m: Meeting, lead: Lead) =>
+    lead === "year" ? String(m.year) : m.round != null ? `R${m.round}` : "–"
 
 /** Opens a weekend's circuit's page: what a season's sheet does with its Grand Prix and circuit names. */
-function ToCircuit({ meeting, className, children }: { meeting: Meeting; className: string; children: ReactNode }) {
-  const openCircuit = useReplay((s) => s.openCircuit);
-  if (!meeting.circuit) return <span className={className}>{children}</span>;
-  return (
-    <button type="button"
-      onClick={(e) => {
-        e.currentTarget.blur();
-        openCircuit(circuitSlug(meeting.circuit));
-      }}
-      className={`min-w-0 truncate rounded-sm text-left hover:underline hover:decoration-zinc-500 hover:underline-offset-2 ${FOCUS} ${className}`}
-      title={`${meeting.circuit}: every session there over the years, and its history`}
-    >
-      {children}
-    </button>
-  );
+function ToCircuit({
+    meeting,
+    className,
+    children
+}: {
+    meeting: Meeting
+    className: string
+    children: ReactNode
+}) {
+    const openCircuit = useReplay((s) => s.openCircuit)
+    if (!meeting.circuit) return <span className={className}>{children}</span>
+    return (
+        <button
+            type="button"
+            onClick={(e) => {
+                e.currentTarget.blur()
+                openCircuit(circuitSlug(meeting.circuit))
+            }}
+            className={`min-w-0 truncate rounded-sm text-left hover:underline hover:decoration-zinc-500 hover:underline-offset-2 ${FOCUS} ${className}`}
+            title={`${meeting.circuit}: every session there over the years, and its history`}
+        >
+            {children}
+        </button>
+    )
 }
 
 // ---------------------------------------------------------------- cells
 
-const CELL_BASE = `relative flex items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md text-xs tabular-nums transition-colors ${FOCUS}`;
+const CELL_BASE = `relative flex items-center gap-1.5 overflow-hidden whitespace-nowrap rounded-md text-xs tabular-nums transition-colors ${FOCUS}`
 /** A sheet's cell: a fixed-height box filling its column (taller on touch screens, for the finger). */
-const CELL = `${CELL_BASE} h-8 w-full px-2 pointer-coarse:h-11`;
+const CELL = `${CELL_BASE} h-8 w-full px-2 pointer-coarse:h-11`
 /** A phone's chip: sized to its words, a hairline round it so the quiet states still read as buttons, 44 px tall. */
-const CHIP = `${CELL_BASE} h-11 border border-zinc-800 px-3`;
+const CHIP = `${CELL_BASE} h-11 border border-zinc-800 px-3`
 /** Words shown on hover or focus only (a sheet of the same word says nothing); touch has neither, so there they stay. */
-const REVEAL = "opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 pointer-coarse:opacity-100";
+const REVEAL =
+    "opacity-0 transition-opacity group-hover/cell:opacity-100 group-focus-visible/cell:opacity-100 pointer-coarse:opacity-100"
 
 /** A fill behind the cell's label: download progress, or how much of a partial download is stored. */
 const Fill = ({ frac, className }: { frac: number; className: string }) => (
-  <span className={`absolute inset-0 origin-left transition-transform duration-700 ease-out ${className}`} style={{ transform: `scaleX(${Math.min(1, Math.max(0, frac))})` }} aria-hidden />
-);
+    <span
+        className={`absolute inset-0 origin-left transition-transform duration-700 ease-out ${className}`}
+        style={{ transform: `scaleX(${Math.min(1, Math.max(0, frac))})` }}
+        aria-hidden
+    />
+)
 
-const Label = ({ children }: { children: ReactNode }) => <span className="relative flex min-w-0 items-center gap-1.5">{children}</span>;
+const Label = ({ children }: { children: ReactNode }) => (
+    <span className="relative flex min-w-0 items-center gap-1.5">
+        {children}
+    </span>
+)
 
 /**
  * A session's own action in its current state. Stored sessions are filled cells; the rest are quiet. `compact`: the
@@ -123,236 +202,345 @@ const Label = ({ children }: { children: ReactNode }) => <span className="relati
  * phone's chip, which has no column header over it, so it carries the session's label (FP1, Quali, Race) itself.
  */
 function Cell({
-  row,
-  state,
-  resume,
-  now,
-  waitUntil,
-  compact,
-  chip,
+    row,
+    state,
+    resume,
+    now,
+    waitUntil,
+    compact,
+    chip
 }: {
-  row: CatalogRow;
-  state: RowState;
-  resume: string | null;
-  now: number;
-  waitUntil: number | null;
-  compact: boolean;
-  chip?: string;
+    row: CatalogRow
+    state: RowState
+    resume: string | null
+    now: number
+    waitUntil: number | null
+    compact: boolean
+    chip?: string
 }) {
-  const resumeLabel = resume ? (compact ? resume : `Resume ${resume}`) : "Watch";
-  const stream = useLibrary((s) => s.stream);
-  const reprocess = useLibrary((s) => s.reprocess);
-  const watchNow = useLibrary((s) => s.watchNow);
-  const name = fullName(row);
-  const when = day(row.dateStart);
-  const base = chip ? CHIP : CELL;
-  const tag = chip ? <span className="font-semibold text-zinc-300">{chip}</span> : null;
+    const resumeLabel = resume
+        ? compact
+            ? resume
+            : `Resume ${resume}`
+        : "Watch"
+    const stream = useLibrary((s) => s.stream)
+    const reprocess = useLibrary((s) => s.reprocess)
+    const watchNow = useLibrary((s) => s.watchNow)
+    const name = fullName(row)
+    const when = day(row.dateStart)
+    const base = chip ? CHIP : CELL
+    const tag = chip ? (
+        <span className="font-semibold text-zinc-300">{chip}</span>
+    ) : null
 
-  if (waitUntil != null && (state.kind === "available" || state.kind === "partial")) {
-    return (
-      <button type="button"
-        onClick={() => stream(row)}
-        className={`group/cell ${base} text-amber-300 hover:bg-zinc-800`}
-        aria-label={`Watch ${name} (downloads wait until about ${clockTime(waitUntil)})`}
-        title={waitText(waitUntil)}
-      >
-        {/* Quiet like a Watch cell (the live row says when downloads resume); the time on hover or focus. */}
-        <Label>
-          {tag}
-          <Glyph name="wait" />
-          <span className={REVEAL}>{clockTime(waitUntil)}</span>
-        </Label>
-      </button>
-    );
-  }
-
-  switch (state.kind) {
-    case "upcoming":
-      if (isLive(row, now)) {
-        // Live mode follows it (when this site can follow anything live): the cell takes you there.
-        const followed = liveVia() != null && isFollowedLive({ session_type: row.sessionType, session_name: row.sessionName });
-        return followed ? (
-          <button type="button"
-            onClick={(e) => {
-              e.currentTarget.blur();
-              useReplay.getState().enterLive();
-            }}
-            className={`${base} font-semibold text-red-400 hover:bg-zinc-800 hover:text-red-300`}
-            aria-label={`Follow ${name} live`}
-            title={`${row.sessionName} is live: follow it in live mode (downloadable about 30 minutes after it ends)`}
-          >
-            {tag}
-            <LiveDot pulse={false} />
-            Live
-          </button>
-        ) : (
-          <span className={`${base} font-semibold text-red-400`} title={`${row.sessionName} is live: it can be downloaded about 30 minutes after it ends`}>
-            {tag}
-            <LiveDot pulse={false} />
-            Live
-          </span>
-        );
-      }
-      return (
-        <span className={`${base} text-zinc-400`} title={`${row.sessionName}: ${sessionTime(row.dateStart)}`}>
-          {tag ?? <span className="sr-only">{row.sessionName}: </span>}
-          {dayTime(row.dateStart)}
-        </span>
-      );
-    case "cancelled":
-      return (
-        <span className={`${base} text-zinc-400`} title={`${row.sessionName}: cancelled`}>
-          {tag}
-          <span className="line-through">Cancelled</span>
-        </span>
-      );
-    case "ready":
-      return (
-        <button type="button"
-          onClick={() => watchNow(row.sessionKey)}
-          className={`${base} bg-zinc-800 font-semibold text-zinc-50 hover:bg-zinc-700`}
-          aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name} (stored)`}
-          title={`${resume ? `Resume at ${resume}` : "Watch"} · ${when} · stored, ${size(state.entry.processedBytes + state.entry.rawBytes)}`}
-        >
-          <Label>
-            {tag}
-            <Glyph name="play" />
-            {resumeLabel}
-          </Label>
-        </button>
-      );
-    case "stale":
-      return (
-        <button type="button"
-          onClick={() => reprocess(state.entry)}
-          className={`${base} bg-zinc-800 font-semibold text-amber-300 hover:bg-zinc-700`}
-          aria-label={`Update ${name} (re-processed from the stored data, no download)`}
-          title="Processed by an older version of the app: update it from the stored OpenF1 data (no download)"
-        >
-          <Label>
-            {tag}
-            <Glyph name="retry" />
-            Update
-          </Label>
-        </button>
-      );
-    case "partial":
-      return (
-        <button type="button"
-          onClick={() => stream(row)}
-          className={`${base} text-zinc-100 hover:bg-zinc-800`}
-          aria-label={resume ? `Resume ${name} at ${resume}` : `Watch ${name}`}
-          title={`Watch · part stored, the rest comes as you watch (${approx(state.estimate.seconds)} left)`}
-        >
-          <Fill frac={state.cache.cachedFiles / Math.max(1, state.cache.expectedFiles)} className="bg-zinc-800" />
-          <Label>
-            {tag}
-            <Glyph name="play" />
-            {resumeLabel}
-          </Label>
-        </button>
-      );
-    case "available":
-      return (
-        <button type="button"
-          onClick={() => stream(row)}
-          className={`group/cell ${base} text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50 focus-visible:text-zinc-50`}
-          aria-label={`Watch ${name}`}
-          title={`Watch · ${when} · plays in seconds, downloads as you watch (${approx(state.estimate.seconds)}, ~${Math.round(state.estimate.mb)} MB)`}
-        >
-          {/* At rest just the play mark: a sheet of the same word says nothing. What changed (stored, a resume point,
-              a download) carries the ink. */}
-          <Label>
-            {tag}
-            <Glyph name="playOutline" />
-            {/* A chip's label and play mark already say it. */}
-            {!chip && <span className={REVEAL}>Watch</span>}
-          </Label>
-        </button>
-      );
-    case "remote": {
-      const p = state.job.progress;
-      return (
-        <button type="button" disabled className={`${base} cursor-default text-zinc-300`} aria-label={`${name} is downloading in another tab`} title="Downloading in another tab">
-          {p && <Fill frac={p.progress} className="bg-zinc-800" />}
-          <Label>
-            {tag}
-            {p ? `${Math.round(p.progress * 100)}%` : "Other tab"}
-          </Label>
-        </button>
-      );
-    }
-    case "job": {
-      const { job } = state;
-      if (job.phase === "failed") {
+    if (
+        waitUntil != null &&
+        (state.kind === "available" || state.kind === "partial")
+    ) {
         return (
-          <button type="button"
-            onClick={() => stream(row)}
-            className={`${base} text-red-400 hover:bg-zinc-800 hover:text-red-300`}
-            aria-label={`Retry ${name}`}
-            title={`Failed: ${job.error ?? "download failed"} · watch it (the download carries on from what's stored)`}
-          >
-            <Label>
-              {tag}
-              <Glyph name="retry" />
-              Retry
-            </Label>
-          </button>
-        );
-      }
-      const waiting = job.phase === "queued" || job.phase === "paused";
-      const pct = job.progress ? Math.round(job.progress.progress * 100) : 0;
-      return (
-        <button type="button"
-          onClick={() => (job.info.mode === "download" ? stream(row) : watchNow(row.sessionKey))}
-          className={`${base} hover:bg-zinc-800 ${waiting ? "text-amber-300" : "text-zinc-50"}`}
-          aria-label={`Watch ${name} (${waiting ? (job.phase === "paused" ? "waiting" : "queued") : `${pct}% downloaded`})`}
-          title={waiting ? `${job.phase === "paused" ? "Waiting" : "Queued"} · click to watch it now` : "Downloading · click to watch it while it downloads"}
-        >
-          {!waiting && <Fill frac={pct / 100} className={`bg-zinc-700 ${job.progress?.phase === "processing" ? "animate-pulse" : ""}`} />}
-          <Label>
-            {tag}
-            <Glyph name={waiting ? "wait" : "play"} />
-            {waiting ? (job.phase === "paused" ? "Waiting" : "Queued") : `${pct}%`}
-          </Label>
-        </button>
-      );
+            <button
+                type="button"
+                onClick={() => stream(row)}
+                className={`group/cell ${base} text-amber-300 hover:bg-zinc-800`}
+                aria-label={`Watch ${name} (downloads wait until about ${clockTime(waitUntil)})`}
+                title={waitText(waitUntil)}
+            >
+                {/* Quiet like a Watch cell (the live row says when downloads resume); the time on hover or focus. */}
+                <Label>
+                    {tag}
+                    <Glyph name="wait" />
+                    <span className={REVEAL}>{clockTime(waitUntil)}</span>
+                </Label>
+            </button>
+        )
     }
-  }
+
+    switch (state.kind) {
+        case "upcoming":
+            if (isLive(row, now)) {
+                // Live mode follows it (when this site can follow anything live): the cell takes you there.
+                const followed =
+                    liveVia() != null &&
+                    isFollowedLive({
+                        session_type: row.sessionType,
+                        session_name: row.sessionName
+                    })
+                return followed ? (
+                    <button
+                        type="button"
+                        onClick={(e) => {
+                            e.currentTarget.blur()
+                            useReplay.getState().enterLive()
+                        }}
+                        className={`${base} font-semibold text-red-400 hover:bg-zinc-800 hover:text-red-300`}
+                        aria-label={`Follow ${name} live`}
+                        title={`${row.sessionName} is live: follow it in live mode (downloadable about 30 minutes after it ends)`}
+                    >
+                        {tag}
+                        <LiveDot pulse={false} />
+                        Live
+                    </button>
+                ) : (
+                    <span
+                        className={`${base} font-semibold text-red-400`}
+                        title={`${row.sessionName} is live: it can be downloaded about 30 minutes after it ends`}
+                    >
+                        {tag}
+                        <LiveDot pulse={false} />
+                        Live
+                    </span>
+                )
+            }
+            return (
+                <span
+                    className={`${base} text-zinc-400`}
+                    title={`${row.sessionName}: ${sessionTime(row.dateStart)}`}
+                >
+                    {tag ?? (
+                        <span className="sr-only">{row.sessionName}: </span>
+                    )}
+                    {dayTime(row.dateStart)}
+                </span>
+            )
+        case "cancelled":
+            return (
+                <span
+                    className={`${base} text-zinc-400`}
+                    title={`${row.sessionName}: cancelled`}
+                >
+                    {tag}
+                    <span className="line-through">Cancelled</span>
+                </span>
+            )
+        case "ready":
+            return (
+                <button
+                    type="button"
+                    onClick={() => watchNow(row.sessionKey)}
+                    className={`${base} bg-zinc-800 font-semibold text-zinc-50 hover:bg-zinc-700`}
+                    aria-label={
+                        resume
+                            ? `Resume ${name} at ${resume}`
+                            : `Watch ${name} (stored)`
+                    }
+                    title={`${resume ? `Resume at ${resume}` : "Watch"} · ${when} · stored, ${size(state.entry.processedBytes + state.entry.rawBytes)}`}
+                >
+                    <Label>
+                        {tag}
+                        <Glyph name="play" />
+                        {resumeLabel}
+                    </Label>
+                </button>
+            )
+        case "stale":
+            return (
+                <button
+                    type="button"
+                    onClick={() => reprocess(state.entry)}
+                    className={`${base} bg-zinc-800 font-semibold text-amber-300 hover:bg-zinc-700`}
+                    aria-label={`Update ${name} (re-processed from the stored data, no download)`}
+                    title="Processed by an older version of the app: update it from the stored OpenF1 data (no download)"
+                >
+                    <Label>
+                        {tag}
+                        <Glyph name="retry" />
+                        Update
+                    </Label>
+                </button>
+            )
+        case "partial":
+            return (
+                <button
+                    type="button"
+                    onClick={() => stream(row)}
+                    className={`${base} text-zinc-100 hover:bg-zinc-800`}
+                    aria-label={
+                        resume ? `Resume ${name} at ${resume}` : `Watch ${name}`
+                    }
+                    title={`Watch · part stored, the rest comes as you watch (${approx(state.estimate.seconds)} left)`}
+                >
+                    <Fill
+                        frac={
+                            state.cache.cachedFiles /
+                            Math.max(1, state.cache.expectedFiles)
+                        }
+                        className="bg-zinc-800"
+                    />
+                    <Label>
+                        {tag}
+                        <Glyph name="play" />
+                        {resumeLabel}
+                    </Label>
+                </button>
+            )
+        case "available":
+            return (
+                <button
+                    type="button"
+                    onClick={() => stream(row)}
+                    className={`group/cell ${base} text-zinc-400 hover:bg-zinc-800 hover:text-zinc-50 focus-visible:text-zinc-50`}
+                    aria-label={`Watch ${name}`}
+                    title={`Watch · ${when} · plays in seconds, downloads as you watch (${approx(state.estimate.seconds)}, ~${Math.round(state.estimate.mb)} MB)`}
+                >
+                    {/* At rest just the play mark: a sheet of the same word says nothing. What changed (stored, a resume point,
+              a download) carries the ink. */}
+                    <Label>
+                        {tag}
+                        <Glyph name="playOutline" />
+                        {/* A chip's label and play mark already say it. */}
+                        {!chip && <span className={REVEAL}>Watch</span>}
+                    </Label>
+                </button>
+            )
+        case "remote": {
+            const p = state.job.progress
+            return (
+                <button
+                    type="button"
+                    disabled
+                    className={`${base} cursor-default text-zinc-300`}
+                    aria-label={`${name} is downloading in another tab`}
+                    title="Downloading in another tab"
+                >
+                    {p && <Fill frac={p.progress} className="bg-zinc-800" />}
+                    <Label>
+                        {tag}
+                        {p ? `${Math.round(p.progress * 100)}%` : "Other tab"}
+                    </Label>
+                </button>
+            )
+        }
+        case "job": {
+            const { job } = state
+            if (job.phase === "failed") {
+                return (
+                    <button
+                        type="button"
+                        onClick={() => stream(row)}
+                        className={`${base} text-red-400 hover:bg-zinc-800 hover:text-red-300`}
+                        aria-label={`Retry ${name}`}
+                        title={`Failed: ${job.error ?? "download failed"} · watch it (the download carries on from what's stored)`}
+                    >
+                        <Label>
+                            {tag}
+                            <Glyph name="retry" />
+                            Retry
+                        </Label>
+                    </button>
+                )
+            }
+            const waiting = job.phase === "queued" || job.phase === "paused"
+            const pct = job.progress
+                ? Math.round(job.progress.progress * 100)
+                : 0
+            return (
+                <button
+                    type="button"
+                    onClick={() =>
+                        job.info.mode === "download"
+                            ? stream(row)
+                            : watchNow(row.sessionKey)
+                    }
+                    className={`${base} hover:bg-zinc-800 ${waiting ? "text-amber-300" : "text-zinc-50"}`}
+                    aria-label={`Watch ${name} (${waiting ? (job.phase === "paused" ? "waiting" : "queued") : `${pct}% downloaded`})`}
+                    title={
+                        waiting
+                            ? `${job.phase === "paused" ? "Waiting" : "Queued"} · click to watch it now`
+                            : "Downloading · click to watch it while it downloads"
+                    }
+                >
+                    {!waiting && (
+                        <Fill
+                            frac={pct / 100}
+                            className={`bg-zinc-700 ${job.progress?.phase === "processing" ? "animate-pulse" : ""}`}
+                        />
+                    )}
+                    <Label>
+                        {tag}
+                        <Glyph name={waiting ? "wait" : "play"} />
+                        {waiting
+                            ? job.phase === "paused"
+                                ? "Waiting"
+                                : "Queued"
+                            : `${pct}%`}
+                    </Label>
+                </button>
+            )
+        }
+    }
 }
 
 // ---------------------------------------------------------------- rows
 
 /** One line of errors or waiting notices for a weekend, or null. `wrap`: on a phone, as many lines as it takes (no hover for the rest). */
-function Notice({ meeting, states, now, wrap = false }: { meeting: Meeting; states: RowState[]; now: number; wrap?: boolean }) {
-  const otherTab = useLibrary((s) => s.otherTab);
-  const notes: { key: number; text: string; tone: string }[] = [];
-  meeting.rows.forEach((r, i) => {
-    const s = states[i];
-    if (s.kind !== "job") return;
-    const { job } = s;
-    const who = r.sessionName;
-    const key = r.sessionKey;
-    if (job.phase === "failed") notes.push({ key, text: `${who}: ${job.error ?? "download failed"}`, tone: "text-red-400" });
-    else if (job.phase === "paused") {
-      const resumeAt = job.resumeAt;
-      const wait = resumeAt != null ? Math.max(0, resumeAt - now) : 0;
-      const at = resumeAt == null ? "" : wait > 90_000 ? ` Starts by itself at ${clockTime(resumeAt)}.` : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`;
-      notes.push({ key, text: `${who}: ${job.notice ?? "Paused"}${at}`, tone: "text-amber-300" });
-    } else if (job.phase === "queued" && otherTab) notes.push({ key, text: `${who}: another tab is downloading; this starts when it's done.`, tone: "text-zinc-300" });
-    else if (job.progress?.notice) notes.push({ key, text: `${who}: ${job.progress.notice}`, tone: "text-amber-300" });
-  });
-  if (!notes.length) return null;
-  return (
-    <p className={wrap ? "pb-1 pt-2 text-xs" : "truncate pb-2 pl-11 text-xs"} title={wrap ? undefined : notes.map((n) => n.text).join("\n")}>
-      {notes.map((n, i) => (
-        <span key={n.key} className={n.tone}>
-          {i > 0 && <span className="text-zinc-500"> · </span>}
-          {n.text}
-        </span>
-      ))}
-    </p>
-  );
+function Notice({
+    meeting,
+    states,
+    now,
+    wrap = false
+}: {
+    meeting: Meeting
+    states: RowState[]
+    now: number
+    wrap?: boolean
+}) {
+    const otherTab = useLibrary((s) => s.otherTab)
+    const notes: { key: number; text: string; tone: string }[] = []
+    meeting.rows.forEach((r, i) => {
+        const s = states[i]
+        if (s.kind !== "job") return
+        const { job } = s
+        const who = r.sessionName
+        const key = r.sessionKey
+        if (job.phase === "failed")
+            notes.push({
+                key,
+                text: `${who}: ${job.error ?? "download failed"}`,
+                tone: "text-red-400"
+            })
+        else if (job.phase === "paused") {
+            const resumeAt = job.resumeAt
+            const wait = resumeAt != null ? Math.max(0, resumeAt - now) : 0
+            const at =
+                resumeAt == null
+                    ? ""
+                    : wait > 90_000
+                      ? ` Starts by itself at ${clockTime(resumeAt)}.`
+                      : ` Starts by itself in ${Math.ceil(wait / 1000)}s.`
+            notes.push({
+                key,
+                text: `${who}: ${job.notice ?? "Paused"}${at}`,
+                tone: "text-amber-300"
+            })
+        } else if (job.phase === "queued" && otherTab)
+            notes.push({
+                key,
+                text: `${who}: another tab is downloading; this starts when it's done.`,
+                tone: "text-zinc-300"
+            })
+        else if (job.progress?.notice)
+            notes.push({
+                key,
+                text: `${who}: ${job.progress.notice}`,
+                tone: "text-amber-300"
+            })
+    })
+    if (!notes.length) return null
+    return (
+        <p
+            className={
+                wrap ? "pb-1 pt-2 text-xs" : "truncate pb-2 pl-11 text-xs"
+            }
+            title={wrap ? undefined : notes.map((n) => n.text).join("\n")}
+        >
+            {notes.map((n, i) => (
+                <span key={n.key} className={n.tone}>
+                    {i > 0 && <span className="text-zinc-500"> · </span>}
+                    {n.text}
+                </span>
+            ))}
+        </p>
+    )
 }
 
 /**
@@ -362,166 +550,214 @@ function Notice({ meeting, states, now, wrap = false }: { meeting: Meeting; stat
  * and dates come in later: the breakpoints are where each column fits (with the row's padding).
  */
 interface Sheet {
-  grid: string;
-  circuit: string;
-  dates: string;
-  /** Below this the sheet scrolls sideways. */
-  min: string;
-  scroll: string;
-  compact: boolean;
+    grid: string
+    circuit: string
+    dates: string
+    /** Below this the sheet scrolls sideways. */
+    min: string
+    scroll: string
+    compact: boolean
 }
 const SHEET: Sheet = {
-  grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),8.25rem)_2rem] @[56rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem] @[66rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem]",
-  circuit: "hidden @[66rem]:block",
-  dates: "hidden @[56rem]:block",
-  min: "min-w-[48rem]",
-  scroll: "overflow-x-auto @[48rem]:overflow-visible",
-  compact: false,
-};
+    grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),8.25rem)_2rem] @[56rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem] @[66rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),8.25rem)_2rem]",
+    circuit: "hidden @[66rem]:block",
+    dates: "hidden @[56rem]:block",
+    min: "min-w-[48rem]",
+    scroll: "overflow-x-auto @[48rem]:overflow-visible",
+    compact: false
+}
 const WIDE_SHEET: Sheet = {
-  grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),6.25rem)_2rem] @[68.75rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem] @[80rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem]",
-  circuit: "hidden @[80rem]:block",
-  dates: "hidden @[68.75rem]:block",
-  min: "min-w-[61.5rem]",
-  scroll: "overflow-x-auto @[61.5rem]:overflow-visible",
-  compact: true,
-};
-const sheetOf = (columns: Column[]) => (columns.length > 4 ? WIDE_SHEET : SHEET);
-const cellsOf = (columns: Column[]) => ({ "--cells": columns.length }) as CSSProperties;
+    grid: "grid items-center gap-x-2 grid-cols-[minmax(10rem,1fr)_repeat(var(--cells),6.25rem)_2rem] @[68.75rem]:grid-cols-[minmax(10rem,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem] @[80rem]:grid-cols-[minmax(0,13rem)_minmax(0,1fr)_7rem_repeat(var(--cells),6.25rem)_2rem]",
+    circuit: "hidden @[80rem]:block",
+    dates: "hidden @[68.75rem]:block",
+    min: "min-w-[61.5rem]",
+    scroll: "overflow-x-auto @[61.5rem]:overflow-visible",
+    compact: true
+}
+const sheetOf = (columns: Column[]) => (columns.length > 4 ? WIDE_SHEET : SHEET)
+const cellsOf = (columns: Column[]) =>
+    ({ "--cells": columns.length }) as CSSProperties
 /** The round and Grand Prix's "Next" mark. */
-const NEXT_BADGE = "shrink-0 rounded bg-zinc-800 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-zinc-200";
+const NEXT_BADGE =
+    "shrink-0 rounded bg-zinc-800 px-1.5 py-px text-[11px] font-semibold uppercase tracking-wider text-zinc-200"
 
 /** Round and Grand Prix: pinned when the sheet scrolls sideways (its ground follows the row's). */
-const PINNED = "sticky left-0 z-[1] flex min-w-0 items-center gap-2 bg-zinc-950 group-hover:bg-zinc-900";
+const PINNED =
+    "sticky left-0 z-[1] flex min-w-0 items-center gap-2 bg-zinc-950 group-hover:bg-zinc-900"
 
 function WeekendRow({
-  meeting,
-  states,
-  columns,
-  resume,
-  now,
-  waitUntil,
-  lead,
-  next = false,
+    meeting,
+    states,
+    columns,
+    resume,
+    now,
+    waitUntil,
+    lead,
+    next = false
 }: {
-  meeting: Meeting;
-  states: RowState[];
-  columns: Column[];
-  resume: Resume;
-  now: number;
-  waitUntil: number | null;
-  lead: Lead;
-  next?: boolean;
+    meeting: Meeting
+    states: RowState[]
+    columns: Column[]
+    resume: Resume
+    now: number
+    waitUntil: number | null
+    lead: Lead
+    next?: boolean
 }) {
-  const confirm = useLibrary((s) => s.confirmDelete);
-  const askDelete = useLibrary((s) => s.askDelete);
-  const remove = useLibrary((s) => s.remove);
-  // Several sessions stored: pick which one to delete first.
-  const [picking, setPicking] = useState(false);
-  const first = meeting.rows[0];
-  const last = meeting.rows[meeting.rows.length - 1];
-  const deletable = meeting.rows.flatMap((r, i) => {
-    const bytes = storedBytes(states[i]);
-    return bytes != null ? [{ row: r, bytes }] : [];
-  });
-  const confirming = deletable.find((d) => d.row.sessionKey === confirm);
-  const span = { gridColumn: `span ${columns.length + 1} / -1` };
-  const sheet = sheetOf(columns);
+    const confirm = useLibrary((s) => s.confirmDelete)
+    const askDelete = useLibrary((s) => s.askDelete)
+    const remove = useLibrary((s) => s.remove)
+    // Several sessions stored: pick which one to delete first.
+    const [picking, setPicking] = useState(false)
+    const first = meeting.rows[0]
+    const last = meeting.rows[meeting.rows.length - 1]
+    const deletable = meeting.rows.flatMap((r, i) => {
+        const bytes = storedBytes(states[i])
+        return bytes != null ? [{ row: r, bytes }] : []
+    })
+    const confirming = deletable.find((d) => d.row.sessionKey === confirm)
+    const span = { gridColumn: `span ${columns.length + 1} / -1` }
+    const sheet = sheetOf(columns)
 
-  let cells: ReactNode;
-  if (confirming) {
-    cells = (
-      <div className="flex items-center justify-end gap-1.5" style={span}>
-        <span className="whitespace-nowrap text-xs text-zinc-200">
-          Delete {confirming.row.sessionName} ({size(confirming.bytes)})?
-        </span>
-        <button type="button" onClick={() => void remove(confirming.row.sessionKey)} className={DANGER}>
-          Delete
-        </button>
-        <button type="button" onClick={() => askDelete(null)} className={SECONDARY}>
-          Keep
-        </button>
-      </div>
-    );
-  } else if (picking) {
-    cells = (
-      <div className="flex items-center justify-end gap-1.5" style={span}>
-        <span className="text-xs text-zinc-300">Delete which?</span>
-        {deletable.map((d) => (
-          <button type="button"
-            key={d.row.sessionKey}
-            onClick={() => {
-              setPicking(false);
-              askDelete(d.row.sessionKey);
-            }}
-            className={`${SECONDARY} text-red-300`}
-            aria-label={`Delete ${fullName(d.row)} (${size(d.bytes)})`}
-          >
-            {d.row.sessionName}
-          </button>
-        ))}
-        <button type="button" onClick={() => setPicking(false)} className={SECONDARY}>
-          Keep
-        </button>
-      </div>
-    );
-  } else {
-    cells = (
-      <>
-        {columns.map((c) => {
-          const i = meeting.rows.findIndex(c.match);
-          return (
-            <div key={c.id}>
-              {i >= 0 && (
-                <Cell row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} waitUntil={waitUntil} compact={sheet.compact} />
-              )}
+    let cells: ReactNode
+    if (confirming) {
+        cells = (
+            <div className="flex items-center justify-end gap-1.5" style={span}>
+                <span className="whitespace-nowrap text-xs text-zinc-200">
+                    Delete {confirming.row.sessionName} (
+                    {size(confirming.bytes)})?
+                </span>
+                <button
+                    type="button"
+                    onClick={() => void remove(confirming.row.sessionKey)}
+                    className={DANGER}
+                >
+                    Delete
+                </button>
+                <button
+                    type="button"
+                    onClick={() => askDelete(null)}
+                    className={SECONDARY}
+                >
+                    Keep
+                </button>
             </div>
-          );
-        })}
-        <div className="flex justify-end">
-          {deletable.length > 0 && (
-            <button type="button"
-              onClick={() => (deletable.length === 1 ? askDelete(deletable[0].row.sessionKey) : setPicking(true))}
-              className={`flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:opacity-100 ${FOCUS}`}
-              aria-label={`Delete ${meeting.name} sessions from this browser`}
-              title="Delete from this browser"
-            >
-              <Glyph name="trash" className="h-3.5 w-3.5" />
-            </button>
-          )}
-        </div>
-      </>
-    );
-  }
-
-  return (
-    <li className="group border-b border-zinc-800/70 px-3 hover:bg-zinc-900">
-      <div className={`${sheet.grid} min-h-11 py-1`} style={cellsOf(columns)}>
-        <span className={PINNED}>
-          <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{leadOf(meeting, lead)}</span>
-          {lead === "round" ? (
-            <ToCircuit meeting={meeting} className="text-sm font-semibold text-zinc-50">
-              {shortGp(meeting.name)}
-            </ToCircuit>
-          ) : (
-            <span className="truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
-          )}
-          {next && <span className={NEXT_BADGE}>Next</span>}
-        </span>
-        <span className={`${sheet.circuit} min-w-0 truncate text-xs text-zinc-400`}>
-          {lead === "round" && (
+        )
+    } else if (picking) {
+        cells = (
+            <div className="flex items-center justify-end gap-1.5" style={span}>
+                <span className="text-xs text-zinc-300">Delete which?</span>
+                {deletable.map((d) => (
+                    <button
+                        type="button"
+                        key={d.row.sessionKey}
+                        onClick={() => {
+                            setPicking(false)
+                            askDelete(d.row.sessionKey)
+                        }}
+                        className={`${SECONDARY} text-red-300`}
+                        aria-label={`Delete ${fullName(d.row)} (${size(d.bytes)})`}
+                    >
+                        {d.row.sessionName}
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    onClick={() => setPicking(false)}
+                    className={SECONDARY}
+                >
+                    Keep
+                </button>
+            </div>
+        )
+    } else {
+        cells = (
             <>
-              {meeting.circuit}
-              {meeting.country ? ` · ${meeting.country}` : ""}
+                {columns.map((c) => {
+                    const i = meeting.rows.findIndex(c.match)
+                    return (
+                        <div key={c.id}>
+                            {i >= 0 && (
+                                <Cell
+                                    row={meeting.rows[i]}
+                                    state={states[i]}
+                                    resume={
+                                        resume[meeting.rows[i].sessionKey] ??
+                                        null
+                                    }
+                                    now={now}
+                                    waitUntil={waitUntil}
+                                    compact={sheet.compact}
+                                />
+                            )}
+                        </div>
+                    )
+                })}
+                <div className="flex justify-end">
+                    {deletable.length > 0 && (
+                        <button
+                            type="button"
+                            onClick={() =>
+                                deletable.length === 1
+                                    ? askDelete(deletable[0].row.sessionKey)
+                                    : setPicking(true)
+                            }
+                            className={`flex h-7 w-7 items-center justify-center rounded-md text-zinc-400 opacity-0 hover:bg-zinc-800 hover:text-zinc-100 focus-visible:opacity-100 group-hover:opacity-100 pointer-coarse:h-11 pointer-coarse:w-11 pointer-coarse:opacity-100 ${FOCUS}`}
+                            aria-label={`Delete ${meeting.name} sessions from this browser`}
+                            title="Delete from this browser"
+                        >
+                            <Glyph name="trash" className="h-3.5 w-3.5" />
+                        </button>
+                    )}
+                </div>
             </>
-          )}
-        </span>
-        <span className={`${sheet.dates} text-xs tabular-nums text-zinc-400`}>{dateRange(first.dateStart, last.dateEnd)}</span>
-        {cells}
-      </div>
-      <Notice meeting={meeting} states={states} now={now} />
-    </li>
-  );
+        )
+    }
+
+    return (
+        <li className="group border-b border-zinc-800/70 px-3 hover:bg-zinc-900">
+            <div
+                className={`${sheet.grid} min-h-11 py-1`}
+                style={cellsOf(columns)}
+            >
+                <span className={PINNED}>
+                    <span className="w-9 shrink-0 text-xs font-semibold tabular-nums text-zinc-400">
+                        {leadOf(meeting, lead)}
+                    </span>
+                    {lead === "round" ? (
+                        <ToCircuit
+                            meeting={meeting}
+                            className="text-sm font-semibold text-zinc-50"
+                        >
+                            {shortGp(meeting.name)}
+                        </ToCircuit>
+                    ) : (
+                        <span className="truncate text-sm font-semibold text-zinc-50">
+                            {shortGp(meeting.name)}
+                        </span>
+                    )}
+                    {next && <span className={NEXT_BADGE}>Next</span>}
+                </span>
+                <span
+                    className={`${sheet.circuit} min-w-0 truncate text-xs text-zinc-400`}
+                >
+                    {lead === "round" && (
+                        <>
+                            {meeting.circuit}
+                            {meeting.country ? ` · ${meeting.country}` : ""}
+                        </>
+                    )}
+                </span>
+                <span
+                    className={`${sheet.dates} text-xs tabular-nums text-zinc-400`}
+                >
+                    {dateRange(first.dateStart, last.dateEnd)}
+                </span>
+                {cells}
+            </div>
+            <Notice meeting={meeting} states={states} now={now} />
+        </li>
+    )
 }
 
 /**
@@ -530,149 +766,206 @@ function WeekendRow({
  * asks in place of the chips, as the sheet does in place of its cells.
  */
 function PhoneWeekend({
-  meeting,
-  states,
-  columns,
-  resume,
-  now,
-  waitUntil,
-  lead,
-  next = false,
+    meeting,
+    states,
+    columns,
+    resume,
+    now,
+    waitUntil,
+    lead,
+    next = false
 }: {
-  meeting: Meeting;
-  states: RowState[];
-  columns: Column[];
-  resume: Resume;
-  now: number;
-  waitUntil: number | null;
-  lead: Lead;
-  next?: boolean;
+    meeting: Meeting
+    states: RowState[]
+    columns: Column[]
+    resume: Resume
+    now: number
+    waitUntil: number | null
+    lead: Lead
+    next?: boolean
 }) {
-  const confirm = useLibrary((s) => s.confirmDelete);
-  const askDelete = useLibrary((s) => s.askDelete);
-  const remove = useLibrary((s) => s.remove);
-  const [picking, setPicking] = useState(false);
-  const first = meeting.rows[0];
-  const last = meeting.rows[meeting.rows.length - 1];
-  const deletable = meeting.rows.flatMap((r, i) => {
-    const bytes = storedBytes(states[i]);
-    return bytes != null ? [{ row: r, bytes }] : [];
-  });
-  const confirming = deletable.find((d) => d.row.sessionKey === confirm);
-  const tall = "min-h-11 px-3";
+    const confirm = useLibrary((s) => s.confirmDelete)
+    const askDelete = useLibrary((s) => s.askDelete)
+    const remove = useLibrary((s) => s.remove)
+    const [picking, setPicking] = useState(false)
+    const first = meeting.rows[0]
+    const last = meeting.rows[meeting.rows.length - 1]
+    const deletable = meeting.rows.flatMap((r, i) => {
+        const bytes = storedBytes(states[i])
+        return bytes != null ? [{ row: r, bytes }] : []
+    })
+    const confirming = deletable.find((d) => d.row.sessionKey === confirm)
+    const tall = "min-h-11 px-3"
 
-  let chips: ReactNode;
-  if (confirming) {
-    chips = (
-      <>
-        <span className="text-xs text-zinc-200">
-          Delete {confirming.row.sessionName} ({size(confirming.bytes)})?
-        </span>
-        <button type="button" onClick={() => void remove(confirming.row.sessionKey)} className={`${DANGER} ${tall}`}>
-          Delete
-        </button>
-        <button type="button" onClick={() => askDelete(null)} className={`${SECONDARY} ${tall}`}>
-          Keep
-        </button>
-      </>
-    );
-  } else if (picking) {
-    chips = (
-      <>
-        <span className="text-xs text-zinc-300">Delete which?</span>
-        {deletable.map((d) => (
-          <button type="button"
-            key={d.row.sessionKey}
-            onClick={() => {
-              setPicking(false);
-              askDelete(d.row.sessionKey);
-            }}
-            className={`${SECONDARY} ${tall} text-red-300`}
-            aria-label={`Delete ${fullName(d.row)} (${size(d.bytes)})`}
-          >
-            {d.row.sessionName}
-          </button>
-        ))}
-        <button type="button" onClick={() => setPicking(false)} className={`${SECONDARY} ${tall}`}>
-          Keep
-        </button>
-      </>
-    );
-  } else {
-    chips = (
-      <>
-        {columns.map((c) => {
-          const i = meeting.rows.findIndex(c.match);
-          return (
-            i >= 0 && (
-              <Cell key={c.id} row={meeting.rows[i]} state={states[i]} resume={resume[meeting.rows[i].sessionKey] ?? null} now={now} waitUntil={waitUntil} compact={false} chip={c.label} />
-            )
-          );
-        })}
-        {deletable.length > 0 && (
-          <button type="button"
-            onClick={() => (deletable.length === 1 ? askDelete(deletable[0].row.sessionKey) : setPicking(true))}
-            className={`flex h-11 w-11 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`}
-            aria-label={`Delete ${meeting.name} sessions from this browser`}
-            title="Delete from this browser"
-          >
-            <Glyph name="trash" className="h-3.5 w-3.5" />
-          </button>
-        )}
-      </>
-    );
-  }
+    let chips: ReactNode
+    if (confirming) {
+        chips = (
+            <>
+                <span className="text-xs text-zinc-200">
+                    Delete {confirming.row.sessionName} (
+                    {size(confirming.bytes)})?
+                </span>
+                <button
+                    type="button"
+                    onClick={() => void remove(confirming.row.sessionKey)}
+                    className={`${DANGER} ${tall}`}
+                >
+                    Delete
+                </button>
+                <button
+                    type="button"
+                    onClick={() => askDelete(null)}
+                    className={`${SECONDARY} ${tall}`}
+                >
+                    Keep
+                </button>
+            </>
+        )
+    } else if (picking) {
+        chips = (
+            <>
+                <span className="text-xs text-zinc-300">Delete which?</span>
+                {deletable.map((d) => (
+                    <button
+                        type="button"
+                        key={d.row.sessionKey}
+                        onClick={() => {
+                            setPicking(false)
+                            askDelete(d.row.sessionKey)
+                        }}
+                        className={`${SECONDARY} ${tall} text-red-300`}
+                        aria-label={`Delete ${fullName(d.row)} (${size(d.bytes)})`}
+                    >
+                        {d.row.sessionName}
+                    </button>
+                ))}
+                <button
+                    type="button"
+                    onClick={() => setPicking(false)}
+                    className={`${SECONDARY} ${tall}`}
+                >
+                    Keep
+                </button>
+            </>
+        )
+    } else {
+        chips = (
+            <>
+                {columns.map((c) => {
+                    const i = meeting.rows.findIndex(c.match)
+                    return (
+                        i >= 0 && (
+                            <Cell
+                                key={c.id}
+                                row={meeting.rows[i]}
+                                state={states[i]}
+                                resume={
+                                    resume[meeting.rows[i].sessionKey] ?? null
+                                }
+                                now={now}
+                                waitUntil={waitUntil}
+                                compact={false}
+                                chip={c.label}
+                            />
+                        )
+                    )
+                })}
+                {deletable.length > 0 && (
+                    <button
+                        type="button"
+                        onClick={() =>
+                            deletable.length === 1
+                                ? askDelete(deletable[0].row.sessionKey)
+                                : setPicking(true)
+                        }
+                        className={`flex h-11 w-11 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`}
+                        aria-label={`Delete ${meeting.name} sessions from this browser`}
+                        title="Delete from this browser"
+                    >
+                        <Glyph name="trash" className="h-3.5 w-3.5" />
+                    </button>
+                )}
+            </>
+        )
+    }
 
-  return (
-    <li className="border-b border-zinc-800/70 py-3">
-      <div className="flex items-baseline gap-2">
-        <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-400">{leadOf(meeting, lead)}</span>
-        {lead === "round" ? (
-          <span className="flex min-w-0 flex-1">
-            <ToCircuit meeting={meeting} className="text-sm font-semibold text-zinc-50">
-              {shortGp(meeting.name)}
-            </ToCircuit>
-          </span>
-        ) : (
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-50">{shortGp(meeting.name)}</span>
-        )}
-        {next && <span className={NEXT_BADGE}>Next</span>}
-        <span className="shrink-0 text-xs tabular-nums text-zinc-400">{dateRange(first.dateStart, last.dateEnd)}</span>
-      </div>
-      {lead === "round" && (meeting.circuit || meeting.country) && (
-        <p className="mt-0.5 truncate text-xs text-zinc-400">
-          {meeting.circuit}
-          {meeting.circuit && meeting.country ? " · " : ""}
-          {meeting.country}
-        </p>
-      )}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">{chips}</div>
-      <Notice meeting={meeting} states={states} now={now} wrap />
-    </li>
-  );
+    return (
+        <li className="border-b border-zinc-800/70 py-3">
+            <div className="flex items-baseline gap-2">
+                <span className="shrink-0 text-xs font-semibold tabular-nums text-zinc-400">
+                    {leadOf(meeting, lead)}
+                </span>
+                {lead === "round" ? (
+                    <span className="flex min-w-0 flex-1">
+                        <ToCircuit
+                            meeting={meeting}
+                            className="text-sm font-semibold text-zinc-50"
+                        >
+                            {shortGp(meeting.name)}
+                        </ToCircuit>
+                    </span>
+                ) : (
+                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-50">
+                        {shortGp(meeting.name)}
+                    </span>
+                )}
+                {next && <span className={NEXT_BADGE}>Next</span>}
+                <span className="shrink-0 text-xs tabular-nums text-zinc-400">
+                    {dateRange(first.dateStart, last.dateEnd)}
+                </span>
+            </div>
+            {lead === "round" && (meeting.circuit || meeting.country) && (
+                <p className="mt-0.5 truncate text-xs text-zinc-400">
+                    {meeting.circuit}
+                    {meeting.circuit && meeting.country ? " · " : ""}
+                    {meeting.country}
+                </p>
+            )}
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {chips}
+            </div>
+            <Notice meeting={meeting} states={states} now={now} wrap />
+        </li>
+    )
 }
 
 /** Race clock where each watched race was left, by session key. */
-type Resume = Record<number, string>;
+type Resume = Record<number, string>
 
-type Item = { kind: "weekend" | "next"; meeting: Meeting; states: RowState[] } | { kind: "cancelled"; meetings: Meeting[] };
+type Item =
+    | { kind: "weekend" | "next"; meeting: Meeting; states: RowState[] }
+    | { kind: "cancelled"; meetings: Meeting[] }
 
 /** A row of pressed/unpressed buttons (the replay screen's segmented control). */
-export function Segmented<T extends string | number>({ label, value, options, onChange }: { label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void }) {
-  return (
-    <fieldset className="flex min-w-0 rounded-md bg-zinc-900 p-0.5" aria-label={label}>
-      {options.map((o) => (
-        <button type="button"
-          key={o.id}
-          onClick={() => onChange(o.id)}
-          aria-pressed={o.id === value}
-          className={`rounded px-2.5 py-1 text-xs font-semibold tabular-nums pointer-coarse:min-h-10 pointer-coarse:px-3 ${FOCUS} ${o.id === value ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}
+export function Segmented<T extends string | number>({
+    label,
+    value,
+    options,
+    onChange
+}: {
+    label: string
+    value: T
+    options: { id: T; label: string }[]
+    onChange: (v: T) => void
+}) {
+    return (
+        <fieldset
+            className="flex min-w-0 rounded-md bg-zinc-900 p-0.5"
+            aria-label={label}
         >
-          {o.label}
-        </button>
-      ))}
-    </fieldset>
-  );
+            {options.map((o) => (
+                <button
+                    type="button"
+                    key={o.id}
+                    onClick={() => onChange(o.id)}
+                    aria-pressed={o.id === value}
+                    className={`rounded px-2.5 py-1 text-xs font-semibold tabular-nums pointer-coarse:min-h-10 pointer-coarse:px-3 ${FOCUS} ${o.id === value ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}
+                >
+                    {o.label}
+                </button>
+            ))}
+        </fieldset>
+    )
 }
 
 /**
@@ -680,164 +973,244 @@ export function Segmented<T extends string | number>({ label, value, options, on
  * weekend (unless one is under way), runs of cancelled ones collapsed into one line. `lead`: what the first column
  * says, the round or (on a circuit's page, its weekends over the years) the year.
  */
-export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meeting[]; filter: RaceFilter; lead: Lead; label: string }) {
-  const jobs = useLibrary((s) => s.jobs);
-  const remote = useLibrary((s) => s.remote);
-  const entries = useLibrary((s) => s.entries);
-  const partial = useLibrary((s) => s.partial);
-  const now = useNow(2000);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read whenever the downloads change
-  const learned = useMemo(() => loadLearned(), [jobs]);
-  const columns = COLUMNS[filter];
-  const sheet = sheetOf(columns);
-  // Read once per visit to the page (it's written while watching).
-  const [resume] = useState(resumeClocks);
-  const waitUntil = useDownloadBlock();
-  const phone = usePhone();
+export function WeekendSheet({
+    meetings,
+    filter,
+    lead,
+    label
+}: {
+    meetings: Meeting[]
+    filter: RaceFilter
+    lead: Lead
+    label: string
+}) {
+    const jobs = useLibrary((s) => s.jobs)
+    const remote = useLibrary((s) => s.remote)
+    const entries = useLibrary((s) => s.entries)
+    const partial = useLibrary((s) => s.partial)
+    const now = useNow(2000)
+    // biome-ignore lint/correctness/useExhaustiveDependencies: re-read whenever the downloads change
+    const learned = useMemo(() => loadLearned(), [jobs])
+    const columns = COLUMNS[filter]
+    const sheet = sheetOf(columns)
+    // Read once per visit to the page (it's written while watching).
+    const [resume] = useState(resumeClocks)
+    const waitUntil = useDownloadBlock()
+    const phone = usePhone()
 
-  const shown: { m: Meeting; states: RowState[] | null }[] = [];
-  let next: { m: Meeting; states: RowState[] } | null = null;
-  for (const m of meetings) {
-    const states = m.cancelled ? null : m.rows.map((r) => rowState(r, { jobs, remote, entries, partial }, now, learned));
-    if (!states || states.every((s) => s.kind === "cancelled")) {
-      shown.push({ m, states: null });
-      continue;
+    const shown: { m: Meeting; states: RowState[] | null }[] = []
+    let next: { m: Meeting; states: RowState[] } | null = null
+    for (const m of meetings) {
+        const states = m.cancelled
+            ? null
+            : m.rows.map((r) =>
+                  rowState(r, { jobs, remote, entries, partial }, now, learned)
+              )
+        if (!states || states.every((s) => s.kind === "cancelled")) {
+            shown.push({ m, states: null })
+            continue
+        }
+        if (
+            states.every((s) => s.kind === "upcoming" || s.kind === "cancelled")
+        ) {
+            if (
+                !shown.some((x) => x.states?.some((s) => s.kind === "upcoming"))
+            )
+                next = { m, states }
+            break
+        }
+        shown.push({ m, states })
     }
-    if (states.every((s) => s.kind === "upcoming" || s.kind === "cancelled")) {
-      if (!shown.some((x) => x.states?.some((s) => s.kind === "upcoming"))) next = { m, states };
-      break;
+    const items: Item[] = next
+        ? [{ kind: "next", meeting: next.m, states: next.states }]
+        : []
+    for (const { m, states } of shown.reverse()) {
+        const prev = items.at(-1)
+        if (states) items.push({ kind: "weekend", meeting: m, states })
+        else if (prev?.kind === "cancelled") prev.meetings.push(m)
+        else items.push({ kind: "cancelled", meetings: [m] })
     }
-    shown.push({ m, states });
-  }
-  const items: Item[] = next ? [{ kind: "next", meeting: next.m, states: next.states }] : [];
-  for (const { m, states } of shown.reverse()) {
-    const prev = items.at(-1);
-    if (states) items.push({ kind: "weekend", meeting: m, states });
-    else if (prev?.kind === "cancelled") prev.meetings.push(m);
-    else items.push({ kind: "cancelled", meetings: [m] });
-  }
-  const cancelledText = (ms: Meeting[]) => ms.map((m) => (lead === "year" ? `${m.year} ${shortGp(m.name)}` : shortGp(m.name))).join(" · ");
+    const cancelledText = (ms: Meeting[]) =>
+        ms
+            .map((m) =>
+                lead === "year"
+                    ? `${m.year} ${shortGp(m.name)}`
+                    : shortGp(m.name)
+            )
+            .join(" · ")
 
-  if (phone) {
+    if (phone) {
+        return (
+            <ul aria-label={label} className="border-t border-zinc-800">
+                {items.map((it) =>
+                    it.kind === "cancelled" ? (
+                        <li
+                            key={`c${it.meetings[0].key}`}
+                            className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400"
+                        >
+                            <span className="line-through">
+                                {cancelledText(it.meetings)}
+                            </span>{" "}
+                            cancelled
+                        </li>
+                    ) : (
+                        <PhoneWeekend
+                            key={it.meeting.key}
+                            meeting={it.meeting}
+                            states={it.states}
+                            columns={columns}
+                            resume={resume}
+                            now={now}
+                            waitUntil={waitUntil}
+                            lead={lead}
+                            next={it.kind === "next"}
+                        />
+                    )
+                )}
+            </ul>
+        )
+    }
     return (
-      <ul aria-label={label} className="border-t border-zinc-800">
-        {items.map((it) =>
-          it.kind === "cancelled" ? (
-            <li key={`c${it.meetings[0].key}`} className="border-b border-zinc-800/70 py-3 text-xs text-zinc-400">
-              <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
-            </li>
-          ) : (
-            <PhoneWeekend
-              key={it.meeting.key}
-              meeting={it.meeting}
-              states={it.states}
-              columns={columns}
-              resume={resume}
-              now={now}
-              waitUntil={waitUntil}
-              lead={lead}
-              next={it.kind === "next"}
-            />
-          ),
-        )}
-      </ul>
-    );
-  }
-  return (
-    <div className="@container">
-      {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
+        <div className="@container">
+            {/* Sideways scrolling only when the sheet is too narrow; otherwise nothing clips, so the column header can
           stay under the page header while the sheet scrolls. */}
-      <div className={sheet.scroll}>
-        <div className={sheet.min}>
-          <div
-            className={`${LABEL} ${sheet.grid} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
-            style={cellsOf(columns)}
-            aria-hidden
-          >
-            <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
-              <span className="w-9 shrink-0">{lead === "year" ? "Year" : "Rd"}</span>
-              Grand Prix
-            </span>
-            <span className={sheet.circuit}>{lead === "round" ? "Circuit" : ""}</span>
-            <span className={sheet.dates}>Dates</span>
-            {columns.map((c) => (
-              <span key={c.id} className="px-2" title={c.title}>
-                {c.label}
-              </span>
-            ))}
-            <span />
-          </div>
-          <ul aria-label={label}>
-            {items.map((it) =>
-              it.kind === "cancelled" ? (
-                <li key={`c${it.meetings[0].key}`} className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400">
-                  <span className="line-through">{cancelledText(it.meetings)}</span> cancelled
-                </li>
-              ) : (
-                <WeekendRow
-                  key={it.meeting.key}
-                  meeting={it.meeting}
-                  states={it.states}
-                  columns={columns}
-                  resume={resume}
-                  now={now}
-                  waitUntil={waitUntil}
-                  lead={lead}
-                  next={it.kind === "next"}
-                />
-              ),
-            )}
-          </ul>
+            <div className={sheet.scroll}>
+                <div className={sheet.min}>
+                    <div
+                        className={`${LABEL} ${sheet.grid} sticky top-[53px] z-10 whitespace-nowrap border-b border-zinc-800 bg-zinc-950 px-3 pb-2 pt-2`}
+                        style={cellsOf(columns)}
+                        aria-hidden
+                    >
+                        <span className="sticky left-0 z-[1] flex gap-2 bg-zinc-950">
+                            <span className="w-9 shrink-0">
+                                {lead === "year" ? "Year" : "Rd"}
+                            </span>
+                            Grand Prix
+                        </span>
+                        <span className={sheet.circuit}>
+                            {lead === "round" ? "Circuit" : ""}
+                        </span>
+                        <span className={sheet.dates}>Dates</span>
+                        {columns.map((c) => (
+                            <span key={c.id} className="px-2" title={c.title}>
+                                {c.label}
+                            </span>
+                        ))}
+                        <span />
+                    </div>
+                    <ul aria-label={label}>
+                        {items.map((it) =>
+                            it.kind === "cancelled" ? (
+                                <li
+                                    key={`c${it.meetings[0].key}`}
+                                    className="truncate border-b border-zinc-800/70 py-2 pl-14 pr-3 text-xs text-zinc-400"
+                                >
+                                    <span className="line-through">
+                                        {cancelledText(it.meetings)}
+                                    </span>{" "}
+                                    cancelled
+                                </li>
+                            ) : (
+                                <WeekendRow
+                                    key={it.meeting.key}
+                                    meeting={it.meeting}
+                                    states={it.states}
+                                    columns={columns}
+                                    resume={resume}
+                                    now={now}
+                                    waitUntil={waitUntil}
+                                    lead={lead}
+                                    next={it.kind === "next"}
+                                />
+                            )
+                        )}
+                    </ul>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    )
 }
 
 /** `heading`: what leads the section, its title (Home puts its Circuits / Season tabs there). */
 export function Season({ heading }: { heading: ReactNode }) {
-  const year = useLibrary((s) => s.calendarYear);
-  const setYear = useLibrary((s) => s.setCalendarYear);
-  const state = useLibrary((s) => s.years[s.calendarYear]);
-  const filter = useLibrary((s) => s.filter);
-  const setFilter = useLibrary((s) => s.setFilter);
-  const loadYear = useLibrary((s) => s.loadYear);
-  const rows = state?.catalog?.rows;
-  const meetings = useMemo(() => byMeeting(rows ?? [], filter), [rows, filter]);
-  const phone = usePhone();
+    const year = useLibrary((s) => s.calendarYear)
+    const setYear = useLibrary((s) => s.setCalendarYear)
+    const state = useLibrary((s) => s.years[s.calendarYear])
+    const filter = useLibrary((s) => s.filter)
+    const setFilter = useLibrary((s) => s.setFilter)
+    const loadYear = useLibrary((s) => s.loadYear)
+    const rows = state?.catalog?.rows
+    const meetings = useMemo(
+        () => byMeeting(rows ?? [], filter),
+        [rows, filter]
+    )
+    const phone = usePhone()
 
-  let body: ReactNode;
-  if (!rows) {
-    body = state?.error ? (
-      <div className="border-y border-zinc-800 px-3 py-4 text-sm">
-        <p className="text-red-400">{state.error}</p>
-        <button type="button" onClick={() => void loadYear(year, { force: true })} className={`${SECONDARY} mt-3`}>
-          Try again
-        </button>
-      </div>
-    ) : (
-      <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the {year} season from OpenF1…</p>
-    );
-  } else if (!meetings.length) {
-    body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No sessions listed for {year} yet.</p>;
-  } else {
-    body = (
-      <>
-        {state.error && <p className={`mb-2 text-xs text-amber-300 ${phone ? "" : "px-3"}`}>{state.error} Showing the season saved earlier.</p>}
-        <WeekendSheet meetings={meetings} filter={filter} lead="round" label={`${year} season`} />
-      </>
-    );
-  }
+    let body: ReactNode
+    if (!rows) {
+        body = state?.error ? (
+            <div className="border-y border-zinc-800 px-3 py-4 text-sm">
+                <p className="text-red-400">{state.error}</p>
+                <button
+                    type="button"
+                    onClick={() => void loadYear(year, { force: true })}
+                    className={`${SECONDARY} mt-3`}
+                >
+                    Try again
+                </button>
+            </div>
+        ) : (
+            <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">
+                Loading the {year} season from OpenF1…
+            </p>
+        )
+    } else if (!meetings.length) {
+        body = (
+            <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">
+                No sessions listed for {year} yet.
+            </p>
+        )
+    } else {
+        body = (
+            <>
+                {state.error && (
+                    <p
+                        className={`mb-2 text-xs text-amber-300 ${phone ? "" : "px-3"}`}
+                    >
+                        {state.error} Showing the season saved earlier.
+                    </p>
+                )}
+                <WeekendSheet
+                    meetings={meetings}
+                    filter={filter}
+                    lead="round"
+                    label={`${year} season`}
+                />
+            </>
+        )
+    }
 
-  return (
-    <section data-shot="" aria-label="Season" className="mt-12">
-      <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
-        {heading}
-        <Segmented label="Year" value={year} options={[...YEARS].reverse().map((y) => ({ id: y, label: String(y) }))} onChange={setYear} />
-        <span className="flex-1" />
-        <Segmented label="Sessions" value={filter} options={FILTERS} onChange={setFilter} />
-      </div>
-      {body}
-    </section>
-  );
+    return (
+        <section data-shot="" aria-label="Season" className="mt-12">
+            <div className="mb-3 flex flex-wrap items-center gap-x-4 gap-y-2">
+                {heading}
+                <Segmented
+                    label="Year"
+                    value={year}
+                    options={[...YEARS]
+                        .reverse()
+                        .map((y) => ({ id: y, label: String(y) }))}
+                    onChange={setYear}
+                />
+                <span className="flex-1" />
+                <Segmented
+                    label="Sessions"
+                    value={filter}
+                    options={FILTERS}
+                    onChange={setFilter}
+                />
+            </div>
+            {body}
+        </section>
+    )
 }

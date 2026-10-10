@@ -2,423 +2,457 @@
    receipt. No team logos: colour and type only. */
 
 .ci-card {
-  --red: #ff1e28;
-  position: relative;
-  width: 1080px;
-  height: 1920px;
-  overflow: hidden;
-  background: #08080b;
-  color: #f7f7f8;
-  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  display: flex;
-  flex-direction: column;
-  padding: 96px 80px 76px;
-  box-sizing: border-box;
-  -webkit-font-smoothing: antialiased;
-  text-rendering: geometricPrecision;
+    --red: #ff1e28;
+    position: relative;
+    width: 1080px;
+    height: 1920px;
+    overflow: hidden;
+    background: #08080b;
+    color: #f7f7f8;
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    display: flex;
+    flex-direction: column;
+    padding: 96px 80px 76px;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: geometricPrecision;
 }
 
 .ci-card *,
 .ci-card *::before,
 .ci-card *::after {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 /* The light: the first team's colour from the top right, a red ember bottom left, broadcast speed lines, grain. */
 .ci-bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 980px 820px at 100% -4%, color-mix(in srgb, var(--p1) 34%, transparent), transparent 70%),
-    radial-gradient(ellipse 900px 640px at -10% 104%, rgba(255, 30, 40, 0.16), transparent 72%),
-    linear-gradient(180deg, #0d0d11 0%, #08080b 46%, #060608 100%);
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+        radial-gradient(
+            ellipse 980px 820px at 100% -4%,
+            color-mix(in srgb, var(--p1) 34%, transparent),
+            transparent 70%
+        ),
+        radial-gradient(
+            ellipse 900px 640px at -10% 104%,
+            rgba(255, 30, 40, 0.16),
+            transparent 72%
+        ),
+        linear-gradient(180deg, #0d0d11 0%, #08080b 46%, #060608 100%);
 }
 .ci-bg::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.035) 0 2px, transparent 2px 26px);
-  -webkit-mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
-  mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+        -62deg,
+        rgba(255, 255, 255, 0.035) 0 2px,
+        transparent 2px 26px
+    );
+    -webkit-mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
+    mask-image: linear-gradient(200deg, #000 0%, transparent 42%);
 }
 .ci-bg::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  opacity: 0.09;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -.2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
+    content: "";
+    position: absolute;
+    inset: 0;
+    opacity: 0.09;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1.4 -.2'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
 /* Red bar across the top, like a broadcast lower third turned on its side. */
 .ci-card::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 100%;
-  height: 12px;
-  background: linear-gradient(90deg, var(--red) 0 62%, transparent 62% 64%, var(--red) 64% 70%, transparent 70% 72%, var(--red) 72% 75%, transparent 75%);
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 12px;
+    background: linear-gradient(
+        90deg,
+        var(--red) 0 62%,
+        transparent 62% 64%,
+        var(--red) 64% 70%,
+        transparent 70% 72%,
+        var(--red) 72% 75%,
+        transparent 75%
+    );
 }
 
 .ci-ghost {
-  position: absolute;
-  right: -46px;
-  top: 1000px;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 420px;
-  line-height: 0.8;
-  letter-spacing: -0.02em;
-  text-align: right;
-  color: transparent;
-  -webkit-text-stroke: 2px rgba(255, 255, 255, 0.05);
-  pointer-events: none;
-  user-select: none;
+    position: absolute;
+    right: -46px;
+    top: 1000px;
+    font-weight: 900;
+    font-style: italic;
+    font-size: 420px;
+    line-height: 0.8;
+    letter-spacing: -0.02em;
+    text-align: right;
+    color: transparent;
+    -webkit-text-stroke: 2px rgba(255, 255, 255, 0.05);
+    pointer-events: none;
+    user-select: none;
 }
 
 .ci-top {
-  position: relative;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 40px;
+    position: relative;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 40px;
 }
 .ci-tag {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  font-weight: 700;
-  font-size: 38px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: #fff;
-  padding-top: 6px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-weight: 700;
+    font-size: 38px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #fff;
+    padding-top: 6px;
 }
 .ci-tag-bar {
-  width: 16px;
-  height: 46px;
-  background: var(--red);
-  transform: skewX(-16deg);
+    width: 16px;
+    height: 46px;
+    background: var(--red);
+    transform: skewX(-16deg);
 }
 .ci-race {
-  text-align: right;
+    text-align: right;
 }
 .ci-race-name {
-  font-weight: 800;
-  font-style: italic;
-  font-size: 54px;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.01em;
+    font-weight: 800;
+    font-style: italic;
+    font-size: 54px;
+    line-height: 1;
+    text-transform: uppercase;
+    letter-spacing: 0.01em;
 }
 .ci-race-meta {
-  margin-top: 10px;
-  font-weight: 600;
-  font-size: 30px;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 248, 0.55);
+    margin-top: 10px;
+    font-weight: 600;
+    font-size: 30px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(247, 247, 248, 0.55);
 }
 
 .ci-headline-wrap {
-  position: relative;
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 40px 0 56px;
-  min-height: 0;
+    position: relative;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 40px 0 56px;
+    min-height: 0;
 }
 .ci-headline {
-  margin: 0;
-  font-weight: 800;
-  font-style: italic;
-  line-height: 0.92;
-  letter-spacing: -0.005em;
-  text-transform: uppercase;
-  text-wrap: balance;
-  overflow-wrap: anywhere;
-  color: #fff;
-  text-shadow: 0 6px 40px rgba(0, 0, 0, 0.5);
+    margin: 0;
+    font-weight: 800;
+    font-style: italic;
+    line-height: 0.92;
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+    color: #fff;
+    text-shadow: 0 6px 40px rgba(0, 0, 0, 0.5);
 }
 
 .ci-order {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 26px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
 }
 .ci-order-label {
-  display: flex;
-  align-items: center;
-  gap: 24px;
-  font-weight: 700;
-  font-size: 32px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 248, 0.6);
-  margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    font-weight: 700;
+    font-size: 32px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(247, 247, 248, 0.6);
+    margin-bottom: 4px;
 }
 .ci-order-rule {
-  flex: 1;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), transparent);
+    flex: 1;
+    height: 2px;
+    background: linear-gradient(90deg, rgba(255, 255, 255, 0.25), transparent);
 }
 
 .ci-slab {
-  position: relative;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  padding: 0 40px 0 64px;
-  clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
-  background:
-    linear-gradient(100deg, rgba(255, 255, 255, 0.22) 0%, rgba(255, 255, 255, 0) 34%),
-    linear-gradient(100deg, var(--team) 40%, color-mix(in srgb, var(--team) 72%, #000) 100%);
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding: 0 40px 0 64px;
+    clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
+    background:
+        linear-gradient(
+            100deg,
+            rgba(255, 255, 255, 0.22) 0%,
+            rgba(255, 255, 255, 0) 34%
+        ),
+        linear-gradient(
+            100deg,
+            var(--team) 40%,
+            color-mix(in srgb, var(--team) 72%, #000) 100%
+        );
 }
 .ci-slab::after {
-  content: "";
-  position: absolute;
-  right: 22px;
-  top: 0;
-  bottom: 0;
-  width: 70px;
-  background: repeating-linear-gradient(-72deg, rgba(0, 0, 0, 0.16) 0 8px, transparent 8px 18px);
-  clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
+    content: "";
+    position: absolute;
+    right: 22px;
+    top: 0;
+    bottom: 0;
+    width: 70px;
+    background: repeating-linear-gradient(
+        -72deg,
+        rgba(0, 0, 0, 0.16) 0 8px,
+        transparent 8px 18px
+    );
+    clip-path: polygon(34px 0, 100% 0, calc(100% - 34px) 100%, 0 100%);
 }
 .ci-name {
-  position: relative;
-  font-weight: 800;
-  font-style: italic;
-  font-size: 118px;
-  line-height: 1;
-  letter-spacing: -0.005em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--ink);
-  padding-bottom: 6px;
+    position: relative;
+    font-weight: 800;
+    font-style: italic;
+    font-size: 118px;
+    line-height: 1;
+    letter-spacing: -0.005em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--ink);
+    padding-bottom: 6px;
 }
 
 .ci-row-empty .ci-slab {
-  background: repeating-linear-gradient(-62deg, rgba(255, 255, 255, 0.06) 0 3px, transparent 3px 20px);
+    background: repeating-linear-gradient(
+        -62deg,
+        rgba(255, 255, 255, 0.06) 0 3px,
+        transparent 3px 20px
+    );
 }
 .ci-row-empty .ci-name {
-  color: rgba(255, 255, 255, 0.22);
-  font-size: 72px;
+    color: rgba(255, 255, 255, 0.22);
+    font-size: 72px;
 }
-
-
 
 .ci-strip {
-  position: relative;
-  margin-top: 84px;
-  padding-top: 44px;
-  border-top: 2px solid rgba(255, 255, 255, 0.14);
+    position: relative;
+    margin-top: 84px;
+    padding-top: 44px;
+    border-top: 2px solid rgba(255, 255, 255, 0.14);
 }
 .ci-strip::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: -2px;
-  width: 140px;
-  height: 2px;
-  background: var(--red);
+    content: "";
+    position: absolute;
+    left: 0;
+    top: -2px;
+    width: 140px;
+    height: 2px;
+    background: var(--red);
 }
 .ci-locked-label {
-  font-weight: 700;
-  font-size: 32px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: var(--red);
+    font-weight: 700;
+    font-size: 32px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--red);
 }
 /* How long before lights out it was locked: the receipt's headline. */
 .ci-togo {
-  margin-top: 6px;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 112px;
-  line-height: 1;
-  text-transform: uppercase;
-  color: #fff;
+    margin-top: 6px;
+    font-weight: 900;
+    font-style: italic;
+    font-size: 112px;
+    line-height: 1;
+    text-transform: uppercase;
+    color: #fff;
 }
 .ci-togo span {
-  color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.55);
 }
 .ci-locked-time {
-  margin-top: 14px;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-weight: 500;
-  font-size: 54px;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
-  color: #fff;
+    margin-top: 14px;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-weight: 500;
+    font-size: 54px;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    color: #fff;
 }
 .ci-zone {
-  color: rgba(255, 255, 255, 0.6);
+    color: rgba(255, 255, 255, 0.6);
 }
 .ci-locked-meta {
-  margin-top: 16px;
-  font-weight: 600;
-  font-size: 34px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 248, 0.62);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+    margin-top: 16px;
+    font-weight: 600;
+    font-size: 34px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: rgba(247, 247, 248, 0.62);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 .ci-locked-meta b {
-  font-weight: 800;
-  color: #fff;
+    font-weight: 800;
+    color: #fff;
 }
 .ci-dot {
-  margin: 0 14px;
-  color: rgba(255, 255, 255, 0.3);
+    margin: 0 14px;
+    color: rgba(255, 255, 255, 0.3);
 }
 
 .ci-sign {
-  margin-top: 46px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
+    margin-top: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 24px;
 }
 .ci-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 46px;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  text-transform: uppercase;
-  white-space: nowrap;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    font-family: "Barlow Condensed", "Arial Narrow", sans-serif;
+    font-weight: 900;
+    font-style: italic;
+    font-size: 46px;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    text-transform: uppercase;
+    white-space: nowrap;
 }
 .ci-wordmark svg {
-  height: 0.82em;
-  width: auto;
-  overflow: visible;
+    height: 0.82em;
+    width: auto;
+    overflow: visible;
 }
 .ci-wm-box {
-  fill: var(--red, #ff1e28);
+    fill: var(--red, #ff1e28);
 }
 .ci-wm-tick {
-  fill: none;
-  stroke: #fff;
-  stroke-width: 3.2;
-  stroke-linecap: round;
-  stroke-linejoin: round;
+    fill: none;
+    stroke: #fff;
+    stroke-width: 3.2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 .ci-url {
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 26px;
-  color: rgba(255, 255, 255, 0.5);
-  white-space: nowrap;
+    font-family: "JetBrains Mono", ui-monospace, monospace;
+    font-size: 26px;
+    color: rgba(255, 255, 255, 0.5);
+    white-space: nowrap;
 }
 
 /* Turn 1: one driver, big, on their team's colour. */
 .ci-hero {
-  position: relative;
-  height: 470px;
-  display: flex;
+    position: relative;
+    height: 470px;
+    display: flex;
 }
 .ci-hero-slab {
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: center;
-  padding: 0 60px 0 88px;
-  overflow: hidden;
-  clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    padding: 0 60px 0 88px;
+    overflow: hidden;
+    clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
 }
 .ci-hero-slab::after {
-  clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
-  width: 110px;
+    clip-path: polygon(60px 0, 100% 0, calc(100% - 60px) 100%, 0 100%);
+    width: 110px;
 }
 .ci-hero-num {
-  position: absolute;
-  right: 70px;
-  bottom: -60px;
-  font-weight: 900;
-  font-style: italic;
-  font-size: 440px;
-  line-height: 1;
-  letter-spacing: -0.04em;
-  color: var(--ink);
-  opacity: 0.14;
+    position: absolute;
+    right: 70px;
+    bottom: -60px;
+    font-weight: 900;
+    font-style: italic;
+    font-size: 440px;
+    line-height: 1;
+    letter-spacing: -0.04em;
+    color: var(--ink);
+    opacity: 0.14;
 }
 .ci-hero-first {
-  position: relative;
-  font-weight: 700;
-  font-style: italic;
-  font-size: 64px;
-  line-height: 1;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--ink);
-  opacity: 0.8;
+    position: relative;
+    font-weight: 700;
+    font-style: italic;
+    font-size: 64px;
+    line-height: 1;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.8;
 }
 .ci-hero-last {
-  position: relative;
-  margin-top: 4px;
-  font-weight: 900;
-  font-style: italic;
-  line-height: 0.88;
-  letter-spacing: -0.01em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--ink);
+    position: relative;
+    margin-top: 4px;
+    font-weight: 900;
+    font-style: italic;
+    line-height: 0.88;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--ink);
 }
 .ci-hero-meta {
-  position: relative;
-  margin-top: 26px;
-  font-weight: 700;
-  font-size: 38px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--ink);
-  opacity: 0.75;
+    position: relative;
+    margin-top: 26px;
+    font-weight: 700;
+    font-size: 38px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink);
+    opacity: 0.75;
 }
 .ci-over {
-  display: flex;
-  align-items: center;
-  gap: 18px;
-  margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    margin-top: 4px;
 }
 .ci-over-label {
-  font-weight: 700;
-  font-size: 32px;
-  letter-spacing: 0.2em;
-  text-transform: uppercase;
-  color: rgba(247, 247, 248, 0.45);
-  margin-right: 6px;
+    font-weight: 700;
+    font-size: 32px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(247, 247, 248, 0.45);
+    margin-right: 6px;
 }
 .ci-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 14px;
-  height: 72px;
-  padding: 0 24px 0 0;
-  background: rgba(255, 255, 255, 0.06);
-  border: 2px solid rgba(255, 255, 255, 0.08);
-  font-weight: 800;
-  font-style: italic;
-  font-size: 40px;
-  letter-spacing: 0.04em;
-  color: rgba(247, 247, 248, 0.8);
-  overflow: hidden;
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    height: 72px;
+    padding: 0 24px 0 0;
+    background: rgba(255, 255, 255, 0.06);
+    border: 2px solid rgba(255, 255, 255, 0.08);
+    font-weight: 800;
+    font-style: italic;
+    font-size: 40px;
+    letter-spacing: 0.04em;
+    color: rgba(247, 247, 248, 0.8);
+    overflow: hidden;
 }
 .ci-chip i {
-  width: 12px;
-  align-self: stretch;
-  background: var(--team);
+    width: 12px;
+    align-self: stretch;
+    background: var(--team);
 }
 .ci-chip em {
-  font-style: italic;
-  font-weight: 600;
-  font-size: 30px;
-  color: rgba(247, 247, 248, 0.45);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 30px;
+    color: rgba(247, 247, 248, 0.45);
 }

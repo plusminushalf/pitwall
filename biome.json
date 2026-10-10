@@ -1,58 +1,68 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  "vcs": {
-    "enabled": true,
-    "clientKind": "git",
-    "useIgnoreFile": true
-  },
-  "files": {
-    "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/coverage", "!**/tsconfig.json", "!**/tsconfig.*.json", "!**/temp.ts"]
-  },
-  "assist": {
-    "enabled": true,
-    "actions": {
-      "source": {
-        "organizeImports": "on"
-      }
-    }
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "preset": "recommended",
-      "correctness": {
-        "useExhaustiveDependencies": {
-          "level": "error",
-          "options": {
-            "hooks": [{ "name": "useCardState", "stableResult": [1] }]
-          }
+    "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+    "vcs": {
+        "enabled": true,
+        "clientKind": "git",
+        "useIgnoreFile": true
+    },
+    "files": {
+        "ignoreUnknown": true,
+        "includes": [
+            "**",
+            "!**/node_modules",
+            "!**/coverage",
+            "!**/tsconfig.json",
+            "!**/tsconfig.*.json",
+            "!**/temp.ts",
+            "!.impeccable"
+        ]
+    },
+    "assist": {
+        "enabled": true,
+        "actions": {
+            "source": {
+                "organizeImports": "on"
+            }
         }
-      },
-      "suspicious": {
-        "noExplicitAny": "warn"
-      },
-      "style": {
-        "noUnusedTemplateLiteral": "warn"
-      }
-    }
-  },
-  "formatter": {
-    "enabled": true,
-    "formatWithErrors": true,
-    "lineWidth": 80,
-    "indentWidth": 4,
-    "indentStyle": "space"
-  },
-  "javascript": {
+    },
+    "linter": {
+        "enabled": true,
+        "rules": {
+            "preset": "recommended",
+            "correctness": {
+                "useExhaustiveDependencies": {
+                    "level": "error",
+                    "options": {
+                        "hooks": [
+                            { "name": "useCardState", "stableResult": [1] }
+                        ]
+                    }
+                }
+            },
+            "suspicious": {
+                "noExplicitAny": "warn"
+            },
+            "style": {
+                "noUnusedTemplateLiteral": "warn"
+            }
+        }
+    },
     "formatter": {
-      "semicolons": "asNeeded",
-      "trailingCommas": "none"
+        "enabled": true,
+        "formatWithErrors": true,
+        "lineWidth": 80,
+        "indentWidth": 4,
+        "indentStyle": "space"
+    },
+    "javascript": {
+        "formatter": {
+            "semicolons": "asNeeded",
+            "trailingCommas": "none"
+        }
+    },
+    "css": {
+        "parser": {
+            "tailwindDirectives": true
+        }
     }
-  },
-  "css": {
-    "parser": {
-      "tailwindDirectives": true
-    }
-  }
 }

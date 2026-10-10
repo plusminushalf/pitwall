@@ -1,90 +1,130 @@
 // A shared link (/session/<key>?t=…) to a session that isn't in this browser's library yet: offer to watch it
 // (it downloads as it plays, from the linked moment: library.ts stream()).
 
-import { useEffect, type ReactNode } from "react";
-import { useLibrary } from "../library";
-import { raceClock } from "../lib/format";
-import { useReplay } from "../store";
-import { Action, Attribution, JobProgress, SECONDARY, useRowState } from "./home/common";
+import { type ReactNode, useEffect } from "react"
+import { raceClock } from "../lib/format"
+import { useLibrary } from "../library"
+import { useReplay } from "../store"
+import {
+    Action,
+    Attribution,
+    JobProgress,
+    SECONDARY,
+    useRowState
+} from "./home/common"
 
-const when = (iso: string) => new Date(iso).toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "long", year: "numeric" });
+const when = (iso: string) =>
+    new Date(iso).toLocaleDateString(undefined, {
+        weekday: "short",
+        day: "numeric",
+        month: "long",
+        year: "numeric"
+    })
 
 export function DownloadPrompt({ sessionKey }: { sessionKey: number }) {
-  const lookup = useLibrary((s) => s.lookups[sessionKey]);
-  const link = useLibrary((s) => s.link);
-  const goHome = useReplay((s) => s.goHome);
-  const row = lookup?.row ?? null;
-  const state = useRowState(row);
+    const lookup = useLibrary((s) => s.lookups[sessionKey])
+    const link = useLibrary((s) => s.link)
+    const goHome = useReplay((s) => s.goHome)
+    const row = lookup?.row ?? null
+    const state = useRowState(row)
 
-  useEffect(() => {
-    void useLibrary.getState().lookup(sessionKey);
-  }, [sessionKey]);
+    useEffect(() => {
+        void useLibrary.getState().lookup(sessionKey)
+    }, [sessionKey])
 
-  const t = link?.key === sessionKey ? link.opts.t : undefined;
-  let body: ReactNode;
-  if (!row) {
-    body = lookup?.error ? (
-      <p className="text-sm text-red-400">{lookup.error}</p>
-    ) : (
-      <p className="text-sm text-zinc-400">Looking up session {sessionKey} on OpenF1…</p>
-    );
-  } else {
-    const intro =
-      state?.kind === "stale"
-        ? "This session is in your library, but was processed by an older version of the app. Updating it takes a few seconds and needs no download."
-        : state?.kind === "upcoming"
-          ? "This session hasn't happened yet. Come back once it's over."
-          : state?.kind === "cancelled"
-            ? "This session was cancelled."
-            : state?.kind === "available" || state?.kind === "partial"
-              ? `It isn't in your library yet. It plays in a few seconds${t != null ? " from the linked moment" : ""}, downloading from OpenF1 straight into this browser as you watch (~${Math.round(state.estimate.mb)} MB).`
-              : null;
-    body = (
-      <>
-        <h1 className="text-lg font-black tracking-tight text-zinc-100">
-          {row.year} {row.meetingName} · {row.sessionName}
-        </h1>
-        <p className="text-xs text-zinc-400">
-          {row.circuit}
-          {row.country ? ` · ${row.country}` : ""} · {when(row.dateStart)}
-          {t != null ? ` · link at ${raceClock(t)} into the session` : ""}
-        </p>
-        {intro && <p className="mt-3 text-sm leading-relaxed text-zinc-300">{intro}</p>}
-        {state && (
-          <div className="mt-4">
-            <div className="flex flex-wrap items-center gap-2">
-              {state.kind === "available" || state.kind === "partial" ? (
-                <button type="button"
-                  onClick={() => useLibrary.getState().stream(row, link?.opts ?? {})}
-                  className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white pointer-coarse:min-h-11 pointer-coarse:px-4"
-                >
-                  Watch now
-                </button>
-              ) : (
-                <Action row={row} state={state} compact />
-              )}
+    const t = link?.key === sessionKey ? link.opts.t : undefined
+    let body: ReactNode
+    if (!row) {
+        body = lookup?.error ? (
+            <p className="text-sm text-red-400">{lookup.error}</p>
+        ) : (
+            <p className="text-sm text-zinc-400">
+                Looking up session {sessionKey} on OpenF1…
+            </p>
+        )
+    } else {
+        const intro =
+            state?.kind === "stale"
+                ? "This session is in your library, but was processed by an older version of the app. Updating it takes a few seconds and needs no download."
+                : state?.kind === "upcoming"
+                  ? "This session hasn't happened yet. Come back once it's over."
+                  : state?.kind === "cancelled"
+                    ? "This session was cancelled."
+                    : state?.kind === "available" || state?.kind === "partial"
+                      ? `It isn't in your library yet. It plays in a few seconds${t != null ? " from the linked moment" : ""}, downloading from OpenF1 straight into this browser as you watch (~${Math.round(state.estimate.mb)} MB).`
+                      : null
+        body = (
+            <>
+                <h1 className="text-lg font-black tracking-tight text-zinc-100">
+                    {row.year} {row.meetingName} · {row.sessionName}
+                </h1>
+                <p className="text-xs text-zinc-400">
+                    {row.circuit}
+                    {row.country ? ` · ${row.country}` : ""} ·{" "}
+                    {when(row.dateStart)}
+                    {t != null
+                        ? ` · link at ${raceClock(t)} into the session`
+                        : ""}
+                </p>
+                {intro && (
+                    <p className="mt-3 text-sm leading-relaxed text-zinc-300">
+                        {intro}
+                    </p>
+                )}
+                {state && (
+                    <div className="mt-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                            {state.kind === "available" ||
+                            state.kind === "partial" ? (
+                                <button
+                                    type="button"
+                                    onClick={() =>
+                                        useLibrary
+                                            .getState()
+                                            .stream(row, link?.opts ?? {})
+                                    }
+                                    className="rounded bg-zinc-100 px-3 py-1.5 text-sm font-semibold text-zinc-900 hover:bg-white pointer-coarse:min-h-11 pointer-coarse:px-4"
+                                >
+                                    Watch now
+                                </button>
+                            ) : (
+                                <Action row={row} state={state} compact />
+                            )}
+                        </div>
+                        {state.kind === "job" &&
+                            state.job.phase === "failed" && (
+                                <p className="mt-2 text-xs text-red-400">
+                                    {state.job.error}
+                                </p>
+                            )}
+                        {state.kind === "job" && (
+                            <JobProgress job={state.job} />
+                        )}
+                        {state.kind === "remote" && (
+                            <JobProgress remote={state.job} />
+                        )}
+                    </div>
+                )}
+            </>
+        )
+    }
+
+    return (
+        <div className="flex h-full flex-col items-center justify-center gap-4 px-4">
+            <div className="w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
+                {body}
+                <div className="mt-5 flex items-center gap-3 border-t border-zinc-800 pt-3">
+                    <button
+                        type="button"
+                        onClick={goHome}
+                        className={`touch-hit ${SECONDARY}`}
+                    >
+                        ← All races
+                    </button>
+                    <span className="flex-1" />
+                </div>
             </div>
-            {state.kind === "job" && state.job.phase === "failed" && <p className="mt-2 text-xs text-red-400">{state.job.error}</p>}
-            {state.kind === "job" && <JobProgress job={state.job} />}
-            {state.kind === "remote" && <JobProgress remote={state.job} />}
-          </div>
-        )}
-      </>
-    );
-  }
-
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 px-4">
-      <div className="w-full max-w-lg rounded-lg border border-zinc-800 bg-zinc-900 p-5 shadow-2xl">
-        {body}
-        <div className="mt-5 flex items-center gap-3 border-t border-zinc-800 pt-3">
-          <button type="button" onClick={goHome} className={`touch-hit ${SECONDARY}`}>
-            ← All races
-          </button>
-          <span className="flex-1" />
+            <Attribution className="max-w-lg text-center" />
         </div>
-      </div>
-      <Attribution className="max-w-lg text-center" />
-    </div>
-  );
+    )
 }

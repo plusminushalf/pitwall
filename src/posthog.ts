@@ -8,39 +8,48 @@
 // posthog-js is ~95 KB gzipped, so it loads after the page in a chunk of its own; anything tracked before it's
 // ready isn't sent. It keeps a random visitor ID in localStorage, no cookie.
 
-import type { PostHog } from "posthog-js";
+import type { PostHog } from "posthog-js"
 
-let ph: PostHog | null = null;
-let started = false;
+let ph: PostHog | null = null
+let started = false
 
-const LOCAL = /^(localhost|127(\.\d+){3}|\[::1\])$|\.localhost$/;
+const LOCAL = /^(localhost|127(\.\d+){3}|\[::1\])$|\.localhost$/
 
 export function startPostHog() {
-  const key = import.meta.env.VITE_POSTHOG_KEY;
-  if (!key || import.meta.env.DEV || LOCAL.test(location.hostname) || started) return;
-  started = true;
-  void import("posthog-js").then(({ default: posthog }) => {
-    posthog.init(key, {
-      api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://eu.i.posthog.com",
-      // Behind the reverse proxy, PostHog's own links (toolbar, replays) still need to point at the EU app.
-      ui_host: "https://eu.posthog.com",
-      defaults: "2026-05-30",
-      person_profiles: "identified_only",
-      persistence: "localStorage",
-      // Page views on pushes (Home -> a session, live mode, back Home) and Back / Forward, as Cloudflare counts them.
-      // Replaces aren't visits: the address follows the replay's clock, and countEvent's paths are Cloudflare's.
-      before_send: (e) => (e?.event === "$pageview" && e.properties.navigation_type === "replaceState" ? null : e),
-      capture_exceptions: {
-        capture_unhandled_errors: true,
-        capture_unhandled_rejections: true,
-        capture_console_errors: false,
-      },
-    });
-    ph = posthog;
-  });
+    const key = import.meta.env.VITE_POSTHOG_KEY
+    if (!key || import.meta.env.DEV || LOCAL.test(location.hostname) || started)
+        return
+    started = true
+    void import("posthog-js").then(({ default: posthog }) => {
+        posthog.init(key, {
+            api_host:
+                import.meta.env.VITE_POSTHOG_HOST ?? "https://eu.i.posthog.com",
+            // Behind the reverse proxy, PostHog's own links (toolbar, replays) still need to point at the EU app.
+            ui_host: "https://eu.posthog.com",
+            defaults: "2026-05-30",
+            person_profiles: "identified_only",
+            persistence: "localStorage",
+            // Page views on pushes (Home -> a session, live mode, back Home) and Back / Forward, as Cloudflare counts them.
+            // Replaces aren't visits: the address follows the replay's clock, and countEvent's paths are Cloudflare's.
+            before_send: (e) =>
+                e?.event === "$pageview" &&
+                e.properties.navigation_type === "replaceState"
+                    ? null
+                    : e,
+            capture_exceptions: {
+                capture_unhandled_errors: true,
+                capture_unhandled_rejections: true,
+                capture_console_errors: false
+            }
+        })
+        ph = posthog
+    })
 }
 
 /** Sends an event, e.g. track("widget_added", { widget_id: "track-map" }). Nothing about who; no-op when off. */
-export function track(event: string, props?: Record<string, string | number | boolean>) {
-  ph?.capture(event, props);
+export function track(
+    event: string,
+    props?: Record<string, string | number | boolean>
+) {
+    ph?.capture(event, props)
 }

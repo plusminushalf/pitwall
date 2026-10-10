@@ -7,37 +7,62 @@
 // (chained through the official lap times, lapTraces.ts), lights out / chequered flag, track status
 // (a flag per segment) and the grid (none).
 
-import type { RawLap, RawPit, RawRaceControl, RawResult, RawSession } from "./openf1Types";
-import { deletedLaps } from "./deletedLaps";
-import { buildLapTraces, chainLapStarts, lerpAt, lineCrossings, median, quantile, timingLine } from "./lapTraces";
-import type { CleanTelemetry, NormalizeResult } from "./normalize";
-import { qualiStandings, segmentLengths } from "./qualiLive";
-import type { DriverLapTraces, Lap, LiveQualiSegment, Ms, QualiData, QualiLap, QualiResult, QualiSegment, TrackStatusEvent } from "../../src/types";
+import type {
+    DriverLapTraces,
+    Lap,
+    LiveQualiSegment,
+    Ms,
+    QualiData,
+    QualiLap,
+    QualiResult,
+    QualiSegment,
+    TrackStatusEvent
+} from "../../src/types"
+import { deletedLaps } from "./deletedLaps"
+import {
+    buildLapTraces,
+    chainLapStarts,
+    lerpAt,
+    lineCrossings,
+    median,
+    quantile,
+    timingLine
+} from "./lapTraces"
+import type { CleanTelemetry, NormalizeResult } from "./normalize"
+import type {
+    RawLap,
+    RawPit,
+    RawRaceControl,
+    RawResult,
+    RawSession
+} from "./openf1Types"
+import { qualiStandings, segmentLengths } from "./qualiLive"
 
 export interface QualiInput {
-  session: RawSession;
-  laps: RawLap[];
-  pits: RawPit[];
-  raceControl: (RawRaceControl & { qualifying_phase?: number | null })[];
-  results: RawResult[];
+    session: RawSession
+    laps: RawLap[]
+    pits: RawPit[]
+    raceControl: (RawRaceControl & { qualifying_phase?: number | null })[]
+    results: RawResult[]
 }
 
 export interface QualiReport {
-  lines: string[]; // summary for ingest's output
-  problems: string[]; // things that look wrong (sanity check failures)
+    lines: string[] // summary for ingest's output
+    problems: string[] // things that look wrong (sanity check failures)
 }
 
 export interface QualiOutput {
-  data: QualiData;
-  traces: Map<number, DriverLapTraces>;
-  report: QualiReport;
+    data: QualiData
+    traces: Map<number, DriverLapTraces>
+    report: QualiReport
 }
 
-const PUSH_RATIO = 1.07; // the 107% rule: slower laps are cool-down / preparation laps
-const PIT_SEGMENT = 2064; // mini-sector status: pit lane
-const TIME_EPS = 0.0015; // s, matching official times
+const PUSH_RATIO = 1.07 // the 107% rule: slower laps are cool-down / preparation laps
+const PIT_SEGMENT = 2064 // mini-sector status: pit lane
+const TIME_EPS = 0.0015 // s, matching official times
 
-const fmtLap = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padStart(6, "0")}`;
+const fmtLap = (s: number) =>
+    `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padStart(6, "0")}`
 
 /**
  * Raw qualifying laps made safe for normalize(), before it runs. OpenF1 dates a pit-out lap at the
@@ -47,307 +72,468 @@ const fmtLap = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toFixed(3).padSt
  * pit exit (normalize would date it at the first car's start, as if it were a race's lap 1).
  */
 export function prepareQualiLaps(laps: RawLap[], pits: RawPit[]): RawLap[] {
-  return laps.map((l) => {
-    if (!l.is_pit_out_lap) return l;
-    const exit = l.date_start ?? pits.find((p) => p.driver_number === l.driver_number && p.lap_number === l.lap_number)?.date ?? null;
-    return { ...l, lap_duration: null, date_start: exit };
-  });
+    return laps.map((l) => {
+        if (!l.is_pit_out_lap) return l
+        const exit =
+            l.date_start ??
+            pits.find(
+                (p) =>
+                    p.driver_number === l.driver_number &&
+                    p.lap_number === l.lap_number
+            )?.date ??
+            null
+        return { ...l, lap_duration: null, date_start: exit }
+    })
 }
 
-export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput {
-  const { meta, telemetry } = norm;
-  const t0 = Date.parse(meta.t0);
-  const rel = (iso: string): Ms => Date.parse(iso) - t0;
-  const lines: string[] = [];
-  const problems: string[] = [];
-  const prefix = /sprint/i.test(raw.session.session_name) ? "SQ" : "Q";
+export function buildQuali(
+    raw: QualiInput,
+    norm: NormalizeResult
+): QualiOutput {
+    const { meta, telemetry } = norm
+    const t0 = Date.parse(meta.t0)
+    const rel = (iso: string): Ms => Date.parse(iso) - t0
+    const lines: string[] = []
+    const problems: string[] = []
+    const prefix = /sprint/i.test(raw.session.session_name) ? "SQ" : "Q"
 
-  // ---------------------------------------------------------------- segments
+    // ---------------------------------------------------------------- segments
 
-  const control = [...raw.raceControl].sort((a, b) => a.date.localeCompare(b.date));
-  const isStart = (m: RawRaceControl) => m.category === "SessionStatus" && /STARTED/i.test(m.message);
-  const isEnd = (m: RawRaceControl) =>
-    (m.category === "SessionStatus" && /FINISHED/i.test(m.message)) || (m.flag === "CHEQUERED" && m.scope === "Track");
-  const bounds: { start: Ms; end: Ms }[] = [];
-  const phases = [...new Set(control.flatMap((m) => (m.qualifying_phase != null && m.qualifying_phase > 0 ? [m.qualifying_phase] : [])))].sort();
-  if (phases.length) {
-    // OpenF1 tags every message with its qualifying phase (a red-flag restart stays in its phase).
-    for (const p of phases) {
-      const ms = control.filter((m) => m.qualifying_phase === p);
-      const start = ms.find(isStart);
-      const end = ms.filter(isEnd).at(-1);
-      if (start && end) bounds.push({ start: rel(start.date), end: rel(end.date) });
-    }
-  } else {
-    // Fallback: a segment runs from the first start after the previous flag to the next flag.
-    let from: Ms | null = null;
-    for (const m of control) {
-      if (from == null && isStart(m)) from = rel(m.date);
-      else if (from != null && m.flag === "CHEQUERED") {
-        bounds.push({ start: from, end: rel(m.date) });
-        from = null;
-      }
-    }
-  }
-  if (bounds.length !== 3) problems.push(`found ${bounds.length} qualifying segments, expected 3`);
-
-  // Right after a session OpenF1 has no results yet: the field is the drivers who set a lap.
-  const classified = raw.results.length || new Set(meta.laps.map((l) => l.driver)).size;
-  const q2Size = 10 + Math.ceil((classified - 10) / 2); // 20 cars: 15, 22 cars: 16
-  const advances = bounds.length === 3 ? [q2Size, 10, null] : bounds.map((_, i) => (i === bounds.length - 1 ? null : null));
-  const segments: QualiSegment[] = bounds.map((b, i) => ({
-    number: i + 1,
-    name: `${prefix}${i + 1}`,
-    start: Math.round(b.start),
-    end: Math.round(b.end),
-    advance: advances[i] ?? null,
-  }));
-
-  // ---------------------------------------------------------------- track status: one flag per segment
-
-  // normalize() stops at the first chequered flag (a race ends there); here every segment ends
-  // with one, and red flags suspend a segment until it's restarted.
-  const status: TrackStatusEvent[] = [{ t: 0, status: "GREEN" }];
-  // Each segment's red flags, for its clock (meta.qualiLive).
-  const stopped = segments.map(() => [] as { from: Ms; to: Ms | null }[]);
-  for (const [i, seg] of segments.entries()) {
-    status.push({ t: seg.start, status: "GREEN" });
-    let red: { from: Ms; to: Ms | null } | null = null;
-    for (const m of meta.raceControl) {
-      if (m.t <= seg.start || m.t >= seg.end) continue;
-      const msg = m.message.toUpperCase();
-      if (!red && (m.flag === "RED" || msg.startsWith("RED FLAG"))) {
-        status.push({ t: m.t, status: "RED" });
-        red = { from: m.t, to: null };
-        stopped[i].push(red);
-      } else if (red && ((m.category === "SessionStatus" && /STARTED|RESUMED/.test(msg)) || (m.flag === "GREEN" && m.scope === "Track"))) {
-        status.push({ t: m.t, status: "GREEN" });
-        red.to = m.t;
-        red = null;
-      }
-    }
-    if (red) red.to = seg.end;
-    status.push({ t: seg.end, status: "CHEQUERED" });
-  }
-  meta.trackStatus = status.filter((e, i, arr) => e.t <= meta.duration && (i === 0 || arr[i - 1].status !== e.status));
-  if (segments.length) {
-    meta.lightsOut = segments[0].start;
-    meta.chequered = segments[segments.length - 1].end;
-  }
-  meta.grid = [];
-
-  // ---------------------------------------------------------------- lap timing repairs
-
-  const lapsOf = new Map<number, Lap[]>();
-  for (const l of meta.laps) {
-    let own = lapsOf.get(l.driver);
-    if (!own) {
-      own = [];
-      lapsOf.set(l.driver, own);
-    }
-    own.push(l);
-  }
-  for (const own of lapsOf.values()) own.sort((a, b) => a.lap - b.lap);
-
-  // Pit-out laps start at the pit exit: normalize's late-start repair moves them back to the
-  // previous pit-lane crossing (in a race the stop is part of the lap; here it's garage time).
-  let pitExitStarts = 0;
-  for (const [n, own] of lapsOf) {
-    const exits = meta.pits.filter((p) => p.driver === n).map((p) => p.exit).sort((a, b) => a - b);
-    own.forEach((l, i) => {
-      if (!l.pitOut) return;
-      const prev = own[i - 1];
-      const next = own[i + 1];
-      const from = prev ? (prev.end ?? prev.start) - 5_000 : -Infinity;
-      const exit = exits.filter((e) => e >= from && (!next || e < next.start)).at(-1);
-      if (exit != null && Math.abs(exit - l.start) > 1_000) {
-        l.start = Math.round(exit);
-        pitExitStarts++;
-      }
-    });
-  }
-
-  // Chain lap starts through the official lap durations within each run of consecutive laps, anchored on the
-  // timing line (median car position at lap starts) and each car's crossings of it.
-  const line = timingLine(meta.laps, telemetry);
-  const { moves, brokenRuns } = chainLapStarts(lapsOf, (n) => lineCrossings(line, telemetry.get(n)?.loc));
-  for (const own of lapsOf.values()) {
-    // A pit-out lap (untimed, see prepareQualiLaps) ends where the next lap starts.
-    own.forEach((l, i) => {
-      const next = own[i + 1];
-      if (l.pitOut) l.end = next && next.lap === l.lap + 1 ? next.start : null;
-    });
-  }
-  meta.laps.sort((a, b) => a.start - b.start || a.driver - b.driver);
-  for (const r of meta.results) {
-    const last = lapsOf.get(r.driver)?.find((l) => l.lap === r.laps);
-    if (r.finish != null && last?.end != null) r.finish = last.end;
-  }
-  lines.push(
-    `lap starts chained through official lap times: ${moves.length} laps, moved median ${median(moves).toFixed(0)} ms, p95 ${quantile(moves, 0.95).toFixed(0)} ms, max ${Math.max(0, ...moves).toFixed(0)} ms` +
-      (brokenRuns ? ` (${brokenRuns} runs left alone: durations don't chain)` : "") +
-      (pitExitStarts ? `; ${pitExitStarts} out-laps re-dated to the pit exit` : ""),
-  );
-
-  // ---------------------------------------------------------------- deleted laps
-
-  const { deleted: deletions, unmatched: unmatchedDeletions } = deletedLaps(meta.raceControl, lapsOf, meta.gmtOffset, t0);
-  const deleted = new Map([...deletions].map(([key, d]) => [key, d.reason])); // `${driver}:${lap}` -> reason
-  // On the laps too, with when, as live qualifying and practice have them (the replay's widgets read them).
-  for (const l of meta.laps) {
-    const d = deletions.get(`${l.driver}:${l.lap}`);
-    if (d) l.deleted = { t: d.t, reason: d.reason };
-  }
-  if (unmatchedDeletions) problems.push(`${unmatchedDeletions} deleted-lap messages matched no lap`);
-
-  // ---------------------------------------------------------------- lap attribution
-
-  const segmentAt = (t: Ms): { segment: number | null; afterFlag: boolean } => {
-    for (let i = segments.length - 1; i >= 0; i--) {
-      const s = segments[i];
-      if (t >= s.start - 2_000) return { segment: s.number, afterFlag: t > s.end };
-    }
-    return { segment: null, afterFlag: false };
-  };
-  const timed = meta.laps.flatMap((l) => (l.duration != null && !l.pitOut ? [l.duration] : []));
-  const fastest = Math.min(...timed);
-  const carOf = (n: number): CleanTelemetry["car"] | null => telemetry.get(n)?.car ?? null;
-  function speedAt(n: number, t: Ms): number | null {
-    const car = carOf(n);
-    if (!car?.t.length) return null;
-    return lerpAt(car.t, car.speed, t);
-  }
-  const isInLap = (l: Lap, next: Lap | undefined) =>
-    (next != null && next.lap === l.lap + 1 && next.pitOut) ||
-    l.segments[2].some((c) => c === PIT_SEGMENT) ||
-    (next == null && l.end != null && (speedAt(l.driver, l.end) ?? 999) < 120);
-
-  const qualiLaps: QualiLap[] = [];
-  const qlap = new Map<string, QualiLap>();
-  for (const [n, own] of lapsOf) {
-    own.forEach((l, i) => {
-      const { segment, afterFlag } = segmentAt(l.start);
-      const kind: QualiLap["kind"] = l.pitOut
-        ? "out"
-        : isInLap(l, own[i + 1])
-          ? "in"
-          : l.duration != null && l.duration <= PUSH_RATIO * fastest
-            ? "push"
-            : "cool";
-      const q: QualiLap = { driver: n, lap: l.lap, segment, afterFlag, kind, deleted: deleted.get(`${n}:${l.lap}`) ?? null, best: false, trace: false };
-      qualiLaps.push(q);
-      qlap.set(`${n}:${l.lap}`, q);
-    });
-  }
-
-  // ---------------------------------------------------------------- classification
-
-  const counting = (n: number, seg: number) =>
-    (lapsOf.get(n) ?? []).filter((l): l is Lap & { duration: number } => {
-      const q = qlap.get(`${n}:${l.lap}`);
-      return q != null && l.duration != null && q.segment === seg && !q.afterFlag && !q.deleted && q.kind !== "out" && q.kind !== "in";
-    });
-  // OpenF1 publishes the results a while after the session: until then, the order by each segment's best counting lap.
-  function provisional(): RawResult[] {
-    const best = (n: number, seg: number) => Math.min(Infinity, ...counting(n, seg).map((l) => l.duration));
-    const out: number[][] = [];
-    let field = [...lapsOf.keys()].sort((a, b) => a - b);
-    for (const [k, s] of segments.entries()) {
-      // (`field` is in the previous segment's order: a stable sort keeps it for equal times, and for no time.)
-      const ranked = [...field].sort((a, b) => {
-        const [ta, tb] = [best(a, s.number), best(b, s.number)];
-        return ta === tb ? 0 : ta - tb;
-      });
-      const through = k === segments.length - 1 ? 0 : Math.min(s.advance ?? ranked.length, ranked.length);
-      out.unshift(ranked.slice(through));
-      field = ranked.slice(0, through);
-    }
-    return out.flat().map((n, i) => {
-      const times = segments.map((s) => (Number.isFinite(best(n, s.number)) ? best(n, s.number) : null));
-      return { driver_number: n, position: i + 1, number_of_laps: null, points: null, dnf: false, dns: false, dsq: false, duration: times as number[], gap_to_leader: null };
-    });
-  }
-  if (!raw.results.length && segments.length) {
-    lines.push("no results from OpenF1 yet: classified by each segment's best counting lap");
-  }
-
-  const results: QualiResult[] = [...(raw.results.length ? raw.results : provisional())]
-    .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
-    .map((r) => {
-      const n = r.driver_number;
-      const official = (Array.isArray(r.duration) ? r.duration : [r.duration]).slice(0, segments.length);
-      while (official.length < segments.length) official.push(null);
-      const own = lapsOf.get(n) ?? [];
-      const laps = segments.map((s, k) => {
-        const time = official[k];
-        const mine = counting(n, s.number).sort((a, b) => a.duration - b.duration)[0] ?? null;
-        if (time == null) {
-          if (mine) problems.push(`#${n} ${s.name}: lap ${mine.lap} (${fmtLap(mine.duration)}) counts here but there's no official time`);
-          return null;
+    const control = [...raw.raceControl].sort((a, b) =>
+        a.date.localeCompare(b.date)
+    )
+    const isStart = (m: RawRaceControl) =>
+        m.category === "SessionStatus" && /STARTED/i.test(m.message)
+    const isEnd = (m: RawRaceControl) =>
+        (m.category === "SessionStatus" && /FINISHED/i.test(m.message)) ||
+        (m.flag === "CHEQUERED" && m.scope === "Track")
+    const bounds: { start: Ms; end: Ms }[] = []
+    const phases = [
+        ...new Set(
+            control.flatMap((m) =>
+                m.qualifying_phase != null && m.qualifying_phase > 0
+                    ? [m.qualifying_phase]
+                    : []
+            )
+        )
+    ].sort()
+    if (phases.length) {
+        // OpenF1 tags every message with its qualifying phase (a red-flag restart stays in its phase).
+        for (const p of phases) {
+            const ms = control.filter((m) => m.qualifying_phase === p)
+            const start = ms.find(isStart)
+            const end = ms.filter(isEnd).at(-1)
+            if (start && end)
+                bounds.push({ start: rel(start.date), end: rel(end.date) })
         }
-        if (mine && Math.abs(mine.duration - time) < TIME_EPS) return mine.lap;
-        // Not what we computed: find the lap that did set the official time.
-        const match = own.find((l) => l.duration != null && Math.abs(l.duration - time) < TIME_EPS);
-        const mq = match ? qlap.get(`${n}:${match.lap}`) : undefined;
+    } else {
+        // Fallback: a segment runs from the first start after the previous flag to the next flag.
+        let from: Ms | null = null
+        for (const m of control) {
+            if (from == null && isStart(m)) from = rel(m.date)
+            else if (from != null && m.flag === "CHEQUERED") {
+                bounds.push({ start: from, end: rel(m.date) })
+                from = null
+            }
+        }
+    }
+    if (bounds.length !== 3)
+        problems.push(`found ${bounds.length} qualifying segments, expected 3`)
+
+    // Right after a session OpenF1 has no results yet: the field is the drivers who set a lap.
+    const classified =
+        raw.results.length || new Set(meta.laps.map((l) => l.driver)).size
+    const q2Size = 10 + Math.ceil((classified - 10) / 2) // 20 cars: 15, 22 cars: 16
+    const advances =
+        bounds.length === 3
+            ? [q2Size, 10, null]
+            : bounds.map((_, i) => (i === bounds.length - 1 ? null : null))
+    const segments: QualiSegment[] = bounds.map((b, i) => ({
+        number: i + 1,
+        name: `${prefix}${i + 1}`,
+        start: Math.round(b.start),
+        end: Math.round(b.end),
+        advance: advances[i] ?? null
+    }))
+
+    // ---------------------------------------------------------------- track status: one flag per segment
+
+    // normalize() stops at the first chequered flag (a race ends there); here every segment ends
+    // with one, and red flags suspend a segment until it's restarted.
+    const status: TrackStatusEvent[] = [{ t: 0, status: "GREEN" }]
+    // Each segment's red flags, for its clock (meta.qualiLive).
+    const stopped = segments.map(() => [] as { from: Ms; to: Ms | null }[])
+    for (const [i, seg] of segments.entries()) {
+        status.push({ t: seg.start, status: "GREEN" })
+        let red: { from: Ms; to: Ms | null } | null = null
+        for (const m of meta.raceControl) {
+            if (m.t <= seg.start || m.t >= seg.end) continue
+            const msg = m.message.toUpperCase()
+            if (!red && (m.flag === "RED" || msg.startsWith("RED FLAG"))) {
+                status.push({ t: m.t, status: "RED" })
+                red = { from: m.t, to: null }
+                stopped[i].push(red)
+            } else if (
+                red &&
+                ((m.category === "SessionStatus" &&
+                    /STARTED|RESUMED/.test(msg)) ||
+                    (m.flag === "GREEN" && m.scope === "Track"))
+            ) {
+                status.push({ t: m.t, status: "GREEN" })
+                red.to = m.t
+                red = null
+            }
+        }
+        if (red) red.to = seg.end
+        status.push({ t: seg.end, status: "CHEQUERED" })
+    }
+    meta.trackStatus = status.filter(
+        (e, i, arr) =>
+            e.t <= meta.duration && (i === 0 || arr[i - 1].status !== e.status)
+    )
+    if (segments.length) {
+        meta.lightsOut = segments[0].start
+        meta.chequered = segments[segments.length - 1].end
+    }
+    meta.grid = []
+
+    // ---------------------------------------------------------------- lap timing repairs
+
+    const lapsOf = new Map<number, Lap[]>()
+    for (const l of meta.laps) {
+        let own = lapsOf.get(l.driver)
+        if (!own) {
+            own = []
+            lapsOf.set(l.driver, own)
+        }
+        own.push(l)
+    }
+    for (const own of lapsOf.values()) own.sort((a, b) => a.lap - b.lap)
+
+    // Pit-out laps start at the pit exit: normalize's late-start repair moves them back to the
+    // previous pit-lane crossing (in a race the stop is part of the lap; here it's garage time).
+    let pitExitStarts = 0
+    for (const [n, own] of lapsOf) {
+        const exits = meta.pits
+            .filter((p) => p.driver === n)
+            .map((p) => p.exit)
+            .sort((a, b) => a - b)
+        own.forEach((l, i) => {
+            if (!l.pitOut) return
+            const prev = own[i - 1]
+            const next = own[i + 1]
+            const from = prev ? (prev.end ?? prev.start) - 5_000 : -Infinity
+            const exit = exits
+                .filter((e) => e >= from && (!next || e < next.start))
+                .at(-1)
+            if (exit != null && Math.abs(exit - l.start) > 1_000) {
+                l.start = Math.round(exit)
+                pitExitStarts++
+            }
+        })
+    }
+
+    // Chain lap starts through the official lap durations within each run of consecutive laps, anchored on the
+    // timing line (median car position at lap starts) and each car's crossings of it.
+    const line = timingLine(meta.laps, telemetry)
+    const { moves, brokenRuns } = chainLapStarts(lapsOf, (n) =>
+        lineCrossings(line, telemetry.get(n)?.loc)
+    )
+    for (const own of lapsOf.values()) {
+        // A pit-out lap (untimed, see prepareQualiLaps) ends where the next lap starts.
+        own.forEach((l, i) => {
+            const next = own[i + 1]
+            if (l.pitOut)
+                l.end = next && next.lap === l.lap + 1 ? next.start : null
+        })
+    }
+    meta.laps.sort((a, b) => a.start - b.start || a.driver - b.driver)
+    for (const r of meta.results) {
+        const last = lapsOf.get(r.driver)?.find((l) => l.lap === r.laps)
+        if (r.finish != null && last?.end != null) r.finish = last.end
+    }
+    lines.push(
+        `lap starts chained through official lap times: ${moves.length} laps, moved median ${median(moves).toFixed(0)} ms, p95 ${quantile(moves, 0.95).toFixed(0)} ms, max ${Math.max(0, ...moves).toFixed(0)} ms` +
+            (brokenRuns
+                ? ` (${brokenRuns} runs left alone: durations don't chain)`
+                : "") +
+            (pitExitStarts
+                ? `; ${pitExitStarts} out-laps re-dated to the pit exit`
+                : "")
+    )
+
+    // ---------------------------------------------------------------- deleted laps
+
+    const { deleted: deletions, unmatched: unmatchedDeletions } = deletedLaps(
+        meta.raceControl,
+        lapsOf,
+        meta.gmtOffset,
+        t0
+    )
+    const deleted = new Map([...deletions].map(([key, d]) => [key, d.reason])) // `${driver}:${lap}` -> reason
+    // On the laps too, with when, as live qualifying and practice have them (the replay's widgets read them).
+    for (const l of meta.laps) {
+        const d = deletions.get(`${l.driver}:${l.lap}`)
+        if (d) l.deleted = { t: d.t, reason: d.reason }
+    }
+    if (unmatchedDeletions)
         problems.push(
-          `#${n} ${s.name}: official ${fmtLap(time)} but computed ${mine ? `${fmtLap(mine.duration)} (lap ${mine.lap})` : "none"}` +
-            (match ? `; official time is lap ${match.lap} (${mq?.segment ? `${prefix}${mq.segment}` : "no segment"}${mq?.deleted ? ", deleted" : ""})` : ""),
-        );
-        return match?.lap ?? null;
-      });
-      laps.forEach((lap, k) => {
-        const q = lap != null ? qlap.get(`${n}:${lap}`) : null;
-        if (q && q.segment === k + 1) q.best = true;
-      });
-      const pos = r.position;
-      const eliminated =
-        segments.length !== 3 ? null : pos == null || pos > (segments[0].advance ?? Infinity) ? 1 : pos > (segments[1].advance ?? Infinity) ? 2 : null;
-      if (eliminated != null && official.slice(eliminated).some((t) => t != null)) {
-        problems.push(`#${n} P${pos} is knocked out in ${prefix}${eliminated} but has a later segment time`);
-      }
-      return { driver: n, position: pos, times: official.map((t) => (typeof t === "number" ? t : null)), laps, eliminated };
-    });
+            `${unmatchedDeletions} deleted-lap messages matched no lap`
+        )
 
-  // ---------------------------------------------------------------- distance-aligned traces
+    // ---------------------------------------------------------------- lap attribution
 
-  // Push and cool-down laps, measured on the push laps.
-  const lapByKey = new Map(meta.laps.map((l) => [`${l.driver}:${l.lap}`, l]));
-  const traceable = qualiLaps.flatMap((q) => {
-    const l = q.kind === "push" || q.kind === "cool" ? lapByKey.get(`${q.driver}:${q.lap}`) : undefined;
-    return l ? [l] : [];
-  });
-  const built = buildLapTraces(traceable, (l) => qlap.get(`${l.driver}:${l.lap}`)?.kind === "push", telemetry, meta.track);
-  problems.push(...built.problems);
-  for (const key of built.traced) {
-    const q = qlap.get(key);
-    if (q) q.trace = true;
-  }
-  const { traces, lapLength, sectorDistances } = built;
+    const segmentAt = (
+        t: Ms
+    ): { segment: number | null; afterFlag: boolean } => {
+        for (let i = segments.length - 1; i >= 0; i--) {
+            const s = segments[i]
+            if (t >= s.start - 2_000)
+                return { segment: s.number, afterFlag: t > s.end }
+        }
+        return { segment: null, afterFlag: false }
+    }
+    const timed = meta.laps.flatMap((l) =>
+        l.duration != null && !l.pitOut ? [l.duration] : []
+    )
+    const fastest = Math.min(...timed)
+    const carOf = (n: number): CleanTelemetry["car"] | null =>
+        telemetry.get(n)?.car ?? null
+    function speedAt(n: number, t: Ms): number | null {
+        const car = carOf(n)
+        if (!car?.t.length) return null
+        return lerpAt(car.t, car.speed, t)
+    }
+    const isInLap = (l: Lap, next: Lap | undefined) =>
+        (next != null && next.lap === l.lap + 1 && next.pitOut) ||
+        l.segments[2].some((c) => c === PIT_SEGMENT) ||
+        (next == null &&
+            l.end != null &&
+            (speedAt(l.driver, l.end) ?? 999) < 120)
 
-  lines.push(
-    `segments: ${segments.map((s) => `${s.name} +${Math.round(s.start / 1000)}s..+${Math.round(s.end / 1000)}s${s.advance ? ` (top ${s.advance} through)` : ""}`).join(", ")}`,
-  );
-  lines.push(
-    `laps: ${qualiLaps.length} (${qualiLaps.filter((q) => q.kind === "push").length} push, ${qualiLaps.filter((q) => q.kind === "cool").length} cool, ${qualiLaps.filter((q) => q.kind === "out").length} out, ${qualiLaps.filter((q) => q.kind === "in").length} in), ${deleted.size} deleted by race control`,
-  );
-  lines.push(...built.lines);
-  const eliminatedIn = (k: number) => results.filter((r) => r.eliminated === k).length;
-  if (segments.length === 3) {
-    lines.push(`eliminated: ${eliminatedIn(1)} in ${prefix}1, ${eliminatedIn(2)} in ${prefix}2, ${results.filter((r) => r.eliminated == null).length} in ${prefix}3`);
-  }
+    const qualiLaps: QualiLap[] = []
+    const qlap = new Map<string, QualiLap>()
+    for (const [n, own] of lapsOf) {
+        own.forEach((l, i) => {
+            const { segment, afterFlag } = segmentAt(l.start)
+            const kind: QualiLap["kind"] = l.pitOut
+                ? "out"
+                : isInLap(l, own[i + 1])
+                  ? "in"
+                  : l.duration != null && l.duration <= PUSH_RATIO * fastest
+                    ? "push"
+                    : "cool"
+            const q: QualiLap = {
+                driver: n,
+                lap: l.lap,
+                segment,
+                afterFlag,
+                kind,
+                deleted: deleted.get(`${n}:${l.lap}`) ?? null,
+                best: false,
+                trace: false
+            }
+            qualiLaps.push(q)
+            qlap.set(`${n}:${l.lap}`, q)
+        })
+    }
 
-  const data: QualiData = { segments, laps: qualiLaps, results, lapLength: Math.round(lapLength * 10) / 10, sectorDistances: [Math.round(sectorDistances[0] * 10) / 10, Math.round(sectorDistances[1] * 10) / 10] };
-  meta.quali = data;
+    // ---------------------------------------------------------------- classification
 
-  // ---------------------------------------------------------------- timed as live qualifying is
+    const counting = (n: number, seg: number) =>
+        (lapsOf.get(n) ?? []).filter((l): l is Lap & { duration: number } => {
+            const q = qlap.get(`${n}:${l.lap}`)
+            return (
+                q != null &&
+                l.duration != null &&
+                q.segment === seg &&
+                !q.afterFlag &&
+                !q.deleted &&
+                q.kind !== "out" &&
+                q.kind !== "in"
+            )
+        })
+    // OpenF1 publishes the results a while after the session: until then, the order by each segment's best counting lap.
+    function provisional(): RawResult[] {
+        const best = (n: number, seg: number) =>
+            Math.min(Infinity, ...counting(n, seg).map((l) => l.duration))
+        const out: number[][] = []
+        let field = [...lapsOf.keys()].sort((a, b) => a - b)
+        for (const [k, s] of segments.entries()) {
+            // (`field` is in the previous segment's order: a stable sort keeps it for equal times, and for no time.)
+            const ranked = [...field].sort((a, b) => {
+                const [ta, tb] = [best(a, s.number), best(b, s.number)]
+                return ta === tb ? 0 : ta - tb
+            })
+            const through =
+                k === segments.length - 1
+                    ? 0
+                    : Math.min(s.advance ?? ranked.length, ranked.length)
+            out.unshift(ranked.slice(through))
+            field = ranked.slice(0, through)
+        }
+        return out.flat().map((n, i) => {
+            const times = segments.map((s) =>
+                Number.isFinite(best(n, s.number)) ? best(n, s.number) : null
+            )
+            return {
+                driver_number: n,
+                position: i + 1,
+                number_of_laps: null,
+                points: null,
+                dnf: false,
+                dns: false,
+                dsq: false,
+                duration: times as number[],
+                gap_to_leader: null
+            }
+        })
+    }
+    if (!raw.results.length && segments.length) {
+        lines.push(
+            "no results from OpenF1 yet: classified by each segment's best counting lap"
+        )
+    }
 
-  // So the replay is the live screen's (segment clock, cut, the order by segment) with its dashboards: the segments
-  // with their running times and red flags, and the timing screen's order and gaps in place of OpenF1's.
-  const lengths = segmentLengths(prefix === "SQ", raw.session.year);
-  const timing: LiveQualiSegment[] = segments.map((s, i) => ({ ...s, length: lengths[i] ?? lengths[lengths.length - 1], stopped: stopped[i] }));
-  meta.qualiLive = { segments: timing };
-  const standings = qualiStandings(meta.laps, meta.drivers.map((d) => d.number), timing);
-  meta.positions = standings.positions;
-  meta.intervals = standings.intervals;
-  return { data, traces, report: { lines, problems } };
+    const results: QualiResult[] = [
+        ...(raw.results.length ? raw.results : provisional())
+    ]
+        .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
+        .map((r) => {
+            const n = r.driver_number
+            const official = (
+                Array.isArray(r.duration) ? r.duration : [r.duration]
+            ).slice(0, segments.length)
+            while (official.length < segments.length) official.push(null)
+            const own = lapsOf.get(n) ?? []
+            const laps = segments.map((s, k) => {
+                const time = official[k]
+                const mine =
+                    counting(n, s.number).sort(
+                        (a, b) => a.duration - b.duration
+                    )[0] ?? null
+                if (time == null) {
+                    if (mine)
+                        problems.push(
+                            `#${n} ${s.name}: lap ${mine.lap} (${fmtLap(mine.duration)}) counts here but there's no official time`
+                        )
+                    return null
+                }
+                if (mine && Math.abs(mine.duration - time) < TIME_EPS)
+                    return mine.lap
+                // Not what we computed: find the lap that did set the official time.
+                const match = own.find(
+                    (l) =>
+                        l.duration != null &&
+                        Math.abs(l.duration - time) < TIME_EPS
+                )
+                const mq = match ? qlap.get(`${n}:${match.lap}`) : undefined
+                problems.push(
+                    `#${n} ${s.name}: official ${fmtLap(time)} but computed ${mine ? `${fmtLap(mine.duration)} (lap ${mine.lap})` : "none"}` +
+                        (match
+                            ? `; official time is lap ${match.lap} (${mq?.segment ? `${prefix}${mq.segment}` : "no segment"}${mq?.deleted ? ", deleted" : ""})`
+                            : "")
+                )
+                return match?.lap ?? null
+            })
+            laps.forEach((lap, k) => {
+                const q = lap != null ? qlap.get(`${n}:${lap}`) : null
+                if (q && q.segment === k + 1) q.best = true
+            })
+            const pos = r.position
+            const eliminated =
+                segments.length !== 3
+                    ? null
+                    : pos == null || pos > (segments[0].advance ?? Infinity)
+                      ? 1
+                      : pos > (segments[1].advance ?? Infinity)
+                        ? 2
+                        : null
+            if (
+                eliminated != null &&
+                official.slice(eliminated).some((t) => t != null)
+            ) {
+                problems.push(
+                    `#${n} P${pos} is knocked out in ${prefix}${eliminated} but has a later segment time`
+                )
+            }
+            return {
+                driver: n,
+                position: pos,
+                times: official.map((t) => (typeof t === "number" ? t : null)),
+                laps,
+                eliminated
+            }
+        })
+
+    // ---------------------------------------------------------------- distance-aligned traces
+
+    // Push and cool-down laps, measured on the push laps.
+    const lapByKey = new Map(meta.laps.map((l) => [`${l.driver}:${l.lap}`, l]))
+    const traceable = qualiLaps.flatMap((q) => {
+        const l =
+            q.kind === "push" || q.kind === "cool"
+                ? lapByKey.get(`${q.driver}:${q.lap}`)
+                : undefined
+        return l ? [l] : []
+    })
+    const built = buildLapTraces(
+        traceable,
+        (l) => qlap.get(`${l.driver}:${l.lap}`)?.kind === "push",
+        telemetry,
+        meta.track
+    )
+    problems.push(...built.problems)
+    for (const key of built.traced) {
+        const q = qlap.get(key)
+        if (q) q.trace = true
+    }
+    const { traces, lapLength, sectorDistances } = built
+
+    lines.push(
+        `segments: ${segments.map((s) => `${s.name} +${Math.round(s.start / 1000)}s..+${Math.round(s.end / 1000)}s${s.advance ? ` (top ${s.advance} through)` : ""}`).join(", ")}`
+    )
+    lines.push(
+        `laps: ${qualiLaps.length} (${qualiLaps.filter((q) => q.kind === "push").length} push, ${qualiLaps.filter((q) => q.kind === "cool").length} cool, ${qualiLaps.filter((q) => q.kind === "out").length} out, ${qualiLaps.filter((q) => q.kind === "in").length} in), ${deleted.size} deleted by race control`
+    )
+    lines.push(...built.lines)
+    const eliminatedIn = (k: number) =>
+        results.filter((r) => r.eliminated === k).length
+    if (segments.length === 3) {
+        lines.push(
+            `eliminated: ${eliminatedIn(1)} in ${prefix}1, ${eliminatedIn(2)} in ${prefix}2, ${results.filter((r) => r.eliminated == null).length} in ${prefix}3`
+        )
+    }
+
+    const data: QualiData = {
+        segments,
+        laps: qualiLaps,
+        results,
+        lapLength: Math.round(lapLength * 10) / 10,
+        sectorDistances: [
+            Math.round(sectorDistances[0] * 10) / 10,
+            Math.round(sectorDistances[1] * 10) / 10
+        ]
+    }
+    meta.quali = data
+
+    // ---------------------------------------------------------------- timed as live qualifying is
+
+    // So the replay is the live screen's (segment clock, cut, the order by segment) with its dashboards: the segments
+    // with their running times and red flags, and the timing screen's order and gaps in place of OpenF1's.
+    const lengths = segmentLengths(prefix === "SQ", raw.session.year)
+    const timing: LiveQualiSegment[] = segments.map((s, i) => ({
+        ...s,
+        length: lengths[i] ?? lengths[lengths.length - 1],
+        stopped: stopped[i]
+    }))
+    meta.qualiLive = { segments: timing }
+    const standings = qualiStandings(
+        meta.laps,
+        meta.drivers.map((d) => d.number),
+        timing
+    )
+    meta.positions = standings.positions
+    meta.intervals = standings.intervals
+    return { data, traces, report: { lines, problems } }
 }

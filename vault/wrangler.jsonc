@@ -4,13 +4,18 @@
 // `bun run vault:deploy` builds with the app's origin baked in and uploads both; the custom domain's DNS record and
 // certificate are created on first deploy. dist/_headers sets the CSP.
 {
-  "name": "pitwall-auth",
-  "main": "worker.ts",
-  "compatibility_date": "2026-09-01",
-  // Serve /frame.html and /popup.html as they are (the default redirects them to /frame and /popup). The Worker
-  // runs first only for /openf1/*.
-  "assets": { "directory": "./dist", "binding": "ASSETS", "html_handling": "none", "run_worker_first": ["/openf1/*"] },
-  "routes": [{ "pattern": "pitwall-auth.garvit.in", "custom_domain": true }],
-  // No logs of requests (they'd carry nothing secret, but there's nothing to look at either).
-  "observability": { "enabled": false },
+    "name": "pitwall-auth",
+    "main": "worker.ts",
+    "compatibility_date": "2026-09-01",
+    // Serve /frame.html and /popup.html as they are (the default redirects them to /frame and /popup). The Worker
+    // runs first only for /openf1/*.
+    "assets": {
+        "directory": "./dist",
+        "binding": "ASSETS",
+        "html_handling": "none",
+        "run_worker_first": ["/openf1/*"]
+    },
+    "routes": [{ "pattern": "pitwall-auth.garvit.in", "custom_domain": true }],
+    // No logs of requests (they'd carry nothing secret, but there's nothing to look at either).
+    "observability": { "enabled": false }
 }

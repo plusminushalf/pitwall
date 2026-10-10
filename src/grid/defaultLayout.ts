@@ -18,91 +18,121 @@
 // The bottom row fits from a 738 px grid (21 rows, the gap chart's and the stint pace's minimums and the
 // hairlines over them; 1440x900's grid is 767); on a shorter window it's cut off, as for any layout.
 
-import { COLUMNS, ROW, type Layout, type LayoutEntry } from "./layout";
-import type { GridKind } from "./storage";
+import { COLUMNS, type Layout, type LayoutEntry, ROW } from "./layout"
+import type { GridKind } from "./storage"
 
 /** The tower's and the map's height: 21 rows, set like a height chosen in edit mode. */
-const TOP = 21 * ROW;
-const TOWER = 15;
-const MAP = 15;
-const FEED = COLUMNS - TOWER - MAP;
+const TOP = 21 * ROW
+const TOWER = 15
+const MAP = 15
+const FEED = COLUMNS - TOWER - MAP
 /** The gap chart and the stint pace, under the tower and one column of the map; battles and pit stops share the rest. */
-const CHARTS = 16;
-const SIDE = (TOWER + MAP - CHARTS) / 2;
+const CHARTS = 16
+const SIDE = (TOWER + MAP - CHARTS) / 2
 
-const at = (x: number, y: number, width: number, extra: Partial<LayoutEntry> = {}): LayoutEntry => ({ widgetVersion: "1.0.0", x, y, width, settings: {}, ...extra });
+const at = (
+    x: number,
+    y: number,
+    width: number,
+    extra: Partial<LayoutEntry> = {}
+): LayoutEntry => ({
+    widgetVersion: "1.0.0",
+    x,
+    y,
+    width,
+    settings: {},
+    ...extra
+})
 
 export const DEFAULT_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, TOWER, { height: TOP, settings: { gapMode: "interval" } }),
-    "track-map": at(TOWER, 0, MAP, { height: TOP }),
-    "race-feed": at(TOWER + MAP, 0, FEED),
-    "gap-chart": at(0, 1, CHARTS),
-    battles: at(CHARTS, 1, SIDE),
-    "pit-strategy": at(CHARTS + SIDE, 1, SIDE),
-    "stint-pace": at(0, 2, CHARTS),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "timing-tower": at(0, 0, TOWER, {
+            height: TOP,
+            settings: { gapMode: "interval" }
+        }),
+        "track-map": at(TOWER, 0, MAP, { height: TOP }),
+        "race-feed": at(TOWER + MAP, 0, FEED),
+        "gap-chart": at(0, 1, CHARTS),
+        battles: at(CHARTS, 1, SIDE),
+        "pit-strategy": at(CHARTS + SIDE, 1, SIDE),
+        "stint-pace": at(0, 2, CHARTS)
+    }
+}
 
 export const PRACTICE_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, TOWER, { height: TOP }),
-    "track-map": at(TOWER, 0, MAP, { height: TOP }),
-    "race-feed": at(TOWER + MAP, 0, FEED),
-    "long-runs": at(0, 1, TOWER),
-    "stint-pace": at(TOWER, 1, MAP),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "timing-tower": at(0, 0, TOWER, { height: TOP }),
+        "track-map": at(TOWER, 0, MAP, { height: TOP }),
+        "race-feed": at(TOWER + MAP, 0, FEED),
+        "long-runs": at(0, 1, TOWER),
+        "stint-pace": at(TOWER, 1, MAP)
+    }
+}
 
 /**
  * Live qualifying: the tower down the left, full height (the order by segment and its cut is what's watched), the map
  * and the feed beside it, and under them the push laps being driven, the ones followed drawn as they go.
  */
-const QUALI_TOWER = 14;
-const QUALI_MAP = 13;
+const QUALI_TOWER = 14
+const QUALI_MAP = 13
 export const QUALI_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, QUALI_TOWER),
-    "track-map": at(QUALI_TOWER, 0, QUALI_MAP, { height: TOP }),
-    "race-feed": at(QUALI_TOWER + QUALI_MAP, 0, COLUMNS - QUALI_TOWER - QUALI_MAP, { height: TOP }),
-    "live-laps": at(QUALI_TOWER, 1, COLUMNS - QUALI_TOWER),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "timing-tower": at(0, 0, QUALI_TOWER),
+        "track-map": at(QUALI_TOWER, 0, QUALI_MAP, { height: TOP }),
+        "race-feed": at(
+            QUALI_TOWER + QUALI_MAP,
+            0,
+            COLUMNS - QUALI_TOWER - QUALI_MAP,
+            { height: TOP }
+        ),
+        "live-laps": at(QUALI_TOWER, 1, COLUMNS - QUALI_TOWER)
+    }
+}
 
-export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = { race: DEFAULT_LAYOUT, practice: PRACTICE_LAYOUT, qualifying: QUALI_LAYOUT };
+export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = {
+    race: DEFAULT_LAYOUT,
+    practice: PRACTICE_LAYOUT,
+    qualifying: QUALI_LAYOUT
+}
 
 /** Strategy: the tower down the left with the selected driver's tyres under it; the gaps over the stint pace and pit stops. */
-const STRATEGY_TOWER = 13;
-const STRATEGY_PACE = 17;
+const STRATEGY_TOWER = 13
+const STRATEGY_PACE = 17
 export const STRATEGY_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, STRATEGY_TOWER),
-    "gap-chart": at(STRATEGY_TOWER, 0, COLUMNS - STRATEGY_TOWER, { height: 16 * ROW }),
-    "tyre-strip": at(0, 1, STRATEGY_TOWER),
-    "stint-pace": at(STRATEGY_TOWER, 1, STRATEGY_PACE),
-    "pit-strategy": at(STRATEGY_TOWER + STRATEGY_PACE, 1, COLUMNS - STRATEGY_TOWER - STRATEGY_PACE),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "timing-tower": at(0, 0, STRATEGY_TOWER),
+        "gap-chart": at(STRATEGY_TOWER, 0, COLUMNS - STRATEGY_TOWER, {
+            height: 16 * ROW
+        }),
+        "tyre-strip": at(0, 1, STRATEGY_TOWER),
+        "stint-pace": at(STRATEGY_TOWER, 1, STRATEGY_PACE),
+        "pit-strategy": at(
+            STRATEGY_TOWER + STRATEGY_PACE,
+            1,
+            COLUMNS - STRATEGY_TOWER - STRATEGY_PACE
+        )
+    }
+}
 
 /** Telemetry: the tower (to pick whose laps) over the map down the left; the lap comparison filling the rest. */
-const TELEMETRY_TOWER = 12;
+const TELEMETRY_TOWER = 12
 export const TELEMETRY_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "timing-tower": at(0, 0, TELEMETRY_TOWER, { height: TOP }),
-    "track-map": at(0, 1, TELEMETRY_TOWER),
-    "lap-compare": at(TELEMETRY_TOWER, 0, COLUMNS - TELEMETRY_TOWER),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "timing-tower": at(0, 0, TELEMETRY_TOWER, { height: TOP }),
+        "track-map": at(0, 1, TELEMETRY_TOWER),
+        "lap-compare": at(TELEMETRY_TOWER, 0, COLUMNS - TELEMETRY_TOWER)
+    }
+}
 
 /**
  * FP1 debrief: what a first practice says, in three columns of two. One-lap pace on the left (the order with the tyre
@@ -110,39 +140,54 @@ export const TELEMETRY_LAYOUT: Layout = {
  * middle (sectors and top speed against lap time: the drag levels), and the session on the right (each team's
  * programme, and how much the track came to the cars). The top row is 23 rows tall (run plans fits 22 drivers); the bottom row takes the rest.
  */
-const DEBRIEF_TOP = 23 * ROW;
-const DEBRIEF_SIDE = 12;
+const DEBRIEF_TOP = 23 * ROW
+const DEBRIEF_SIDE = 12
 export const DEBRIEF_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "pace-order": at(0, 0, DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
-    "sector-strengths": at(DEBRIEF_SIDE, 0, DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
-    "run-plans": at(2 * DEBRIEF_SIDE, 0, COLUMNS - 2 * DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
-    "push-laps": at(0, 1, DEBRIEF_SIDE),
-    "speed-vs-pace": at(DEBRIEF_SIDE, 1, DEBRIEF_SIDE),
-    "track-evolution": at(2 * DEBRIEF_SIDE, 1, COLUMNS - 2 * DEBRIEF_SIDE),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "pace-order": at(0, 0, DEBRIEF_SIDE, { height: DEBRIEF_TOP }),
+        "sector-strengths": at(DEBRIEF_SIDE, 0, DEBRIEF_SIDE, {
+            height: DEBRIEF_TOP
+        }),
+        "run-plans": at(2 * DEBRIEF_SIDE, 0, COLUMNS - 2 * DEBRIEF_SIDE, {
+            height: DEBRIEF_TOP
+        }),
+        "push-laps": at(0, 1, DEBRIEF_SIDE),
+        "speed-vs-pace": at(DEBRIEF_SIDE, 1, DEBRIEF_SIDE),
+        "track-evolution": at(2 * DEBRIEF_SIDE, 1, COLUMNS - 2 * DEBRIEF_SIDE)
+    }
+}
 
 /**
  * Race debrief: the stats posted after a race. Across the top the session's records (the fastest sectors, lap and
  * stop, and who set them), where each car was quick (sectors and top speed by team) and the order by best lap; under
  * them the stint pace, top speed against lap time, and the pit stops.
  */
-const RACE_DEBRIEF_BESTS = 12;
-const RACE_DEBRIEF_SECTORS = 12;
-const RACE_DEBRIEF_PACE = 16;
-const RACE_DEBRIEF_SPEED = 11;
+const RACE_DEBRIEF_BESTS = 12
+const RACE_DEBRIEF_SECTORS = 12
+const RACE_DEBRIEF_PACE = 16
+const RACE_DEBRIEF_SPEED = 11
 export const RACE_DEBRIEF_LAYOUT: Layout = {
-  version: 1,
-  columns: COLUMNS,
-  widgets: {
-    "session-bests": at(0, 0, RACE_DEBRIEF_BESTS, { height: DEBRIEF_TOP }),
-    "sector-strengths": at(RACE_DEBRIEF_BESTS, 0, RACE_DEBRIEF_SECTORS, { height: DEBRIEF_TOP }),
-    "pace-order": at(RACE_DEBRIEF_BESTS + RACE_DEBRIEF_SECTORS, 0, COLUMNS - RACE_DEBRIEF_BESTS - RACE_DEBRIEF_SECTORS, { height: DEBRIEF_TOP }),
-    "stint-pace": at(0, 1, RACE_DEBRIEF_PACE),
-    "speed-vs-pace": at(RACE_DEBRIEF_PACE, 1, RACE_DEBRIEF_SPEED),
-    "pit-strategy": at(RACE_DEBRIEF_PACE + RACE_DEBRIEF_SPEED, 1, COLUMNS - RACE_DEBRIEF_PACE - RACE_DEBRIEF_SPEED),
-  },
-};
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "session-bests": at(0, 0, RACE_DEBRIEF_BESTS, { height: DEBRIEF_TOP }),
+        "sector-strengths": at(RACE_DEBRIEF_BESTS, 0, RACE_DEBRIEF_SECTORS, {
+            height: DEBRIEF_TOP
+        }),
+        "pace-order": at(
+            RACE_DEBRIEF_BESTS + RACE_DEBRIEF_SECTORS,
+            0,
+            COLUMNS - RACE_DEBRIEF_BESTS - RACE_DEBRIEF_SECTORS,
+            { height: DEBRIEF_TOP }
+        ),
+        "stint-pace": at(0, 1, RACE_DEBRIEF_PACE),
+        "speed-vs-pace": at(RACE_DEBRIEF_PACE, 1, RACE_DEBRIEF_SPEED),
+        "pit-strategy": at(
+            RACE_DEBRIEF_PACE + RACE_DEBRIEF_SPEED,
+            1,
+            COLUMNS - RACE_DEBRIEF_PACE - RACE_DEBRIEF_SPEED
+        )
+    }
+}

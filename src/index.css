@@ -3,46 +3,47 @@
 html,
 body,
 #root {
-  height: 100%;
+    height: 100%;
 }
 
 html {
-  color-scheme: dark;
-  scrollbar-color: var(--color-zinc-700) transparent;
-  /* The page never scrolls: pull-to-refresh and rubber-banding would fight the timeline's scrubber. */
-  overscroll-behavior: none;
+    color-scheme: dark;
+    scrollbar-color: var(--color-zinc-700) transparent;
+    /* The page never scrolls: pull-to-refresh and rubber-banding would fight the timeline's scrubber. */
+    overscroll-behavior: none;
 }
 
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  -webkit-font-smoothing: antialiased;
-  caret-color: var(--color-zinc-100);
-  overscroll-behavior: none;
-  /* Touch browsers flash a grey box over anything tapped; the controls show their own pressed state. */
-  -webkit-tap-highlight-color: transparent;
+    font-family:
+        ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    caret-color: var(--color-zinc-100);
+    overscroll-behavior: none;
+    /* Touch browsers flash a grey box over anything tapped; the controls show their own pressed state. */
+    -webkit-tap-highlight-color: transparent;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-zinc-100) 28%, transparent);
-  color: var(--color-white);
+    background: color-mix(in oklab, var(--color-zinc-100) 28%, transparent);
+    color: var(--color-white);
 }
 
 @layer base {
-  /* Every control's keyboard focus (DESIGN.md), unless it draws its own: utilities override this. */
-  :focus-visible {
-    outline: 2px solid var(--color-zinc-300);
-    outline-offset: 2px;
-  }
+    /* Every control's keyboard focus (DESIGN.md), unless it draws its own: utilities override this. */
+    :focus-visible {
+        outline: 2px solid var(--color-zinc-300);
+        outline-offset: 2px;
+    }
 
-  /* Controls act on the first tap: no double-tap zoom, and no 300 ms wait to rule one out. Mouse input is unaffected. */
-  button,
-  [role="button"],
-  a,
-  label,
-  select,
-  input {
-    touch-action: manipulation;
-  }
+    /* Controls act on the first tap: no double-tap zoom, and no 300 ms wait to rule one out. Mouse input is unaffected. */
+    button,
+    [role="button"],
+    a,
+    label,
+    select,
+    input {
+        touch-action: manipulation;
+    }
 }
 
 /*
@@ -51,14 +52,14 @@ body {
  * control; :where() keeps that at zero specificity, so a control that is already absolute or fixed stays so.
  */
 @utility touch-hit {
-  @media (hover: none) and (pointer: coarse) {
-    :where(&) {
-      position: relative;
+    @media (hover: none) and (pointer: coarse) {
+        :where(&) {
+            position: relative;
+        }
+        &::before {
+            content: "";
+            position: absolute;
+            inset: -0.625rem;
+        }
     }
-    &::before {
-      content: "";
-      position: absolute;
-      inset: -0.625rem;
-    }
-  }
 }

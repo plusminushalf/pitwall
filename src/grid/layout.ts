@@ -6,95 +6,109 @@
 // scrolls if its contents need more. The grid itself never scrolls (on a phone it's one scrolling column
 // instead: phoneColumn(), at the end).
 
-import { stretches, type WidgetDefinition, type WidgetSettings, type HeightInput, type Px } from "../widgetkit/defineWidget";
+import {
+    type HeightInput,
+    type Px,
+    stretches,
+    type WidgetDefinition,
+    type WidgetSettings
+} from "../widgetkit/defineWidget"
 
 /**
  * Equal columns across the grid's width. 38 fits the old fixed-width screen (tower 410 px, panel 360 px)
  * closest at 1720 px wide while the speed column still fits its contents at 1440 px (defaultLayout.ts).
  * Widget widths are in percent and the default layout is worked out from px, so it's the one number to tune.
  */
-export const COLUMNS = 38;
+export const COLUMNS = 38
 /** A hairline between neighbouring widgets of different groups, in px (taken from the later widget's side). */
-export const DIVIDER = 1;
+export const DIVIDER = 1
 /** The least height a widget can be given (edit mode): room for edit mode's name tag and handles. */
-export const MIN_HEIGHT = 40;
+export const MIN_HEIGHT = 40
 /**
  * Rows for heights set in edit mode, in px: a height resize snaps the widget's edge to a line every ROW px
  * from the grid's top (or to its bottom), as a width resize snaps to columns. Fixed px, not a share of the
  * grid, so a height doesn't change with the window.
  */
-export const ROW = 20;
+export const ROW = 20
 
 /**
  * The stored layout (H3.11): one per browser. Its keys name what's placed, and a widget can be placed more
  * than once. Heights are derived unless set.
  */
 export interface Layout {
-  version: 1;
-  columns: number;
-  widgets: Record<string, LayoutEntry>;
+    version: 1
+    columns: number
+    widgets: Record<string, LayoutEntry>
 }
 
 export interface LayoutEntry {
-  /**
-   * The widget this places when the key isn't its id: the first of a kind is keyed by its widget's id, more
-   * by `<widget id>:<n>` (widgetIdOf()).
-   */
-  widget?: string;
-  widgetVersion: string;
-  /** Column of the left edge. */
-  x: number;
-  /** Order from the top: widgets settle upwards in order of y, then x, onto what's above them. */
-  y: number;
-  /** In columns. */
-  width: number;
-  /** In px, set in edit mode: the widget is this tall instead of its own height (and doesn't stretch). */
-  height?: number;
-  /** Widgets in the same group read as one panel: no divider between them. By default each widget is its own. */
-  group?: string;
-  settings: Partial<WidgetSettings>;
+    /**
+     * The widget this places when the key isn't its id: the first of a kind is keyed by its widget's id, more
+     * by `<widget id>:<n>` (widgetIdOf()).
+     */
+    widget?: string
+    widgetVersion: string
+    /** Column of the left edge. */
+    x: number
+    /** Order from the top: widgets settle upwards in order of y, then x, onto what's above them. */
+    y: number
+    /** In columns. */
+    width: number
+    /** In px, set in edit mode: the widget is this tall instead of its own height (and doesn't stretch). */
+    height?: number
+    /** Widgets in the same group read as one panel: no divider between them. By default each widget is its own. */
+    group?: string
+    settings: Partial<WidgetSettings>
 }
 
 /** The session and selection part of HeightInput (the widget's settings are added per widget). */
-export type GridInput = Omit<HeightInput, "settings">;
+export type GridInput = Omit<HeightInput, "settings">
 
 /** Where a widget ends up: x and width in columns, top and height in px. */
 export interface Placement {
-  /** Its key in the layout. */
-  id: string;
-  widget: WidgetDefinition;
-  x: number;
-  width: number;
-  top: number;
-  height: number;
-  /**
-   * What the widget's contents take: its own height, or a stretching widget's minimum. A box shorter than
-   * that (a height set in edit mode) keeps its contents at this height and scrolls.
-   */
-  contentHeight: number;
-  stretch: boolean;
-  /** Hairlines on the widget's top and left edges (inside its box, before `top` / at its left edge). */
-  dividerTop: boolean;
-  dividerLeft: boolean;
+    /** Its key in the layout. */
+    id: string
+    widget: WidgetDefinition
+    x: number
+    width: number
+    top: number
+    height: number
+    /**
+     * What the widget's contents take: its own height, or a stretching widget's minimum. A box shorter than
+     * that (a height set in edit mode) keeps its contents at this height and scrolls.
+     */
+    contentHeight: number
+    stretch: boolean
+    /** Hairlines on the widget's top and left edges (inside its box, before `top` / at its left edge). */
+    dividerTop: boolean
+    dividerLeft: boolean
 }
 
 /** The id of the widget that `layout.widgets[key]` places. */
-export const widgetIdOf = (key: string, entry: Pick<LayoutEntry, "widget">) => entry.widget ?? key;
+export const widgetIdOf = (key: string, entry: Pick<LayoutEntry, "widget">) =>
+    entry.widget ?? key
 
 const px = (value: Px, input: HeightInput) => {
-  const v = typeof value === "function" ? value(input) : value;
-  return Number.isFinite(v) && v > 0 ? v : 0;
-};
-
-/** A widget's width range in whole columns (at least one). */
-export function columnRange(widget: WidgetDefinition, columns: number): { min: number; max: number } {
-  const cols = (pct: number) => Math.min(Math.max(Math.round((pct * columns) / 100), 1), columns);
-  const min = cols(widget.width.min);
-  return { min, max: Math.max(cols(widget.width.max), min) };
+    const v = typeof value === "function" ? value(input) : value
+    return Number.isFinite(v) && v > 0 ? v : 0
 }
 
-const overlaps = (a: { x: number; width: number }, b: { x: number; width: number }) => a.x < b.x + b.width && b.x < a.x + a.width;
-const EPS = 1e-6;
+/** A widget's width range in whole columns (at least one). */
+export function columnRange(
+    widget: WidgetDefinition,
+    columns: number
+): { min: number; max: number } {
+    const cols = (pct: number) =>
+        Math.min(Math.max(Math.round((pct * columns) / 100), 1), columns)
+    const min = cols(widget.width.min)
+    return { min, max: Math.max(cols(widget.width.max), min) }
+}
+
+const overlaps = (
+    a: { x: number; width: number },
+    b: { x: number; width: number }
+) => a.x < b.x + b.width && b.x < a.x + a.width
+const EPS = 1e-6
 
 /**
  * Places the layout's widgets in a grid `gridHeight` px tall: widths clamped to each widget's range and the
@@ -105,76 +119,140 @@ const EPS = 1e-6;
  * widget, a column keeps its space at the bottom; if the widgets don't fit, the bottom is cut off. Widgets the
  * app doesn't have are left out.
  */
-export function pack(layout: Layout, widgets: ReadonlyMap<string, WidgetDefinition>, input: GridInput, gridHeight: number): Placement[] {
-  const items = Object.entries(layout.widgets)
-    .flatMap(([id, entry]) => {
-      const widget = widgets.get(widgetIdOf(id, entry));
-      return widget ? [{ id, entry, widget }] : [];
+export function pack(
+    layout: Layout,
+    widgets: ReadonlyMap<string, WidgetDefinition>,
+    input: GridInput,
+    gridHeight: number
+): Placement[] {
+    const items = Object.entries(layout.widgets)
+        .flatMap(([id, entry]) => {
+            const widget = widgets.get(widgetIdOf(id, entry))
+            return widget ? [{ id, entry, widget }] : []
+        })
+        .sort((a, b) => a.entry.y - b.entry.y || a.entry.x - b.entry.x)
+        .map(({ id, entry, widget }) => {
+            const range = columnRange(widget, layout.columns)
+            const width = Math.min(Math.max(entry.width, range.min), range.max)
+            const x = Math.min(Math.max(entry.x, 0), layout.columns - width)
+            const at: HeightInput = {
+                ...input,
+                settings: {
+                    ...widget.settings,
+                    ...entry.settings
+                } as WidgetSettings
+            }
+            const contentHeight = px(
+                stretches(widget)
+                    ? (widget.height as { min: Px }).min
+                    : (widget.height as Px),
+                at
+            )
+            const chosen =
+                entry.height != null &&
+                Number.isFinite(entry.height) &&
+                entry.height > 0
+                    ? entry.height
+                    : null
+            const stretch = chosen == null && stretches(widget)
+            return {
+                id,
+                widget,
+                x,
+                width,
+                group: entry.group ?? id,
+                stretch,
+                height: chosen ?? contentHeight,
+                contentHeight
+            }
+        })
+
+    // Tops from the heights: each widget rests on the lowest bottom above it, a hairline lower if any widget
+    // it rests on is in another group.
+    const settle = () =>
+        items.reduce<(Placement & { group: string })[]>((placed, it) => {
+            const above = placed.filter((p) => overlaps(p, it))
+            const rest = Math.max(0, ...above.map((p) => p.top + p.height))
+            const dividerTop = above.some(
+                (p) =>
+                    Math.abs(p.top + p.height - rest) < EPS &&
+                    p.group !== it.group
+            )
+            placed.push({
+                ...it,
+                top: rest + (dividerTop ? DIVIDER : 0),
+                dividerTop,
+                dividerLeft: false
+            })
+            return placed
+        }, [])
+
+    let placed = settle()
+    items.forEach((it, i) => {
+        if (!it.stretch) return
+        // The last stretching widget in each of its columns (none after it overlaps it).
+        if (
+            items.some(
+                (later, j) => j > i && later.stretch && overlaps(later, it)
+            )
+        )
+            return
+        let room = Infinity
+        for (let c = it.x; c < it.x + it.width; c++) {
+            const bottom = Math.max(
+                0,
+                ...placed
+                    .filter((p) => p.x <= c && c < p.x + p.width)
+                    .map((p) => p.top + p.height)
+            )
+            room = Math.min(room, gridHeight - bottom)
+        }
+        if (room > 0) {
+            it.height += room
+            placed = settle()
+        }
     })
-    .sort((a, b) => a.entry.y - b.entry.y || a.entry.x - b.entry.x)
-    .map(({ id, entry, widget }) => {
-      const range = columnRange(widget, layout.columns);
-      const width = Math.min(Math.max(entry.width, range.min), range.max);
-      const x = Math.min(Math.max(entry.x, 0), layout.columns - width);
-      const at: HeightInput = { ...input, settings: { ...widget.settings, ...entry.settings } as WidgetSettings };
-      const contentHeight = px(stretches(widget) ? (widget.height as { min: Px }).min : (widget.height as Px), at);
-      const chosen = entry.height != null && Number.isFinite(entry.height) && entry.height > 0 ? entry.height : null;
-      const stretch = chosen == null && stretches(widget);
-      return { id, widget, x, width, group: entry.group ?? id, stretch, height: chosen ?? contentHeight, contentHeight };
-    });
 
-  // Tops from the heights: each widget rests on the lowest bottom above it, a hairline lower if any widget
-  // it rests on is in another group.
-  const settle = () =>
-    items.reduce<(Placement & { group: string })[]>((placed, it) => {
-      const above = placed.filter((p) => overlaps(p, it));
-      const rest = Math.max(0, ...above.map((p) => p.top + p.height));
-      const dividerTop = above.some((p) => Math.abs(p.top + p.height - rest) < EPS && p.group !== it.group);
-      placed.push({ ...it, top: rest + (dividerTop ? DIVIDER : 0), dividerTop, dividerLeft: false });
-      return placed;
-    }, []);
-
-  let placed = settle();
-  items.forEach((it, i) => {
-    if (!it.stretch) return;
-    // The last stretching widget in each of its columns (none after it overlaps it).
-    if (items.some((later, j) => j > i && later.stretch && overlaps(later, it))) return;
-    let room = Infinity;
-    for (let c = it.x; c < it.x + it.width; c++) {
-      const bottom = Math.max(0, ...placed.filter((p) => p.x <= c && c < p.x + p.width).map((p) => p.top + p.height));
-      room = Math.min(room, gridHeight - bottom);
-    }
-    if (room > 0) {
-      it.height += room;
-      placed = settle();
-    }
-  });
-
-  return placed.map(({ group, ...p }) => ({
-    ...p,
-    dividerLeft: placed.some((q) => q.x + q.width === p.x && q.top < p.top + p.height && p.top < q.top + q.height && q.group !== group),
-  }));
+    return placed.map(({ group, ...p }) => ({
+        ...p,
+        dividerLeft: placed.some(
+            (q) =>
+                q.x + q.width === p.x &&
+                q.top < p.top + p.height &&
+                p.top < q.top + q.height &&
+                q.group !== group
+        )
+    }))
 }
 
 /** A placed widget in screen px, its hairlines included. */
 export interface Box {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
+    left: number
+    top: number
+    width: number
+    height: number
 }
 
 /**
  * Screen boxes for `gridWidth` px. Column edges are rounded once and shared by neighbours, so widgets side
  * by side meet exactly; vertically, a box is its widget's height (plus the hairline above it, if any).
  */
-export function boxesOf(placements: readonly Placement[], gridWidth: number, columns: number): Box[] {
-  const colEdge = (c: number) => Math.round((c * gridWidth) / columns);
-  return placements.map((p) => {
-    const left = colEdge(p.x);
-    const divider = p.dividerTop ? DIVIDER : 0;
-    return { left, width: colEdge(p.x + p.width) - left, top: p.top - divider, height: p.height + divider };
-  });
+export function boxesOf(
+    placements: readonly Placement[],
+    gridWidth: number,
+    columns: number
+): Box[] {
+    const colEdge = (c: number) => Math.round((c * gridWidth) / columns)
+    return placements.map((p) => {
+        const left = colEdge(p.x)
+        const divider = p.dividerTop ? DIVIDER : 0
+        return {
+            left,
+            width: colEdge(p.x + p.width) - left,
+            top: p.top - divider,
+            height: p.height + divider
+        }
+    })
 }
 
 // Phones (Grid.tsx's phone mode): the same layout as one column, every widget full width, scrolling. The
@@ -183,30 +261,36 @@ export function boxesOf(placements: readonly Placement[], gridWidth: number, col
 // phone height in their place. Nothing here touches the saved layout.
 
 /** The tower and the map: enough to read, never the whole screen (room to see there's more below). */
-const PHONE_TALL = "clamp(240px, 55dvh, 520px)";
+const PHONE_TALL = "clamp(240px, 55dvh, 520px)"
 /** A stretching widget without a height of its own: a chart's worth, or its minimum if that's more. */
-const PHONE_STRETCH = 260;
+const PHONE_STRETCH = 260
 /** Phone heights by widget id, for the stretching widgets a chart's worth isn't right for. */
 const PHONE_HEIGHTS: Record<string, string> = {
-  "timing-tower": PHONE_TALL,
-  "track-map": PHONE_TALL,
-  "race-feed": "320px",
-};
+    "timing-tower": PHONE_TALL,
+    "track-map": PHONE_TALL,
+    "race-feed": "320px"
+}
 /** Shown first on a phone, in this order; the rest follow in the layout's reading order. */
-const PHONE_FIRST = ["timing-tower", "track-map"];
+const PHONE_FIRST = ["timing-tower", "track-map"]
 
 /** A widget's CSS height in the phone column. */
-export function phoneHeight(widget: WidgetDefinition, input: HeightInput): string {
-  if (!stretches(widget)) return `${px(widget.height as Px, input)}px`;
-  return PHONE_HEIGHTS[widget.id] ?? `${Math.max(PHONE_STRETCH, px(widget.height.min, input))}px`;
+export function phoneHeight(
+    widget: WidgetDefinition,
+    input: HeightInput
+): string {
+    if (!stretches(widget)) return `${px(widget.height as Px, input)}px`
+    return (
+        PHONE_HEIGHTS[widget.id] ??
+        `${Math.max(PHONE_STRETCH, px(widget.height.min, input))}px`
+    )
 }
 
 /** One entry of the phone column: the layout key, its widget, the settings on top of the defaults, and its height. */
 export interface PhoneEntry {
-  id: string;
-  widget: WidgetDefinition;
-  settings: Partial<WidgetSettings>;
-  height: string;
+    id: string
+    widget: WidgetDefinition
+    settings: Partial<WidgetSettings>
+    height: string
 }
 
 /**
@@ -214,19 +298,39 @@ export interface PhoneEntry {
  * in the order the desktop grid reads them (top to bottom, left to right: the order pack() settles them
  * in). Widgets the app doesn't have are left out, as in pack().
  */
-export function phoneColumn(layout: Layout, widgets: ReadonlyMap<string, WidgetDefinition>, input: GridInput): PhoneEntry[] {
-  const rank = (id: string, entry: LayoutEntry) => {
-    const first = PHONE_FIRST.indexOf(widgetIdOf(id, entry));
-    return first === -1 ? PHONE_FIRST.length : first;
-  };
-  return Object.entries(layout.widgets)
-    .flatMap(([id, entry]) => {
-      const widget = widgets.get(widgetIdOf(id, entry));
-      return widget ? [{ id, entry, widget }] : [];
-    })
-    .sort((a, b) => rank(a.id, a.entry) - rank(b.id, b.entry) || a.entry.y - b.entry.y || a.entry.x - b.entry.x)
-    .map(({ id, entry, widget }) => {
-      const at: HeightInput = { ...input, settings: { ...widget.settings, ...entry.settings } as WidgetSettings };
-      return { id, widget, settings: entry.settings, height: phoneHeight(widget, at) };
-    });
+export function phoneColumn(
+    layout: Layout,
+    widgets: ReadonlyMap<string, WidgetDefinition>,
+    input: GridInput
+): PhoneEntry[] {
+    const rank = (id: string, entry: LayoutEntry) => {
+        const first = PHONE_FIRST.indexOf(widgetIdOf(id, entry))
+        return first === -1 ? PHONE_FIRST.length : first
+    }
+    return Object.entries(layout.widgets)
+        .flatMap(([id, entry]) => {
+            const widget = widgets.get(widgetIdOf(id, entry))
+            return widget ? [{ id, entry, widget }] : []
+        })
+        .sort(
+            (a, b) =>
+                rank(a.id, a.entry) - rank(b.id, b.entry) ||
+                a.entry.y - b.entry.y ||
+                a.entry.x - b.entry.x
+        )
+        .map(({ id, entry, widget }) => {
+            const at: HeightInput = {
+                ...input,
+                settings: {
+                    ...widget.settings,
+                    ...entry.settings
+                } as WidgetSettings
+            }
+            return {
+                id,
+                widget,
+                settings: entry.settings,
+                height: phoneHeight(widget, at)
+            }
+        })
 }

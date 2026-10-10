@@ -1,16 +1,16 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { startAnalytics } from "./analytics";
-import { App } from "./App";
-import "./index.css";
+import { StrictMode } from "react"
+import { createRoot } from "react-dom/client"
+import { App } from "./App"
+import { startAnalytics } from "./analytics"
+import "./index.css"
 
-startAnalytics();
+startAnalytics()
 
-const root = document.getElementById("root");
-if (!root) throw new Error("no #root");
+const root = document.getElementById("root")
+if (!root) throw new Error("no #root")
 
 createRoot(root).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
+    <StrictMode>
+        <App />
+    </StrictMode>
+)

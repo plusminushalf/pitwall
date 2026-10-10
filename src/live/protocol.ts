@@ -12,43 +12,47 @@
 // In live metas, `duration` equals `now` (the live edge) and grows; `chequered` is null until shown;
 // `results` only holds what OpenF1 has published so far.
 
-import type { DriverTelemetry, Ms, SessionMeta } from "../types";
+import type { DriverTelemetry, Ms, SessionMeta } from "../types"
 
 export type LiveState =
-  | "idle" // no live race/sprint right now (see `next`)
-  | "connecting" // authenticating / subscribing / backfilling
-  | "live" // streaming
-  | "ended" // session finished; data stays available until the next one starts
-  | "error"; // e.g. missing or rejected credentials (see `detail`)
+    | "idle" // no live race/sprint right now (see `next`)
+    | "connecting" // authenticating / subscribing / backfilling
+    | "live" // streaming
+    | "ended" // session finished; data stays available until the next one starts
+    | "error" // e.g. missing or rejected credentials (see `detail`)
 
 export interface LiveStatus {
-  type: "status";
-  state: LiveState;
-  source: "openf1" | "simulate";
-  sessionKey: number | null;
-  detail?: string;
-  next?: { sessionKey: number; name: string; dateStart: string } | null;
+    type: "status"
+    state: LiveState
+    source: "openf1" | "simulate"
+    sessionKey: number | null
+    detail?: string
+    next?: { sessionKey: number; name: string; dateStart: string } | null
 }
 
 export interface LiveSnapshot {
-  type: "snapshot";
-  meta: SessionMeta;
-  telemetry: DriverTelemetry[]; // same encoding as drivers/<n>.json (t delta-encoded, t[0] absolute)
-  now: Ms;
+    type: "snapshot"
+    meta: SessionMeta
+    telemetry: DriverTelemetry[] // same encoding as drivers/<n>.json (t delta-encoded, t[0] absolute)
+    now: Ms
 }
 
 export interface LiveMetaUpdate {
-  type: "meta";
-  meta: SessionMeta;
-  now: Ms;
+    type: "meta"
+    meta: SessionMeta
+    now: Ms
 }
 
 export interface LiveTelemetryUpdate {
-  type: "tel";
-  now: Ms;
-  // New samples only, one chunk per driver that has any; same encoding as DriverTelemetry
-  // (chunk t[0] is absolute ms since meta.t0), to be appended to what the client already has.
-  chunks: DriverTelemetry[];
+    type: "tel"
+    now: Ms
+    // New samples only, one chunk per driver that has any; same encoding as DriverTelemetry
+    // (chunk t[0] is absolute ms since meta.t0), to be appended to what the client already has.
+    chunks: DriverTelemetry[]
 }
 
-export type LiveMessage = LiveStatus | LiveSnapshot | LiveMetaUpdate | LiveTelemetryUpdate;
+export type LiveMessage =
+    | LiveStatus
+    | LiveSnapshot
+    | LiveMetaUpdate
+    | LiveTelemetryUpdate

@@ -105,83 +105,169 @@
 //     TyreBadge                   compound circle and tyre age
 //   and, still as they were lifted from the core: format helpers, colours, the track projection and corner labels.
 
-export { defineWidget } from "./defineWidget";
-export { useCircuitRaces, type CircuitRaceEntry, type CircuitRaces } from "./circuit";
-export { CircuitAxis, CircuitFrame, circuitNotice, CircuitProgress, CircuitYearRows, RetryButton, Skeleton } from "./ui/CircuitStates";
-export type { NeutralKind, NeutralLaps, PastDriver, PastFinisher, PastRace, PastStint } from "../history/pastRaces";
-export { median, stopsOf, strategies } from "../history/pastRaces";
-export type { PastPace, PastPass, PastPit } from "../history/pastRaces";
-export type { WidgetDefinition, WidgetGroup, WidgetSettings, DriverSetting, HeightInput, Px, SettingValue } from "./defineWidget";
-
-export {
-  useAllLaps,
-  useAllPitStops,
-  useAllStints,
-  useBestSectors,
-  useWidgetSize,
-  useCar,
-  useCarHistory,
-  useDriver,
-  useDrivers,
-  useFastestLap,
-  useFeed,
-  useFrame,
-  useLapGeometry,
-  useLapTrace,
-  useLapWindow,
-  useLiveLap,
-  useLiveLaps,
-  useLaps,
-  useLeaderLap,
-  useNeutralPeriods,
-  usePitStops,
-  useQualiPhase,
-  usePlayback,
-  usePositions,
-  useRadio,
-  useRunningOrder,
-  useSectorFlags,
-  useSelectedDriver,
-  useSelection,
-  useSessionInfo,
-  useSettings,
-  useCardState,
-  useStints,
-  useTime,
-  useTotalLaps,
-  useTrack,
-  useTrackStatus,
-  useWeather,
-  useWholeSession,
-} from "./hooks";
-export type { LapProgress, Playback, Radio, Select, Selection } from "./hooks";
-export type { LiveLap } from "../engine/lapTrace";
-export type { LapWindow } from "../engine/lapWindow";
-export { segmentBest, standingOf, type QualiPhase, type QualiStanding } from "../engine/qualiPhase";
-export { isPhone, useCoarsePointer, usePhone } from "../hooks/usePhone";
-
-export type { WidgetSize } from "./context";
-export type { LapGeometry } from "../engine/lapTrace";
+export type { FeedItem, FeedKind } from "../data/session"
+export type {
+    Channel,
+    DecodedLap as LapTrace,
+    DeltaSeries,
+    MiniSector
+} from "../engine/compare"
 /** Lap traces (useLapTrace) and what to read off them: values and times at a distance, deltas between laps, mini-sectors. */
-export { deltaAt, deltaSeries, distanceAtTime, miniSectors, positionAtDistance, timeAtDistance, topSpeed, valueAtDistance } from "../engine/compare";
-export type { Channel, DecodedLap as LapTrace, DeltaSeries, MiniSector } from "../engine/compare";
+export {
+    deltaAt,
+    deltaSeries,
+    distanceAtTime,
+    miniSectors,
+    positionAtDistance,
+    timeAtDistance,
+    topSpeed,
+    valueAtDistance
+} from "../engine/compare"
+export type { LapGeometry, LiveLap } from "../engine/lapTrace"
+export type { LapWindow } from "../engine/lapWindow"
+export {
+    type QualiPhase,
+    type QualiStanding,
+    segmentBest,
+    standingOf
+} from "../engine/qualiPhase"
+export type {
+    DriverState,
+    DriverStatus,
+    SectorFlag,
+    Telemetry
+} from "../engine/raceState"
+export type {
+    NeutralKind,
+    NeutralLaps,
+    PastDriver,
+    PastFinisher,
+    PastPace,
+    PastPass,
+    PastPit,
+    PastRace,
+    PastStint
+} from "../history/pastRaces"
+export { median, stopsOf, strategies } from "../history/pastRaces"
+export { isPhone, useCoarsePointer, usePhone } from "../hooks/usePhone"
 /** Colours for compared drivers: team colours, told apart when two are alike (a lighter shade and a dashed line). */
-export { compareStyles, dashArray, type CompareStyle } from "../lib/compareColors";
-export type { DrawFn, Frame } from "./frame";
-export type { CarHistory, CarPosition, FeedEntry, NeutralPeriod, SessionInfo, SessionKind, StintView, Track, WholeSession } from "./select";
-export type { FeedItem, FeedKind } from "../data/session";
-export type { DriverState, DriverStatus, SectorFlag, Telemetry } from "../engine/raceState";
-export type { DriverInfo, Lap, LiveQualiSegment, PitStop, SessionMeta, Stint, TrackStatus, WeatherSample } from "../types";
+export {
+    type CompareStyle,
+    compareStyles,
+    dashArray
+} from "../lib/compareColors"
+export type {
+    DriverInfo,
+    Lap,
+    LiveQualiSegment,
+    PitStop,
+    SessionMeta,
+    Stint,
+    TrackStatus,
+    WeatherSample
+} from "../types"
+export {
+    type CircuitRaceEntry,
+    type CircuitRaces,
+    useCircuitRaces
+} from "./circuit"
+export type { WidgetSize } from "./context"
+export type {
+    DriverSetting,
+    HeightInput,
+    Px,
+    SettingValue,
+    WidgetDefinition,
+    WidgetGroup,
+    WidgetSettings
+} from "./defineWidget"
+export { defineWidget } from "./defineWidget"
+export type { DrawFn, Frame } from "./frame"
+export type { LapProgress, Playback, Radio, Select, Selection } from "./hooks"
+export {
+    useAllLaps,
+    useAllPitStops,
+    useAllStints,
+    useBestSectors,
+    useCar,
+    useCardState,
+    useCarHistory,
+    useDriver,
+    useDrivers,
+    useFastestLap,
+    useFeed,
+    useFrame,
+    useLapGeometry,
+    useLaps,
+    useLapTrace,
+    useLapWindow,
+    useLeaderLap,
+    useLiveLap,
+    useLiveLaps,
+    useNeutralPeriods,
+    usePitStops,
+    usePlayback,
+    usePositions,
+    useQualiPhase,
+    useRadio,
+    useRunningOrder,
+    useSectorFlags,
+    useSelectedDriver,
+    useSelection,
+    useSessionInfo,
+    useSettings,
+    useStints,
+    useTime,
+    useTotalLaps,
+    useTrack,
+    useTrackStatus,
+    useWeather,
+    useWholeSession,
+    useWidgetSize
+} from "./hooks"
+export type {
+    CarHistory,
+    CarPosition,
+    FeedEntry,
+    NeutralPeriod,
+    SessionInfo,
+    SessionKind,
+    StintView,
+    Track,
+    WholeSession
+} from "./select"
+export {
+    CircuitAxis,
+    CircuitFrame,
+    CircuitProgress,
+    CircuitYearRows,
+    circuitNotice,
+    RetryButton,
+    Skeleton
+} from "./ui/CircuitStates"
 
 // ---------------------------------------------------------------- UI kit
 
-export { COMPOUND, gap, lapTime, raceClock, sectorTime, shortTeam, teamColor, textOn, TRACK_STATUS } from "../lib/format";
-export { drsEligible, drsOpen } from "../engine/raceState";
-/** Track coordinates to canvas px: rotated to the circuit's usual orientation and fitted with padding. */
-export { makeTrackTransform as trackTransform, type TrackTransform } from "../lib/trackTransform";
+export { drsEligible, drsOpen } from "../engine/raceState"
 /** Corner numbers, and names if asked, on a canvas drawn with trackTransform. */
-export { drawCornerLabels, type CornerLabelStyle } from "../lib/cornerLabels";
-export { DriverTag } from "./ui/DriverTag";
-export { Icon, type IconName } from "./ui/Icon";
-export { Label, LABEL_CLASS, Stat, TAP_CLASS } from "./ui/Label";
-export { TyreBadge } from "./ui/TyreBadge";
+export { type CornerLabelStyle, drawCornerLabels } from "../lib/cornerLabels"
+export {
+    COMPOUND,
+    gap,
+    lapTime,
+    raceClock,
+    sectorTime,
+    shortTeam,
+    TRACK_STATUS,
+    teamColor,
+    textOn
+} from "../lib/format"
+/** Track coordinates to canvas px: rotated to the circuit's usual orientation and fitted with padding. */
+export {
+    makeTrackTransform as trackTransform,
+    type TrackTransform
+} from "../lib/trackTransform"
+export { DriverTag } from "./ui/DriverTag"
+export { Icon, type IconName } from "./ui/Icon"
+export { LABEL_CLASS, Label, Stat, TAP_CLASS } from "./ui/Label"
+export { TyreBadge } from "./ui/TyreBadge"

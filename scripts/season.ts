@@ -2,23 +2,25 @@
 // been ingested.
 // The selection rules live in lib/season.ts, shared with the in-browser catalogue.
 
-import { fetchEndpoint, type RawSession } from "./openf1";
-import { isFreePractice, seasonStatus, type SeasonStatus } from "./lib/season";
-import type { SessionIndexEntry } from "../src/types";
+import type { SessionIndexEntry } from "../src/types"
+import { isFreePractice, type SeasonStatus, seasonStatus } from "./lib/season"
+import { fetchEndpoint, type RawSession } from "./openf1"
 
-export const INDEX_FILE = "data/sessions/index.json";
+export const INDEX_FILE = "data/sessions/index.json"
 
-export type { SeasonStatus };
+export type { SeasonStatus }
 
 export interface SeasonSession {
-  session: RawSession;
-  status: SeasonStatus;
+    session: RawSession
+    status: SeasonStatus
 }
 
 export async function ingestedKeys(): Promise<Set<number>> {
-  const file = Bun.file(INDEX_FILE);
-  const index: SessionIndexEntry[] = (await file.exists()) ? await file.json() : [];
-  return new Set(index.map((e) => e.sessionKey));
+    const file = Bun.file(INDEX_FILE)
+    const index: SessionIndexEntry[] = (await file.exists())
+        ? await file.json()
+        : []
+    return new Set(index.map((e) => e.sessionKey))
 }
 
 /**
@@ -26,13 +28,36 @@ export async function ingestedKeys(): Promise<Set<number>> {
  * sprint qualifying and sprint shootout sessions (session_type "Qualifying"), and with `practice` its free
  * practice (session_type "Practice", not pre-season testing), sorted by start date.
  */
-export async function seasonSessions(year: number, opts: { quali?: boolean; practice?: boolean } = {}): Promise<SeasonSession[]> {
-  const sessions = await fetchEndpoint<RawSession>("sessions", { year, session_type: "Race" });
-  if (opts.quali) sessions.push(...(await fetchEndpoint<RawSession>("sessions", { year, session_type: "Qualifying" })));
-  if (opts.practice) sessions.push(...(await fetchEndpoint<RawSession>("sessions", { year, session_type: "Practice" })).filter(isFreePractice));
-  const ingested = await ingestedKeys();
-  const now = Date.now();
-  return sessions
-    .sort((a, b) => a.date_start.localeCompare(b.date_start))
-    .map((session) => ({ session, status: seasonStatus(session, now, ingested) }));
+export async function seasonSessions(
+    year: number,
+    opts: { quali?: boolean; practice?: boolean } = {}
+): Promise<SeasonSession[]> {
+    const sessions = await fetchEndpoint<RawSession>("sessions", {
+        year,
+        session_type: "Race"
+    })
+    if (opts.quali)
+        sessions.push(
+            ...(await fetchEndpoint<RawSession>("sessions", {
+                year,
+                session_type: "Qualifying"
+            }))
+        )
+    if (opts.practice)
+        sessions.push(
+            ...(
+                await fetchEndpoint<RawSession>("sessions", {
+                    year,
+                    session_type: "Practice"
+                })
+            ).filter(isFreePractice)
+        )
+    const ingested = await ingestedKeys()
+    const now = Date.now()
+    return sessions
+        .sort((a, b) => a.date_start.localeCompare(b.date_start))
+        .map((session) => ({
+            session,
+            status: seasonStatus(session, now, ingested)
+        }))
 }

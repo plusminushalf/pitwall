@@ -2,8 +2,13 @@
 // index.html for the app's own paths (/session/11377, /live: src/url.ts) and predictions/index.html for /predictions.
 // `bun run deploy` builds and uploads; the custom domain's DNS record and certificate are created on first deploy.
 {
-  "name": "pitwall",
-  "compatibility_date": "2026-09-01",
-  "assets": { "directory": "./dist", "not_found_handling": "single-page-application" },
-  "routes": [{ "pattern": "pitwall.plusminushalf.com", "custom_domain": true }],
+    "name": "pitwall",
+    "compatibility_date": "2026-09-01",
+    "assets": {
+        "directory": "./dist",
+        "not_found_handling": "single-page-application"
+    },
+    "routes": [
+        { "pattern": "pitwall.plusminushalf.com", "custom_domain": true }
+    ]
 }

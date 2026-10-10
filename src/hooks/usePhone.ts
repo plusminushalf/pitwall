@@ -4,23 +4,24 @@
 // `useCoarsePointer` is the touch-only question (show hover-only controls, bigger hit targets) and is true on
 // tablets of any width.
 
-import { useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react"
 
-const PHONE = "(max-width: 767px), (hover: none) and (pointer: coarse) and (max-height: 500px)";
-const COARSE = "(hover: none) and (pointer: coarse)";
+const PHONE =
+    "(max-width: 767px), (hover: none) and (pointer: coarse) and (max-height: 500px)"
+const COARSE = "(hover: none) and (pointer: coarse)"
 
 function useMedia(query: string): boolean {
-  return useSyncExternalStore(
-    (notify) => {
-      const mql = matchMedia(query);
-      mql.addEventListener("change", notify);
-      return () => mql.removeEventListener("change", notify);
-    },
-    () => matchMedia(query).matches,
-    () => false,
-  );
+    return useSyncExternalStore(
+        (notify) => {
+            const mql = matchMedia(query)
+            mql.addEventListener("change", notify)
+            return () => mql.removeEventListener("change", notify)
+        },
+        () => matchMedia(query).matches,
+        () => false
+    )
 }
 
-export const usePhone = () => useMedia(PHONE);
-export const useCoarsePointer = () => useMedia(COARSE);
-export const isPhone = () => matchMedia(PHONE).matches;
+export const usePhone = () => useMedia(PHONE)
+export const useCoarsePointer = () => useMedia(COARSE)
+export const isPhone = () => matchMedia(PHONE).matches

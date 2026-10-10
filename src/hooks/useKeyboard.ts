@@ -1,6 +1,6 @@
-import { useEffect } from "react";
-import { useShare } from "../share/ShareShot";
-import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store";
+import { useEffect } from "react"
+import { useShare } from "../share/ShareShot"
+import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store"
 
 /**
  * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
@@ -13,104 +13,134 @@ import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store";
  * are the picker's (share/ShareShot.tsx).
  */
 export function useKeyboard() {
-  useEffect(() => {
-    // Whether space is being held for playback (so only its own keyup ends the hold).
-    let holding = false;
-    const release = () => {
-      holding = false;
-      useReplay.getState().releaseHold();
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      const t = e.target;
-      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement || (t instanceof HTMLElement && t.isContentEditable)) return;
-      if (useShare.getState().phase.kind !== "idle") return;
-      const s = useReplay.getState();
-      // Off a session (Home, a circuit's page; the session left there stays paused) there's only the screenshot.
-      if (!s.session || s.view !== "replay") {
-        if ((e.key !== "s" && e.key !== "S") || e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-        e.preventDefault();
-        useShare.getState().start();
-        return;
-      }
-      const compare = comparing(s);
-      // The spoiler prompt is open (over the replay): keys are its own.
-      if (s.noSpoilers === null && !compare) return;
-      if (compare && !" pPsS".includes(e.key) && e.key !== "Escape") return;
-      // Don't let space/arrows also activate whatever button was clicked last.
-      if (e.target instanceof HTMLButtonElement) e.target.blur();
-      // The capture speed sits past the last button: - steps down to 64×.
-      const speedIndex = s.speed === CAPTURE_SPEED ? SPEEDS.length : SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number]);
-      switch (e.key) {
-        case " ":
-          if (!e.repeat) {
-            holding = true;
-            s.setPlaying(true);
-          }
-          break;
-        case "p":
-        case "P":
-          // Leave browser shortcuts (e.g. Ctrl/Cmd+P) alone.
-          if (e.ctrlKey || e.metaKey || e.altKey) return;
-          if (!e.repeat) s.togglePlay();
-          break;
-        case "ArrowLeft":
-          s.seekBy(e.shiftKey ? -30_000 : -5_000);
-          break;
-        case "ArrowRight":
-          s.seekBy(e.shiftKey ? 30_000 : 5_000);
-          break;
-        case "[":
-          s.stepLap(-1);
-          break;
-        case "]":
-          s.stepLap(1);
-          break;
-        case "-":
-          s.setSpeed(SPEEDS[Math.max(0, speedIndex - 1)]);
-          break;
-        case "+":
-        case "=":
-          if (speedIndex < SPEEDS.length) s.setSpeed(SPEEDS[Math.min(SPEEDS.length - 1, speedIndex + 1)]);
-          break;
-        case "Escape":
-          s.clearSelection();
-          break;
-        case "s":
-        case "S":
-          if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
-          useShare.getState().start();
-          break;
-        default: {
-          // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×, and 8 → the hidden 128×.
-          const n = Number(e.key);
-          if (!Number.isInteger(n) || n < 1 || n > SPEEDS.length + 1 || e.ctrlKey || e.metaKey || e.altKey) return;
-          s.setSpeed(n > SPEEDS.length ? CAPTURE_SPEED : SPEEDS[n - 1]);
+    useEffect(() => {
+        // Whether space is being held for playback (so only its own keyup ends the hold).
+        let holding = false
+        const release = () => {
+            holding = false
+            useReplay.getState().releaseHold()
         }
-      }
-      e.preventDefault();
-    };
 
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== " " || !holding) return;
-      e.preventDefault();
-      release();
-    };
+        const onKeyDown = (e: KeyboardEvent) => {
+            const t = e.target
+            if (
+                t instanceof HTMLInputElement ||
+                t instanceof HTMLTextAreaElement ||
+                t instanceof HTMLSelectElement ||
+                (t instanceof HTMLElement && t.isContentEditable)
+            )
+                return
+            if (useShare.getState().phase.kind !== "idle") return
+            const s = useReplay.getState()
+            // Off a session (Home, a circuit's page; the session left there stays paused) there's only the screenshot.
+            if (!s.session || s.view !== "replay") {
+                if (
+                    (e.key !== "s" && e.key !== "S") ||
+                    e.ctrlKey ||
+                    e.metaKey ||
+                    e.altKey ||
+                    e.repeat
+                )
+                    return
+                e.preventDefault()
+                useShare.getState().start()
+                return
+            }
+            const compare = comparing(s)
+            // The spoiler prompt is open (over the replay): keys are its own.
+            if (s.noSpoilers === null && !compare) return
+            if (compare && !" pPsS".includes(e.key) && e.key !== "Escape")
+                return
+            // Don't let space/arrows also activate whatever button was clicked last.
+            if (e.target instanceof HTMLButtonElement) e.target.blur()
+            // The capture speed sits past the last button: - steps down to 64×.
+            const speedIndex =
+                s.speed === CAPTURE_SPEED
+                    ? SPEEDS.length
+                    : SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number])
+            switch (e.key) {
+                case " ":
+                    if (!e.repeat) {
+                        holding = true
+                        s.setPlaying(true)
+                    }
+                    break
+                case "p":
+                case "P":
+                    // Leave browser shortcuts (e.g. Ctrl/Cmd+P) alone.
+                    if (e.ctrlKey || e.metaKey || e.altKey) return
+                    if (!e.repeat) s.togglePlay()
+                    break
+                case "ArrowLeft":
+                    s.seekBy(e.shiftKey ? -30_000 : -5_000)
+                    break
+                case "ArrowRight":
+                    s.seekBy(e.shiftKey ? 30_000 : 5_000)
+                    break
+                case "[":
+                    s.stepLap(-1)
+                    break
+                case "]":
+                    s.stepLap(1)
+                    break
+                case "-":
+                    s.setSpeed(SPEEDS[Math.max(0, speedIndex - 1)])
+                    break
+                case "+":
+                case "=":
+                    if (speedIndex < SPEEDS.length)
+                        s.setSpeed(
+                            SPEEDS[Math.min(SPEEDS.length - 1, speedIndex + 1)]
+                        )
+                    break
+                case "Escape":
+                    s.clearSelection()
+                    break
+                case "s":
+                case "S":
+                    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+                    useShare.getState().start()
+                    break
+                default: {
+                    // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×, and 8 → the hidden 128×.
+                    const n = Number(e.key)
+                    if (
+                        !Number.isInteger(n) ||
+                        n < 1 ||
+                        n > SPEEDS.length + 1 ||
+                        e.ctrlKey ||
+                        e.metaKey ||
+                        e.altKey
+                    )
+                        return
+                    s.setSpeed(
+                        n > SPEEDS.length ? CAPTURE_SPEED : SPEEDS[n - 1]
+                    )
+                }
+            }
+            e.preventDefault()
+        }
 
-    // The keyup never arrives if the key is released while the page is unfocused or hidden.
-    const onVisibility = () => {
-      if (document.visibilityState === "hidden") release();
-    };
+        const onKeyUp = (e: KeyboardEvent) => {
+            if (e.key !== " " || !holding) return
+            e.preventDefault()
+            release()
+        }
 
-    window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
-    window.addEventListener("blur", release);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
-      window.removeEventListener("blur", release);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, []);
+        // The keyup never arrives if the key is released while the page is unfocused or hidden.
+        const onVisibility = () => {
+            if (document.visibilityState === "hidden") release()
+        }
+
+        window.addEventListener("keydown", onKeyDown)
+        window.addEventListener("keyup", onKeyUp)
+        window.addEventListener("blur", release)
+        document.addEventListener("visibilitychange", onVisibility)
+        return () => {
+            window.removeEventListener("keydown", onKeyDown)
+            window.removeEventListener("keyup", onKeyUp)
+            window.removeEventListener("blur", release)
+            document.removeEventListener("visibilitychange", onVisibility)
+        }
+    }, [])
 }

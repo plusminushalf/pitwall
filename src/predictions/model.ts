@@ -2,155 +2,177 @@
 // five on its starting grid, made into a card to post before it's decided. All in the browser: the post's own time is
 // the proof.
 
-import { lead } from "./format";
+import { lead } from "./format"
 
 export const TEAMS = [
-  { id: "mclaren", name: "McLaren", colour: "#F47600" },
-  { id: "ferrari", name: "Ferrari", colour: "#ED1131" },
-  { id: "redbull", name: "Red Bull", colour: "#4781D7" },
-  { id: "mercedes", name: "Mercedes", colour: "#00D7B6" },
-  { id: "aston", name: "Aston Martin", colour: "#229971" },
-  { id: "alpine", name: "Alpine", colour: "#00A1E8" },
-  { id: "williams", name: "Williams", colour: "#1868DB" },
-  { id: "rb", name: "Racing Bulls", colour: "#6C98FF" },
-  { id: "haas", name: "Haas", colour: "#9C9FA2" },
-  { id: "audi", name: "Audi", colour: "#F50537" },
-  { id: "cadillac", name: "Cadillac", colour: "#909090" },
-] as const;
+    { id: "mclaren", name: "McLaren", colour: "#F47600" },
+    { id: "ferrari", name: "Ferrari", colour: "#ED1131" },
+    { id: "redbull", name: "Red Bull", colour: "#4781D7" },
+    { id: "mercedes", name: "Mercedes", colour: "#00D7B6" },
+    { id: "aston", name: "Aston Martin", colour: "#229971" },
+    { id: "alpine", name: "Alpine", colour: "#00A1E8" },
+    { id: "williams", name: "Williams", colour: "#1868DB" },
+    { id: "rb", name: "Racing Bulls", colour: "#6C98FF" },
+    { id: "haas", name: "Haas", colour: "#9C9FA2" },
+    { id: "audi", name: "Audi", colour: "#F50537" },
+    { id: "cadillac", name: "Cadillac", colour: "#909090" }
+] as const
 // Colours: OpenF1's team_colour for 2026 (the broadcast's).
 
-export type TeamId = (typeof TEAMS)[number]["id"];
-export type Team = (typeof TEAMS)[number];
+export type TeamId = (typeof TEAMS)[number]["id"]
+export type Team = (typeof TEAMS)[number]
 
-const TEAM_BY_ID = new Map<string, Team>(TEAMS.map((t) => [t.id, t]));
+const TEAM_BY_ID = new Map<string, Team>(TEAMS.map((t) => [t.id, t]))
 export const team = (id: TeamId): Team => {
-  const t = TEAM_BY_ID.get(id);
-  if (!t) throw new Error(`no team ${id}`);
-  return t;
-};
-
-export interface Race {
-  /** OpenF1's session key of the race, so a pit-stop feed can find it later. */
-  id: number;
-  name: string;
-  /** For tight spaces: "Singapore GP". */
-  short: string;
-  place: string;
-  /** Lights out, ms since the epoch (UTC). Calls lock until then. */
-  start: number;
+    const t = TEAM_BY_ID.get(id)
+    if (!t) throw new Error(`no team ${id}`)
+    return t
 }
 
-const race = (id: number, name: string, place: string, start: string): Race => ({
-  id,
-  name,
-  short: name.replace(/ Grand Prix$/, " GP"),
-  place,
-  start: Date.parse(start),
-});
+export interface Race {
+    /** OpenF1's session key of the race, so a pit-stop feed can find it later. */
+    id: number
+    name: string
+    /** For tight spaces: "Singapore GP". */
+    short: string
+    place: string
+    /** Lights out, ms since the epoch (UTC). Calls lock until then. */
+    start: number
+}
+
+const race = (
+    id: number,
+    name: string,
+    place: string,
+    start: string
+): Race => ({
+    id,
+    name,
+    short: name.replace(/ Grand Prix$/, " GP"),
+    place,
+    start: Date.parse(start)
+})
 
 /** The 2026 season's races (OpenF1 sessions, cancelled ones left out). */
 export const RACES: Race[] = [
-  race(11234, "Australian Grand Prix", "Melbourne", "2026-03-08T04:00:00Z"),
-  race(11245, "Chinese Grand Prix", "Shanghai", "2026-03-15T07:00:00Z"),
-  race(11253, "Japanese Grand Prix", "Suzuka", "2026-03-29T05:00:00Z"),
-  race(11280, "Miami Grand Prix", "Miami", "2026-05-03T17:00:00Z"),
-  race(11291, "Canadian Grand Prix", "Montréal", "2026-05-24T20:00:00Z"),
-  race(11299, "Monaco Grand Prix", "Monte Carlo", "2026-06-07T13:00:00Z"),
-  race(11307, "Barcelona Grand Prix", "Barcelona", "2026-06-14T13:00:00Z"),
-  race(11315, "Austrian Grand Prix", "Spielberg", "2026-06-28T13:00:00Z"),
-  race(11326, "British Grand Prix", "Silverstone", "2026-07-05T14:00:00Z"),
-  race(11334, "Belgian Grand Prix", "Spa", "2026-07-19T13:00:00Z"),
-  race(11342, "Hungarian Grand Prix", "Budapest", "2026-07-26T13:00:00Z"),
-  race(11353, "Dutch Grand Prix", "Zandvoort", "2026-08-23T13:00:00Z"),
-  race(11361, "Italian Grand Prix", "Monza", "2026-09-06T13:00:00Z"),
-  race(11369, "Spanish Grand Prix", "Madrid", "2026-09-13T13:00:00Z"),
-  race(11377, "Azerbaijan Grand Prix", "Baku", "2026-09-26T11:00:00Z"),
-  // The Bahrain GP moved to Sepang (meeting 1308); the April one at Sakhir was cancelled.
-  race(11731, "Bahrain Grand Prix", "Sepang", "2026-10-04T07:00:00Z"),
-  race(11388, "Singapore Grand Prix", "Marina Bay", "2026-10-11T12:00:00Z"),
-  race(11396, "United States Grand Prix", "Austin", "2026-10-25T20:00:00Z"),
-  race(11404, "Mexico City Grand Prix", "Mexico City", "2026-11-01T20:00:00Z"),
-  race(11412, "São Paulo Grand Prix", "Interlagos", "2026-11-08T17:00:00Z"),
-  race(11420, "Las Vegas Grand Prix", "Las Vegas", "2026-11-22T04:00:00Z"),
-  race(11428, "Qatar Grand Prix", "Lusail", "2026-11-29T16:00:00Z"),
-  race(11436, "Abu Dhabi Grand Prix", "Yas Marina", "2026-12-06T13:00:00Z"),
-];
+    race(11234, "Australian Grand Prix", "Melbourne", "2026-03-08T04:00:00Z"),
+    race(11245, "Chinese Grand Prix", "Shanghai", "2026-03-15T07:00:00Z"),
+    race(11253, "Japanese Grand Prix", "Suzuka", "2026-03-29T05:00:00Z"),
+    race(11280, "Miami Grand Prix", "Miami", "2026-05-03T17:00:00Z"),
+    race(11291, "Canadian Grand Prix", "Montréal", "2026-05-24T20:00:00Z"),
+    race(11299, "Monaco Grand Prix", "Monte Carlo", "2026-06-07T13:00:00Z"),
+    race(11307, "Barcelona Grand Prix", "Barcelona", "2026-06-14T13:00:00Z"),
+    race(11315, "Austrian Grand Prix", "Spielberg", "2026-06-28T13:00:00Z"),
+    race(11326, "British Grand Prix", "Silverstone", "2026-07-05T14:00:00Z"),
+    race(11334, "Belgian Grand Prix", "Spa", "2026-07-19T13:00:00Z"),
+    race(11342, "Hungarian Grand Prix", "Budapest", "2026-07-26T13:00:00Z"),
+    race(11353, "Dutch Grand Prix", "Zandvoort", "2026-08-23T13:00:00Z"),
+    race(11361, "Italian Grand Prix", "Monza", "2026-09-06T13:00:00Z"),
+    race(11369, "Spanish Grand Prix", "Madrid", "2026-09-13T13:00:00Z"),
+    race(11377, "Azerbaijan Grand Prix", "Baku", "2026-09-26T11:00:00Z"),
+    // The Bahrain GP moved to Sepang (meeting 1308); the April one at Sakhir was cancelled.
+    race(11731, "Bahrain Grand Prix", "Sepang", "2026-10-04T07:00:00Z"),
+    race(11388, "Singapore Grand Prix", "Marina Bay", "2026-10-11T12:00:00Z"),
+    race(11396, "United States Grand Prix", "Austin", "2026-10-25T20:00:00Z"),
+    race(
+        11404,
+        "Mexico City Grand Prix",
+        "Mexico City",
+        "2026-11-01T20:00:00Z"
+    ),
+    race(11412, "São Paulo Grand Prix", "Interlagos", "2026-11-08T17:00:00Z"),
+    race(11420, "Las Vegas Grand Prix", "Las Vegas", "2026-11-22T04:00:00Z"),
+    race(11428, "Qatar Grand Prix", "Lusail", "2026-11-29T16:00:00Z"),
+    race(11436, "Abu Dhabi Grand Prix", "Yas Marina", "2026-12-06T13:00:00Z")
+]
 
 /** What a race's calls answer. Turn 1 is the usual; QUESTION lists the races that ask something else. */
-export type Question = "turn1-leader" | "winner";
+export type Question = "turn1-leader" | "winner"
 export const QUESTION: Record<number, Question> = {
-  11731: "winner",
-};
-export const questionOf = (race: number): Question => QUESTION[race] ?? "turn1-leader";
+    11731: "winner"
+}
+export const questionOf = (race: number): Question =>
+    QUESTION[race] ?? "turn1-leader"
 
 /** The words of each question: the page's, the card's and the post's. */
 export const ASK: Record<
-  Question,
-  {
-    title: string;
-    /** The card's tag over the race. */
-    tag: string;
-    /** The card's ghosted word, two lines. */
-    ghost: [string, string];
-    /** The list's name, for screen readers. */
-    list: string;
-    /** Under the list: what counts. */
-    rule: string;
-    /** The post's first line. */
-    claim: (name: string, race: Race) => string;
-    /** Home's banner. */
-    banner: string;
-    /** When calls close, in words: "lights out", "the flag". */
-    deadline: string;
-  }
+    Question,
+    {
+        title: string
+        /** The card's tag over the race. */
+        tag: string
+        /** The card's ghosted word, two lines. */
+        ghost: [string, string]
+        /** The list's name, for screen readers. */
+        list: string
+        /** Under the list: what counts. */
+        rule: string
+        /** The post's first line. */
+        claim: (name: string, race: Race) => string
+        /** Home's banner. */
+        banner: string
+        /** When calls close, in words: "lights out", "the flag". */
+        deadline: string
+    }
 > = {
-  "turn1-leader": {
-    title: "Who leads into Turn 1?",
-    tag: "Turn 1 call",
-    ghost: ["TURN", "ONE"],
-    list: "Who leads into Turn 1",
-    rule: "It's whoever's ahead coming out of Turn 1.",
-    claim: (name) => `My call: ${name} leads into Turn 1.`,
-    banner: "Call your Turn 1 leader here",
-    deadline: "lights out",
-  },
-  winner: {
-    title: "Who wins?",
-    tag: "Race win call",
-    ghost: ["RACE", "WIN"],
-    list: "Who wins the race",
-    rule: "It's whoever takes the chequered flag first.",
-    claim: (name, race) => `My call: ${name} wins the ${race.short}.`,
-    banner: "Call your race winner here",
-    deadline: "the flag",
-  },
-};
+    "turn1-leader": {
+        title: "Who leads into Turn 1?",
+        tag: "Turn 1 call",
+        ghost: ["TURN", "ONE"],
+        list: "Who leads into Turn 1",
+        rule: "It's whoever's ahead coming out of Turn 1.",
+        claim: (name) => `My call: ${name} leads into Turn 1.`,
+        banner: "Call your Turn 1 leader here",
+        deadline: "lights out"
+    },
+    winner: {
+        title: "Who wins?",
+        tag: "Race win call",
+        ghost: ["RACE", "WIN"],
+        list: "Who wins the race",
+        rule: "It's whoever takes the chequered flag first.",
+        claim: (name, race) => `My call: ${name} wins the ${race.short}.`,
+        banner: "Call your race winner here",
+        deadline: "the flag"
+    }
+}
 
-const THREE_HOURS = 3 * 60 * 60_000;
+const THREE_HOURS = 3 * 60 * 60_000
 /** When a race's calls close: lights out for Turn 1; the flag, taken as three hours after lights out, for the win. */
-export const closes = (race: Race): number => (questionOf(race.id) === "winner" ? race.start + THREE_HOURS : race.start);
+export const closes = (race: Race): number =>
+    questionOf(race.id) === "winner" ? race.start + THREE_HOURS : race.start
 
 /**
  * How long before it's decided a call was made, for the card and the post: "9 hrs" "to go" before lights out, else
  * (a race-win call during the race) "1 hr" "into the race".
  */
 export const timing = (race: Race, at: number): { n: string; unit: string } =>
-  at <= race.start ? { n: lead(race.start - at), unit: "to go" } : { n: lead(at - race.start), unit: "into the race" };
+    at <= race.start
+        ? { n: lead(race.start - at), unit: "to go" }
+        : { n: lead(at - race.start), unit: "into the race" }
 
 /** The next race: the one calls are for (open once its starting grid's top five are in GRID_TOP5). */
-export const nextRace = (now: number): Race | undefined => RACES.find((r) => closes(r) > now);
+export const nextRace = (now: number): Race | undefined =>
+    RACES.find((r) => closes(r) > now)
 
 export interface Driver {
-  number: number;
-  first: string;
-  last: string;
-  code: string;
-  team: TeamId;
-  /** Where they start, penalties applied. */
-  grid: number;
+    number: number
+    first: string
+    last: string
+    code: string
+    team: TeamId
+    /** Where they start, penalties applied. */
+    grid: number
 }
 
-const driver = (grid: number, number: number, first: string, last: string, code: string, team: TeamId): Driver => ({ number, first, last, code, team, grid });
+const driver = (
+    grid: number,
+    number: number,
+    first: string,
+    last: string,
+    code: string,
+    team: TeamId
+): Driver => ({ number, first, last, code, team, grid })
 
 /**
  * The top five of each race's starting grid, penalties applied (formula1.com's starting grid; OpenF1's
@@ -158,23 +180,24 @@ const driver = (grid: number, number: number, first: string, last: string, code:
  * here: add them after qualifying, and check again when grid penalties come out.
  */
 export const GRID_TOP5: Record<number, Driver[]> = {
-  // Qualifying 11730 (2026-10-03), then Hadjar's five-place penalty (his seventh engine) took him from 3rd to 8th.
-  11731: [
-    driver(1, 3, "Max", "Verstappen", "VER", "redbull"),
-    driver(2, 44, "Lewis", "Hamilton", "HAM", "ferrari"),
-    driver(3, 12, "Kimi", "Antonelli", "ANT", "mercedes"),
-    driver(4, 16, "Charles", "Leclerc", "LEC", "ferrari"),
-    driver(5, 1, "Lando", "Norris", "NOR", "mclaren"),
-  ],
-};
+    // Qualifying 11730 (2026-10-03), then Hadjar's five-place penalty (his seventh engine) took him from 3rd to 8th.
+    11731: [
+        driver(1, 3, "Max", "Verstappen", "VER", "redbull"),
+        driver(2, 44, "Lewis", "Hamilton", "HAM", "ferrari"),
+        driver(3, 12, "Kimi", "Antonelli", "ANT", "mercedes"),
+        driver(4, 16, "Charles", "Leclerc", "LEC", "ferrari"),
+        driver(5, 1, "Lando", "Norris", "NOR", "mclaren")
+    ]
+}
 
-export const topFive = (race: number): Driver[] => GRID_TOP5[race] ?? [];
-export const driverIn = (race: number, number: number): Driver | undefined => topFive(race).find((d) => d.number === number);
+export const topFive = (race: number): Driver[] => GRID_TOP5[race] ?? []
+export const driverIn = (race: number, number: number): Driver | undefined =>
+    topFive(race).find((d) => d.number === number)
 /** What's called: the answer to the race's question, by car number (none picked yet: null). */
-export type Call = { kind: Question; driver: number | null };
+export type Call = { kind: Question; driver: number | null }
 
 /** The race calls are for now: the next one, once its grid's top five are in. */
 export function openRace(now: number): Race | null {
-  const race = nextRace(now);
-  return race && topFive(race.id).length ? race : null;
+    const race = nextRace(now)
+    return race && topFive(race.id).length ? race : null
 }

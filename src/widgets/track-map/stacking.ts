@@ -9,31 +9,34 @@
  * Returns the order and whether it's holding back a swap.
  */
 export function stackOrder(
-  last: readonly number[] | null,
-  target: readonly number[],
-  focused: number | null,
-  overlap: (a: number, b: number) => boolean,
-  held: boolean,
+    last: readonly number[] | null,
+    target: readonly number[],
+    focused: number | null,
+    overlap: (a: number, b: number) => boolean,
+    held: boolean
 ): { order: number[]; holding: boolean } {
-  const rest = target.filter((n) => n !== focused);
-  const top = focused != null && target.includes(focused) ? [focused] : [];
-  if (!last || held) return { order: [...rest, ...top], holding: false };
-  // Last frame's order for the cars it had, in the places the target gives cars it had.
-  const was = new Map(last.map((n, i) => [n, i]));
-  const kept = rest.filter((n) => was.has(n)).sort((a, b) => (was.get(a) ?? 0) - (was.get(b) ?? 0));
-  let k = 0;
-  const keep = rest.map((n) => (was.has(n) ? kept[k++] : n));
-  // A swap shows only between dots that overlap: hold the order while any of those would swap.
-  const at = new Map(rest.map((n, i) => [n, i]));
-  for (let i = 0; i < keep.length; i++) {
-    const ai = at.get(keep[i]);
-    if (ai == null) continue;
-    for (let j = i + 1; j < keep.length; j++) {
-      const aj = at.get(keep[j]);
-      if (aj != null && ai > aj && overlap(keep[i], keep[j])) return { order: [...keep, ...top], holding: true };
+    const rest = target.filter((n) => n !== focused)
+    const top = focused != null && target.includes(focused) ? [focused] : []
+    if (!last || held) return { order: [...rest, ...top], holding: false }
+    // Last frame's order for the cars it had, in the places the target gives cars it had.
+    const was = new Map(last.map((n, i) => [n, i]))
+    const kept = rest
+        .filter((n) => was.has(n))
+        .sort((a, b) => (was.get(a) ?? 0) - (was.get(b) ?? 0))
+    let k = 0
+    const keep = rest.map((n) => (was.has(n) ? kept[k++] : n))
+    // A swap shows only between dots that overlap: hold the order while any of those would swap.
+    const at = new Map(rest.map((n, i) => [n, i]))
+    for (let i = 0; i < keep.length; i++) {
+        const ai = at.get(keep[i])
+        if (ai == null) continue
+        for (let j = i + 1; j < keep.length; j++) {
+            const aj = at.get(keep[j])
+            if (aj != null && ai > aj && overlap(keep[i], keep[j]))
+                return { order: [...keep, ...top], holding: true }
+        }
     }
-  }
-  return { order: [...rest, ...top], holding: false };
+    return { order: [...rest, ...top], holding: false }
 }
 
 /**
@@ -41,7 +44,15 @@ export function stackOrder(
  * the rest, each by priority (top of the stack first). So a label stays with its car while it fits, rather than
  * passing to whichever car the running order puts ahead of it.
  */
-export function labelOrder<T>(drawOrder: readonly T[], focused: (c: T) => boolean, labelled: (c: T) => boolean): T[] {
-  const top = [...drawOrder].reverse();
-  return [...top.filter(focused), ...top.filter((c) => !focused(c) && labelled(c)), ...top.filter((c) => !focused(c) && !labelled(c))];
+export function labelOrder<T>(
+    drawOrder: readonly T[],
+    focused: (c: T) => boolean,
+    labelled: (c: T) => boolean
+): T[] {
+    const top = [...drawOrder].reverse()
+    return [
+        ...top.filter(focused),
+        ...top.filter((c) => !focused(c) && labelled(c)),
+        ...top.filter((c) => !focused(c) && !labelled(c))
+    ]
 }

@@ -1,4 +1,4 @@
-import type { SessionType } from "../../src/types";
+import type { SessionType } from "../../src/types"
 
 /**
  * Version of the processed output (meta.json, drivers/, laps/) that ingestCore, normalize, quali and practice
@@ -13,10 +13,18 @@ import type { SessionType } from "../../src/types";
  * Qualifying 3: timed as live qualifying (meta.qualiLive, the timing screen's order, deleted laps on the laps), so the
  * replay opens in the grid with its dashboards.
  */
-export const FORMAT_VERSIONS: Readonly<Record<SessionType, number>> = { Race: 2, Qualifying: 3, Practice: 2 };
+export const FORMAT_VERSIONS: Readonly<Record<SessionType, number>> = {
+    Race: 2,
+    Qualifying: 3,
+    Practice: 2
+}
 
 /** The format a session of this type is processed in today (entries without a type are races). */
-export const formatVersion = (sessionType: SessionType | undefined): number => FORMAT_VERSIONS[sessionType ?? "Race"];
+export const formatVersion = (sessionType: SessionType | undefined): number =>
+    FORMAT_VERSIONS[sessionType ?? "Race"]
 
 /** Whether a stored session was processed in today's format for its type (else it's offered an update). */
-export const isCurrentFormat = (e: { format: number; sessionType?: SessionType }): boolean => e.format === formatVersion(e.sessionType);
+export const isCurrentFormat = (e: {
+    format: number
+    sessionType?: SessionType
+}): boolean => e.format === formatVersion(e.sessionType)

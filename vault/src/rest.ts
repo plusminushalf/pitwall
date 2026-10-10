@@ -12,136 +12,204 @@
 // pass-through (proxy.ts, same-origin: no preflight), and so are the authenticated ones for PROXY_STICKY_MS after,
 // without trying direct first. Requests without a token are never proxied.
 
-import type { Budget, Priority } from "./budget";
-import type { GetResult, Params, RestEndpoint } from "./protocol";
+import type { Budget, Priority } from "./budget"
+import type { GetResult, Params, RestEndpoint } from "./protocol"
 
-export const REST_BASE = "https://api.openf1.org/v1/";
+export const REST_BASE = "https://api.openf1.org/v1/"
 
 export type RestFetch = (
-  url: string,
-  init: { method: "GET"; headers: Record<string, string>; credentials: "omit"; referrerPolicy: "no-referrer"; timeoutMs: number },
-) => Promise<{ status: number; arrayBuffer(): Promise<ArrayBuffer>; headers?: { get(name: string): string | null } }>;
+    url: string,
+    init: {
+        method: "GET"
+        headers: Record<string, string>
+        credentials: "omit"
+        referrerPolicy: "no-referrer"
+        timeoutMs: number
+    }
+) => Promise<{
+    status: number
+    arrayBuffer(): Promise<ArrayBuffer>
+    headers?: { get(name: string): string | null }
+}>
 
 export type TokenSource = {
-  /** The token to send, or null (go unauthenticated). */
-  current(): string | null;
-  onUnauthorized(used: string): Promise<"retry" | "give_up">;
-};
+    /** The token to send, or null (go unauthenticated). */
+    current(): string | null
+    onUnauthorized(used: string): Promise<"retry" | "give_up">
+}
 
 export class RestError extends Error {
-  constructor(readonly code: "network") {
-    super("couldn't reach OpenF1");
-  }
+    constructor(readonly code: "network") {
+        super("couldn't reach OpenF1")
+    }
 }
 
 /**
  * The URL for an (already validated) endpoint and params. A name with a comparison suffix is written the
  * way OpenF1 reads it: `date>=2024-03-02` (the URL parser percent-encodes `<` and `>`, OpenF1 decodes them).
  */
-export function restUrl(endpoint: RestEndpoint, params: Params, base = REST_BASE): string {
-  const parts = Object.entries(params).map(([k, v]) => {
-    const m = /^(.*?)(>=|<=|>|<)?$/.exec(k);
-    const name = encodeURIComponent(m?.[1] ?? k);
-    return `${name}${m?.[2] ?? "="}${encodeURIComponent(String(v))}`;
-  });
-  return `${base}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`;
+export function restUrl(
+    endpoint: RestEndpoint,
+    params: Params,
+    base = REST_BASE
+): string {
+    const parts = Object.entries(params).map(([k, v]) => {
+        const m = /^(.*?)(>=|<=|>|<)?$/.exec(k)
+        const name = encodeURIComponent(m?.[1] ?? k)
+        return `${name}${m?.[2] ?? "="}${encodeURIComponent(String(v))}`
+    })
+    return `${base}${endpoint}${parts.length ? `?${parts.join("&")}` : ""}`
 }
 
 /** OpenF1's published rate limits (docs/hypotheses.md, facts): per second and per minute. */
-export type RateLimit = { perSecond: number; perMinute: number };
-export const AUTH_LIMIT: RateLimit = { perSecond: 6, perMinute: 60 };
-export const ANON_LIMIT: RateLimit = { perSecond: 3, perMinute: 30 };
+export type RateLimit = { perSecond: number; perMinute: number }
+export const AUTH_LIMIT: RateLimit = { perSecond: 6, perMinute: 60 }
+export const ANON_LIMIT: RateLimit = { perSecond: 3, perMinute: 30 }
 
 /** ms per (1 / perSecond) between request starts: 1000 plus a margin for jitter (budget.ts). */
-export const SPACING = 1150;
+export const SPACING = 1150
 /** A 429 is retried this many times (after the budget's pause) before it goes back to the caller. */
-export const RETRIES_429 = 3;
+export const RETRIES_429 = 3
 /** Per request (headers and body): live gap-fills must not hang; a download's telemetry can be 5 MB. */
-export const TIMEOUT_MS = 120_000;
+export const TIMEOUT_MS = 120_000
 /** After a request with a token couldn't reach OpenF1, authenticated requests go through the pass-through this long. */
-export const PROXY_STICKY_MS = 10 * 60_000;
+export const PROXY_STICKY_MS = 10 * 60_000
 
 /** Who is asking (the budget's fairness unit), how urgent it is, and how long the request may take. */
-export type RestOpts = { caller: string; priority?: Priority; timeoutMs?: number };
+export type RestOpts = {
+    caller: string
+    priority?: Priority
+    timeoutMs?: number
+}
 
 /** Retry-After as ms (seconds or an HTTP date), when the response has it (cross-origin, usually not readable). */
-export function retryAfterMs(value: string | null | undefined, now = Date.now()): number | undefined {
-  if (!value) return undefined;
-  const s = Number(value);
-  if (Number.isFinite(s)) return s > 0 ? s * 1000 : undefined;
-  const at = Date.parse(value);
-  return Number.isFinite(at) && at > now ? at - now : undefined;
+export function retryAfterMs(
+    value: string | null | undefined,
+    now = Date.now()
+): number | undefined {
+    if (!value) return undefined
+    const s = Number(value)
+    if (Number.isFinite(s)) return s > 0 ? s * 1000 : undefined
+    const at = Date.parse(value)
+    return Number.isFinite(at) && at > now ? at - now : undefined
 }
 
 export class Rest {
-  constructor(
-    private fetch: RestFetch,
-    private tokens: TokenSource,
-    /** REST_BASE; the dev vault can point it at the local fake broker (vault/fakebroker.ts) or the simulation. */
-    private base = REST_BASE,
-    /** The rate budget (frame.ts always passes one; unit tests may not). */
-    private budget: Pick<Budget, "acquire"> | null = null,
-    /** The vault's pass-through (`/openf1/v1/` on its own origin), for authenticated requests OpenF1 refuses to browsers; null: none. */
-    private readonly proxy: string | null = null,
-    private now: () => number = Date.now,
-  ) {}
+    constructor(
+        private fetch: RestFetch,
+        private tokens: TokenSource,
+        /** REST_BASE; the dev vault can point it at the local fake broker (vault/fakebroker.ts) or the simulation. */
+        private base = REST_BASE,
+        /** The rate budget (frame.ts always passes one; unit tests may not). */
+        private budget: Pick<Budget, "acquire"> | null = null,
+        /** The vault's pass-through (`/openf1/v1/` on its own origin), for authenticated requests OpenF1 refuses to browsers; null: none. */
+        private readonly proxy: string | null = null,
+        private now: () => number = Date.now
+    ) {}
 
-  /** Until then, authenticated requests go through the pass-through. */
-  private proxyUntil = 0;
+    /** Until then, authenticated requests go through the pass-through. */
+    private proxyUntil = 0
 
-  /** One read, started when the budget allows. Rejects with RestError (the network) or the budget's BudgetError. */
-  get(endpoint: RestEndpoint, params: Params, opts: RestOpts = { caller: "default" }): Promise<GetResult> {
-    return this.run(endpoint, params, opts);
-  }
+    /** One read, started when the budget allows. Rejects with RestError (the network) or the budget's BudgetError. */
+    get(
+        endpoint: RestEndpoint,
+        params: Params,
+        opts: RestOpts = { caller: "default" }
+    ): Promise<GetResult> {
+        return this.run(endpoint, params, opts)
+    }
 
-  private async run(endpoint: RestEndpoint, params: Params, opts: RestOpts): Promise<GetResult> {
-    let retried401 = false;
-    let viaProxy = false;
-    for (let tries429 = 0; ; ) {
-      const slot = this.budget ? await this.budget.acquire(opts.caller, opts.priority ?? "normal", { front: tries429 > 0 || retried401 || viaProxy }) : null;
-      // The token after the wait: the budget admitted it under the limits that apply to it now.
-      const token = this.tokens.current();
-      const proxied = token !== null && this.proxy !== null && (viaProxy || this.now() < this.proxyUntil);
-      let res: GetResult & { retryAfterMs?: number };
-      try {
-        res = await this.once(restUrl(endpoint, params, proxied ? this.proxy : this.base), token, opts.timeoutMs ?? TIMEOUT_MS);
-      } catch (e) {
-        slot?.release({ status: null });
-        // OpenF1 out of reach with a token: what its refused preflight looks like during a live session. Again through
-        // the pass-through, and the next ones for a while.
-        if (token !== null && this.proxy !== null && !proxied) {
-          this.proxyUntil = this.now() + PROXY_STICKY_MS;
-          viaProxy = true;
-          continue;
+    private async run(
+        endpoint: RestEndpoint,
+        params: Params,
+        opts: RestOpts
+    ): Promise<GetResult> {
+        let retried401 = false
+        let viaProxy = false
+        for (let tries429 = 0; ; ) {
+            const slot = this.budget
+                ? await this.budget.acquire(
+                      opts.caller,
+                      opts.priority ?? "normal",
+                      { front: tries429 > 0 || retried401 || viaProxy }
+                  )
+                : null
+            // The token after the wait: the budget admitted it under the limits that apply to it now.
+            const token = this.tokens.current()
+            const proxied =
+                token !== null &&
+                this.proxy !== null &&
+                (viaProxy || this.now() < this.proxyUntil)
+            let res: GetResult & { retryAfterMs?: number }
+            try {
+                res = await this.once(
+                    restUrl(endpoint, params, proxied ? this.proxy : this.base),
+                    token,
+                    opts.timeoutMs ?? TIMEOUT_MS
+                )
+            } catch (e) {
+                slot?.release({ status: null })
+                // OpenF1 out of reach with a token: what its refused preflight looks like during a live session. Again through
+                // the pass-through, and the next ones for a while.
+                if (token !== null && this.proxy !== null && !proxied) {
+                    this.proxyUntil = this.now() + PROXY_STICKY_MS
+                    viaProxy = true
+                    continue
+                }
+                throw e
+            }
+            slot?.release({
+                status: res.status,
+                ...(res.retryAfterMs !== undefined && {
+                    retryAfterMs: res.retryAfterMs
+                })
+            })
+            const result: GetResult = {
+                status: res.status,
+                body: res.body,
+                auth: res.auth
+            }
+            if (res.status === 429 && tries429 < RETRIES_429) {
+                tries429++
+                continue
+            }
+            if (res.status !== 401 || token === null || retried401)
+                return result
+            if (
+                (await this.tokens.onUnauthorized(token)) !== "retry" ||
+                !this.tokens.current()
+            )
+                return result
+            retried401 = true
         }
-        throw e;
-      }
-      slot?.release({ status: res.status, ...(res.retryAfterMs !== undefined && { retryAfterMs: res.retryAfterMs }) });
-      const result: GetResult = { status: res.status, body: res.body, auth: res.auth };
-      if (res.status === 429 && tries429 < RETRIES_429) {
-        tries429++;
-        continue;
-      }
-      if (res.status !== 401 || token === null || retried401) return result;
-      if ((await this.tokens.onUnauthorized(token)) !== "retry" || !this.tokens.current()) return result;
-      retried401 = true;
     }
-  }
 
-  private async once(url: string, token: string | null, timeoutMs: number): Promise<GetResult & { retryAfterMs?: number }> {
-    try {
-      const res = await this.fetch(url, {
-        method: "GET",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        credentials: "omit",
-        referrerPolicy: "no-referrer",
-        timeoutMs,
-      });
-      const body = await res.arrayBuffer();
-      const after = res.status === 429 ? retryAfterMs(res.headers?.get("retry-after")) : undefined;
-      return { status: res.status, body, auth: token !== null, ...(after !== undefined && { retryAfterMs: after }) };
-    } catch {
-      throw new RestError("network");
+    private async once(
+        url: string,
+        token: string | null,
+        timeoutMs: number
+    ): Promise<GetResult & { retryAfterMs?: number }> {
+        try {
+            const res = await this.fetch(url, {
+                method: "GET",
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+                credentials: "omit",
+                referrerPolicy: "no-referrer",
+                timeoutMs
+            })
+            const body = await res.arrayBuffer()
+            const after =
+                res.status === 429
+                    ? retryAfterMs(res.headers?.get("retry-after"))
+                    : undefined
+            return {
+                status: res.status,
+                body,
+                auth: token !== null,
+                ...(after !== undefined && { retryAfterMs: after })
+            }
+        } catch {
+            throw new RestError("network")
+        }
     }
-  }
 }

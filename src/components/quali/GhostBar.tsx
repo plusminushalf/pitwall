@@ -1,125 +1,237 @@
-import { useRef } from "react";
-import { Icon } from "../../widgetkit/ui/Icon";
-import { deltaAt, distanceAtTime, type DecodedLap } from "../../engine/compare";
-import type { CompareEntry } from "../../hooks/useCompare";
-import { usePhone } from "../../hooks/usePhone";
-import { GHOST_SPEEDS, useQuali } from "../../qualiStore";
-import { useReplay } from "../../store";
-import { Swatch } from "./CompareCharts";
-import { formatGap } from "./CompareMap";
+import { useRef } from "react"
+import { type DecodedLap, deltaAt, distanceAtTime } from "../../engine/compare"
+import type { CompareEntry } from "../../hooks/useCompare"
+import { usePhone } from "../../hooks/usePhone"
+import { GHOST_SPEEDS, useQuali } from "../../qualiStore"
+import { useReplay } from "../../store"
+import { Icon } from "../../widgetkit/ui/Icon"
+import { Swatch } from "./CompareCharts"
+import { formatGap } from "./CompareMap"
 
 const clockText = (ms: number) => {
-  const s = Math.max(0, ms) / 1000;
-  const m = Math.floor(s / 60);
-  return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`;
-};
+    const s = Math.max(0, ms) / 1000
+    const m = Math.floor(s / 60)
+    return `${m}:${(s - m * 60).toFixed(1).padStart(4, "0")}`
+}
 
 /** Ghost replay controls: the compared laps start together at the line; play, scrub, speed. */
-export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; maxDuration: number }) {
-  const t = useQuali((s) => s.ghostT);
-  const speed = useQuali((s) => s.ghostSpeed);
-  const { seekGhost, setGhostSpeed } = useQuali.getState();
-  const playing = useReplay((s) => s.playing);
-  const phone = usePhone();
-  const barRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-  const withTrace = entries.filter((e): e is CompareEntry & { trace: DecodedLap } => e.trace != null);
-  const ref = withTrace[0]?.trace ?? null;
-  const span = Math.max(1, maxDuration);
-  const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), span) / span) * 100}%`;
-  const timeAt = (clientX: number) => {
-    const el = barRef.current;
-    if (!el) throw new Error("timeAt: the scrubber isn't mounted");
-    const r = el.getBoundingClientRect();
-    return Math.min(Math.max((clientX - r.left) / r.width, 0), 1) * span;
-  };
-  const refLap = withTrace[0]?.lap;
-  const s1 = refLap?.sectors[0];
-  const s2 = refLap?.sectors[1];
-  const sectorTicks = s1 != null ? [{ label: "S2", at: s1 }, ...(s2 != null ? [{ label: "S3", at: s1 + s2 }] : [])] : [];
+export function GhostBar({
+    entries,
+    maxDuration
+}: {
+    entries: CompareEntry[]
+    maxDuration: number
+}) {
+    const t = useQuali((s) => s.ghostT)
+    const speed = useQuali((s) => s.ghostSpeed)
+    const { seekGhost, setGhostSpeed } = useQuali.getState()
+    const playing = useReplay((s) => s.playing)
+    const phone = usePhone()
+    const barRef = useRef<HTMLDivElement>(null)
+    const dragging = useRef(false)
+    const withTrace = entries.filter(
+        (e): e is CompareEntry & { trace: DecodedLap } => e.trace != null
+    )
+    const ref = withTrace[0]?.trace ?? null
+    const span = Math.max(1, maxDuration)
+    const pct = (ms: number) =>
+        `${(Math.min(Math.max(ms, 0), span) / span) * 100}%`
+    const timeAt = (clientX: number) => {
+        const el = barRef.current
+        if (!el) throw new Error("timeAt: the scrubber isn't mounted")
+        const r = el.getBoundingClientRect()
+        return Math.min(Math.max((clientX - r.left) / r.width, 0), 1) * span
+    }
+    const refLap = withTrace[0]?.lap
+    const s1 = refLap?.sectors[0]
+    const s2 = refLap?.sectors[1]
+    const sectorTicks =
+        s1 != null
+            ? [
+                  { label: "S2", at: s1 },
+                  ...(s2 != null ? [{ label: "S3", at: s1 + s2 }] : [])
+              ]
+            : []
 
-  // The scrubber: pointer events (so a finger drags it too), and touch-none so that drag never scrolls or goes
-  // Back. On touch the hit area grows to 44 px; the track itself stays where it is.
-  const scrubber = (
-    // biome-ignore lint/a11y/useFocusableInteractive: a pointer scrubber, not keyboard-reachable yet
-    <div
-      ref={barRef}
-      className="relative h-9 flex-1 cursor-pointer touch-none select-none pointer-coarse:box-content pointer-coarse:py-1"
-      onPointerDown={(e) => {
-        dragging.current = true;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        seekGhost(timeAt(e.clientX));
-      }}
-      onPointerMove={(e) => dragging.current && seekGhost(timeAt(e.clientX))}
-      onPointerUp={() => (dragging.current = false)}
-      onPointerCancel={() => (dragging.current = false)}
-      role="slider"
-      aria-label="Ghost lap time"
-      aria-valuemin={0}
-      aria-valuemax={Math.round(span)}
-      aria-valuenow={Math.round(t)}
-    >
-      <div className="absolute inset-x-0 top-4 h-1.5 overflow-hidden rounded bg-zinc-800 pointer-coarse:top-5">
-        <div className="absolute inset-y-0 left-0 bg-zinc-500" style={{ width: pct(t) }} />
-      </div>
-      {sectorTicks.map((s) => (
-        <div key={s.label} className="absolute top-3 h-3.5 w-px bg-zinc-500 pointer-coarse:top-4" style={{ left: pct(s.at * 1000) }}>
-          <span className="absolute left-1 top-3 text-[9px] text-zinc-500">{s.label}</span>
+    // The scrubber: pointer events (so a finger drags it too), and touch-none so that drag never scrolls or goes
+    // Back. On touch the hit area grows to 44 px; the track itself stays where it is.
+    const scrubber = (
+        // biome-ignore lint/a11y/useFocusableInteractive: a pointer scrubber, not keyboard-reachable yet
+        <div
+            ref={barRef}
+            className="relative h-9 flex-1 cursor-pointer touch-none select-none pointer-coarse:box-content pointer-coarse:py-1"
+            onPointerDown={(e) => {
+                dragging.current = true
+                e.currentTarget.setPointerCapture(e.pointerId)
+                seekGhost(timeAt(e.clientX))
+            }}
+            onPointerMove={(e) =>
+                dragging.current && seekGhost(timeAt(e.clientX))
+            }
+            onPointerUp={() => (dragging.current = false)}
+            onPointerCancel={() => (dragging.current = false)}
+            role="slider"
+            aria-label="Ghost lap time"
+            aria-valuemin={0}
+            aria-valuemax={Math.round(span)}
+            aria-valuenow={Math.round(t)}
+        >
+            <div className="absolute inset-x-0 top-4 h-1.5 overflow-hidden rounded bg-zinc-800 pointer-coarse:top-5">
+                <div
+                    className="absolute inset-y-0 left-0 bg-zinc-500"
+                    style={{ width: pct(t) }}
+                />
+            </div>
+            {sectorTicks.map((s) => (
+                <div
+                    key={s.label}
+                    className="absolute top-3 h-3.5 w-px bg-zinc-500 pointer-coarse:top-4"
+                    style={{ left: pct(s.at * 1000) }}
+                >
+                    <span className="absolute left-1 top-3 text-[9px] text-zinc-500">
+                        {s.label}
+                    </span>
+                </div>
+            ))}
+            {withTrace.map((e) => (
+                <div
+                    key={e.driver}
+                    className="absolute top-2 h-5 w-0.5 -translate-x-1/2 rounded pointer-coarse:top-3"
+                    style={{
+                        left: pct(e.trace.duration),
+                        background: e.style.color
+                    }}
+                    title={`${e.info.acronym} finishes the lap`}
+                />
+            ))}
+            <div
+                className="pointer-events-none absolute top-2.5 h-4 w-1 -translate-x-1/2 rounded bg-white shadow pointer-coarse:top-3.5"
+                style={{ left: pct(t) }}
+            />
         </div>
-      ))}
-      {withTrace.map((e) => (
-        <div key={e.driver} className="absolute top-2 h-5 w-0.5 -translate-x-1/2 rounded pointer-coarse:top-3" style={{ left: pct(e.trace.duration), background: e.style.color }} title={`${e.info.acronym} finishes the lap`} />
-      ))}
-      <div className="pointer-events-none absolute top-2.5 h-4 w-1 -translate-x-1/2 rounded bg-white shadow pointer-coarse:top-3.5" style={{ left: pct(t) }} />
-    </div>
-  );
+    )
 
-  return (
-    <div className={phone ? "flex flex-col gap-1 border-t border-zinc-800 bg-zinc-950 px-3 pt-1 pb-2" : "flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-2.5"} style={phone ? { paddingBottom: "calc(0.5rem + env(safe-area-inset-bottom))" } : undefined}>
-      {/* The phone stacks the scrubber over the controls: side by side they don't fit a 360 px screen. */}
-      {phone && <div className="flex">{scrubber}</div>}
-      {/* A phone's row wraps: transport, speeds and the clock first, the gaps under them when all don't fit 390 px. */}
-      <div className={phone ? "flex flex-wrap items-center gap-x-3 gap-y-1" : "contents"}>
-        <div className="flex items-center gap-1">
-          <button type="button" onClick={() => seekGhost(0)} className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white pointer-coarse:h-11 pointer-coarse:w-11" title="Back to the line (Home)" aria-label="Back to the line">
-            <Icon name="previous" size={14} />
-          </button>
-          <button type="button"
-            onClick={() => useReplay.getState().togglePlay()}
-            disabled={!withTrace.length}
-            className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11 ${playing ? "bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"}`}
-            title="Play / pause the ghost laps (P, or hold space)"
-            aria-label={playing ? "Pause" : "Play"}
-          >
-            {playing ? <Icon name="pause" size={16} /> : <Icon name="play" size={16} className="translate-x-px" />}
-          </button>
+    return (
+        <div
+            className={
+                phone
+                    ? "flex flex-col gap-1 border-t border-zinc-800 bg-zinc-950 px-3 pt-1 pb-2"
+                    : "flex items-center gap-4 border-t border-zinc-800 bg-zinc-950 px-4 py-2.5"
+            }
+            style={
+                phone
+                    ? {
+                          paddingBottom:
+                              "calc(0.5rem + env(safe-area-inset-bottom))"
+                      }
+                    : undefined
+            }
+        >
+            {/* The phone stacks the scrubber over the controls: side by side they don't fit a 360 px screen. */}
+            {phone && <div className="flex">{scrubber}</div>}
+            {/* A phone's row wraps: transport, speeds and the clock first, the gaps under them when all don't fit 390 px. */}
+            <div
+                className={
+                    phone
+                        ? "flex flex-wrap items-center gap-x-3 gap-y-1"
+                        : "contents"
+                }
+            >
+                <div className="flex items-center gap-1">
+                    <button
+                        type="button"
+                        onClick={() => seekGhost(0)}
+                        className="flex h-7 w-8 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-zinc-800 hover:text-white pointer-coarse:h-11 pointer-coarse:w-11"
+                        title="Back to the line (Home)"
+                        aria-label="Back to the line"
+                    >
+                        <Icon name="previous" size={14} />
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => useReplay.getState().togglePlay()}
+                        disabled={!withTrace.length}
+                        className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11 ${playing ? "bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"}`}
+                        title="Play / pause the ghost laps (P, or hold space)"
+                        aria-label={playing ? "Pause" : "Play"}
+                    >
+                        {playing ? (
+                            <Icon name="pause" size={16} />
+                        ) : (
+                            <Icon
+                                name="play"
+                                size={16}
+                                className="translate-x-px"
+                            />
+                        )}
+                    </button>
+                </div>
+                {/* The race timeline's segmented control: the play button stays the one white button. */}
+                <fieldset
+                    className="flex min-w-0 rounded-md bg-zinc-900 p-0.5"
+                    aria-label="Ghost speed"
+                >
+                    {GHOST_SPEEDS.map((s) => (
+                        <button
+                            type="button"
+                            key={s}
+                            onClick={() => setGhostSpeed(s)}
+                            aria-pressed={s === speed}
+                            className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors pointer-coarse:py-2.5 ${s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}
+                        >
+                            {s < 1 ? `${s}` : s}×
+                        </button>
+                    ))}
+                </fieldset>
+
+                {!phone && scrubber}
+
+                <div
+                    className={`text-right text-sm tabular-nums text-zinc-200 ${phone ? "ml-auto" : "w-16"}`}
+                >
+                    {clockText(t)}
+                </div>
+                <div
+                    className={`flex items-center gap-2 text-[11px] tabular-nums ${phone ? "" : "min-w-40"}`}
+                >
+                    {withTrace.slice(1).map((e) => {
+                        const lap = e.trace
+                        const gap =
+                            !ref || t <= 0
+                                ? null
+                                : t >= lap.duration
+                                  ? (lap.duration - ref.duration) / 1000
+                                  : deltaAt(ref, lap, distanceAtTime(lap, t))
+                        return (
+                            <span
+                                key={e.driver}
+                                className="flex items-center gap-1"
+                                title={`${e.info.acronym}'s gap to ${withTrace[0].info.acronym} at this point of the lap`}
+                            >
+                                <Swatch
+                                    color={e.style.color}
+                                    dashed={e.style.dash.length > 0}
+                                    width={10}
+                                />
+                                <span className="font-bold text-zinc-200">
+                                    {e.info.acronym}
+                                </span>
+                                <span
+                                    className={
+                                        gap == null
+                                            ? "text-zinc-600"
+                                            : gap > 0
+                                              ? "text-red-300"
+                                              : "text-emerald-300"
+                                    }
+                                >
+                                    {gap == null ? "—" : formatGap(gap)}
+                                </span>
+                            </span>
+                        )
+                    })}
+                </div>
+            </div>
         </div>
-        {/* The race timeline's segmented control: the play button stays the one white button. */}
-        <fieldset className="flex min-w-0 rounded-md bg-zinc-900 p-0.5" aria-label="Ghost speed">
-          {GHOST_SPEEDS.map((s) => (
-            <button type="button" key={s} onClick={() => setGhostSpeed(s)} aria-pressed={s === speed} className={`rounded px-2 py-1 text-xs font-semibold tabular-nums transition-colors pointer-coarse:py-2.5 ${s === speed ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-zinc-50"}`}>
-              {s < 1 ? `${s}` : s}×
-            </button>
-          ))}
-        </fieldset>
-
-        {!phone && scrubber}
-
-        <div className={`text-right text-sm tabular-nums text-zinc-200 ${phone ? "ml-auto" : "w-16"}`}>{clockText(t)}</div>
-        <div className={`flex items-center gap-2 text-[11px] tabular-nums ${phone ? "" : "min-w-40"}`}>
-          {withTrace.slice(1).map((e) => {
-            const lap = e.trace;
-            const gap = !ref || t <= 0 ? null : t >= lap.duration ? (lap.duration - ref.duration) / 1000 : deltaAt(ref, lap, distanceAtTime(lap, t));
-            return (
-              <span key={e.driver} className="flex items-center gap-1" title={`${e.info.acronym}'s gap to ${withTrace[0].info.acronym} at this point of the lap`}>
-                <Swatch color={e.style.color} dashed={e.style.dash.length > 0} width={10} />
-                <span className="font-bold text-zinc-200">{e.info.acronym}</span>
-                <span className={gap == null ? "text-zinc-600" : gap > 0 ? "text-red-300" : "text-emerald-300"}>{gap == null ? "—" : formatGap(gap)}</span>
-              </span>
-            );
-          })}
-        </div>
-      </div>
-    </div>
-  );
+    )
 }
