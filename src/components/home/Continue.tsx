@@ -57,6 +57,7 @@ export function Continue({ featured, lead }: { featured: CatalogRow | null; lead
   const remote = useLibrary((s) => s.remote);
   const years = useLibrary((s) => s.years);
   const now = useNow(2000);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read whenever the downloads change
   const learned = useMemo(() => loadLearned(), [jobs]);
   // Read once per visit to Home (it's written while watching).
   const [watched] = useState(watchHistory);

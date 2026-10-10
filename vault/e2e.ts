@@ -273,7 +273,7 @@ async function leakCheck(page: any, label: string) {
 }
 
 /** Click the app's Connect (or Unlock) and get the popup, whether a new tab or the reused named one. */
-async function openPopup(context: any, page: any, testId: "vault-connect" | "vault-unlock", reuse?: any) {
+async function openPopup(_context: any, page: any, testId: "vault-connect" | "vault-unlock", reuse?: any) {
   if (reuse) {
     const nav = reuse.waitForEvent("load");
     await (await account(page)).getByTestId(testId).click();

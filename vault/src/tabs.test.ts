@@ -227,7 +227,7 @@ describe("VaultNode: one leader among the vault frames", () => {
     expect(b.status().tab).toEqual({ role: "follower", id: "frame2", leader: "frame1", changes: 0, steals: 0, lost: 0 });
     expect(b.status().state).toBe("disconnected");
     expect(w.locks.held.get(lockNames("test").leader)).toBe("frame1");
-    expect(w.locks.held.has(lockNames("test").frame + "frame2")).toBe(true);
+    expect(w.locks.held.has(`${lockNames("test").frame}frame2`)).toBe(true);
   });
 
   test("Web Locks refused (third-party storage blocked): the frame leads on its own and says unavailable", async () => {

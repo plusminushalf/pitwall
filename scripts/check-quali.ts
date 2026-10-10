@@ -152,7 +152,7 @@ for (const key of keys) {
     let best = NaN;
     let bestD = Infinity;
     for (let i = 1; i < ox.length; i++) {
-      let ds = Math.abs(os[i - 1] * scale - near);
+      const ds = Math.abs(os[i - 1] * scale - near);
       if (Math.min(ds, q.lapLength - ds) > 400) continue;
       const dx = ox[i] - ox[i - 1];
       const dy = oy[i] - oy[i - 1];

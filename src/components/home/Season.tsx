@@ -675,6 +675,7 @@ export function WeekendSheet({ meetings, filter, lead, label }: { meetings: Meet
   const entries = useLibrary((s) => s.entries);
   const partial = useLibrary((s) => s.partial);
   const now = useNow(2000);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read whenever the downloads change
   const learned = useMemo(() => loadLearned(), [jobs]);
   const columns = COLUMNS[filter];
   const sheet = sheetOf(columns);

@@ -308,7 +308,7 @@ export function newKey(layout: Layout, widgetId: string): string {
  */
 export function addWidget(layout: Layout, ctx: EditContext, widgetId: string, slot?: Slot): Layout | null {
   const widget = ctx.widgets.get(widgetId);
-  if (!widget || !widget.sessions.includes(gridKind(ctx.input.info.kind))) return null;
+  if (!widget?.sessions.includes(gridKind(ctx.input.info.kind))) return null;
   const id = newKey(layout, widgetId);
   const { columns } = layout;
   const range = columnRange(widget, columns);

@@ -238,25 +238,27 @@ function Browse() {
     }
   };
   const heading = (
-    <h2 className="flex scroll-mt-16 flex-wrap items-baseline gap-x-4 gap-y-1" role="tablist" aria-label="Browse">
-      {(
-        [
-          ["circuits", "Circuits"],
-          ["drivers", "Drivers"],
-          ["teams", "Teams"],
-          ["season", "Season"],
-        ] as const
-      ).map(([id, label]) => (
-        <button
-          key={id}
-          role="tab"
-          aria-selected={browsing === id}
-          onClick={() => choose(id)}
-          className={`rounded-sm text-xl font-bold tracking-tight sm:text-2xl ${FOCUS} ${browsing === id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
-        >
-          {label}
-        </button>
-      ))}
+    <h2 className="scroll-mt-16">
+      <span className="flex flex-wrap items-baseline gap-x-4 gap-y-1" role="tablist" aria-label="Browse">
+        {(
+          [
+            ["circuits", "Circuits"],
+            ["drivers", "Drivers"],
+            ["teams", "Teams"],
+            ["season", "Season"],
+          ] as const
+        ).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={browsing === id}
+            onClick={() => choose(id)}
+            className={`rounded-sm text-xl font-bold tracking-tight sm:text-2xl ${FOCUS} ${browsing === id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </span>
     </h2>
   );
   if (browsing === "circuits") return <Circuits heading={heading} />;

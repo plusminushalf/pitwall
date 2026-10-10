@@ -240,6 +240,7 @@ function LiveLaps() {
     setFollowFor({ key: sessionKey, drivers: followed.includes(n) ? followed.filter((x) => x !== n) : [...followed, n].slice(-MAX) });
 
   const infoOf = (n: number) => infos.find((d) => d.number === n);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: infoOf reads infos
   const styles = useMemo(() => compareStyles(followed.map(infoOf)), [followed, infos]);
   const slots = [0, 1, 2, 3].map((i) => followed[i] ?? null);
   const lines = [

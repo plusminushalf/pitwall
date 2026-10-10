@@ -131,6 +131,7 @@ export function Timeline() {
   // watched, and its length (until the flag) doesn't give the race away.
   const duration = !session ? 0 : live ? Math.max(liveEdge, session.meta.duration) : noSpoilers ? spoilerFreeEnd(session.meta, watchedTo) : session.meta.duration;
   const shownTo = noSpoilers ? watchedTo : Infinity;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the bar mounts with a session: observe it then
   useEffect(() => {
     const el = barRef.current;
     if (!el) return;

@@ -376,8 +376,8 @@ export function buildLapTraces(laps: readonly Lap[], measure: (l: Lap) => boolea
       throttle: ts.map((t) => Math.round(lerpAt(car.t, car.throttle, t))),
       brake: ts.map((t) => step(car.brake, t)),
       gear: ts.map((t) => step(car.gear, t)),
-      x: ts.map((t) => (loc && loc.t.length ? Math.round(lerpAt(loc.t, loc.x, t)) : 0)),
-      y: ts.map((t) => (loc && loc.t.length ? Math.round(lerpAt(loc.t, loc.y, t)) : 0)),
+      x: ts.map((t) => (loc?.t.length ? Math.round(lerpAt(loc.t, loc.x, t)) : 0)),
+      y: ts.map((t) => (loc?.t.length ? Math.round(lerpAt(loc.t, loc.y, t)) : 0)),
     };
     if (!traces.has(l.driver)) traces.set(l.driver, { driver: l.driver, laps: [] });
     traces.get(l.driver)!.laps.push(trace);

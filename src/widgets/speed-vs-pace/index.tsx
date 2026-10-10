@@ -202,7 +202,7 @@ function SpeedVsPace() {
       medianSpeed: median(speeds),
       medianGap: median(gaps),
     };
-  }, [all, by, info, drivers, w, plotL, plotT, plotW, plotH]);
+  }, [all, by, info, drivers, w, plotW, plotH]);
 
   // Watch the best lap from its start, its driver focused; with drivers selected, it joins them.
   const onPick = (dot: Dot) => {

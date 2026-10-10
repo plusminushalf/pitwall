@@ -75,7 +75,7 @@ function csv(header: string[], rows: Cell[][]): string {
     const s = v == null ? "" : typeof v === "boolean" ? (v ? "yes" : "") : String(v);
     return /[",\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s;
   };
-  return [header, ...rows].map((r) => r.map(cell).join(",")).join("\n") + "\n";
+  return `${[header, ...rows].map((r) => r.map(cell).join(",")).join("\n")}\n`;
 }
 const written: string[] = [];
 async function write(name: string, text: string) {

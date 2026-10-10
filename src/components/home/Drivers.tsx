@@ -8,7 +8,7 @@ import { byStanding, fetchDriverIndex } from "../../history/careers";
 import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
 import { SeasonNote, TeamStripe, useHistoryFile } from "../career/common";
-import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, SheetTitle, STANDINGS_GRID, StandingsColumns } from "./sheet";
+import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, Spoken, SheetTitle, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchDriverIndex(signal);
 
@@ -34,11 +34,8 @@ function Row({ d, leader, quiet }: { d: SeasonDriver; leader: number; quiet: boo
   );
   return (
     <SheetRow grid={STANDINGS_GRID} onOpen={() => openDriver(d.id)} title={`${d.name}: the season and the career`}>
-      <span
-        className={`font-bold tabular-nums ${quiet ? "text-zinc-400" : "text-zinc-50"}`}
-        aria-label={d.season.position != null ? `P${d.season.position} in the championship` : undefined}
-      >
-        {d.season.position ?? "–"}
+      <span className={`font-bold tabular-nums ${quiet ? "text-zinc-400" : "text-zinc-50"}`}>
+        {d.season.position != null ? <Spoken text={`P${d.season.position} in the championship`}>{d.season.position}</Spoken> : "–"}
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-2">

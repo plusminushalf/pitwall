@@ -15,7 +15,7 @@ import { Flag } from "../Flag";
 import { useReplay } from "../../store";
 import { circuitCards, type CircuitCard } from "./circuitCards";
 import { dateRange, SECONDARY, shortGp, useNow } from "./common";
-import { AT_40, AT_52, AT_66, Sheet, SheetRow, SheetTitle } from "./sheet";
+import { AT_40, AT_52, AT_66, Sheet, SheetRow, SheetTitle, Spoken } from "./sheet";
 
 const BADGE = "shrink-0 rounded px-1.5 py-px text-[11px] font-semibold uppercase leading-4 tracking-wider";
 
@@ -53,11 +53,8 @@ function Row({ card, phase, stored, history, earlier }: { card: CircuitCard; pha
   const gp = shortGp(card.meetingName);
   return (
     <SheetRow grid={GRID} onOpen={() => openCircuit(card.slug)} title={`${card.name}: every session there over the years, and its history`} raised={now}>
-      <span
-        className={`tabular-nums ${now ? "font-bold text-zinc-50" : "text-zinc-400"}`}
-        aria-label={earlier ? `${card.year}` : card.round != null ? `Round ${card.round}` : undefined}
-      >
-        {earlier ? card.year : (card.round ?? "–")}
+      <span className={`tabular-nums ${now ? "font-bold text-zinc-50" : "text-zinc-400"}`}>
+        {earlier ? card.year : card.round != null ? <Spoken text={`Round ${card.round}`}>{card.round}</Spoken> : "–"}
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-2">

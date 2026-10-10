@@ -19,6 +19,7 @@ p {
   color: #a1a1aa;
 }
 [hidden] {
+  /* biome-ignore lint/complexity/noImportantStyles: hidden wins over any display rule */
   display: none !important;
 }
 .note {

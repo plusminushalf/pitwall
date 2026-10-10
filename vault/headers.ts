@@ -79,7 +79,7 @@ export function headerRules(appOrigins: readonly string[]): HeaderRules {
 
 /** Netlify / Cloudflare Pages `_headers`: a path line, then indented `Name: value` lines. */
 export const formatHeaders = (rules: HeaderRules) =>
-  rules.map((r) => [r.path, ...Object.entries(r.headers).map(([k, v]) => `  ${k}: ${v}`)].join("\n")).join("\n") + "\n";
+  `${rules.map((r) => [r.path, ...Object.entries(r.headers).map(([k, v]) => `  ${k}: ${v}`)].join("\n")).join("\n")}\n`;
 
 export function parseHeaders(text: string): HeaderRules {
   const rules: HeaderRules = [];

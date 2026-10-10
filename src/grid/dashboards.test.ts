@@ -93,7 +93,7 @@ describe("editing the list", () => {
   });
 
   test("ids aren't reused across kinds; new names don't take one in use", () => {
-    let [d] = addOwn(emptyDashboards(), "race", "", MINE);
+    const [d] = addOwn(emptyDashboards(), "race", "", MINE);
     expect(d.race.own[0].name).toBe("My dashboard");
     const [, practiceId] = addOwn(d, "practice", "x", MINE);
     expect(practiceId).toBe("my-2");

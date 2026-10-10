@@ -214,6 +214,7 @@ function Picker({ shot, image, page }: { shot: Shot; image: string; page: Page }
   const pickedRef = useRef(picked);
   pickedRef.current = picked;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: share is a new wrapper around pick every render
   useEffect(() => {
     // Before the replay's keys (window, bubbling): Esc here mustn't also clear the selection.
     const onKey = (e: KeyboardEvent) => {
@@ -369,6 +370,7 @@ function ShareToast({ result }: { result: Result }) {
   const [held, setHeld] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new result restarts the timer
   useEffect(() => {
     if (held) return;
     const id = setTimeout(dismiss, TOAST_MS);

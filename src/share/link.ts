@@ -35,7 +35,7 @@ const sameLayout = (a: Layout, b: Layout, kind: GridKind) => {
  */
 export async function shareLink(): Promise<string> {
   const s = useReplay.getState();
-  if (s.view === "home") return siteOrigin() + "/";
+  if (s.view === "home") return `${siteOrigin()}/`;
   if (s.view === "circuit" && s.circuit) return siteOrigin() + circuitPath(s.circuit);
   if (s.view === "driver" && s.driver) return siteOrigin() + driverPath(s.driver);
   if (s.view === "team" && s.team) return siteOrigin() + teamPath(s.team);

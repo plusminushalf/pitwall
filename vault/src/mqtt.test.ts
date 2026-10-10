@@ -112,7 +112,7 @@ describe("encoders (byte fixtures)", () => {
     expect(back).toEqual({ protocol: "MQTT", level: 4, clean: true, keepaliveS: 30, clientId: "c", username: "u", password: "p" });
   });
   test("CONNECT with a long token uses a 2-byte remaining length", () => {
-    const token = "eyJ" + "x".repeat(1200);
+    const token = `eyJ${"x".repeat(1200)}`;
     const bytes = encodeConnect({ clientId: "f1-vault-abc", username: "f1-replay-vault", password: token, keepaliveS: 30 });
     expect(bytes[1]! & 0x80).toBe(0x80);
     expect(decodeConnect(new PacketReader().push(bytes)[0]!).password).toBe(token);

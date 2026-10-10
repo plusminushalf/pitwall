@@ -586,7 +586,7 @@ export function normalize(raw: RawSessionData, opts: NormalizeOptions = {}): Nor
   function locAt(driver: number, t: Ms): { x: number; y: number } | null {
     const times = locTimes.get(driver)!;
     const { x, y } = telemetry.get(driver)!.loc;
-    let i = times.findIndex((ti) => ti >= t);
+    const i = times.findIndex((ti) => ti >= t);
     if (i <= 0) return null;
     const f = (t - times[i - 1]) / (times[i] - times[i - 1]);
     return { x: x[i - 1] + f * (x[i] - x[i - 1]), y: y[i - 1] + f * (y[i] - y[i - 1]) };

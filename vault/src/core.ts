@@ -326,7 +326,7 @@ export class VaultCore {
         case "popup:unlock":
           if (p.kind !== "unlock") return null;
           try {
-            return result(await this.unlock(p, msg.prf));
+            return result(await this.unlock(msg.prf));
           } finally {
             wipe(msg.prf);
           }
@@ -374,7 +374,7 @@ export class VaultCore {
     return { ok: true as const, next: "done" as const };
   }
 
-  private async unlock(p: Pending, prf: ArrayBuffer) {
+  private async unlock(prf: ArrayBuffer) {
     const stored = await this.load();
     if (stored?.mode !== "passkey") return { ok: false as const, error: loginError("storage") };
     let secret: Secret;

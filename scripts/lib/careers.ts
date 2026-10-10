@@ -25,8 +25,8 @@ export interface Careers {
 
 export function careers(db: F1db): Careers {
   const country = new Map(db.countries.map((c) => [c.id, c]));
-  const constructor = new Map(db.constructors.map((c) => [c.id, c.name]));
-  const team = (id: string) => constructor.get(id) ?? id;
+  const constructorName = new Map(db.constructors.map((c) => [c.id, c.name]));
+  const team = (id: string) => constructorName.get(id) ?? id;
   const gp = new Map(db.grandsPrix.map((g) => [g.id, g]));
   const circuit = new Map(db.circuits.map((c) => [c.id, c.name]));
   const driver = new Map(db.drivers.map((d) => [d.id, d]));

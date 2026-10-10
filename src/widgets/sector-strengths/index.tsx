@@ -8,7 +8,6 @@ import {
   shortTeam,
   TAP_CLASS,
   teamColor,
-  textOn,
   useAllLaps,
   useAllStints,
   useDrivers,
@@ -87,6 +86,7 @@ function SectorStrengths() {
   const info = useMemo(() => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])), [drivers]);
   const who = (n: number) => info.get(n)?.acronym ?? `#${n}`;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: who reads info
   const rows = useMemo(() => {
     const bests = new Map<number, Bests>();
     for (const [n, own] of laps) bests.set(n, driverBests(n, validLaps(own, stints.get(n) ?? [], neutral, deletedBy)));

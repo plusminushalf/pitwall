@@ -210,7 +210,7 @@ export function buildQuali(raw: QualiInput, norm: NormalizeResult): QualiOutput 
   const carOf = (n: number): CleanTelemetry["car"] | null => telemetry.get(n)?.car ?? null;
   function speedAt(n: number, t: Ms): number | null {
     const car = carOf(n);
-    if (!car || !car.t.length) return null;
+    if (!car?.t.length) return null;
     return lerpAt(car.t, car.speed, t);
   }
   const isInLap = (l: Lap, next: Lap | undefined) =>

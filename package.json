@@ -18,7 +18,8 @@
     "live": "bun server/live.ts",
     "live:sim": "LIVE_SIMULATE=11377 bun server/live.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p scripts/tsconfig.json && tsc --noEmit -p vault/tsconfig.json && tsc --noEmit -p vault/tsconfig.node.json",
-    "lint": "bun scripts/lint-widgets.ts src/widgets",
+    "lint": "biome lint . && bun scripts/lint-widgets.ts src/widgets",
+    "lint:fix": "biome lint --write .",
     "vault": "vite --config vault/vite.config.ts",
     "vault:build": "vite build --config vault/vite.config.ts",
     "vault:deploy": "VAULT_APP_ORIGINS=https://pitwall.plusminushalf.com vite build --config vault/vite.config.ts && bunx wrangler@4 deploy --config vault/wrangler.jsonc",
@@ -27,6 +28,7 @@
     "live:check": "bun vault/livecheck.ts"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.15",
     "@tailwindcss/vite": "^4.3.3",
     "@types/bun": "^1.4.2",
     "@types/react": "^19.3.0",

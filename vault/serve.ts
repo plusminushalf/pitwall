@@ -25,7 +25,7 @@ function fileFor(pathname: string): string | null {
   // Pretty URLs like the static hosts: /frame serves frame.html.
   if (!/\.[a-z0-9]+$/i.test(path)) path += ".html";
   const file = normalize(join(dist, path));
-  if (!file.startsWith(dist + "/") || /\/[._]/.test(file.slice(dist.length))) return null;
+  if (!file.startsWith(`${dist}/`) || /\/[._]/.test(file.slice(dist.length))) return null;
   return existsSync(file) && statSync(file).isFile() ? file : null;
 }
 

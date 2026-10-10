@@ -99,7 +99,7 @@ export function parseLayout(raw: unknown, widgets: ReadonlyMap<string, WidgetDef
     const entry = readEntry(value);
     if (!entry) return null;
     const widget = widgets.get(widgetIdOf(id, entry));
-    if (!widget || !widget.sessions.includes(kind)) continue;
+    if (!widget?.sessions.includes(kind)) continue;
     // One version of each widget is available: the same major keeps the settings, another resets them.
     const settings = major(entry.widgetVersion) === major(widget.version) ? cleanSettings(widget, entry.settings) : {};
     kept[id] = { ...entry, widgetVersion: widget.version, settings };

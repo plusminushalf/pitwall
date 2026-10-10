@@ -8,7 +8,7 @@ import { byStanding, fetchTeamIndex } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
 import { SeasonNote, TeamStripe, useHistoryFile } from "../career/common";
-import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, STANDINGS_GRID, StandingsColumns } from "./sheet";
+import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, Spoken, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchTeamIndex(signal);
 
@@ -19,8 +19,8 @@ function Row({ t, leader }: { t: SeasonTeam; leader: number }) {
   const s = t.season;
   return (
     <SheetRow grid={STANDINGS_GRID} onOpen={() => openTeam(t.id)} title={`${t.name}: its season and history`}>
-      <span className="font-bold tabular-nums text-zinc-50" aria-label={s.position != null ? `P${s.position} in the championship` : undefined}>
-        {s.position ?? "–"}
+      <span className="font-bold tabular-nums text-zinc-50">
+        {s.position != null ? <Spoken text={`P${s.position} in the championship`}>{s.position}</Spoken> : "–"}
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-2">

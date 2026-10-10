@@ -136,6 +136,7 @@ export function CompareCharts({ entries, lapLength, sectorDistances, corners }: 
     return out;
   }, [size.h, withTrace, deltas, x0, x1]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: xOf reads x0, x1 and plotW, which are listed
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || size.w <= 0 || size.h <= 0) return;

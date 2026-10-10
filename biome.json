@@ -1,0 +1,77 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": true
+  },
+  "formatter": {
+    "enabled": false,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 120
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "a11y": {
+        "useButtonType": "off",
+        "useSemanticElements": "off",
+        "noStaticElementInteractions": "off",
+        "useKeyWithClickEvents": "off",
+        "noAutofocus": "off"
+      },
+      "complexity": {
+        "noCommaOperator": "off",
+        "noBannedTypes": "off"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": {
+          "level": "error",
+          "options": {
+            "hooks": [
+              {
+                "name": "useCardState",
+                "stableResult": [
+                  1
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "suspicious": {
+        "noAssignInExpressions": "off",
+        "useIterableCallbackReturn": "off",
+        "noExplicitAny": "off",
+        "noArrayIndexKey": "off",
+        "noImplicitAnyLet": "off"
+      }
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "off"
+      }
+    }
+  }
+}

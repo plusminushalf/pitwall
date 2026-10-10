@@ -222,7 +222,7 @@ describe("car paths: motion", () => {
 
   test("location gaps of 0.7-1.3 s: speed stays with the telemetry", () => {
     // Every 10th interval stretched to ~1.1 s (samples in between dropped).
-    const d = drive(straight(290), { edit: (i, t, p) => (i % 12 >= 8 && i % 12 < 11 ? null : p) });
+    const d = drive(straight(290), { edit: (i, _t, p) => (i % 12 >= 8 && i % 12 < 11 ? null : p) });
     const v = speeds(frames(d, 10_000, 100_000));
     expect(Math.min(...v)).toBeGreaterThan(290 * 0.9);
     expect(Math.max(...v)).toBeLessThan(290 * 1.1);

@@ -551,7 +551,7 @@ export async function runIngest(sessionKey: number, io: IngestIO, paths: IngestP
     const nextIndex = [...index.filter((e) => e.sessionKey !== sessionKey), entry].sort((a, b) =>
       a.dateStart.localeCompare(b.dateStart),
     );
-    await io.writeIndex(indexFile, JSON.stringify(nextIndex, null, 2) + "\n");
+    await io.writeIndex(indexFile, `${JSON.stringify(nextIndex, null, 2)}\n`);
   }
   timings.write += now() - tIndex;
   onEvent?.({ kind: "phase", phase: "done" });

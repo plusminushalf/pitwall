@@ -12,7 +12,7 @@ import type { RawCircuit } from "../../scripts/lib/openf1Types";
 import { LiveHub } from "./hub";
 import { OpenF1Live, type Endpoint, type FeedHooks, type LiveFeed, type Params } from "./openf1";
 import type { LiveMessage } from "./protocol";
-import type { LiveStore, Rec } from "./store";
+import type { Rec } from "./store";
 import { TOPICS, type Topic } from "./topics";
 
 /** The page -> the engine. */
@@ -92,7 +92,8 @@ export class VaultEngine {
   handle(m: ToEngine): void {
     switch (m.type) {
       case "start":
-        return this.start(m.sim);
+        this.start(m.sim);
+        return;
       case "data":
         if ((TOPICS as readonly string[]).includes(m.topic)) this.feed?.deliver(m.topic as Topic, m.messages);
         return;
@@ -131,7 +132,7 @@ export class VaultEngine {
     this.live = new OpenF1Live(hub, {
       rest: (endpoint, params) => this.rest(endpoint, params),
       circuit: this.deps.circuit ?? fetchCircuit,
-      feed: (store, hooks) => (this.feed = new VaultFeed(this, store, hooks)),
+      feed: (_store, hooks) => (this.feed = new VaultFeed(this, hooks)),
       now: this.now,
       log: this.deps.log,
       warn: this.deps.warn,
@@ -221,7 +222,6 @@ class VaultFeed implements LiveFeed {
 
   constructor(
     private engine: VaultEngine,
-    private store: LiveStore,
     private hooks: FeedHooks,
   ) {}
 

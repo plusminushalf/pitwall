@@ -28,6 +28,8 @@ jobs:
       - uses: actions/checkout@v5
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
+      # Biome and the widget-import check: a lint error stops the deploy.
+      - run: bun run lint
       - run: bun run vault:deploy
       # Circuit and driver history from the latest F1DB release into public/history/. A failure (GitHub down, F1DB
       # renamed a circuit) doesn't hold the deploy: the app treats missing files as no history.

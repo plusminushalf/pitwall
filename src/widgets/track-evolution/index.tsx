@@ -172,6 +172,7 @@ function TrackEvolution() {
     focus(p.driver);
   };
   // The dots only change with the laps and the size, not each second.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: onPick reads selected
   const dots = useMemo(() => (scale ? <Dots points={shown} scale={scale} info={info} onPick={onPick} /> : null), [shown, scale, info, selected]);
 
   // The caption: the gain from the first window with push laps to the latest that's run, and the track temperature then and now.

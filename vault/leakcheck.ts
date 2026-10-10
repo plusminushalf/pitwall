@@ -116,7 +116,7 @@ async function dumpStorage(caps: { file: number; total: number }): Promise<Recor
     let s = "";
     for (let i = 0; i < u.length; i += 8192) s += String.fromCharCode(...u.subarray(i, i + 8192));
     // Both as bytes (latin1) and as UTF-8 text, so ASCII secrets match either way.
-    return s + "\n" + new TextDecoder().decode(u);
+    return `${s}\n${new TextDecoder().decode(u)}`;
   };
   const ser = (x: unknown): string => {
     const seen = new WeakSet();
@@ -183,7 +183,7 @@ async function dumpStorage(caps: { file: number; total: number }): Promise<Recor
     const cache = await caches.open(name);
     for (const req of await cache.keys()) {
       const res = await cache.match(req);
-      out[`CacheStorage ${name} ${req.url}`] = `${ser([...req.headers])}\n${res ? ser([...res.headers]) + "\n" + (await read(await res.blob())) : ""}`;
+      out[`CacheStorage ${name} ${req.url}`] = `${ser([...req.headers])}\n${res ? `${ser([...res.headers])}\n${await read(await res.blob())}` : ""}`;
     }
   }
   return out;

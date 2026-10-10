@@ -64,6 +64,16 @@ export function SheetRow({
   );
 }
 
+/** A short figure that a screen reader says in full instead ("3" read as "Round 3"). */
+export function Spoken({ text, children }: { text: string; children: ReactNode }) {
+  return (
+    <>
+      <span aria-hidden>{children}</span>
+      <span className="sr-only">{text}</span>
+    </>
+  );
+}
+
 /** A count in a figure column: bright when there's any, readable grey at zero. */
 export function Figure({ n, className = "" }: { n: number; className?: string }) {
   return <span className={`text-right tabular-nums ${n > 0 ? "text-zinc-100" : "text-zinc-400"} ${className}`}>{n}</span>;

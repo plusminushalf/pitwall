@@ -37,6 +37,7 @@ export function GhostBar({ entries, maxDuration }: { entries: CompareEntry[]; ma
   // The scrubber: pointer events (so a finger drags it too), and touch-none so that drag never scrolls or goes
   // Back. On touch the hit area grows to 44 px; the track itself stays where it is.
   const scrubber = (
+    // biome-ignore lint/a11y/useFocusableInteractive: a pointer scrubber, not keyboard-reachable yet
     <div
       ref={barRef}
       className="relative h-9 flex-1 cursor-pointer touch-none select-none pointer-coarse:box-content pointer-coarse:py-1"

@@ -331,7 +331,7 @@ export async function runS3(h: S3Helpers): Promise<void> {
     log("closed the leader tab A");
     const tookB = await waitFor("B takes over", B, (s) => s.tab.role === "leader" && s.stream?.phase === "connected", 30_000).catch((e) => e);
     check("S3: the leader tab closed: B takes over and streams", !(tookB instanceof Error), tookB instanceof Error ? tookB.message : "");
-    let C = await open("C");
+    const C = await open("C");
     await (await h.account(C)).locator("[data-testid=vault-state][data-state=connected]").waitFor({ timeout: 20_000 });
     let openC = await record(C);
     check("S3: a new tab C follows B, connected with the shared login", (await st(C)).tab.role === "follower" && (await st(C)).tab.leader === (await st(B)).tab.id);

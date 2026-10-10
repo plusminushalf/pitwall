@@ -180,6 +180,7 @@ export function SessionRow({
   const sz = sizeText(state);
   const place = [row.circuit, row.country].filter(Boolean).join(" · ");
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-selected is only set when role is option
     <li
       id={id}
       role={role}

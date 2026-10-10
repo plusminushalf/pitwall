@@ -102,7 +102,7 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
       ro.disconnect();
       window.removeEventListener("resize", onResize);
     };
-  }, []);
+  }, [ratio]);
   useEffect(() => {
     const io = new IntersectionObserver(([entry]) => visibility.set(entry.isIntersecting));
     io.observe(ref.current!);
@@ -116,7 +116,7 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   useLayoutEffect(() => {
     HOSTED.set(ref.current!, hosted);
     CARD_STATES.set(ref.current!, cardStateValue);
-  }, []);
+  }, [cardStateValue]);
   const update = useCallback((patch: Partial<WidgetSettings>) => {
     const next = { ...latest.current.overrides, ...patch };
     setOverrides(next);

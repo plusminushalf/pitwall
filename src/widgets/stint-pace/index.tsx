@@ -344,6 +344,7 @@ function StintPace() {
   const seek = usePlayback((p) => p.seek);
   const size = useWidgetSize();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: shown by value (its join), not identity
   const series = useMemo((): Series[] => {
     const order = new Map(drivers.map((d, i) => [d.number, i]));
     const out: Series[] = [];

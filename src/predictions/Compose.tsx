@@ -13,7 +13,7 @@ import { ScaledCard } from "./Card";
 import { DriverList } from "./DriverList";
 import { localTz, stamp } from "./format";
 import { canShareImage, cardPng, copy, copyImage, shareImage } from "./image";
-import { ASK, closes, driverIn, nextRace, openRace, questionOf, timing } from "./model";
+import { ASK, driverIn, nextRace, openRace, questionOf, timing } from "./model";
 import { callKey, readCalls, saveCall } from "./saved";
 
 export function Compose() {

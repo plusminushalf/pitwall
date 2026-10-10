@@ -3,7 +3,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import { FakeBroker, openf1Date } from "./fakebroker";
 import { LiveManager, OVERLAP_MS, type Batch } from "./src/live";
-import { MqttError, MqttSession, type CloseInfo, type SocketLike } from "./src/mqtt";
+import { type MqttError, MqttSession, type CloseInfo, type SocketLike } from "./src/mqtt";
 import { restUrl } from "./src/rest";
 import type { Timers } from "./src/scheduler";
 

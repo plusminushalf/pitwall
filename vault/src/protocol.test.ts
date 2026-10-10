@@ -121,7 +121,7 @@ describe("parseRequest", () => {
   });
 
   test("tickets", () => {
-    for (const ticket of [undefined, 1, "", "a".repeat(21), "a".repeat(65), "a".repeat(21) + "=", "a".repeat(21) + "/", "a".repeat(21) + " "]) {
+    for (const ticket of [undefined, 1, "", "a".repeat(21), "a".repeat(65), `${"a".repeat(21)}=`, `${"a".repeat(21)}/`, `${"a".repeat(21)} `]) {
       expect(ok({ v: 1, id: 1, type: "connect", ticket })).toBe(false);
     }
     expect(ok({ v: 1, id: 1, type: "connect" })).toBe(false);

@@ -14,6 +14,7 @@ export function decodeConnect(p: RawPacket): Connect {
   const flags = b[at++]!;
   const keepaliveS = (b[at]! << 8) | b[at + 1]!;
   at += 2;
+  // biome-ignore lint/style/useConst: assigned together with at, which is a let
   let clientId: string;
   [clientId, at] = readString(b, at);
   if (flags & 0x04) {

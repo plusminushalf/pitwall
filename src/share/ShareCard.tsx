@@ -170,6 +170,7 @@ export function ShareCard({ job }: { job: CardJob }) {
   const { heading, panels, host } = job;
   const width = Math.max(...panels.map((p) => p.width));
   const scale = IMAGE_WIDTH / width;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: panels come with the job
   useEffect(() => {
     let live = true;
     void settled(ref.current!)

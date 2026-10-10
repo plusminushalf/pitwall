@@ -26,6 +26,7 @@ export function Jump({ children }: { children: ReactNode }) {
   const entries = useLibrary((s) => s.entries);
   const partial = useLibrary((s) => s.partial);
   const now = useNow(2000);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-read whenever the downloads change
   const learned = useMemo(() => loadLearned(), [jobs]);
   const [resume] = useState(resumeClocks);
   const waitUntil = useDownloadBlock();
@@ -165,6 +166,7 @@ export function Jump({ children }: { children: ReactNode }) {
           {results.length ? (
             <RowTable>
               <RowHeader />
+              {/* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: the combobox pattern's listbox, as in WAI-ARIA */}
               <ul id="jump-results" role="listbox" aria-label="Matching sessions">
                 {results.map((r, i) => (
                   <SessionRow

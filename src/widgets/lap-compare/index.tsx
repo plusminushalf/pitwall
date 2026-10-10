@@ -215,15 +215,18 @@ function LapCompare() {
     useLapTrace(choices[3]?.driver ?? null, choices[3]?.lap ?? null),
   ];
   const infoOf = (n: number) => infos.find((d) => d.number === n);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: infoOf reads infos
   const styles = useMemo(() => compareStyles(drivers.map(infoOf)), [drivers, infos]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the traces are spread into the deps
   const series = useMemo((): Series[] => {
-    const withTrace = choices.flatMap((c, i) => (traces[i] ? [{ trace: traces[i]!, style: styles[i] }] : []));
+    const withTrace = choices.flatMap((_c, i) => (traces[i] ? [{ trace: traces[i]!, style: styles[i] }] : []));
     const ref = withTrace[0]?.trace;
     const step = Math.max(2, geometry.lapLength / 2000);
     return withTrace.map((s, k) => ({ ...s, delta: k > 0 && ref ? deltaSeries(ref, s.trace, step) : null }));
   }, [choices, ...traces, styles, geometry.lapLength]);
   const ref = series[0]?.trace ?? null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: infoOf reads infos
   const markers = useMemo((): Marker[] => {
     const out: Marker[] = [];
     const seen = new Set<string>();
@@ -324,6 +327,7 @@ function LapCompare() {
     setZoom([a, a + next]);
   };
   const hasChart = series.length > 0;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the canvas mounts with the first trace
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;

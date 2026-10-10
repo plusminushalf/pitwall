@@ -80,6 +80,7 @@ export function useCircuitRaces(sessionName: "Race" | "Sprint" = "Race"): Circui
   }, [atCircuit, sessionName, sessionKey, before]);
   const keys = rows.map((r) => r.sessionKey).join(",");
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed by which races (keys), not the array
   useEffect(() => {
     if (rows.length) usePastRaces.getState().load(rows);
     // Keyed by which races, not the array.

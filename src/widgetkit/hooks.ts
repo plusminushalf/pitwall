@@ -66,6 +66,7 @@ const IDENTITY = <T,>(v: T) => v;
 function useKit<T, R = T>(base: (s: Loaded) => T, deps: readonly unknown[], pick?: Select<T, R>): R {
   const visibility = useContext(VisibilityContext) ?? ALWAYS_VISIBLE;
   // `base` is a new closure every render; `deps` say when it actually reads something else.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the caller's deps say when base reads something else
   const baseRef = useMemo(() => base, deps);
   const pickRef = useRef(pick);
   pickRef.current = pick;
