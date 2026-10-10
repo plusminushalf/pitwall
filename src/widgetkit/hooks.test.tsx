@@ -6,7 +6,8 @@ import { buildSession } from "../data/session";
 import { raceStateAt } from "../engine/raceState";
 import { clock, useReplay } from "../store";
 import type { DriverTelemetry, Lap, SessionMeta } from "../types";
-import { useCarHistory, useDriver, useFeed, useLaps, useStints, useWholeSession } from "./hooks";
+import { CardStateContext, type CardStateValue } from "./context";
+import { useCardState, useCarHistory, useDriver, useFeed, useLaps, useStints, useWholeSession } from "./hooks";
 
 const T = 45_000;
 const secs = (n: number) => Array.from({ length: n }, (_, i) => i);
@@ -91,5 +92,38 @@ describe("hook selectors see only data up to t", () => {
 
   test("only useWholeSession sees the future", () => {
     expect(seen.whole).toBe(5);
+  });
+});
+
+describe("useCardState", () => {
+  function Hovered() {
+    const [hover] = useCardState<number | null>("hover", null);
+    const [zoom] = useCardState<[number, number] | null>("zoom", () => null);
+    return <span>{`${hover}|${zoom?.join("-") ?? "none"}`}</span>;
+  }
+
+  test("on screen: the initial value, and what it shows kept by key for a card", () => {
+    const value: CardStateValue = { live: new Map(), seed: null };
+    const html = renderToString(
+      <CardStateContext.Provider value={value}>
+        <Hovered />
+      </CardStateContext.Provider>,
+    );
+    expect(html).toContain("null|none");
+    expect(Object.fromEntries(value.live)).toEqual({ hover: null, zoom: null });
+  });
+
+  test("a card's copy starts where the widget was; keys it wasn't given start as usual", () => {
+    const value: CardStateValue = { live: new Map(), seed: { hover: 207 } };
+    const html = renderToString(
+      <CardStateContext.Provider value={value}>
+        <Hovered />
+      </CardStateContext.Provider>,
+    );
+    expect(html).toContain("207|none");
+  });
+
+  test("outside a host it's plain state", () => {
+    expect(renderToString(<Hovered />)).toContain("null|none");
   });
 });

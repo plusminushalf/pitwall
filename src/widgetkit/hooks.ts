@@ -3,7 +3,7 @@
 // on top, and an equality check, so a widget re-renders only when what it selected changed, and not at
 // all while it's off screen.
 
-import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type Dispatch, type SetStateAction } from "react";
 import type { Session } from "../data/session";
 import type { DecodedLap } from "../engine/compare";
 import { lapGeometryOf, lapTraceOf, liveLapOf, type LapGeometry, type LiveLap } from "../engine/lapTrace";
@@ -13,7 +13,7 @@ import { raceDistanceAt } from "../engine/raceDistance";
 import { telemetryAt, type DriverState, type RaceState, type SectorFlag, type Telemetry } from "../engine/raceState";
 import { SPEEDS, useReplay } from "../store";
 import type { DriverInfo, Lap, PitStop, TrackStatus, WeatherSample } from "../types";
-import { SettingsContext, SizeContext, VisibilityContext, type WidgetSize, type Visibility } from "./context";
+import { CardStateContext, SettingsContext, SizeContext, VisibilityContext, type WidgetSize, type Visibility } from "./context";
 import type { WidgetSettings } from "./defineWidget";
 import { deepEqual } from "./equal";
 import { addFrameCallback, type DrawFn } from "./frame";
@@ -475,6 +475,21 @@ export function useSettings<S extends WidgetSettings = WidgetSettings>(): [S, (p
   const ctx = useContext(SettingsContext);
   if (!ctx) throw new Error("useSettings() must be used inside a WidgetHost");
   return [ctx.settings as S, ctx.update as (patch: Partial<S>) => void];
+}
+
+/**
+ * useState for what the widget shows that a share card should too: the point hovered, a zoom, the laps picked. The
+ * card mounts the widget again; with this its copy starts where the widget was when the screen was frozen (S), not
+ * fresh. `key` names it within the widget. Keep the value in the data's terms (a distance, a lap, a driver), not
+ * screen px: the card is narrower.
+ */
+export function useCardState<T>(key: string, initial: T | (() => T)): [T, Dispatch<SetStateAction<T>>] {
+  const ctx = useContext(CardStateContext);
+  const [value, set] = useState<T>(() =>
+    ctx?.seed && key in ctx.seed ? (ctx.seed[key] as T) : typeof initial === "function" ? (initial as () => T)() : initial,
+  );
+  ctx?.live.set(key, value);
+  return [value, set];
 }
 
 /** The widget's size in CSS px, and the display's pixel ratio. */

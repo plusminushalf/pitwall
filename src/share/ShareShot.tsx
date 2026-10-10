@@ -13,7 +13,7 @@ import { useReplay } from "../store";
 import { Icon } from "../widgetkit/ui/Icon";
 import { brandedImage, captureApp, clampArea, IGNORE, type Rect, type Shot } from "./capture";
 import { shareLink, siteOrigin } from "./link";
-import { cardPanels, shareHeading, ShareCard, type CardJob, type ShareHeading } from "./ShareCard";
+import { cardPanels, cardStates, shareHeading, ShareCard, type CardJob, type CardStates, type ShareHeading } from "./ShareCard";
 
 /** A drag shorter than this (CSS px) is a click. */
 const DRAG_PX = 4;
@@ -38,7 +38,17 @@ type Page = "session" | "page";
 type Phase =
   | { kind: "idle" }
   | { kind: "capturing" }
-  | { kind: "picking"; shot: Shot; image: string; link: Promise<string | null>; fileName: string; page: Page; heading: ShareHeading | null };
+  | {
+      kind: "picking";
+      shot: Shot;
+      image: string;
+      link: Promise<string | null>;
+      fileName: string;
+      page: Page;
+      heading: ShareHeading | null;
+      /** What each widget showed when the screen was frozen (the point hovered...), for its copy on a card. */
+      states: CardStates;
+    };
 
 interface ShareState {
   phase: Phase;
@@ -82,6 +92,8 @@ export const useShare = create<ShareState>((set, get) => {
       // The link is to the moment the key was pressed.
       const link = shareLink().catch(() => null);
       const heading = shareHeading();
+      // Now, with the pointer still where it was: once the picker is over the screen, a hovered chart lets go.
+      const states = cardStates();
       const fileName = meta
         ? `pitwall-${slug(`${meta.year} ${meta.meetingName} ${meta.sessionName}`)}-${Math.floor(s.t / 1000)}.png`
         : `pitwall-${slug(location.pathname) || "home"}.png`;
@@ -92,7 +104,7 @@ export const useShare = create<ShareState>((set, get) => {
           const blob = await new Promise<Blob | null>((resolve) => shot.canvas.toBlob(resolve, "image/png"));
           if (!blob) throw new Error("The screen couldn't be captured");
           if (get().phase.kind !== "capturing") return;
-          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName, page, heading } });
+          set({ phase: { kind: "picking", shot, image: URL.createObjectURL(blob), link, fileName, page, heading, states } });
         })
         .catch((e) => {
           console.error("Screenshot failed", e);
@@ -104,7 +116,7 @@ export const useShare = create<ShareState>((set, get) => {
       const phase = get().phase;
       if (phase.kind !== "picking") return;
       const host = new URL(siteOrigin()).host;
-      const card = panels ? cardPanels(panels) : null;
+      const card = panels ? cardPanels(panels, phase.states) : null;
       let image: Promise<Blob>;
       if (card) {
         let job!: CardJob;

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
+import { useMemo, useRef, type KeyboardEvent, type MouseEvent } from "react";
 import {
   defineWidget,
   gap,
@@ -6,16 +6,17 @@ import {
   TAP_CLASS,
   teamColor,
   useAllLaps,
-  useWidgetSize,
+  useCardState,
   useDrivers,
   useFrame,
+  useLapWindow,
   useNeutralPeriods,
   usePlayback,
   useSelection,
   useSessionInfo,
-  useLapWindow,
   useSettings,
   useTotalLaps,
+  useWidgetSize,
   type DriverInfo,
   type Lap,
 } from "widget-kit";
@@ -270,7 +271,7 @@ function GapChart() {
   const totalLaps = useTotalLaps();
   const seekToLap = usePlayback((p) => p.seekToLap);
   const size = useWidgetSize();
-  const [hover, setHover] = useState<number | null>(null);
+  const [hover, setHover] = useCardState<number | null>("hover", null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const markerRef = useRef<HTMLDivElement>(null);
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   compareStyles,
   defineWidget,
@@ -8,6 +8,7 @@ import {
   teamColor,
   timeAtDistance,
   useAllLaps,
+  useCardState,
   useCoarsePointer,
   useDrivers,
   useFastestLap,
@@ -234,7 +235,7 @@ function LiveLaps() {
     }
     return out;
   });
-  const [followFor, setFollowFor] = useState<{ key: number; drivers: number[] }>({ key: sessionKey, drivers: [] });
+  const [followFor, setFollowFor] = useCardState<{ key: number; drivers: number[] }>("follow", { key: sessionKey, drivers: [] });
   const followed = followFor.key === sessionKey ? followFor.drivers : [];
   const toggle = (n: number) =>
     setFollowFor({ key: sessionKey, drivers: followed.includes(n) ? followed.filter((x) => x !== n) : [...followed, n].slice(-MAX) });

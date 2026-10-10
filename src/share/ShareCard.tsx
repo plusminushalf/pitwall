@@ -7,7 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefO
 import { createPortal, flushSync } from "react-dom";
 import { create } from "zustand";
 import { comparing, useReplay } from "../store";
-import { hostedIn, WidgetHost, type HostedWidget } from "../widgetkit/WidgetHost";
+import { cardStateIn, hostedIn, WidgetHost, type HostedWidget } from "../widgetkit/WidgetHost";
 import { Flag } from "../components/Flag";
 import { captureCard } from "./capture";
 import { sessionMoment } from "./moment";
@@ -89,20 +89,33 @@ const scrollers = (el: Element) => {
   });
 };
 
-const widgetPanel = (hosted: HostedWidget, el: Element): CardPanel => ({
-  render: (scale) => <WidgetHost widget={hosted.widget} settings={hosted.settings} circuit={hosted.circuit} pixelRatio={scale} className="h-full w-full overflow-hidden" />,
-  width: CARD_WIDTH,
-  height: Math.round(el.getBoundingClientRect().height),
-  fit: !el.querySelector("canvas, [data-shot-fill]"),
-  scroll: scrollers(el).map((e) => ({ top: e.scrollTop, left: e.scrollLeft })),
-});
+/** What each widget on screen is showing beyond its settings (its useCardState values), by its host element. */
+export type CardStates = ReadonlyMap<Element, Record<string, unknown>>;
+
+/** Every widget's useCardState values now: taken as the screen freezes, before the pointer moves off what it hovered. */
+export const cardStates = (): CardStates => new Map([...document.querySelectorAll("[data-widget-host]")].map((host) => [host, cardStateIn(host)]));
+
+const widgetPanel = (hosted: HostedWidget, el: Element, states: CardStates): CardPanel => {
+  const host = el.matches("[data-widget-host]") ? el : el.querySelector("[data-widget-host]");
+  const state = (host && states.get(host)) || cardStateIn(el);
+  return {
+    render: (scale) => (
+      <WidgetHost widget={hosted.widget} settings={hosted.settings} circuit={hosted.circuit} pixelRatio={scale} cardState={state} className="h-full w-full overflow-hidden" />
+    ),
+    width: CARD_WIDTH,
+    height: Math.round(el.getBoundingClientRect().height),
+    fit: !el.querySelector("canvas, [data-shot-fill]"),
+    scroll: scrollers(el).map((e) => ({ top: e.scrollTop, left: e.scrollLeft })),
+  };
+};
 
 /**
  * The panels picked as a card's, in reading order (top to bottom, then left to right); null if any is neither a
  * widget nor a section a card can show (the screen is cropped instead), or there are none. A page's title panel
- * (data-shot="title") is left out: the card's heading says it.
+ * (data-shot="title") is left out: the card's heading says it. A widget's copy shows what it did in `states` (taken as
+ * the screen froze), or else what it shows now.
  */
-export function cardPanels(els: readonly Element[]): CardPanel[] | null {
+export function cardPanels(els: readonly Element[], states: CardStates = new Map()): CardPanel[] | null {
   const placed: { panel: CardPanel; top: number; left: number }[] = [];
   for (const el of els) {
     if (el.getAttribute("data-shot") === "title") continue;
@@ -110,7 +123,7 @@ export function cardPanels(els: readonly Element[]): CardPanel[] | null {
     const section = SECTIONS.get(el)?.current;
     const hosted = section ? null : hostedIn(el);
     if (!section && !hosted) return null;
-    placed.push({ panel: section ? { render: section.render, width: section.width } : widgetPanel(hosted!, el), top: r.top, left: r.left });
+    placed.push({ panel: section ? { render: section.render, width: section.width } : widgetPanel(hosted!, el, states), top: r.top, left: r.left });
   }
   if (placed.length === 0) return null;
   return placed.sort((a, b) => a.top - b.top || a.left - b.left).map((p) => p.panel);

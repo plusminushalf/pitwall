@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
   defineWidget,
   Label,
@@ -9,6 +9,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCardState,
   useDrivers,
   useNeutralPeriods,
   usePlayback,
@@ -102,7 +103,7 @@ function PushLaps() {
   });
 
   // The set clicked, kept in the list while its pushes are watched (pushes.ts); it goes once the replay leaves them.
-  const [pin, setPin] = useState<PinnedSet | null>(null);
+  const [pin, setPin] = useCardState<PinnedSet | null>("pin", null);
   const held = useTime((t) => (pin ? pinHolds(pin, t, sessionKey) : false));
   useEffect(() => {
     if (pin && !held) setPin(null);

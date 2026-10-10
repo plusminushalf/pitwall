@@ -13,6 +13,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCardState,
   useCoarsePointer,
   useDrivers,
   useFeed,
@@ -195,7 +196,7 @@ function LapCompare() {
   }, [passes]);
 
   // Which laps: the state is the session's (a new session starts over, following the replay).
-  const [picksFor, setPicksFor] = useState<{ key: number; picks: Picks }>({ key: sessionKey, picks: start });
+  const [picksFor, setPicksFor] = useCardState<{ key: number; picks: Picks }>("picks", { key: sessionKey, picks: start });
   const picks = picksFor.key === sessionKey ? picksFor.picks : start;
   const setPicks = (p: Picks) => setPicksFor({ key: sessionKey, picks: p });
   const completed = useMemo(() => new Map(drivers.map((n) => [n, (lapsOf[n] ?? []).map((l) => l.lap)])), [drivers, lapsOf]);
@@ -263,8 +264,8 @@ function LapCompare() {
     ro.observe(el);
     observer.current = ro;
   }, []);
-  const [hover, setHover] = useState<number | null>(null);
-  const [zoom, setZoom] = useState<[number, number] | null>(null);
+  const [hover, setHover] = useCardState<number | null>("hover", null);
+  const [zoom, setZoom] = useCardState<[number, number] | null>("zoom", null);
   const [brush, setBrush] = useState<[number, number] | null>(null);
   const drag = useRef<{ x: number; moved: boolean } | null>(null);
   // When the last tap lifted, to tell a double tap: on a touch screen the brush is a sideways drag, and a
@@ -507,7 +508,7 @@ function LapCompare() {
           )}
           {brush && <div className="pointer-events-none absolute bg-zinc-200/10 ring-1 ring-zinc-400/40" style={{ left: Math.min(...brush), width: Math.abs(brush[1] - brush[0]), top: M.top, bottom: M.bottom }} />}
           {hover != null && (
-            <div className="pointer-events-none absolute top-4 z-10 rounded border border-zinc-700 bg-zinc-900/95 px-2 py-1 text-[11px] shadow-xl" style={tipFlip ? { right: chart.w - xOf(hover) + 8 } : { left: xOf(hover) + 8 }}>
+            <div className="pointer-events-none absolute top-4 z-10 rounded border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] shadow-xl" style={tipFlip ? { right: chart.w - xOf(hover) + 8 } : { left: xOf(hover) + 8 }}>
               <div className="mb-0.5 flex items-baseline justify-between gap-3 text-zinc-400">
                 <span className="tabular-nums">{Math.round(hover).toLocaleString("en-US")} m</span>
                 {ref && <span className="tabular-nums text-zinc-500">{(timeAtDistance(ref, hover) / 1000).toFixed(2)} s</span>}
@@ -531,7 +532,7 @@ function LapCompare() {
                   );
                 })}
               </div>
-              <div className="mt-0.5 text-[10px] text-zinc-600">{coarse ? "tap: seek here · drag sideways: zoom · double-tap: whole lap" : "click: seek here · drag or wheel: zoom · double-click: whole lap"}</div>
+              <div data-shot-control="" className="mt-0.5 text-[10px] text-zinc-600">{coarse ? "tap: seek here · drag sideways: zoom · double-tap: whole lap" : "click: seek here · drag or wheel: zoom · double-click: whole lap"}</div>
             </div>
           )}
         </div>

@@ -43,6 +43,17 @@ export interface SettingsValue {
   update: (patch: Partial<WidgetSettings>) => void;
 }
 
+/**
+ * What a widget is showing that isn't in its settings (the point hovered, a zoom, the laps picked): useCardState()'s
+ * values. `live` is the widget's now, by key, for a share card to read; `seed` is what a widget mounted again on a card
+ * starts with.
+ */
+export interface CardStateValue {
+  live: Map<string, unknown>;
+  seed: Readonly<Record<string, unknown>> | null;
+}
+
 export const VisibilityContext = createContext<Visibility | null>(null);
+export const CardStateContext = createContext<CardStateValue | null>(null);
 export const SettingsContext = createContext<SettingsValue | null>(null);
 export const SizeContext = createContext<WidgetSize | null>(null);

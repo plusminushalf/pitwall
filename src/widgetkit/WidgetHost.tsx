@@ -4,7 +4,7 @@
 
 import { Component, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useReplay } from "../store";
-import { createVisibility, SettingsContext, SizeContext, VisibilityContext, type WidgetSize, type SettingsValue } from "./context";
+import { CardStateContext, createVisibility, SettingsContext, SizeContext, VisibilityContext, type CardStateValue, type WidgetSize, type SettingsValue } from "./context";
 import type { WidgetDefinition, WidgetSettings } from "./defineWidget";
 import { sessionKind } from "./select";
 import { CircuitContext, type CircuitScope } from "./circuit";
@@ -22,6 +22,8 @@ export interface WidgetHostProps {
   circuit?: CircuitScope;
   /** Device px per CSS px for the widget's canvases, instead of the display's (a share card's, drawn bigger). */
   pixelRatio?: number;
+  /** What the widget starts showing (its useCardState values, by key): a share card's copy, as the widget was. */
+  cardState?: Readonly<Record<string, unknown>>;
 }
 
 /** What a mounted widget is, to mount it again elsewhere (a share card). */
@@ -32,11 +34,19 @@ export interface HostedWidget {
 }
 
 const HOSTED = new WeakMap<Element, { current: HostedWidget }>();
+const CARD_STATES = new WeakMap<Element, CardStateValue>();
 
 /** The widget mounted in `el` (or `el` itself), as it's set now; null if there's none. */
 export function hostedIn(el: Element): HostedWidget | null {
   const host = el.matches("[data-widget-host]") ? el : el.querySelector("[data-widget-host]");
   return (host && HOSTED.get(host)?.current) ?? null;
+}
+
+/** The useCardState values of the widget mounted in `el` (or `el` itself) as they are now, by key; empty if none. */
+export function cardStateIn(el: Element): Record<string, unknown> {
+  const host = el.matches("[data-widget-host]") ? el : el.querySelector("[data-widget-host]");
+  const state = host && CARD_STATES.get(host);
+  return state ? Object.fromEntries(state.live) : {};
 }
 
 /** Catches a crashed widget; it gets another go when `resetKey` changes (another widget or other settings). */
@@ -57,9 +67,11 @@ class Boundary extends Component<{ name: string; resetKey: string; children: Rea
   }
 }
 
-export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style, circuit, pixelRatio: ratio }: WidgetHostProps) {
+export function WidgetHost({ widget, settings: initial, onSettingsChange, className, style, circuit, pixelRatio: ratio, cardState }: WidgetHostProps) {
   const ref = useRef<HTMLDivElement>(null);
   const [visibility] = useState(createVisibility);
+  // Read once: a copy starts as the widget was, then is its own.
+  const [cardStateValue] = useState<CardStateValue>(() => ({ live: new Map(), seed: cardState ?? null }));
   const [size, setSize] = useState<WidgetSize>({ width: 0, height: 0, pixelRatio: 1 });
   const [overrides, setOverrides] = useState<Partial<WidgetSettings>>(initial ?? {});
   // New settings from the host (the layout reset, or edited elsewhere) replace the widget's.
@@ -103,6 +115,7 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
   hosted.current = { widget, settings: overrides, circuit };
   useLayoutEffect(() => {
     HOSTED.set(ref.current!, hosted);
+    CARD_STATES.set(ref.current!, cardStateValue);
   }, []);
   const update = useCallback((patch: Partial<WidgetSettings>) => {
     const next = { ...latest.current.overrides, ...patch };
@@ -122,15 +135,17 @@ export function WidgetHost({ widget, settings: initial, onSettingsChange, classN
     <div ref={ref} data-widget-host="" className={className} style={style}>
       {(circuit ? widget.group === "circuit" : kind && widget.sessions.includes(kind)) && size.width > 0 && (
         <CircuitContext.Provider value={circuit ?? null}>
-          <VisibilityContext.Provider value={visibility}>
-            <SettingsContext.Provider value={settingsValue}>
-              <SizeContext.Provider value={size}>
-                <Boundary name={widget.name} resetKey={resetKey}>
-                  {content}
-                </Boundary>
-              </SizeContext.Provider>
-            </SettingsContext.Provider>
-          </VisibilityContext.Provider>
+          <CardStateContext.Provider value={cardStateValue}>
+            <VisibilityContext.Provider value={visibility}>
+              <SettingsContext.Provider value={settingsValue}>
+                <SizeContext.Provider value={size}>
+                  <Boundary name={widget.name} resetKey={resetKey}>
+                    {content}
+                  </Boundary>
+                </SizeContext.Provider>
+              </SettingsContext.Provider>
+            </VisibilityContext.Provider>
+          </CardStateContext.Provider>
         </CircuitContext.Provider>
       )}
     </div>

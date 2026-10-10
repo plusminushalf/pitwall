@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import {
   defineWidget,
   Label,
@@ -10,6 +10,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
+  useCardState,
   useDrivers,
   useNeutralPeriods,
   usePlayback,
@@ -123,7 +124,7 @@ function LongRuns() {
   const narrow = useWidgetSize().width < NARROW;
 
   // The run clicked, kept in the list while it's watched (runs.ts); it goes once the replay leaves it.
-  const [pin, setPin] = useState<PinnedRun | null>(null);
+  const [pin, setPin] = useCardState<PinnedRun | null>("pin", null);
   const progress = useTime((t) => (pin ? step(pinAt(pin, t, sessionKey)) : null));
   useEffect(() => {
     if (pin && !progress) setPin(null);

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type PointerEvent } from "react";
+import { useMemo, useRef, type PointerEvent } from "react";
 import {
   COMPOUND,
   defineWidget,
@@ -8,7 +8,7 @@ import {
   TyreBadge,
   useAllLaps,
   useAllStints,
-  useWidgetSize,
+  useCardState,
   useDrivers,
   useFrame,
   useLapWindow,
@@ -19,6 +19,7 @@ import {
   useSelection,
   useSettings,
   useTotalLaps,
+  useWidgetSize,
   type DriverInfo,
   type DriverSetting,
   type Lap,
@@ -379,7 +380,7 @@ function StintPace() {
   );
 
   const byTyre = colour === "tyre" || (colour === "auto" && series.length === 1);
-  const [hover, setHover] = useState<Hit | null>(null);
+  const [hover, setHover] = useCardState<Hit | null>("hover", null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const hits = useRef<Hit[]>([]);
   const w = size.width - PAD_X;
@@ -393,6 +394,10 @@ function StintPace() {
     if (!canvas || w <= 0 || h <= 0 || now.every((v, i) => v === drawn.current[i])) return;
     drawn.current = now;
     hits.current = draw(canvas, { series: drawnSeries, axis, byTyre, totalLaps, leaderLap, lapWindow, hover }, w, h, size.pixelRatio);
+    // The hovered lap's tooltip stays on its point where it's drawn now: after a resize, and on a share card's copy,
+    // narrower than the widget it was hovered in.
+    const at = hover && hits.current.find((x) => x.series.n === hover.series.n && x.point.lap === hover.point.lap);
+    if (at && (at.x !== hover.x || at.y !== hover.y)) setHover(at);
   });
 
   const nearest = (e: PointerEvent<HTMLCanvasElement>): Hit | null => {

@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from "react";
+import { memo, useCallback, useMemo } from "react";
 import {
   defineWidget,
   DriverTag,
@@ -6,6 +6,7 @@ import {
   Label,
   raceClock,
   TAP_CLASS,
+  useCardState,
   useDrivers,
   useFeed,
   usePlayback,
@@ -163,7 +164,7 @@ const FeedRow = memo(function FeedRow({
 });
 
 function RaceFeed() {
-  const [groups, setGroups] = useState(ALL_ON);
+  const [groups, setGroups] = useCardState("groups", ALL_ON);
   const [{ show, passes }, update] = useSettings<Settings>();
   const selected = useSelection((s) => s.selected);
   const filtered = show === "selected";

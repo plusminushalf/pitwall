@@ -65,6 +65,8 @@
 //     useSelectedDriver()        pinned by settings, else focused, else best-placed selected, else leader
 //   The widget itself
 //     useSettings()              [settings, update]
+//     useCardState(key, initial) useState that a share card keeps: what the widget shows beyond its settings (the
+//                                point hovered, a zoom, the laps picked), so the card's copy shows it too
 //     useWidgetSize()             { width, height } in CSS px, and the display's pixelRatio
 //     usePhone()                 the app is in its phone layout (narrow viewport, or a short touch screen)
 //     useCoarsePointer()         a touch screen with no hover: wording ("tap", not "click") and hover-only
@@ -143,6 +145,7 @@ export {
   useSelection,
   useSessionInfo,
   useSettings,
+  useCardState,
   useStints,
   useTime,
   useTotalLaps,
