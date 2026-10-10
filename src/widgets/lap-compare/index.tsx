@@ -172,10 +172,10 @@ function LapCompare() {
     return out;
   });
 
-  // Overtakes by or on a compared car (the race feed, spoiler-free), to mark on the laps shown.
+  // Overtakes made by a compared car (the race feed, spoiler-free), to mark on the laps shown.
   const passes = useFeed((feed) =>
     feed.flatMap((f) => {
-      if (f.kind !== "overtake" || f.driver == null || f.passed == null || !(drivers.includes(f.driver) || drivers.includes(f.passed))) return [];
+      if (f.kind !== "overtake" || f.driver == null || f.passed == null || !drivers.includes(f.driver)) return [];
       const position = /for (P\d+)/.exec(f.text)?.[1] ?? null;
       return [{ t: f.t, by: f.driver, on: f.passed, position }];
     }),
@@ -225,24 +225,19 @@ function LapCompare() {
   const ref = series[0]?.trace ?? null;
   const markers = useMemo((): Marker[] => {
     const out: Marker[] = [];
-    const seen = new Set<string>();
     const acr = (n: number) => infoOf(n)?.acronym ?? `#${n}`;
     for (const { trace } of series) {
       const lap = lapsOf[trace.driver]?.find((l) => l.lap === trace.lap);
       if (!lap) continue;
       const end = lap.start + lap.duration * 1000;
       for (const p of uniquePasses) {
-        if (p.t < lap.start || p.t > end || (p.by !== trace.driver && p.on !== trace.driver)) continue;
-        // A pass between two compared cars shows once, on the passing car's lap.
-        const key = `${p.t}|${p.by}|${p.on}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
+        if (p.t < lap.start || p.t > end || p.by !== trace.driver) continue;
         const between = drivers.includes(p.by) && drivers.includes(p.on);
         const d = distanceAtTime(trace, p.t - lap.start);
         // The nearest corner before or at the pass (within 300 m), to say where it was.
         const corner = geometry.corners.filter((c) => c.d <= d + 50 && d - c.d < 300).at(-1);
         const detail = [p.position ? `for ${p.position}` : "", corner ? `T${corner.label}` : ""].filter(Boolean).join(" · ");
-        out.push({ d, label: `${acr(p.by)} passes ${acr(p.on)}`, detail, speed: p.by === trace.driver ? valueAtDistance(trace, "speed", d) : null, between });
+        out.push({ d, label: `${acr(p.by)} passes ${acr(p.on)}`, detail, speed: valueAtDistance(trace, "speed", d), between });
       }
     }
     return out;
@@ -385,7 +380,7 @@ function LapCompare() {
                 type="button"
                 className={`rounded px-1.5 py-0.5 font-semibold uppercase tracking-wider ${settings.overtakes ? "bg-zinc-800 text-zinc-100" : "text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200"}`}
                 aria-pressed={settings.overtakes}
-                title={settings.overtakes ? "Overtakes on these laps are marked on the chart. Click to hide them." : "Click to mark the overtakes on these laps on the chart."}
+                title={settings.overtakes ? "Passes these drivers make on these laps are marked on the chart. Click to hide them." : "Click to mark the passes these drivers make on these laps on the chart."}
                 onClick={() => update({ overtakes: !settings.overtakes })}
               >
                 Overtakes <span className="tabular-nums">{markers.length}</span>
