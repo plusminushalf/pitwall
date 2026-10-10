@@ -5,11 +5,13 @@ import {
   DRIVER_HISTORY_FORMAT,
   type DriverHistory,
   type DriverIndex,
+  type DriverRace,
   type DriverSeason,
   type DriverTotals,
   type HistorySource,
   type SeasonDriver,
 } from "../../src/history/types";
+import { byDate, careers, type Careers } from "./careers";
 import type { F1db, F1dbSeasonDriver } from "./f1dbTypes";
 
 const NONE: DriverTotals = { starts: 0, wins: 0, podiums: 0, poles: 0, fastestLaps: 0, points: 0, titles: 0 };
@@ -35,10 +37,25 @@ const add = (a: DriverTotals, b: DriverTotals): DriverTotals => ({
   titles: a.titles + b.titles,
 });
 
-/** Every driver's seasons, and the latest season's drivers (the latest season with a race run). */
-export function buildDriverHistories(db: F1db, source: HistorySource): { histories: DriverHistory[]; index: DriverIndex } {
-  const country = new Map(db.countries.map((c) => [c.id, c]));
-  const constructor = new Map(db.constructors.map((c) => [c.id, c.name]));
+/** Every Grand Prix each driver started, with their teammates' results there, oldest first. */
+function racesByDriver(c: Careers): Map<string, DriverRace[]> {
+  const out = new Map<string, DriverRace[]>();
+  for (const race of [...c.races.values()].sort(byDate)) {
+    const cars = c.cars.get(race.id)!;
+    for (const r of cars) {
+      // A shared car (the 1950s) is in the sheet once per driver: one race.
+      const list = out.get(r.driverId) ?? [];
+      if (list.at(-1)?.raceId === race.id) continue;
+      const mates = cars.filter((m) => m.constructorId === r.constructorId && m.driverId !== r.driverId).map(c.car);
+      list.push({ ...c.ref(race), car: c.car(r), mates });
+      out.set(r.driverId, list);
+    }
+  }
+  return out;
+}
+
+/** Every driver's seasons and races, and the latest season's drivers (the latest season with a race run). */
+export function buildDriverHistories(db: F1db, source: HistorySource, c: Careers = careers(db)): { histories: DriverHistory[]; index: DriverIndex } {
   const champion = new Set(db.seasonsDriverStandings.filter((s) => s.championshipWon).map((s) => `${s.year}:${s.driverId}`));
   const key = (year: number, driverId: string) => `${year}:${driverId}`;
 
@@ -51,8 +68,7 @@ export function buildDriverHistories(db: F1db, source: HistorySource): { histori
     list.push({ team: e.constructorId, first: Math.min(...e.rounds), rounds: e.rounds });
     entries.set(k, list);
   }
-  const teamsOf = (year: number, driverId: string) =>
-    [...new Set((entries.get(key(year, driverId)) ?? []).sort((a, b) => a.first - b.first).map((e) => constructor.get(e.team) ?? e.team))];
+  const teamsOf = (year: number, driverId: string) => [...new Set((entries.get(key(year, driverId)) ?? []).sort((a, b) => a.first - b.first).map((e) => c.team(e.team)))];
 
   const seasonsOf = new Map<string, DriverSeason[]>();
   for (const s of [...db.seasonsDrivers].sort((a, b) => a.year - b.year)) {
@@ -64,12 +80,13 @@ export function buildDriverHistories(db: F1db, source: HistorySource): { histori
     seasonsOf.set(s.driverId, list);
   }
 
+  const racesOf = racesByDriver(c);
   const histories: DriverHistory[] = [];
   const bios = new Map<string, DriverHistory["driver"]>();
   for (const d of db.drivers) {
     const seasons = seasonsOf.get(d.id);
     if (!seasons) continue;
-    const nationality = country.get(d.nationalityCountryId);
+    const nationality = c.country.get(d.nationalityCountryId);
     const driver = {
       id: d.id,
       name: d.name,
@@ -80,22 +97,20 @@ export function buildDriverHistories(db: F1db, source: HistorySource): { histori
       dateOfBirth: d.dateOfBirth,
       dateOfDeath: d.dateOfDeath,
       placeOfBirth: d.placeOfBirth,
-      countryOfBirth: country.get(d.countryOfBirthCountryId)?.name ?? d.countryOfBirthCountryId,
+      countryOfBirth: c.country.get(d.countryOfBirthCountryId)?.name ?? d.countryOfBirthCountryId,
       nationality: nationality?.name ?? d.nationalityCountryId,
       nationalityCode: nationality?.alpha2Code ?? "",
     };
     bios.set(d.id, driver);
-    histories.push({ format: DRIVER_HISTORY_FORMAT, source, driver, seasons });
+    const races = racesOf.get(d.id) ?? [];
+    const names = c.names(
+      races,
+      races.flatMap((r) => [r.car, ...r.mates]),
+    );
+    histories.push({ format: DRIVER_HISTORY_FORMAT, source, driver, seasons, races, names });
   }
 
-  // The season: the latest with a race run (F1DB lists a season's entrants before it starts).
-  const held = new Set(db.raceResults.map((r) => r.raceId));
-  const run = db.races.filter((r) => held.has(r.id));
-  const year = Math.max(...run.map((r) => r.year));
-  const latest = run.filter((r) => r.year === year).sort((a, b) => b.round - a.round)[0];
-  const roundOf = new Map(run.filter((r) => r.year === year).map((r) => [r.id, r.round]));
-  const results = db.raceResults.filter((r) => roundOf.has(r.raceId));
-
+  const { year, latest } = c;
   const drivers: SeasonDriver[] = [];
   for (const [k, list] of entries) {
     const [y, driverId] = [Number(k.slice(0, k.indexOf(":"))), k.slice(k.indexOf(":") + 1)];
@@ -103,18 +118,23 @@ export function buildDriverHistories(db: F1db, source: HistorySource): { histori
     if (y !== year || !bio) continue;
     const rounds = [...new Set(list.flatMap((e) => e.rounds))].sort((a, b) => a - b);
     // The car and team of the driver's latest race this season.
-    const last = results.filter((r) => r.driverId === driverId).sort((a, b) => roundOf.get(b.raceId)! - roundOf.get(a.raceId)!)[0];
+    const last = racesOf
+      .get(driverId)
+      ?.filter((r) => r.year === year)
+      .at(-1)?.car;
     const seasons = seasonsOf.get(driverId) ?? [];
     const thisSeason = seasons.find((s) => s.year === year);
+    const teamId = last?.constructorId ?? list.at(-1)!.team;
     drivers.push({
       id: driverId,
       name: bio.name,
       lastName: bio.lastName,
       abbreviation: bio.abbreviation,
-      number: last?.driverNumber ?? bio.number,
+      number: last?.number ?? bio.number,
       nationality: bio.nationality,
       nationalityCode: bio.nationalityCode,
-      team: constructor.get(last?.constructorId ?? list.at(-1)!.team) ?? list.at(-1)!.team,
+      team: c.team(teamId),
+      teamId,
       rounds,
       current: latest != null && rounds.includes(latest.round),
       before: seasons.filter((s) => s.year < year).reduce(add, NONE),

@@ -10,7 +10,8 @@ import { Timeline } from "./components/Timeline";
 import { QualiView } from "./components/quali/QualiView";
 import { Home } from "./components/home/Home";
 import { CircuitPage } from "./components/circuit/CircuitPage";
-import { DriverPage } from "./components/driver/DriverPage";
+import { DriverPage } from "./components/career/DriverPage";
+import { TeamPage } from "./components/career/TeamPage";
 import { ShareShot } from "./share/ShareShot";
 import { Grid } from "./grid/Grid";
 import { useKeyboard } from "./hooks/useKeyboard";
@@ -70,6 +71,7 @@ export function App() {
   const view = useReplay((s) => s.view);
   const circuit = useReplay((s) => s.circuit);
   const driver = useReplay((s) => s.driver);
+  const team = useReplay((s) => s.team);
   const session = useReplay((s) => s.session);
   const loading = useReplay((s) => s.loading);
   const supported = useLibrary((s) => s.supported);
@@ -94,6 +96,7 @@ export function App() {
   if (view === "home") page = <Home />;
   else if (view === "circuit" && circuit) page = <CircuitPage slug={circuit} />;
   else if (view === "driver" && driver) page = <DriverPage id={driver} />;
+  else if (view === "team" && team) page = <TeamPage id={team} />;
   // Live mode before there's a live session to show: connecting, relay offline, or no race right now.
   else if (!session && live) page = <LiveScreen />;
   // A shared link to a session that isn't downloaded: offer to.

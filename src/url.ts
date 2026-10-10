@@ -6,7 +6,8 @@
 //   /session/11731?t=3725&range=12-30                the lap charts zoomed to laps 12 to 30 (the timeline's zoom rail)
 //   /live?drivers=1,63&focus=63                      live mode; watching back a live session adds session=…&t=…
 //   /circuit/singapore                               a circuit: every session there, and its history (../circuit.ts)
-//   /driver/max-verstappen                           a driver: their career, season by season (F1DB's driver id)
+//   /driver/max-verstappen                           a driver: their season and career (F1DB's driver id)
+//   /team/red-bull                                   a team: its season and history (F1DB's constructor id)
 //   /session/11377?dash=strategy                     a dashboard other than the first (grid/dashboards.ts); live too
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
 //   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't a preset's
@@ -35,6 +36,8 @@ export interface UrlState {
   circuit?: string;
   /** A driver's page (no session open): F1DB's driver id. */
   driver?: string;
+  /** A team's page (no session open): F1DB's constructor id. */
+  team?: string;
 }
 
 /** How a shared link sets up the lap comparison (qualifying, practice's Fastest laps). */
@@ -55,6 +58,7 @@ const SESSION_PATH = /^\/session\/(\d+)\/?$/;
 const LIVE_PATH = /^\/live\/?$/;
 const CIRCUIT_PATH = /^\/circuit\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
 const DRIVER_PATH = /^\/driver\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
+const TEAM_PATH = /^\/team\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/;
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
 const OWN = new Set(["session", "live", "t", "drivers", "driver", "focus", "view", "zoom", "preset", "laps", "mini", "names", "layout", "range"]);
 const LAYOUT_CODE = /^[A-Za-z0-9_-]+$/;
@@ -65,6 +69,7 @@ export const sessionPath = (key: number) => `/session/${key}`;
 export const livePath = "/live";
 export const circuitPath = (slug: string) => `/circuit/${slug}`;
 export const driverPath = (id: string) => `/driver/${id}`;
+export const teamPath = (id: string) => `/team/${id}`;
 
 export function readUrl(pathname: string, search: string): UrlState {
   const q = new URLSearchParams(search);
@@ -72,6 +77,7 @@ export function readUrl(pathname: string, search: string): UrlState {
   const path = SESSION_PATH.exec(pathname);
   const circuit = CIRCUIT_PATH.exec(pathname)?.[1];
   const driver = DRIVER_PATH.exec(pathname)?.[1];
+  const team = TEAM_PATH.exec(pathname)?.[1];
   const t = num("t");
   const legacy = num("driver");
   const range = /^(\d+)-(\d+)$/.exec(q.get("range") ?? "");
@@ -98,6 +104,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     ...(DASHBOARD_ID.test(q.get("dash") ?? "") ? { dash: q.get("dash")! } : {}),
     ...(circuit && !live && session == null ? { circuit } : {}),
     ...(driver && !live && session == null ? { driver } : {}),
+    ...(team && !live && session == null ? { team } : {}),
   };
 }
 
@@ -126,7 +133,7 @@ function readShared(q: URLSearchParams): Pick<UrlState, "compare" | "layout"> {
 
 /** The address of a view. Built by hand (all values are numbers) so the driver list keeps readable commas instead of %2C. */
 export function urlFor(v: UrlState): string {
-  if (!v.live && v.session == null) return v.circuit ? circuitPath(v.circuit) : v.driver ? driverPath(v.driver) : "/";
+  if (!v.live && v.session == null) return v.circuit ? circuitPath(v.circuit) : v.driver ? driverPath(v.driver) : v.team ? teamPath(v.team) : "/";
   const q: string[] = [];
   if (!v.live && v.view) q.push(`view=${v.view}`);
   if (v.session != null && v.t != null) q.push(...(v.live ? [`session=${v.session}`] : []), `t=${Math.floor(v.t / 1000)}`);
@@ -151,7 +158,7 @@ export function urlFor(v: UrlState): string {
 export function upgradeUrl(pathname: string, search: string): string | null {
   const q = new URLSearchParams(search);
   const live = LIVE_PATH.test(pathname);
-  const known = pathname === "/" || live || SESSION_PATH.test(pathname) || CIRCUIT_PATH.test(pathname) || DRIVER_PATH.test(pathname);
+  const known = pathname === "/" || live || SESSION_PATH.test(pathname) || CIRCUIT_PATH.test(pathname) || DRIVER_PATH.test(pathname) || TEAM_PATH.test(pathname);
   const legacy = q.has("live") || q.has("driver") || (q.has("session") && !live);
   if (known && !legacy) return null;
   const url = urlFor(readUrl(pathname, search));

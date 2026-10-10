@@ -34,7 +34,10 @@ export interface F1dbCountry {
 
 export interface F1dbGrandPrix {
   id: string;
+  name: string; // "Italy"
   fullName: string; // "Italian Grand Prix"
+  shortName: string; // "Italian GP"
+  countryId: string | null;
 }
 
 export interface F1dbDriver {
@@ -52,6 +55,13 @@ export interface F1dbDriver {
 }
 
 export interface F1dbConstructor {
+  id: string;
+  name: string;
+  fullName: string;
+  countryId: string;
+}
+
+export interface F1dbEngineManufacturer {
   id: string;
   name: string;
 }
@@ -84,6 +94,9 @@ interface F1dbRaceRow {
 }
 
 export interface F1dbRaceResult extends F1dbRaceRow {
+  qualificationPositionNumber: number | null;
+  points: number | null;
+  reasonRetired: string | null;
   laps: number | null;
   time: string | null;
   gap: string | null;
@@ -141,6 +154,33 @@ export interface F1dbSeasonEntrantDriver {
   testDriver: boolean;
 }
 
+/** A team's season: Grand Prix totals, and its championship position. */
+export interface F1dbSeasonConstructor {
+  year: number;
+  constructorId: string;
+  positionNumber: number | null;
+  totalRaceStarts: number;
+  totalRaceWins: number;
+  total1And2Finishes: number;
+  totalPodiums: number;
+  totalPoints: number;
+  totalPolePositions: number;
+  totalFastestLaps: number;
+}
+
+/** Before 1985ish a team could be classified once per engine: several rows a season. */
+export interface F1dbSeasonConstructorStanding {
+  year: number;
+  constructorId: string;
+  championshipWon: boolean;
+}
+
+export interface F1dbSeasonEntrantConstructor {
+  year: number;
+  constructorId: string;
+  engineManufacturerId: string;
+}
+
 /** The tables the history builds read (circuitHistory.ts, driverHistory.ts), as parsed from the release. */
 export interface F1db {
   circuits: F1dbCircuit[];
@@ -157,6 +197,10 @@ export interface F1db {
   seasonsDrivers: F1dbSeasonDriver[];
   seasonsDriverStandings: F1dbSeasonDriverStanding[];
   seasonsEntrantsDrivers: F1dbSeasonEntrantDriver[];
+  seasonsConstructors: F1dbSeasonConstructor[];
+  seasonsConstructorStandings: F1dbSeasonConstructorStanding[];
+  seasonsEntrantsConstructors: F1dbSeasonEntrantConstructor[];
+  engineManufacturers: F1dbEngineManufacturer[];
 }
 
 /** The file each table is read from, inside the zip. */
@@ -175,4 +219,8 @@ export const F1DB_FILES: Readonly<Record<keyof F1db, string>> = {
   seasonsDrivers: "f1db-seasons-drivers.json",
   seasonsDriverStandings: "f1db-seasons-driver-standings.json",
   seasonsEntrantsDrivers: "f1db-seasons-entrants-drivers.json",
+  seasonsConstructors: "f1db-seasons-constructors.json",
+  seasonsConstructorStandings: "f1db-seasons-constructor-standings.json",
+  seasonsEntrantsConstructors: "f1db-seasons-entrants-constructors.json",
+  engineManufacturers: "f1db-engine-manufacturers.json",
 };

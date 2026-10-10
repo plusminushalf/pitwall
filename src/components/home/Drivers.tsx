@@ -1,31 +1,18 @@
-// Home's drivers: a board of the season's grid, by team, from F1DB's index (built at deploy, ../../history/drivers.ts).
-// A cell opens the driver's page (../driver/DriverPage.tsx): their career, season by season. Each says the car number,
+// Home's drivers: a board of the season's grid, by team, from F1DB's index (built at deploy, ../../history/careers.ts).
+// A cell opens the driver's page (../career/DriverPage.tsx): their season and career. Each says the car number,
 // flag, name and team, and the career in figures: to the end of last season unless this one counts
-// (../driver/common.tsx), and then the championship position too. Drivers who raced this season but not the latest
+// (../career/common.tsx), and then the championship position too. Drivers who raced this season but not the latest
 // round (stand-ins, drivers replaced) follow, quieter.
 
-import { useEffect, useState, type ReactNode } from "react";
-import { fetchDriverIndex, sumTotals } from "../../history/drivers";
-import type { DriverIndex, SeasonDriver } from "../../history/types";
+import type { ReactNode } from "react";
+import { fetchDriverIndex, sumTotals } from "../../history/careers";
+import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, useCounts } from "../driver/common";
+import { count, SeasonNote, useCounts, useHistoryFile } from "../career/common";
 import { FOCUS, LABEL } from "./common";
 
-/** The season's drivers; null while loading, "none" if the deploy built none. */
-function useDriverIndex(): DriverIndex | "none" | null {
-  const [index, setIndex] = useState<DriverIndex | "none" | null>(null);
-  useEffect(() => {
-    const abort = new AbortController();
-    fetchDriverIndex(abort.signal)
-      .then((i) => setIndex(i ?? "none"))
-      .catch(() => {
-        if (!abort.signal.aborted) setIndex("none");
-      });
-    return () => abort.abort();
-  }, []);
-  return index;
-}
+const loadIndex = (_: string, signal: AbortSignal) => fetchDriverIndex(signal);
 
 /** "1–3, 15–16": the rounds raced, as ranges. */
 function rounds(list: number[]): string {
@@ -91,7 +78,7 @@ function Cell({ d, counts, quiet }: { d: SeasonDriver; counts: boolean; quiet: b
 const BOARD = "grid grid-cols-1 border-l border-t border-zinc-800 min-[420px]:grid-cols-2 lg:grid-cols-3";
 
 export function Drivers({ heading }: { heading: ReactNode }) {
-  const index = useDriverIndex();
+  const index = useHistoryFile("index", loadIndex);
   const year = index && index !== "none" ? index.year : 0;
   const counts = useCounts(year);
 

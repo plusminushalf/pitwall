@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { historySource } from "./circuitHistory";
 import { buildDriverHistories } from "./driverHistory";
+import { buildTeamHistories } from "./teamHistory";
 import type { F1db, F1dbRaceResult, F1dbSeasonDriver } from "./f1dbTypes";
 
 const driver = (id: string, nationalityCountryId = "netherlands") => ({
@@ -29,20 +30,24 @@ const season = (year: number, driverId: string, wins: number, position: number |
   totalFastestLaps: 0,
 });
 
-const result = (raceId: number, driverId: string, constructorId: string, driverNumber: string): F1dbRaceResult => ({
+const result = (raceId: number, driverId: string, constructorId: string, driverNumber: string, position: number | null = 1, extra: Partial<F1dbRaceResult> = {}): F1dbRaceResult => ({
   raceId,
-  positionDisplayOrder: 1,
-  positionNumber: 1,
-  positionText: "1",
+  positionDisplayOrder: position ?? 20,
+  positionNumber: position,
+  positionText: position == null ? "DNF" : String(position),
   driverNumber,
   driverId,
   constructorId,
+  qualificationPositionNumber: position,
+  points: position === 1 ? 25 : position === 2 ? 18 : null,
+  reasonRetired: position == null ? "Engine" : null,
   laps: 50,
   time: null,
   gap: null,
-  gridPositionNumber: 1,
-  polePosition: false,
+  gridPositionNumber: position,
+  polePosition: position === 1,
   fastestLap: false,
+  ...extra,
 });
 
 const race = (id: number, year: number, round: number) => ({
@@ -67,16 +72,28 @@ const db: F1db = {
     { id: "netherlands", alpha2Code: "NL", name: "Netherlands" },
     { id: "belgium", alpha2Code: "BE", name: "Belgium" },
     { id: "japan", alpha2Code: "JP", name: "Japan" },
+    { id: "bahrain", alpha2Code: "BH", name: "Bahrain" },
   ],
-  grandsPrix: [{ id: "bahrain", fullName: "Bahrain Grand Prix" }],
+  grandsPrix: [
+    { id: "bahrain", name: "Bahrain", fullName: "Bahrain Grand Prix", shortName: "Bahrain GP", countryId: "bahrain" },
+    { id: "australia", name: "Australia", fullName: "Australian Grand Prix", shortName: "Australian GP", countryId: null },
+  ],
   drivers: [driver("max"), driver("yuki", "japan"), driver("liam"), driver("never")],
   constructors: [
-    { id: "red-bull", name: "Red Bull" },
-    { id: "racing-bulls", name: "Racing Bulls" },
+    { id: "red-bull", name: "Red Bull", fullName: "Red Bull Racing", countryId: "netherlands" },
+    { id: "racing-bulls", name: "Racing Bulls", fullName: "Racing Bulls", countryId: "japan" },
   ],
   // 2026's round 3 is on the calendar, not run yet.
   races: [race(1, 2025, 1), race(2, 2026, 1), race(3, 2026, 2), race(4, 2026, 3)],
-  raceResults: [result(1, "max", "red-bull", "1"), result(2, "max", "red-bull", "3"), result(2, "yuki", "racing-bulls", "22"), result(3, "max", "red-bull", "3"), result(3, "liam", "racing-bulls", "30")],
+  raceResults: [
+    result(1, "max", "red-bull", "1"),
+    result(2, "max", "red-bull", "3", null),
+    result(2, "yuki", "racing-bulls", "22", 2),
+    result(3, "max", "red-bull", "3"),
+    result(3, "liam", "racing-bulls", "30", 2),
+    // Didn't qualify: not a race of his.
+    result(3, "yuki", "racing-bulls", "22", null, { positionText: "DNQ" }),
+  ],
   qualifyingResults: [],
   fastestLaps: [],
   driverOfTheDay: [],
@@ -92,6 +109,26 @@ const db: F1db = {
     { year: 2024, driverId: "max", championshipWon: true },
     { year: 2025, driverId: "max", championshipWon: false },
   ],
+  seasonsConstructors: [2025, 2026].flatMap((year) =>
+    ["red-bull", "racing-bulls"].map((constructorId) => ({
+      year,
+      constructorId,
+      positionNumber: constructorId === "red-bull" ? 1 : 2,
+      totalRaceStarts: year === 2025 && constructorId === "racing-bulls" ? 0 : 2,
+      totalRaceWins: constructorId === "red-bull" ? 1 : 0,
+      total1And2Finishes: 0,
+      totalPodiums: 1,
+      totalPoints: 25,
+      totalPolePositions: 1,
+      totalFastestLaps: 0,
+    })),
+  ),
+  seasonsConstructorStandings: [{ year: 2025, constructorId: "red-bull", championshipWon: true }],
+  seasonsEntrantsConstructors: [
+    { year: 2026, constructorId: "red-bull", engineManufacturerId: "rbpt" },
+    { year: 2026, constructorId: "racing-bulls", engineManufacturerId: "rbpt" },
+  ],
+  engineManufacturers: [{ id: "rbpt", name: "Red Bull Ford" }],
   seasonsEntrantsDrivers: [
     { year: 2024, constructorId: "red-bull", driverId: "max", rounds: [1], testDriver: false },
     { year: 2025, constructorId: "red-bull", driverId: "max", rounds: [1], testDriver: false },
@@ -136,5 +173,58 @@ describe("buildDriverHistories", () => {
     const d = index.drivers.find((x) => x.id === "max")!;
     expect(d.before).toMatchObject({ starts: 4, wins: 3, titles: 1, points: 75.6 });
     expect(d.season).toMatchObject({ starts: 2, wins: 1, titles: 0, position: 2 });
+  });
+});
+
+describe("a driver's races", () => {
+  const { histories } = buildDriverHistories(db, historySource("v2026.16.1", "2026-10-10T00:00:00Z"));
+  const max = histories.find((h) => h.driver.id === "max")!;
+  const yuki = histories.find((h) => h.driver.id === "yuki")!;
+
+  test("every Grand Prix started, oldest first, with teammates; a non-start left out", () => {
+    expect(max.races.map((r) => [r.raceId, r.car.text, r.mates.length])).toEqual([
+      [1, "1", 0],
+      [2, "DNF", 0],
+      [3, "1", 0],
+    ]);
+    expect(max.races[1].car).toEqual({ driverId: "max", constructorId: "red-bull", number: "3", text: "DNF", order: 20, reason: "Engine" });
+    expect(yuki.races.map((r) => r.raceId)).toEqual([2]);
+  });
+
+  test("the names its races mention", () => {
+    expect(max.names.gps.bahrain).toEqual({ name: "Bahrain Grand Prix", short: "Bahrain GP", code: "BH" });
+    expect(max.names.teams).toEqual({ "red-bull": "Red Bull" });
+  });
+});
+
+describe("buildTeamHistories", () => {
+  const { histories, index } = buildTeamHistories(db, historySource("v2026.16.1", "2026-10-10T00:00:00Z"));
+  const rb = histories.find((h) => h.team.id === "red-bull")!;
+
+  test("a file per team with a race, its seasons with drivers and titles, its races with every car", () => {
+    expect(histories.map((h) => h.team.id)).toEqual(["red-bull", "racing-bulls"]);
+    expect(rb.team).toMatchObject({ name: "Red Bull", nationalityCode: "NL", engine: "Red Bull Ford" });
+    expect(rb.seasons.map((s) => [s.year, s.titles, s.drivers])).toEqual([
+      [2025, 1, ["max"]],
+      [2026, 0, ["max"]],
+    ]);
+    // A season with no start isn't one.
+    expect(histories[1].seasons.map((s) => s.year)).toEqual([2026]);
+    expect(rb.races.map((r) => r.cars.map((c) => c.driverId))).toEqual([["max"], ["max"], ["max"]]);
+  });
+
+  test("the season's teams: its drivers, the latest round's first; history apart from the season", () => {
+    expect(index.teams.map((t) => [t.id, t.drivers.map((d) => [d.id, d.current])])).toEqual([
+      [
+        "racing-bulls",
+        [
+          ["liam", true],
+          ["yuki", false],
+        ],
+      ],
+      ["red-bull", [["max", true]]],
+    ]);
+    expect(index.teams[1].before).toMatchObject({ starts: 2, wins: 1, titles: 1 });
+    expect(index.teams[1].season).toMatchObject({ starts: 2, position: 1 });
   });
 });

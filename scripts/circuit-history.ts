@@ -10,13 +10,16 @@
 import { mkdir, rm } from "node:fs/promises";
 import { F1DB_CIRCUIT } from "../src/history/circuits";
 import { buildCircuitHistories, historySource } from "./lib/circuitHistory";
+import { careers } from "./lib/careers";
 import { buildDriverHistories } from "./lib/driverHistory";
+import { buildTeamHistories } from "./lib/teamHistory";
 import { F1DB_FILES, type F1db } from "./lib/f1dbTypes";
 
 const REPO = "https://github.com/f1db/f1db";
 const ZIP = "f1db-json-splitted.zip";
 const OUT = "public/history/circuits";
 const DRIVERS_OUT = "public/history/drivers";
+const TEAMS_OUT = "public/history/teams";
 
 /** The latest release's tag, from where GitHub redirects /releases/latest (no API call, so no API rate limit). */
 async function latestRelease(): Promise<string> {
@@ -63,7 +66,9 @@ const db = Object.fromEntries(entries) as unknown as F1db;
 
 const source = historySource(release, new Date().toISOString());
 const { histories, index } = buildCircuitHistories(db, source);
-const drivers = buildDriverHistories(db, source);
+const raced = careers(db);
+const drivers = buildDriverHistories(db, source, raced);
+const teams = buildTeamHistories(db, source, raced);
 
 // Every circuit the app can ask for must have a file: a missing one means F1DB renamed a circuit.
 const built = new Set(histories.map((h) => h.circuit.id));
@@ -88,3 +93,10 @@ const { year, throughRound } = drivers.index;
 console.log(
   `F1DB ${release}: ${drivers.histories.length} drivers, ${drivers.index.drivers.length} in ${year} (through R${throughRound}), ${(bytes / 1024).toFixed(0)} KB in ${DRIVERS_OUT}/`,
 );
+
+await rm(TEAMS_OUT, { recursive: true, force: true });
+await mkdir(TEAMS_OUT, { recursive: true });
+bytes = 0;
+for (const h of teams.histories) bytes += await Bun.write(`${TEAMS_OUT}/${h.team.id}.json`, JSON.stringify(h));
+bytes += await Bun.write(`${TEAMS_OUT}/index.json`, JSON.stringify(teams.index));
+console.log(`F1DB ${release}: ${teams.histories.length} teams, ${teams.index.teams.length} in ${year}, ${(bytes / 1024).toFixed(0)} KB in ${TEAMS_OUT}/`);

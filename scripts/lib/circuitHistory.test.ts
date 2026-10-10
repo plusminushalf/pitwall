@@ -34,6 +34,9 @@ const result = (raceId: number, position: number | null, driverId: string, extra
   time: position === 1 ? "1:13:24.325" : null,
   gap: position != null && position > 1 ? `+${position}.000` : null,
   gridPositionNumber: position,
+  qualificationPositionNumber: position,
+  points: null,
+  reasonRetired: null,
   polePosition: false,
   fastestLap: false,
   ...extra,
@@ -65,7 +68,7 @@ const db: F1db = {
     { id: "monza-0", circuitId: "monza", effective: false, length: 10, turns: 20 },
   ],
   countries: [{ id: "italy", alpha2Code: "IT", name: "Italy" }],
-  grandsPrix: [{ id: "italy", fullName: "Italian Grand Prix" }],
+  grandsPrix: [{ id: "italy", name: "Italy", fullName: "Italian Grand Prix", shortName: "Italian GP", countryId: "italy" }],
   drivers: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({
     id,
     name: `Driver ${id}`,
@@ -79,7 +82,7 @@ const db: F1db = {
     countryOfBirthCountryId: "italy",
     nationalityCountryId: "italy",
   })),
-  constructors: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({ id: `${id}-team`, name: `Team ${id}` })),
+  constructors: ["schumacher", "norris", "leclerc", "piastri"].map((id) => ({ id: `${id}-team`, name: `Team ${id}`, fullName: `Team ${id}`, countryId: "italy" })),
   // Out of date order, and with next year's race, which hasn't been run.
   races: [race(3, 2025, "monza-7", { sprintRaceDate: "2025-09-06", driversChampionshipDecider: true }), race(1, 1999, "monza-6"), race(2, 2024, "monza-7"), race(4, 2027, "monza-7")],
   raceResults: [
@@ -96,6 +99,10 @@ const db: F1db = {
   seasonsDrivers: [],
   seasonsDriverStandings: [],
   seasonsEntrantsDrivers: [],
+  seasonsConstructors: [],
+  seasonsConstructorStandings: [],
+  seasonsEntrantsConstructors: [],
+  engineManufacturers: [],
 };
 
 describe("buildCircuitHistories", () => {

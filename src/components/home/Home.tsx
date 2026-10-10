@@ -3,8 +3,8 @@
 // moment is: the next session's countdown, or a session live now. Under it a live row, only while live mode can
 // actually follow a session (the page's one white button then). Then the jump field, which finds any session by
 // Grand Prix, year and type, over Continue (what's in this browser, the latest race first when it's newer than what
-// was last watched) and, as tabs, the season's circuits (each opening the circuit's page), its drivers (each opening the
-// driver's page) or the season sheet.
+// was last watched) and, as tabs, the season's circuits (each opening the circuit's page), its drivers and teams (each
+// opening their page) or the season sheet.
 // Opening a session from here is a new history entry (useReplay's openSession).
 
 import { useEffect, useMemo, useState } from "react";
@@ -26,6 +26,7 @@ import { Jump } from "./Jump";
 import { Season } from "./Season";
 import { Circuits } from "./Circuits";
 import { Drivers } from "./Drivers";
+import { Teams } from "./Teams";
 import { Settings } from "./Settings";
 import { ForecastBrief } from "../circuit/Forecast";
 
@@ -211,12 +212,12 @@ function Stored() {
   );
 }
 
-type Browsing = "circuits" | "drivers" | "season";
+type Browsing = "circuits" | "drivers" | "teams" | "season";
 const BROWSING_KEY = "f1-replay:home-browse";
 const readBrowsing = (): Browsing => {
   try {
     const kept = globalThis.localStorage?.getItem(BROWSING_KEY);
-    return kept === "season" || kept === "drivers" ? kept : "circuits";
+    return kept === "season" || kept === "drivers" || kept === "teams" ? kept : "circuits";
   } catch {
     return "circuits";
   }
@@ -224,7 +225,7 @@ const readBrowsing = (): Browsing => {
 
 /**
  * Under Continue: the season's circuits (each opening its page, with every session there over the years), its drivers
- * (each opening theirs: the career, season by season), or the season sheet (every session of a season by round). Tabs that are the section's title; the choice is kept.
+ * and teams (each opening theirs: the season and the career), or the season sheet (every session of a season by round). Tabs that are the section's title; the choice is kept.
  */
 function Browse() {
   const [browsing, setBrowsing] = useState(readBrowsing);
@@ -237,11 +238,12 @@ function Browse() {
     }
   };
   const heading = (
-    <h2 className="flex scroll-mt-16 items-baseline gap-4" role="tablist" aria-label="Browse">
+    <h2 className="flex scroll-mt-16 flex-wrap items-baseline gap-x-4 gap-y-1" role="tablist" aria-label="Browse">
       {(
         [
           ["circuits", "Circuits"],
           ["drivers", "Drivers"],
+          ["teams", "Teams"],
           ["season", "Season"],
         ] as const
       ).map(([id, label]) => (
@@ -250,7 +252,7 @@ function Browse() {
           role="tab"
           aria-selected={browsing === id}
           onClick={() => choose(id)}
-          className={`rounded-sm text-2xl font-bold tracking-tight ${FOCUS} ${browsing === id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
+          className={`rounded-sm text-xl font-bold tracking-tight sm:text-2xl ${FOCUS} ${browsing === id ? "text-zinc-50" : "text-zinc-400 hover:text-zinc-200"}`}
         >
           {label}
         </button>
@@ -258,7 +260,8 @@ function Browse() {
     </h2>
   );
   if (browsing === "circuits") return <Circuits heading={heading} />;
-  return browsing === "drivers" ? <Drivers heading={heading} /> : <Season heading={heading} />;
+  if (browsing === "drivers") return <Drivers heading={heading} />;
+  return browsing === "teams" ? <Teams heading={heading} /> : <Season heading={heading} />;
 }
 
 export function Home() {

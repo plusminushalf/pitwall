@@ -74,6 +74,12 @@ describe("readUrl", () => {
     expect(upgradeUrl("/driver/max-verstappen", "?session=9896&t=60")).toBe("/session/9896?t=60");
   });
 
+  test("a team's page", () => {
+    expect(readUrl("/team/red-bull", "")).toEqual({ live: false, session: null, t: undefined, drivers: [], focus: null, team: "red-bull" });
+    expect(urlFor({ live: false, session: null, drivers: [], focus: null, team: "aston-martin" })).toBe("/team/aston-martin");
+    expect(upgradeUrl("/team/red-bull", "")).toBeNull();
+  });
+
   test("a circuit's page; with a session, the session", () => {
     expect(readUrl("/circuit/singapore", "")).toEqual({ live: false, session: null, t: undefined, drivers: [], focus: null, circuit: "singapore" });
     expect(readUrl("/circuit/yas-marina-circuit/", "").circuit).toBe("yas-marina-circuit");

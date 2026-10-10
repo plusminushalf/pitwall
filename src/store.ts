@@ -11,7 +11,7 @@ import { connectVaultLive, type LiveAccount, type LiveStall, type VaultLiveConne
 import { fetchSession, listPlayable } from "./storage/load";
 import { getVault } from "./vault/client";
 import type { SessionIndexEntry, SessionMeta } from "./types";
-import { circuitPath, driverPath, livePath, readUrl, sessionPath } from "./url";
+import { circuitPath, driverPath, livePath, readUrl, sessionPath, teamPath } from "./url";
 
 export const SPEEDS = [1, 2, 4, 8, 16, 32, 64] as const;
 /** Key 8 only, not among the timeline's buttons: an hour of practice in half a minute, for screen captures. */
@@ -30,7 +30,7 @@ export type Mode = "replay" | "live";
  * The Home page (library + calendar), a circuit's page (its sessions over the years, and its history), or the session
  * on screen (a replay, live mode, or the offer to download a linked one).
  */
-export type View = "home" | "circuit" | "driver" | "replay";
+export type View = "home" | "circuit" | "driver" | "team" | "replay";
 
 /**
  * A finished session's two screens: the replay, or its laps compared (the Fastest laps). Practice opens on the replay
@@ -78,10 +78,10 @@ export const screenInLink = (s: { session: Session | null; screen: SessionScreen
 export const comparing = (s: { session: Session | null; screen: SessionScreen }): boolean =>
   s.session != null && canCompare(s.session.meta) && (s.screen === "laps" || lapsOnly(s.session.meta));
 
-/** Home, unless the link opens a session, live mode, a circuit or a driver. */
+/** Home, unless the link opens a session, live mode, a circuit, a driver or a team. */
 const initialUrl = typeof location === "undefined" ? null : readUrl(location.pathname, location.search);
 const initialView = (): View =>
-  initialUrl?.live || initialUrl?.session != null ? "replay" : initialUrl?.circuit ? "circuit" : initialUrl?.driver ? "driver" : "home";
+  initialUrl?.live || initialUrl?.session != null ? "replay" : initialUrl?.circuit ? "circuit" : initialUrl?.driver ? "driver" : initialUrl?.team ? "team" : "home";
 
 /**
  * History entries opened from Home or a circuit's page: the Races button goes back to it rather than stacking another
@@ -335,6 +335,8 @@ interface ReplayState {
   circuit: string | null;
   /** The driver page on screen (F1DB's driver id). */
   driver: string | null;
+  /** The team page on screen (F1DB's constructor id). */
+  team: string | null;
   live: LiveInfo;
   /** Latest live edge from the relay (ms since meta.t0), updated with every message. */
   liveEdge: number;
@@ -380,6 +382,10 @@ interface ReplayState {
   openDriver: (id: string) => void;
   /** openDriver() without touching history. */
   showDriver: (id: string) => void;
+  /** A team's page (a new history entry), as openCircuit(). */
+  openTeam: (id: string) => void;
+  /** openTeam() without touching history. */
+  showTeam: (id: string) => void;
   publish: () => void;
   seek: (t: number) => void;
   seekBy: (dt: number) => void;
@@ -547,6 +553,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     view: initialView(),
     circuit: initialUrl?.circuit ?? null,
     driver: initialUrl?.driver ?? null,
+    team: initialUrl?.team ?? null,
     live: NO_LIVE,
     liveEdge: 0,
     followLive: false,
@@ -639,7 +646,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     showHome: () => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "home", circuit: null, driver: null, playing: false, latched: false });
+      set({ view: "home", circuit: null, driver: null, team: null, playing: false, latched: false });
     },
 
     openCircuit: (slug) => {
@@ -653,7 +660,7 @@ export const useReplay = create<ReplayState>((set, get) => {
     showCircuit: (slug) => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "circuit", circuit: slug, driver: null, playing: false, latched: false });
+      set({ view: "circuit", circuit: slug, driver: null, team: null, playing: false, latched: false });
     },
 
     openDriver: (id) => {
@@ -666,7 +673,20 @@ export const useReplay = create<ReplayState>((set, get) => {
     showDriver: (id) => {
       autoplayPending = false;
       if (get().mode === "live") restoreReplay();
-      set({ view: "driver", driver: id, circuit: null, playing: false, latched: false });
+      set({ view: "driver", driver: id, circuit: null, team: null, playing: false, latched: false });
+    },
+
+    openTeam: (id) => {
+      const { view, team } = get();
+      if (view === "team" && team === id) return;
+      history.pushState(view === "home" ? { fromHome: true } : null, "", teamPath(id));
+      get().showTeam(id);
+    },
+
+    showTeam: (id) => {
+      autoplayPending = false;
+      if (get().mode === "live") restoreReplay();
+      set({ view: "team", team: id, circuit: null, driver: null, playing: false, latched: false });
     },
 
     publish: () => {

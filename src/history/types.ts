@@ -191,6 +191,52 @@ export interface DriverBio {
   nationalityCode: string;
 }
 
+/** One car's Grand Prix: where it qualified, started and finished. Absent fields are null / false. */
+export interface CarResult {
+  driverId: string;
+  constructorId: string;
+  number?: string;
+  /** Qualifying and starting grid position. */
+  quali?: number;
+  grid?: number;
+  /** Finishing position; absent when not classified (`text` says why). */
+  pos?: number;
+  /** "1", "DNF", "DSQ", "NC". */
+  text: string;
+  /** F1DB's order of the result sheet, the unclassified last: who finished ahead of whom. */
+  order: number;
+  points?: number;
+  pole?: true;
+  fastestLap?: true;
+  /** Why it retired ("Engine", "Collision"). */
+  reason?: string;
+}
+
+/** A Grand Prix (sprints aren't counted). */
+export interface RaceRef {
+  raceId: number;
+  year: number;
+  round: number;
+  date: string;
+  /** Grand Prix and circuit ids: names in the file's `names`. */
+  gp: string;
+  circuit: string;
+}
+
+/** The names a file's races mention, by id. */
+export interface HistoryNames {
+  gps: Record<string, { name: string; short: string; code: string }>;
+  circuits: Record<string, string>;
+  teams: Record<string, string>;
+  drivers: Record<string, { name: string; lastName: string }>;
+}
+
+/** A Grand Prix the driver started, with their teammates' results there. */
+export interface DriverRace extends RaceRef {
+  car: CarResult;
+  mates: CarResult[];
+}
+
 /** public/history/drivers/<id>.json */
 export interface DriverHistory {
   format: typeof DRIVER_HISTORY_FORMAT;
@@ -198,6 +244,9 @@ export interface DriverHistory {
   driver: DriverBio;
   /** Every season with a race entry, oldest first. */
   seasons: DriverSeason[];
+  /** Every Grand Prix started, oldest first. */
+  races: DriverRace[];
+  names: HistoryNames;
 }
 
 /** A driver of the season on Home's board. */
@@ -210,8 +259,9 @@ export interface SeasonDriver {
   number: string | null;
   nationality: string;
   nationalityCode: string;
-  /** The team of the driver's latest race this season. */
+  /** The team of the driver's latest race this season, and its F1DB id. */
   team: string;
+  teamId: string;
   /** The rounds raced this season. */
   rounds: number[];
   /** Raced the season's latest round: one of today's grid, not a stand-in or a driver replaced. */
@@ -231,4 +281,84 @@ export interface DriverIndex {
   throughRound: number | null;
   throughGrandPrix: string | null;
   drivers: SeasonDriver[];
+}
+
+// ---------------------------------------------------------------- teams
+
+/** What a team did over some seasons: Grands Prix only, points all included. */
+export interface TeamTotals {
+  starts: number;
+  wins: number;
+  /** Podium places: two cars on it count twice. */
+  podiums: number;
+  /** Races its cars finished first and second. */
+  oneTwos: number;
+  poles: number;
+  fastestLaps: number;
+  points: number;
+  /** Constructors' championships. */
+  titles: number;
+}
+
+export interface TeamSeason extends TeamTotals {
+  year: number;
+  /** Championship position; null where not classified. */
+  position: number | null;
+  /** The drivers who raced for it, most races first. */
+  drivers: string[];
+  /** Its drivers' champion, if it drove for the team. */
+  driversTitle: string | null;
+}
+
+export interface TeamBio {
+  /** F1DB's constructor id ("red-bull"): the file's name. */
+  id: string;
+  name: string; // "Red Bull"
+  fullName: string; // "Red Bull Racing"
+  nationality: string;
+  nationalityCode: string;
+  /** Its engine in its latest season ("Honda RBPT"). */
+  engine: string | null;
+}
+
+/** A Grand Prix the team raced in: every car of its. */
+export interface TeamRace extends RaceRef {
+  cars: CarResult[];
+}
+
+/** public/history/teams/<id>.json */
+export interface TeamHistory {
+  format: typeof DRIVER_HISTORY_FORMAT;
+  source: HistorySource;
+  team: TeamBio;
+  /** Oldest first. */
+  seasons: TeamSeason[];
+  /** Every Grand Prix started, oldest first. */
+  races: TeamRace[];
+  names: HistoryNames;
+}
+
+/** A team of the season on Home's board. */
+export interface SeasonTeam {
+  id: string;
+  name: string;
+  nationality: string;
+  nationalityCode: string;
+  engine: string | null;
+  /** Its drivers this season, the latest round's first. */
+  drivers: { id: string; lastName: string; current: boolean }[];
+  /** Up to the end of last season: history. */
+  before: TeamTotals;
+  /** This season so far: spoilers. */
+  season: TeamTotals & { position: number | null };
+}
+
+/** public/history/teams/index.json: the season's teams. */
+export interface TeamIndex {
+  format: typeof DRIVER_HISTORY_FORMAT;
+  source: HistorySource;
+  year: number;
+  throughRound: number | null;
+  throughGrandPrix: string | null;
+  teams: SeasonTeam[];
 }
