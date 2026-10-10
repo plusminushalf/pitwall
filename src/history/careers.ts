@@ -20,6 +20,10 @@ export const fetchTeamHistory = (id: string, signal?: AbortSignal) =>
 export const fetchDriverIndex = (signal?: AbortSignal) => file<DriverIndex>("/history/drivers/index.json", signal);
 export const fetchTeamIndex = (signal?: AbortSignal) => file<TeamIndex>("/history/teams/index.json", signal);
 
+/** In championship order: the leader first, the unclassified last (in the order given). */
+export const byStanding = <T extends { season: { position: number | null } }>(list: readonly T[]): T[] =>
+  [...list].sort((a, b) => (a.season.position ?? Infinity) - (b.season.position ?? Infinity));
+
 /** Two stretches of a career together: every count added. */
 export function sumTotals<T extends object>(a: T, b: T): T {
   const out = { ...a } as Record<string, number>;

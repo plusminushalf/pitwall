@@ -1,9 +1,9 @@
-// Home's teams: a board of the season's teams, from F1DB's index (built at deploy, ../../history/careers.ts). A cell
+// Home's teams: a board of the season's teams, in championship order, from F1DB's index (built at deploy, ../../history/careers.ts). A cell
 // opens the team's page (../career/TeamPage.tsx): its season and history. Each says the flag, name, engine and
 // drivers, and its history in figures, and the championship position.
 
 import type { ReactNode } from "react";
-import { fetchTeamIndex, sumTotals } from "../../history/careers";
+import { byStanding, fetchTeamIndex, sumTotals } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
@@ -67,7 +67,7 @@ export function Teams({ heading }: { heading: ReactNode }) {
       <>
         <SeasonNote through={through} source={index.source} className="mb-3" />
         <ul aria-label={`${index.year} teams`} className={BOARD}>
-          {index.teams.map((t) => (
+          {byStanding(index.teams).map((t) => (
             <Cell key={t.id} t={t} />
           ))}
         </ul>

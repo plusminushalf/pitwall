@@ -1,11 +1,11 @@
-// Home's drivers: a board of the season's grid, by team, from F1DB's index (built at deploy, ../../history/careers.ts).
+// Home's drivers: a board of the season's grid, in championship order, from F1DB's index (built at deploy, ../../history/careers.ts).
 // A cell opens the driver's page (../career/DriverPage.tsx): their season and career. Each says the car number,
 // flag, name and team, the career in figures, and the
 // championship position. Drivers who raced this season but not the latest
 // round (stand-ins, drivers replaced) follow, quieter.
 
 import type { ReactNode } from "react";
-import { fetchDriverIndex, sumTotals } from "../../history/careers";
+import { byStanding, fetchDriverIndex, sumTotals } from "../../history/careers";
 import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
@@ -85,8 +85,8 @@ export function Drivers({ heading }: { heading: ReactNode }) {
   if (index == null) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the drivers…</p>;
   else if (index === "none") body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No driver history in this build of the site.</p>;
   else {
-    const grid = index.drivers.filter((d) => d.current);
-    const others = index.drivers.filter((d) => !d.current);
+    const grid = byStanding(index.drivers.filter((d) => d.current));
+    const others = byStanding(index.drivers.filter((d) => !d.current));
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
