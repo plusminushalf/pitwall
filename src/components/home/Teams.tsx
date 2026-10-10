@@ -1,26 +1,25 @@
-// Home's teams: a board of the season's teams, in championship order, from F1DB's index (built at deploy, ../../history/careers.ts). A cell
-// opens the team's page (../career/TeamPage.tsx): its season and history. Each says the flag, name, engine and
-// drivers, and its history in figures, and the championship position.
+// Home's teams: the constructors' championship as a board, from F1DB's index (built at deploy,
+// ../../history/careers.ts). A cell opens the team's page (../career/TeamPage.tsx): its season and history. Each leads
+// with the position, then the flag, name and drivers, the season's results, and ends on the points and the gap.
 
 import type { ReactNode } from "react";
-import { byStanding, fetchTeamIndex, sumTotals } from "../../history/careers";
+import { byStanding, fetchTeamIndex } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
 import { Flag } from "../Flag";
-import { count, SeasonNote, useHistoryFile } from "../career/common";
+import { count, SeasonNote, StandingPoints, useHistoryFile } from "../career/common";
 import { FOCUS } from "./common";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchTeamIndex(signal);
 
-function Cell({ t }: { t: SeasonTeam }) {
+/** A team's cell, as a driver's: position, flag and name, its drivers, the season's results, its points. */
+function Cell({ t, leader }: { t: SeasonTeam; leader: number }) {
   const openTeam = useReplay((s) => s.openTeam);
-  const { position, ...season } = t.season;
-  const history = sumTotals(t.before, season);
-  const facts =
-    history.starts === 0
-      ? "First season"
-      : [history.titles > 0 ? count(history.titles, "title") : null, count(history.wins, "win"), count(history.starts, "Grand Prix", "Grands Prix")].filter(Boolean).join(" · ");
   const drivers = t.drivers.filter((d) => d.current);
+  const s = t.season;
+  const facts = [count(s.wins, "win"), count(s.podiums, "podium"), count(s.poles, "pole"), s.oneTwos > 0 ? count(s.oneTwos, "1-2", "1-2s") : null]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <li data-shot="" className="border-b border-r border-zinc-800">
       <button
@@ -28,26 +27,24 @@ function Cell({ t }: { t: SeasonTeam }) {
           e.currentTarget.blur();
           openTeam(t.id);
         }}
-        className={`flex h-full w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900 focus-visible:-outline-offset-2 sm:px-4 ${FOCUS}`}
+        className={`flex h-full w-full items-start gap-3 px-3 py-3 text-left transition-colors hover:bg-zinc-900 focus-visible:-outline-offset-2 sm:gap-4 sm:px-4 ${FOCUS}`}
         title={`${t.name}: its season and history`}
       >
+        <span
+          className="w-7 shrink-0 text-xl font-black tabular-nums leading-6 tracking-tight text-zinc-50 sm:w-9"
+          aria-label={s.position != null ? `P${s.position} in the championship` : undefined}
+        >
+          {s.position ?? "–"}
+        </span>
         <span className="min-w-0 flex-1">
           <span className="flex h-6 items-center gap-2">
             <Flag country={t.nationalityCode} code className="h-3.5" />
             <span className="min-w-0 truncate text-[15px] font-semibold text-zinc-50">{t.name}</span>
-            <span className="flex-1" />
-            {position != null && (
-              <span className="shrink-0 text-xs tabular-nums text-zinc-300" title={`${t.season.points} points this season`}>
-                P{position}
-              </span>
-            )}
           </span>
-          <span className="block truncate text-xs text-zinc-300">
-            {(drivers.length ? drivers : t.drivers).map((d) => d.lastName).join(" · ")}
-            {t.engine && <span className="text-zinc-500"> · {t.engine}</span>}
-          </span>
-          <span className="mt-1.5 hidden truncate text-xs tabular-nums text-zinc-400 sm:block">{facts}</span>
+          <span className="block truncate text-xs text-zinc-300">{(drivers.length ? drivers : t.drivers).map((d) => d.lastName).join(" · ")}</span>
+          <span className="mt-1.5 block truncate text-xs tabular-nums text-zinc-400">{facts}</span>
         </span>
+        <StandingPoints points={s.points} leader={leader} />
       </button>
     </li>
   );
@@ -62,13 +59,14 @@ export function Teams({ heading }: { heading: ReactNode }) {
   if (index == null) body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">Loading the teams…</p>;
   else if (index === "none") body = <p className="border-y border-zinc-800 px-3 py-4 text-sm text-zinc-400">No team history in this build of the site.</p>;
   else {
+    const leader = Math.max(0, ...index.teams.map((t) => t.season.points));
     const through = index.throughRound != null ? `round ${index.throughRound}, the ${index.throughGrandPrix}` : null;
     body = (
       <>
         <SeasonNote through={through} source={index.source} className="mb-3" />
         <ul aria-label={`${index.year} teams`} className={BOARD}>
           {byStanding(index.teams).map((t) => (
-            <Cell key={t.id} t={t} />
+            <Cell key={t.id} t={t} leader={leader} />
           ))}
         </ul>
       </>
