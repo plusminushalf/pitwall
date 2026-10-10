@@ -42,8 +42,8 @@ export interface Marker {
   label: string;
   /** "for P10 · T2". */
   detail: string;
-  /** The passing car's speed at d (where the ring goes). */
-  speed: number;
+  /** The passing car's speed at d (where the ring goes), or null when the lap shown is the car passed. */
+  speed: number | null;
   /** Between two of the compared drivers (else one of them and another car: drawn fainter). */
   between: boolean;
 }
@@ -306,7 +306,7 @@ export function drawChart(canvas: HTMLCanvasElement, m: ChartModel, strips: Stri
         g.between ||= mk.between;
         continue;
       }
-      const ry = yOf(speedStrip, mk.speed);
+      const ry = mk.speed != null ? yOf(speedStrip, mk.speed) : speedStrip.top + 8;
       groups.push({ x, ry, lines: [line], between: mk.between });
     }
   }
