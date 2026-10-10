@@ -1,14 +1,13 @@
 // Home's drivers: the season's championship as a timing sheet, from F1DB's index (built at deploy,
 // ../../history/careers.ts). A row opens the driver's page (../career/DriverPage.tsx): their season and career. Each
-// reads position, flag, name and car number, team, the season's wins, podiums and poles, points and the gap to the
+// reads position, the team's colour, name and car number, team, the season's wins, podiums and poles, points and the gap to the
 // leader. Drivers who raced this season but not the latest round (stand-ins, drivers replaced) follow, quieter.
 
 import type { ReactNode } from "react";
 import { byStanding, fetchDriverIndex } from "../../history/careers";
 import type { SeasonDriver } from "../../history/types";
 import { useReplay } from "../../store";
-import { Flag } from "../Flag";
-import { SeasonNote, useHistoryFile } from "../career/common";
+import { SeasonNote, TeamStripe, useHistoryFile } from "../career/common";
 import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, SheetTitle, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchDriverIndex(signal);
@@ -43,7 +42,7 @@ function Row({ d, leader, quiet }: { d: SeasonDriver; leader: number; quiet: boo
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-2">
-          <Flag country={d.nationalityCode} code className={`h-3 shrink-0 ${quiet ? "opacity-45 grayscale-[60%]" : ""}`} />
+          <TeamStripe team={d.teamId} hold className={quiet ? "h-4 opacity-50" : "h-4"} />
           <span className={`min-w-0 truncate font-semibold ${quiet ? "text-zinc-300" : "text-zinc-50"}`}>{d.name}</span>
           {d.number && <span className="shrink-0 text-xs tabular-nums text-zinc-400">{d.number}</span>}
         </span>

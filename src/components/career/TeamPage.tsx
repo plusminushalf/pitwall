@@ -9,11 +9,10 @@ import { driverSplit, summarize, tally, teamOutings } from "../../history/career
 import type { TeamHistory, TeamRace, TeamTotals } from "../../history/types";
 import { currentYear } from "../../library";
 import { useShareHeading } from "../../share/ShareCard";
-import { Flag } from "../Flag";
 import { LABEL } from "../controls";
 import { BestCircuits, Milestones, Runs, Tally } from "./Highlights";
 import { SeasonStrip } from "./SeasonStrip";
-import { Block, CareerPage, NameLink, points, Section, Stat, StatRow, tenth, useHistoryFile } from "./common";
+import { Block, CareerPage, NameLink, points, Section, Stat, StatRow, TeamStripe, tenth, useHistoryFile } from "./common";
 
 const NONE: TeamTotals = {
   starts: 0,
@@ -247,7 +246,7 @@ export function TeamPage({ id }: { id: string }) {
         <>
           <header data-shot="title" className="px-3">
             <h1 className="flex items-center gap-3 text-3xl font-bold tracking-tight text-zinc-50">
-              <Flag country={h.team.nationalityCode} code className="h-6" />
+              <TeamStripe team={now.length > 0 ? h.team.id : null} className="h-7" />
               {h.team.name}
             </h1>
             {now.length > 0 && (

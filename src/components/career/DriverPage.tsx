@@ -10,11 +10,10 @@ import { driverOutings, headToHeads, summarize, tally } from "../../history/care
 import type { DriverHistory, DriverRace, DriverSeason, DriverTotals } from "../../history/types";
 import { currentYear } from "../../library";
 import { useShareHeading } from "../../share/ShareCard";
-import { Flag } from "../Flag";
 import { LABEL } from "../controls";
 import { BestCircuits, Milestones, Runs, Tally, Teammates } from "./Highlights";
 import { SeasonStrip } from "./SeasonStrip";
-import { Block, CareerPage, NameLink, points, Section, Stat, StatRow, tenth, useHistoryFile } from "./common";
+import { Block, CareerPage, NameLink, points, Section, Stat, StatRow, TeamStripe, tenth, useHistoryFile } from "./common";
 
 const NONE: DriverTotals = {
   starts: 0,
@@ -232,7 +231,7 @@ export function DriverPage({ id }: { id: string }) {
         <>
           <header data-shot="title" className="px-3">
             <h1 className="flex flex-wrap items-center gap-x-3 text-3xl font-bold tracking-tight text-zinc-50">
-              <Flag country={h.driver.nationalityCode} code className="h-6" />
+              <TeamStripe team={teamId} className="h-7" />
               {h.driver.name}
               {h.driver.number && <span className="font-black tabular-nums text-zinc-400">{h.driver.number}</span>}
             </h1>

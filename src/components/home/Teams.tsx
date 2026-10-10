@@ -1,14 +1,13 @@
 // Home's teams: the constructors' championship as a timing sheet, from F1DB's index (built at deploy,
 // ../../history/careers.ts), with the drivers' sheet's columns (./Drivers.tsx). A row opens the team's page
-// (../career/TeamPage.tsx): its season and history. Each reads position, flag and name, its drivers, the season's
+// (../career/TeamPage.tsx): its season and history. Each reads position, its colour and name, its drivers, the season's
 // wins, podiums and poles, points and the gap to the leader.
 
 import type { ReactNode } from "react";
 import { byStanding, fetchTeamIndex } from "../../history/careers";
 import type { SeasonTeam } from "../../history/types";
 import { useReplay } from "../../store";
-import { Flag } from "../Flag";
-import { SeasonNote, useHistoryFile } from "../career/common";
+import { SeasonNote, TeamStripe, useHistoryFile } from "../career/common";
 import { AT_40, AT_52, Figure, PointsCells, Sheet, SheetRow, STANDINGS_GRID, StandingsColumns } from "./sheet";
 
 const loadIndex = (_: string, signal: AbortSignal) => fetchTeamIndex(signal);
@@ -25,7 +24,7 @@ function Row({ t, leader }: { t: SeasonTeam; leader: number }) {
       </span>
       <span className="min-w-0">
         <span className="flex items-center gap-2">
-          <Flag country={t.nationalityCode} code className="h-3 shrink-0" />
+          <TeamStripe team={t.id} hold />
           <span className="min-w-0 truncate font-semibold text-zinc-50">{t.name}</span>
         </span>
         {/* Narrowest: the drivers under the name. */}

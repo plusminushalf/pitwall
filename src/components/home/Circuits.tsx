@@ -1,8 +1,9 @@
-// Home's circuits: the season's calendar as a timing sheet, a row per circuit in round order, the next weekend (or the
-// one under way) raised where it falls, the ones still to come quieter, then the circuits earlier seasons raced at. A
-// row opens the circuit's page (../circuit/CircuitPage.tsx): every session there over the years, and its history.
-// Each says its round, flag and name, the Grand Prix and its dates, (from F1DB's index, when the deploy built it) how
-// many Grands Prix it has held since when, and how many of its sessions are in this browser. No results: spoilers.
+// Home's circuits: the season's calendar as timing sheets, a row per circuit: the next weekend (or the one under way)
+// raised at the top, then the ones raced, newest first, then the ones later in the season in calendar order, quieter,
+// then the circuits earlier seasons raced at. A row opens the circuit's page (../circuit/CircuitPage.tsx): every
+// session there over the years, and its history. Each says its round, flag and name, the Grand Prix and its dates,
+// (from F1DB's index, when the deploy built it) how many Grands Prix it has held since when, and how many of its
+// sessions are in this browser. No results: spoilers.
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchCircuitHistoryIndex, F1DB_CIRCUIT } from "../../history/circuits";
@@ -23,7 +24,7 @@ const BADGE = "shrink-0 rounded px-1.5 py-px text-[11px] font-semibold uppercase
  * only the dates stay beside it; History, then Stored, join as the sheet widens.
  */
 const GRID =
-  "grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-x-3 @[40rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_7rem] @[52rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_7rem_9rem] @[66rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_7rem_9rem_4rem]";
+  "grid grid-cols-[2rem_minmax(0,1fr)_auto] gap-x-3 @[40rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_8.5rem] @[52rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_8.5rem_9rem] @[66rem]:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_8.5rem_9rem_4rem]";
 
 /** F1DB's circuits by id; null until (or unless) its index loads. */
 function useHistoryIndex(): Map<string, CircuitHistoryIndex["circuits"][number]> | null {
@@ -152,11 +153,27 @@ export function Circuits({ heading }: { heading: ReactNode }) {
     const row = (c: CircuitCard, phase: Phase, old = false) => (
       <Row key={c.slug} card={c} phase={phase} stored={stored.get(c.slug) ?? 0} history={historyOf(c)} earlier={old} />
     );
+    // What the visitor came for first: the weekend coming up (or under way), then what can be watched, newest first,
+    // then what's still to come in calendar order. Each row keeps its round, so the calendar still reads.
+    const phased = season.map((c) => ({ c, phase: phaseOf(c) }));
+    const of = (...phases: Phase[]) => phased.filter((p) => phases.includes(p.phase));
+    const first = [...of("live", "next"), ...of("raced").reverse(), ...of("cancelled")];
+    const later = of("later");
     body = (
       <>
-        <Sheet label={`${year} circuits, in calendar order`} grid={GRID} columns={<Columns first="Rd" />}>
-          {season.map((c) => row(c, phaseOf(c)))}
-        </Sheet>
+        {first.length > 0 && (
+          <Sheet label={`${year} circuits, the next and the raced`} grid={GRID} columns={<Columns first="Rd" />}>
+            {first.map(({ c, phase }) => row(c, phase))}
+          </Sheet>
+        )}
+        {later.length > 0 && (
+          <>
+            {first.length > 0 && <SheetTitle>Later this season</SheetTitle>}
+            <Sheet label={`${year} circuits still to come`} grid={GRID} columns={<Columns first="Rd" />}>
+              {later.map(({ c, phase }) => row(c, phase))}
+            </Sheet>
+          </>
+        )}
         {earlier.length > 0 && (
           <>
             <SheetTitle>Earlier seasons</SheetTitle>

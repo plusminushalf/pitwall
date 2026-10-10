@@ -5,6 +5,7 @@
 // The season under way counts like any other: these pages are stats, not a replay, so no spoiler hiding here.
 
 import { useEffect, useState, type ReactNode } from "react";
+import { teamColor } from "../../history/teamColors";
 import type { HistoryNames, HistorySource, RaceRef } from "../../history/types";
 import { useReplay } from "../../store";
 import { FOCUS, LABEL } from "../controls";
@@ -95,6 +96,16 @@ export function NameLink({
 
 /** "2016 Spanish GP". */
 export const raceName = (r: RaceRef, names: HistoryNames) => `${r.year} ${names.gps[r.gp]?.short ?? r.gp}`;
+
+/**
+ * A team's colour as the timing tower draws it: a short upright stripe before a name. `hold`: an empty one when the
+ * team has no colour, so names in a column still line up.
+ */
+export function TeamStripe({ team, className = "h-4", hold = false }: { team: string | null; className?: string; hold?: boolean }) {
+  const color = team ? teamColor(team) : null;
+  if (!color && !hold) return null;
+  return <span aria-hidden className={`w-1 shrink-0 rounded-sm ${className}`} style={color ? { background: color } : undefined} />;
+}
 
 /** A figure under its label: a section's lead row (DESIGN.md's stat role: 20px, black, tabular). */
 export function Stat({ label, children, note, title }: { label: string; children: ReactNode; note?: string | null; title?: string }) {
