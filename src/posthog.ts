@@ -1,5 +1,6 @@
 // PostHog on the hosted site, alongside Cloudflare Web Analytics (analytics.ts): page views, the events sent with
-// track(), clicks (autocapture) and uncaught errors, to PostHog's EU cloud. Only in production builds made with
+// track(), clicks (autocapture) and uncaught errors, to PostHog's EU cloud through a reverse proxy on our own domain
+// (VITE_POSTHOG_HOST), so blockers that drop *.posthog.com don't drop them. Only in production builds made with
 // VITE_POSTHOG_KEY (`bun run deploy`); the key is public, every event sends it. Never from the dev server, so working
 // on the app (through a proxy or not) doesn't count as a visit, nor from a production build served on this machine
 // (vite preview).
@@ -21,7 +22,10 @@ export function startPostHog() {
   void import("posthog-js").then(({ default: posthog }) => {
     posthog.init(key, {
       api_host: import.meta.env.VITE_POSTHOG_HOST ?? "https://eu.i.posthog.com",
+      // Behind the reverse proxy, PostHog's own links (toolbar, replays) still need to point at the EU app.
+      ui_host: "https://eu.posthog.com",
       defaults: "2026-05-30",
+      person_profiles: "identified_only",
       persistence: "localStorage",
       // Page views on pushes (Home -> a session, live mode, back Home) and Back / Forward, as Cloudflare counts them.
       // Replaces aren't visits: the address follows the replay's clock, and countEvent's paths are Cloudflare's.
