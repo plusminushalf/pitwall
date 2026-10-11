@@ -1,7 +1,8 @@
 // The share card: the widgets picked (and sections of a page that can be, useCardSection), mounted again in a column of
 // their own (CARD_WIDTH), under a heading that says what they're of and over Pitwall's name and address, then drawn to
-// a PNG IMAGE_WIDTH wide. Cropped from the screen, a widget is as wide as it is there, and in a feed shrunk to a
+// a PNG SCALE times over. Cropped from the screen, a widget is as wide as it is there, and in a feed shrunk to a
 // phone's width its type is a few pixels tall; laid out narrower and drawn bigger, the same type is twice the size.
+// A card is a narrow column, unless all it shows is charts that read across (WIDE_WIDTH, cardPanels).
 
 import {
     type ReactNode,
@@ -26,8 +27,17 @@ import { sessionMoment } from "./moment"
 
 /** A card of widgets' width, in CSS px; a section's may be wider (useCardSection). */
 const CARD_WIDTH = 480
-/** The image's width: drawn 2.5 times over, a card of widgets. */
-const IMAGE_WIDTH = 1200
+/** A card of charts that read across (laps along the bottom): wider, so a race's worth of laps isn't squeezed. */
+const WIDE_WIDTH = 640
+/** Image px per CSS px: a card of widgets is drawn 1200 px wide, a wide one 1600. */
+const SCALE = 2.5
+/**
+ * A chart is laid out wide unless it's taller than this on screen (height / width): one kept tall there (a track map
+ * in a column) is tall on purpose.
+ */
+const TALL = 1.25
+/** A wide chart's height for its width: the screen's shape, kept between 16:9 and 4:3. */
+const WIDE_SHAPE = { min: 9 / 16, max: 3 / 4 }
 /** The longest the widgets get to load their data before the card is drawn anyway. */
 const READY_MS = 4000
 
@@ -101,6 +111,8 @@ export interface CardPanel {
     fit?: boolean
     /** How far each of the widget's scrolling parts was scrolled on screen (scrollers() order), to scroll its copy the same. */
     scroll?: { top: number; left: number }[]
+    /** A chart that may be laid out wide: its height for its width there (cardPanels decides if the card is). */
+    wide?: number
 }
 
 /** The parts of a widget that scroll (a list in it), in document order: the same in its copy, as it's the same widget. */
@@ -139,6 +151,10 @@ const widgetPanel = (
         ? el
         : el.querySelector("[data-widget-host]")
     const state = (host && states.get(host)) || cardStateIn(el)
+    const r = el.getBoundingClientRect()
+    // Drawn to its size (a chart, not a list), and not kept tall on screen.
+    const fills = el.querySelector("canvas, [data-shot-fill]") != null
+    const shape = r.height / r.width
     return {
         render: (scale) => (
             <WidgetHost
@@ -151,20 +167,37 @@ const widgetPanel = (
             />
         ),
         width: CARD_WIDTH,
-        height: Math.round(el.getBoundingClientRect().height),
-        fit: !el.querySelector("canvas, [data-shot-fill]"),
+        height: Math.round(r.height),
+        fit: !fills,
         scroll: scrollers(el).map((e) => ({
             top: e.scrollTop,
             left: e.scrollLeft
-        }))
+        })),
+        wide:
+            fills && shape <= TALL
+                ? Math.min(Math.max(shape, WIDE_SHAPE.min), WIDE_SHAPE.max)
+                : undefined
     }
 }
+
+/**
+ * The card laid out wide if every panel is a chart that can be (one under another, a column of 480 px would squeeze
+ * each across just as much), each as tall as its shape on screen allows; otherwise as it is.
+ */
+const shaped = (panels: CardPanel[]): CardPanel[] =>
+    panels.every((p) => p.wide != null)
+        ? panels.map((p) => ({
+              ...p,
+              width: WIDE_WIDTH,
+              height: Math.round(WIDE_WIDTH * (p.wide ?? 0))
+          }))
+        : panels
 
 /**
  * The panels picked as a card's, in reading order (top to bottom, then left to right); null if any is neither a
  * widget nor a section a card can show (the screen is cropped instead), or there are none. A page's title panel
  * (data-shot="title") is left out: the card's heading says it. A widget's copy shows what it did in `states` (taken as
- * the screen froze), or else what it shows now.
+ * the screen froze), or else what it shows now. Charts alone make a wide card (shaped).
  */
 export function cardPanels(
     els: readonly Element[],
@@ -185,9 +218,11 @@ export function cardPanels(
         placed.push({ panel, top: r.top, left: r.left })
     }
     if (placed.length === 0) return null
-    return placed
-        .sort((a, b) => a.top - b.top || a.left - b.left)
-        .map((p) => p.panel)
+    return shaped(
+        placed
+            .sort((a, b) => a.top - b.top || a.left - b.left)
+            .map((p) => p.panel)
+    )
 }
 
 export interface CardJob {
@@ -245,7 +280,6 @@ export function ShareCard({ job }: { job: CardJob }) {
     const [credits, setCredits] = useState("")
     const { heading, panels, host } = job
     const width = Math.max(...panels.map((p) => p.width))
-    const scale = IMAGE_WIDTH / width
     // biome-ignore lint/correctness/useExhaustiveDependencies: panels come with the job
     useEffect(() => {
         let live = true
@@ -270,7 +304,7 @@ export function ShareCard({ job }: { job: CardJob }) {
                         })
                         if (overflows(panel)) panel.style.maskImage = FADE
                     })
-                return captureCard(card(), scale)
+                return captureCard(card(), SCALE)
             })
             .then(
                 (blob) => live && job.done(blob),
@@ -279,7 +313,7 @@ export function ShareCard({ job }: { job: CardJob }) {
         return () => {
             live = false
         }
-    }, [job, scale])
+    }, [job])
 
     return createPortal(
         <div
@@ -314,7 +348,7 @@ export function ShareCard({ job }: { job: CardJob }) {
                             key={i}
                             className={prev ? "mt-6" : ""}
                         >
-                            {p.render(scale)}
+                            {p.render(SCALE)}
                         </div>
                     )
                 return (
@@ -329,7 +363,7 @@ export function ShareCard({ job }: { job: CardJob }) {
                                 : { height: p.height }
                         }
                     >
-                        {p.render(scale)}
+                        {p.render(SCALE)}
                     </div>
                 )
             })}
