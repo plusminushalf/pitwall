@@ -251,6 +251,19 @@ export const liveEdge = new LiveEdge()
  */
 let timingEdge = 0
 
+/**
+ * Live updates (timing, telemetry) waiting for the replay loop's next tick (useReplayLoop), which publishes them with
+ * the clock in one store change: every widget recomputes once a tick, not again for each message.
+ */
+let staged: Partial<Pick<ReplayState, "session" | "liveEdge">> | null = null
+
+function stage(update: Partial<Pick<ReplayState, "session" | "liveEdge">>) {
+    staged = { ...staged, ...update }
+}
+
+/** Live data is waiting for the next tick. */
+export const hasStaged = () => staged != null
+
 /** The time the race state shows: the timing edge while following live (never behind the cars), else the clock. */
 function shownTime(s: { mode: Mode; followLive: boolean }): number {
     return s.mode === "live" && s.followLive
@@ -626,6 +639,8 @@ export const useReplay = create<ReplayState>((set, get) => {
                 })
                 return
             case "snapshot": {
+                // The whole session again: what was staged from before it is out of date.
+                staged = null
                 const session = buildSession(msg.meta, msg.telemetry, {
                     live: true
                 })
@@ -678,22 +693,22 @@ export const useReplay = create<ReplayState>((set, get) => {
                 )
                     return // a snapshot comes first
                 liveEdge.update(msg.now, wall)
-                const session = withMeta(s.session, msg.meta)
+                const session = withMeta(staged?.session ?? s.session, msg.meta)
                 timingEdge = timingEdgeOf(session.meta)
-                set({ session, liveEdge: msg.now })
-                get().publish()
+                stage({ session, liveEdge: msg.now })
                 return
             }
             case "tel": {
-                if (!s.session) return
+                const current = staged?.session ?? s.session
+                if (!current) return
                 liveEdge.update(msg.now, wall)
-                const session = appendTelemetry(s.session, msg.chunks)
-                set(
-                    session !== s.session
+                // New samples are written into the session's arrays (the canvases draw them on the next frame).
+                const session = appendTelemetry(current, msg.chunks)
+                stage(
+                    session !== current
                         ? { session, liveEdge: msg.now }
                         : { liveEdge: msg.now }
                 )
-                if (session !== s.session) get().publish()
                 return
             }
         }
@@ -945,16 +960,21 @@ export const useReplay = create<ReplayState>((set, get) => {
         },
 
         publish: () => {
-            const s = get()
+            // What live updates staged since the last tick goes out with this one: one store change, one render.
+            // (Only into the live session it came from: a snapshot or leaving live mode drops it.)
+            const extra = get().mode === "live" ? (staged ?? {}) : {}
+            staged = null
+            const s = { ...get(), ...extra }
             const { session, watchedTo, stream } = s
             if (session) {
                 const t = shownTime(s)
                 set({
+                    ...extra,
                     t,
                     race: raceStateAt(session, t),
                     watchedTo: Math.max(watchedTo, t)
                 })
-            }
+            } else if (Object.keys(extra).length > 0) set(extra)
             if (stream) reportPlayhead()
         },
 

@@ -1,6 +1,13 @@
 import { useEffect } from "react"
 import { followStep } from "../data/liveEdge"
-import { clock, comparing, liveEdge, streamLimit, useReplay } from "../store"
+import {
+    clock,
+    comparing,
+    hasStaged,
+    liveEdge,
+    streamLimit,
+    useReplay
+} from "../store"
 import { runFrames } from "../widgetkit/frame"
 
 const PUBLISH_EVERY_MS = 100
@@ -69,7 +76,11 @@ export function useReplayLoop() {
                 clock.t = t
                 if (clock.t >= duration) setPlaying(false)
             }
-            if (moved && now - lastPublish >= PUBLISH_EVERY_MS) {
+            // Live data that came in is published with the next tick too, even while the clock stands still.
+            if (
+                (moved || hasStaged()) &&
+                now - lastPublish >= PUBLISH_EVERY_MS
+            ) {
                 lastPublish = now
                 publish()
             }
