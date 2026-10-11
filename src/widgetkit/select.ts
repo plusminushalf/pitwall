@@ -141,9 +141,23 @@ export interface LapInProgress {
  * the car has crossed its end. Mini-sectors show as the car passes them: a finished session knows the sector's time,
  * so each one shows at its share of it; live, the timing has only what's been driven, and that's shown as it is.
  */
+/** Where the car is on its lap at t, from its own telemetry (what the track map shows): see lapInProgressAt. */
+export interface LapPlace {
+    /** When the lap started (ms since t0), chained through the laps before it. */
+    start: number
+    /** Metres from the line. */
+    distance: number
+    /** Metres from the line to each sector's start, and the lap's length: [0, sector 2, sector 3, lap]. */
+    bounds: readonly [number, number, number, number]
+}
+
+/** Metres short of a boundary that count as across it (the car's distance is integrated from its speed). */
+const PLACE_SLACK_M = 25
+
 export function lapInProgressAt(
     d: DriverData,
-    t: number
+    t: number,
+    place: LapPlace | null = null
 ): LapInProgress | null {
     const li = indexAtOrBefore(d.lapStarts, t)
     if (li < 0) return null
@@ -151,6 +165,38 @@ export function lapInProgressAt(
     if (l.end != null && l.end <= t) return null
     const sectors: LapInProgress["sectors"] = [null, null, null]
     const segments: LapInProgress["segments"] = [[], [], []]
+    const before = li > 0 ? d.laps[li - 1] : null
+    // Where the car is, when its telemetry says: a sector shows once the car is across its end, a mini-sector once
+    // it's past its share of the sector, whatever the timing has by then (live, it runs ahead of a delayed replay).
+    if (place) {
+        const { distance, bounds } = place
+        for (let k = 0; k < 3; k++) {
+            const minis = l.segments[k]
+            // Live, a sector's mini-sectors come in one by one: as many as the lap before had.
+            const count = Math.max(
+                minis.length,
+                before?.segments[k].length ?? 0
+            )
+            const from = bounds[k]
+            const to = bounds[k + 1]
+            const crossed = distance >= to - PLACE_SLACK_M
+            if (crossed) sectors[k] = l.sectors[k]
+            segments[k] = Array.from({ length: count }, (_, j) =>
+                crossed ||
+                distance >=
+                    from + ((j + 1) / count) * (to - from) - PLACE_SLACK_M
+                    ? (minis[j] ?? null)
+                    : null
+            )
+        }
+        return {
+            lap: l.lap,
+            pitOut: l.pitOut,
+            start: place.start,
+            sectors,
+            segments
+        }
+    }
     let from: number | null = l.start
     for (let k = 0; k < 3; k++) {
         const s = l.sectors[k]
@@ -190,8 +236,12 @@ export interface TimingLap extends Pick<LapInProgress, "sectors" | "segments"> {
  * (unknown ones null, so they reset at the line), except for TIMING_HOLD_MS after the line, when the lap just
  * finished stays (its last sector would otherwise never be seen). Between laps, the last one finished.
  */
-export function timingLapAt(d: DriverData, t: number): TimingLap | null {
-    const current = lapInProgressAt(d, t)
+export function timingLapAt(
+    d: DriverData,
+    t: number,
+    place: LapPlace | null = null
+): TimingLap | null {
+    const current = lapInProgressAt(d, t, place)
     if (current && t - current.start >= TIMING_HOLD_MS)
         return {
             lap: current.lap,

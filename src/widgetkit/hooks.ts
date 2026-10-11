@@ -67,6 +67,7 @@ import {
     historyOf,
     historyRange,
     type LapInProgress,
+    type LapPlace,
     lapInProgressAt,
     lapsAt,
     type NeutralPeriod,
@@ -444,6 +445,20 @@ export function useLaps<R = readonly Lap[]>(
     )
 }
 
+/** Where car n is on its lap at t, by its telemetry; null without car data or before the lap's length is known. */
+function placeOf(session: Session, n: number, t: number): LapPlace | null {
+    const live = liveLapOf(session, n, t)
+    if (!live) return null
+    const { lapLength, sectorDistances } = lapGeometryOf(session)
+    const [s2, s3] = sectorDistances
+    if (![lapLength, s2, s3].every(Number.isFinite)) return null
+    return {
+        start: live.start,
+        distance: live.trace.length,
+        bounds: [0, s2, s3, lapLength]
+    }
+}
+
 /**
  * API gap: car n's lap in progress at t as the timing screen has it: the sectors crossed and the mini-sectors passed
  * so far. Null between laps (in the garage, the pits) and without lap data.
@@ -455,7 +470,9 @@ export function useLapInProgress<R = LapInProgress>(
     return useKit(
         (s) => {
             const d = n == null ? undefined : s.session.drivers.get(n)
-            return d ? lapInProgressAt(d, s.t) : null
+            return d && n != null
+                ? lapInProgressAt(d, s.t, placeOf(s.session, n, s.t))
+                : null
         },
         [n],
         orNull(select)
@@ -473,7 +490,9 @@ export function useTimingLap<R = TimingLap>(
     return useKit(
         (s) => {
             const d = n == null ? undefined : s.session.drivers.get(n)
-            return d ? timingLapAt(d, s.t) : null
+            return d && n != null
+                ? timingLapAt(d, s.t, placeOf(s.session, n, s.t))
+                : null
         },
         [n],
         orNull(select)
