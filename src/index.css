@@ -23,6 +23,25 @@ body {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* A value that just changed (widget-kit's Flash): lit, then back to the row's own background. */
+@keyframes pw-flash {
+    from {
+        background-color: color-mix(
+            in oklab,
+            var(--color-zinc-100) 30%,
+            transparent
+        );
+    }
+    to {
+        background-color: transparent;
+    }
+}
+
+.pw-flash {
+    border-radius: 2px;
+    animation: pw-flash 1.2s ease-out;
+}
+
 ::selection {
     background: color-mix(in oklab, var(--color-zinc-100) 28%, transparent);
     color: var(--color-white);

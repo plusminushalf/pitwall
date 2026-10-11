@@ -3,6 +3,7 @@ import {
     type DriverInfo,
     type DriverState,
     defineWidget,
+    Flash,
     gap,
     Icon,
     LABEL_CLASS,
@@ -31,6 +32,7 @@ import {
     useSessionInfo,
     useSettings,
     useTime,
+    useTimingLap,
     useWidgetSize
 } from "widget-kit"
 
@@ -203,12 +205,13 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
     if (!l) return <span className="text-zinc-600">—</span>
     if (deleted && l.deleted) {
         return (
-            <span
+            <Flash
+                value={l.lap}
                 className="tabular-nums text-zinc-400 line-through"
                 title={`Deleted: ${l.deleted.reason.toLowerCase()}`}
             >
                 {lapTime(l.duration)}
-            </span>
+            </Flash>
         )
     }
     const color =
@@ -218,7 +221,9 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
               ? "text-emerald-400"
               : "text-zinc-300"
     return (
-        <span className={`tabular-nums ${color}`}>{lapTime(l.duration)}</span>
+        <Flash value={l.lap} className={`tabular-nums ${color}`}>
+            {lapTime(l.duration)}
+        </Flash>
     )
 }
 
@@ -257,11 +262,12 @@ function QualiBestCell({
     )
     if (best == null) return <span className="text-xs text-zinc-600">—</span>
     return (
-        <span
+        <Flash
+            value={best}
             className={`text-xs tabular-nums ${s.position === 1 ? "text-fuchsia-400" : "text-zinc-200"}`}
         >
             {lapTime(best)}
-        </span>
+        </Flash>
     )
 }
 
@@ -288,6 +294,9 @@ function QualiStatusCell({
     return <LapsCell n={n} s={s} />
 }
 
+/** Seconds: sector times equal to a best within this are that best. */
+const EPS = 1e-6
+
 /** Each sector's fastest time among a driver's laps so far. */
 const personalBestSectors = (laps: readonly Lap[]) =>
     [0, 1, 2].map((k) =>
@@ -297,29 +306,34 @@ const personalBestSectors = (laps: readonly Lap[]) =>
         }, null)
     )
 
-/** The last lap's sector times: purple for the fastest by anyone so far, green for the driver's own best. */
-function SectorCells({ n, s }: { n: number; s: RowData }) {
+/**
+ * The sector times of the lap being driven (for a few seconds after the line, the one just driven): a dash until the
+ * car crosses the sector's end, so they reset at the line and fill in as the lap goes; purple for the fastest by
+ * anyone so far, green for the driver's own best, lit up as each comes in.
+ */
+function SectorCells({ n }: { n: number }) {
+    const shown = useTimingLap(n, (l) => l.sectors)
     const overall = useBestSectors()
     const own = useLaps(n, personalBestSectors)
     return (
         <>
             {[0, 1, 2].map((k) => {
-                const v = s.lastLap?.sectors[k] ?? null
-                if (v == null)
-                    return (
-                        <span key={k} className="text-xs text-zinc-600">
-                            —
-                        </span>
-                    )
+                const v = shown?.[k] ?? null
+                const best = overall[k]
+                const mine = own[k]
                 const color =
-                    v === overall[k]
-                        ? "text-fuchsia-400"
-                        : v === own[k]
-                          ? "text-emerald-400"
-                          : "text-zinc-300"
+                    v == null
+                        ? "text-zinc-600"
+                        : best == null || v <= best + EPS
+                          ? "text-fuchsia-400"
+                          : mine == null || v <= mine + EPS
+                            ? "text-emerald-400"
+                            : "text-zinc-300"
                 return (
-                    <span key={k} className={`text-xs tabular-nums ${color}`}>
-                        {sectorTime(v)}
+                    <span key={k} className="text-xs">
+                        <Flash value={v} className={`tabular-nums ${color}`}>
+                            {v == null ? "—" : sectorTime(v)}
+                        </Flash>
                     </span>
                 )
             })}
@@ -332,11 +346,12 @@ function BestLapCell({ n, s }: { n: number; s: RowData }) {
     if (s.bestLap == null)
         return <span className="text-xs text-zinc-600">—</span>
     return (
-        <span
+        <Flash
+            value={s.bestLap}
             className={`text-xs tabular-nums ${fastest === s.bestLap ? "text-fuchsia-400" : "text-zinc-300"}`}
         >
             {lapTime(s.bestLap)}
-        </span>
+        </Flash>
     )
 }
 
@@ -465,7 +480,7 @@ const Row = memo(function Row({
                     <span className="text-xs tabular-nums">
                         {s.position === 1 ? "" : gap(s.gap)}
                     </span>
-                    {wide && <SectorCells n={d.number} s={s} />}
+                    {wide && <SectorCells n={d.number} />}
                     {wide && (
                         <span className="text-xs">
                             <LastLapCell n={d.number} s={s} />
@@ -481,7 +496,7 @@ const Row = memo(function Row({
                             <GapCell s={s} mode={mode} />
                         )}
                     </span>
-                    {wide && <SectorCells n={d.number} s={s} />}
+                    {wide && <SectorCells n={d.number} />}
                     <span className="text-xs">
                         <LastLapCell n={d.number} s={s} />
                     </span>

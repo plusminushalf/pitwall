@@ -3,11 +3,11 @@ import {
     type DriverInfo,
     type DriverState,
     defineWidget,
+    Flash,
     gap,
     Icon,
     LABEL_CLASS,
     type Lap,
-    type LapInProgress,
     type LapTrace,
     type LiveLap,
     type LiveQualiSegment,
@@ -27,7 +27,6 @@ import {
     useDrivers,
     useFastestLap,
     useLapGeometry,
-    useLapInProgress,
     useLaps,
     useLapTrace,
     useLiveLap,
@@ -36,6 +35,7 @@ import {
     useSelection,
     useSessionInfo,
     useTime,
+    useTimingLap,
     useWidgetSize
 } from "widget-kit"
 
@@ -105,32 +105,6 @@ const personalBestSectors = (laps: readonly Lap[]) =>
         }, Infinity)
     )
 
-/** What the sector cells show: a lap's sector times and mini-sectors (null: not reached). */
-type Shown = Pick<LapInProgress, "sectors" | "segments">
-
-const shownOf = (l: Lap): Shown => ({
-    sectors: l.sectors,
-    segments: l.segments
-})
-
-/**
- * The lap the sector cells show: the one being driven once its first mini-sector is in, the one before it until then
- * (and while the car is in the garage), so a lap's sectors stay on screen as it's crossing the line.
- */
-function useShownLap(n: number): Shown | null {
-    const current = useLapInProgress(n, (l) =>
-        l.segments.some((s) => s.some((c) => c != null)) ||
-        l.sectors.some((s) => s != null)
-            ? { sectors: l.sectors, segments: l.segments }
-            : null
-    )
-    const previous = useLaps(n, (laps) => {
-        const l = laps.at(-1)
-        return l ? shownOf(l) : null
-    })
-    return current ?? previous
-}
-
 function MiniSectors({ codes }: { codes: readonly (number | null)[] }) {
     return (
         <span className="flex h-[3px] gap-px">
@@ -154,11 +128,12 @@ function MiniSectors({ codes }: { codes: readonly (number | null)[] }) {
 }
 
 /**
- * The three sectors of the lap being driven (or just driven): the time once crossed, purple for the fastest by
- * anyone, green for the driver's own best; under it the mini-sectors as they're passed.
+ * The three sectors of the lap being driven (for a few seconds after the line, the one just driven): the time once
+ * crossed, a dash until then, purple for the fastest by anyone, green for the driver's own best, lit up as it comes
+ * in; under it the mini-sectors as they're passed.
  */
 function SectorCells({ n, times }: { n: number; times: boolean }) {
-    const shown = useShownLap(n)
+    const shown = useTimingLap(n)
     const overall = useBestSectors()
     const own = useLaps(n, personalBestSectors)
     return (
@@ -176,11 +151,12 @@ function SectorCells({ n, times }: { n: number; times: boolean }) {
                 return (
                     <span key={k} className="flex min-w-0 flex-col gap-1">
                         {times && (
-                            <span
-                                className={`text-xs leading-4 tabular-nums ${color}`}
+                            <Flash
+                                value={v}
+                                className={`self-start text-xs leading-4 tabular-nums ${color}`}
                             >
-                                {v == null ? "" : sectorTime(v)}
-                            </span>
+                                {v == null ? "—" : sectorTime(v)}
+                            </Flash>
                         )}
                         <MiniSectors codes={shown?.segments[k] ?? []} />
                     </span>
@@ -197,12 +173,13 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
     if (!l) return <span className="text-xs text-zinc-600">—</span>
     if (deleted)
         return (
-            <span
+            <Flash
+                value={l.lap}
                 className="text-xs tabular-nums text-zinc-400 line-through"
                 title={`Deleted: ${l.deleted?.reason.toLowerCase()}`}
             >
                 {lapTime(l.duration)}
-            </span>
+            </Flash>
         )
     const color =
         fastest === l.lap
@@ -211,9 +188,9 @@ function LastLapCell({ n, s }: { n: number; s: RowData }) {
               ? "text-emerald-400"
               : "text-zinc-300"
     return (
-        <span className={`text-xs tabular-nums ${color}`}>
+        <Flash value={l.lap} className={`text-xs tabular-nums ${color}`}>
             {lapTime(l.duration)}
-        </span>
+        </Flash>
     )
 }
 
@@ -234,11 +211,12 @@ function BestCell({
     const best = segment ? inSegment : s.bestLap
     if (best == null) return <span className="text-xs text-zinc-600">—</span>
     return (
-        <span
+        <Flash
+            value={best}
             className={`text-xs tabular-nums ${s.position === 1 ? "text-fuchsia-400" : "text-zinc-200"}`}
         >
             {lapTime(best)}
-        </span>
+        </Flash>
     )
 }
 

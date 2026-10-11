@@ -31,6 +31,8 @@ import {
     pitsAt,
     selectedDriverOf,
     stintsAt,
+    TIMING_HOLD_MS,
+    timingLapAt,
     trackOf
 } from "./select"
 
@@ -139,6 +141,42 @@ describe("lap in progress", () => {
         expect(now.sectors).toEqual([30, null, null])
         expect(now.segments[1]).toEqual([2048, null, null])
         expect(now.segments[2]).toEqual([null, null, null])
+    })
+})
+
+describe("the timing screen's lap", () => {
+    // Lap 1 (90 s, sectors of 30 s) then lap 2 from 90 s, its times not in yet.
+    const one: Lap = {
+        ...lap(1, 0, 90_000),
+        sectors: [30, 30, 30],
+        segments: [[2049], [2049], [2049]]
+    }
+    const two: Lap = {
+        ...lap(2, 90_000, null),
+        segments: [[null], [null], [null]]
+    }
+    const d = {
+        laps: [one, two],
+        lapStarts: Float64Array.from([0, 90_000])
+    } as unknown as DriverData
+
+    test("the lap being driven, its sectors as they're crossed", () => {
+        expect(must(timingLapAt(d, 45_000)).sectors).toEqual([30, null, null])
+    })
+
+    test("the lap just finished stays for a moment after the line, then the next one's dashes", () => {
+        const held = must(timingLapAt(d, 90_000 + TIMING_HOLD_MS - 1))
+        expect([held.lap, held.inProgress, held.sectors]).toEqual([
+            1,
+            false,
+            [30, 30, 30]
+        ])
+        const reset = must(timingLapAt(d, 90_000 + TIMING_HOLD_MS))
+        expect([reset.lap, reset.inProgress, reset.sectors]).toEqual([
+            2,
+            true,
+            [null, null, null]
+        ])
     })
 })
 

@@ -79,7 +79,9 @@ import {
     selectedDriverOf,
     sessionInfoOf,
     stintsAt,
+    type TimingLap,
     type Track,
+    timingLapAt,
     trackOf,
     type WholeSession,
     wholeSessionOf
@@ -454,6 +456,24 @@ export function useLapInProgress<R = LapInProgress>(
         (s) => {
             const d = n == null ? undefined : s.session.drivers.get(n)
             return d ? lapInProgressAt(d, s.t) : null
+        },
+        [n],
+        orNull(select)
+    ) as R | null
+}
+
+/**
+ * API gap: the lap the timing screen shows for car n at t: the one being driven, its sectors filling in as they're
+ * crossed (null until then), or for a few seconds after the line the one just finished.
+ */
+export function useTimingLap<R = TimingLap>(
+    n: number | null,
+    select?: Select<TimingLap, R>
+): R | null {
+    return useKit(
+        (s) => {
+            const d = n == null ? undefined : s.session.drivers.get(n)
+            return d ? timingLapAt(d, s.t) : null
         },
         [n],
         orNull(select)

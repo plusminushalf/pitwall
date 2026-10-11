@@ -176,6 +176,51 @@ export function lapInProgressAt(
     return { lap: l.lap, pitOut: l.pitOut, start: l.start, sectors, segments }
 }
 
+/** How long a lap's sectors stay on the timing screen after the line, before the next lap's take their place. */
+export const TIMING_HOLD_MS = 5_000
+
+/** The lap the timing screen shows: its sectors and mini-sectors so far, and whether it's still being driven. */
+export interface TimingLap extends Pick<LapInProgress, "sectors" | "segments"> {
+    lap: number
+    inProgress: boolean
+}
+
+/**
+ * What the timing screen shows of car n's laps at t: the lap being driven, its sectors filling in as they're crossed
+ * (unknown ones null, so they reset at the line), except for TIMING_HOLD_MS after the line, when the lap just
+ * finished stays (its last sector would otherwise never be seen). Between laps, the last one finished.
+ */
+export function timingLapAt(d: DriverData, t: number): TimingLap | null {
+    const current = lapInProgressAt(d, t)
+    if (current && t - current.start >= TIMING_HOLD_MS)
+        return {
+            lap: current.lap,
+            sectors: current.sectors,
+            segments: current.segments,
+            inProgress: true
+        }
+    let done: Lap | null = null
+    for (let i = indexAtOrBefore(d.lapStarts, t); i >= 0 && !done; i--) {
+        const l = d.laps[i]
+        if (l.end != null && l.end <= t) done = l
+    }
+    if (done)
+        return {
+            lap: done.lap,
+            sectors: done.sectors,
+            segments: done.segments,
+            inProgress: false
+        }
+    return current
+        ? {
+              lap: current.lap,
+              sectors: current.sectors,
+              segments: current.segments,
+              inProgress: true
+          }
+        : null
+}
+
 /** A stint started by t. The one in progress is `open`, and its `lapEnd` is cut at the current lap. */
 export interface StintView extends Stint {
     open: boolean
