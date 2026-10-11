@@ -121,8 +121,28 @@ export const positionsOf = cached(
 
 /** Laps the driver has completed by t (the lap in progress isn't included). */
 export function lapsAt(d: DriverData, t: number): Lap[] {
-    return d.laps.filter((l) => l.end != null && l.end <= t)
+    const hit = lapsCache.get(d)
+    if (hit && hit.laps === d.laps && hit.from <= t && t < hit.to)
+        return hit.done
+    // The same array while t stays between the last lap finished and the next to finish, so hooks see no change.
+    let from = -Infinity
+    let to = Infinity
+    const done: Lap[] = []
+    for (const l of d.laps) {
+        if (l.end == null) continue
+        if (l.end <= t) {
+            done.push(l)
+            from = Math.max(from, l.end)
+        } else to = Math.min(to, l.end)
+    }
+    lapsCache.set(d, { laps: d.laps, from, to, done })
+    return done
 }
+
+const lapsCache = new WeakMap<
+    DriverData,
+    { laps: readonly Lap[]; from: number; to: number; done: Lap[] }
+>()
 
 /** The lap a car is driving at t, as far as the timing has got: what the timing screen shows of it. */
 export interface LapInProgress {
@@ -141,23 +161,9 @@ export interface LapInProgress {
  * the car has crossed its end. Mini-sectors show as the car passes them: a finished session knows the sector's time,
  * so each one shows at its share of it; live, the timing has only what's been driven, and that's shown as it is.
  */
-/** Where the car is on its lap at t, from its own telemetry (what the track map shows): see lapInProgressAt. */
-export interface LapPlace {
-    /** When the lap started (ms since t0), chained through the laps before it. */
-    start: number
-    /** Metres from the line. */
-    distance: number
-    /** Metres from the line to each sector's start, and the lap's length: [0, sector 2, sector 3, lap]. */
-    bounds: readonly [number, number, number, number]
-}
-
-/** Metres short of a boundary that count as across it (the car's distance is integrated from its speed). */
-const PLACE_SLACK_M = 25
-
 export function lapInProgressAt(
     d: DriverData,
-    t: number,
-    place: LapPlace | null = null
+    t: number
 ): LapInProgress | null {
     const li = indexAtOrBefore(d.lapStarts, t)
     if (li < 0) return null
@@ -166,58 +172,36 @@ export function lapInProgressAt(
     const sectors: LapInProgress["sectors"] = [null, null, null]
     const segments: LapInProgress["segments"] = [[], [], []]
     const before = li > 0 ? d.laps[li - 1] : null
-    // Where the car is, when its telemetry says: a sector shows once the car is across its end, a mini-sector once
-    // it's past its share of the sector, whatever the timing has by then (live, it runs ahead of a delayed replay).
-    if (place) {
-        const { distance, bounds } = place
-        for (let k = 0; k < 3; k++) {
-            const minis = l.segments[k]
-            // Live, a sector's mini-sectors come in one by one: as many as the lap before had.
-            const count = Math.max(
-                minis.length,
-                before?.segments[k].length ?? 0
-            )
-            const from = bounds[k]
-            const to = bounds[k + 1]
-            const crossed = distance >= to - PLACE_SLACK_M
-            if (crossed) sectors[k] = l.sectors[k]
-            segments[k] = Array.from({ length: count }, (_, j) =>
-                crossed ||
-                distance >=
-                    from + ((j + 1) / count) * (to - from) - PLACE_SLACK_M
-                    ? (minis[j] ?? null)
-                    : null
-            )
-        }
-        return {
-            lap: l.lap,
-            pitOut: l.pitOut,
-            start: place.start,
-            sectors,
-            segments
-        }
-    }
     let from: number | null = l.start
     for (let k = 0; k < 3; k++) {
         const s = l.sectors[k]
         const minis = l.segments[k]
+        // Live, a sector's mini-sectors come in one by one: as many as the lap before had.
+        const count = Math.max(minis.length, before?.segments[k].length ?? 0)
         // Mini-sectors passed in this sector: all of them, some, or none (a sector not reached yet).
         let passed = 0
         if (from != null && s != null && from + s * 1000 <= t) {
             sectors[k] = s
-            passed = minis.length
+            passed = count
             from += s * 1000
         } else if (from != null) {
-            const unknown = minis.indexOf(null)
+            // Live, the sector's time isn't in yet: pace its mini-sectors by the lap before's (the timing can run
+            // ahead of a delayed playhead), and show no more than the timing has.
+            const known =
+                minis.indexOf(null) < 0 ? minis.length : minis.indexOf(null)
+            const pace = s ?? before?.sectors[k] ?? null
             passed =
-                s != null
-                    ? Math.floor(((t - from) / (s * 1000)) * minis.length)
-                    : unknown < 0
-                      ? minis.length
-                      : unknown
+                pace != null
+                    ? Math.min(
+                          s != null ? minis.length : known,
+                          Math.floor(((t - from) / (pace * 1000)) * count)
+                      )
+                    : known
             from = null
         }
-        segments[k] = minis.map((c, i) => (i < passed ? c : null))
+        segments[k] = Array.from({ length: count }, (_, i) =>
+            i < passed ? (minis[i] ?? null) : null
+        )
     }
     return { lap: l.lap, pitOut: l.pitOut, start: l.start, sectors, segments }
 }
@@ -236,12 +220,8 @@ export interface TimingLap extends Pick<LapInProgress, "sectors" | "segments"> {
  * (unknown ones null, so they reset at the line), except for TIMING_HOLD_MS after the line, when the lap just
  * finished stays (its last sector would otherwise never be seen). Between laps, the last one finished.
  */
-export function timingLapAt(
-    d: DriverData,
-    t: number,
-    place: LapPlace | null = null
-): TimingLap | null {
-    const current = lapInProgressAt(d, t, place)
+export function timingLapAt(d: DriverData, t: number): TimingLap | null {
+    const current = lapInProgressAt(d, t)
     if (current && t - current.start >= TIMING_HOLD_MS)
         return {
             lap: current.lap,
