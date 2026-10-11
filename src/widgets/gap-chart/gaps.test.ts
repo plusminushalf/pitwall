@@ -100,6 +100,24 @@ describe("gap chart: gaps", () => {
         ).toEqual([null, 15, 44, 94.5])
     })
 
+    test("to a driver: behind them positive, ahead negative, at the same lap count when one is lapped", () => {
+        const [a, b, c, d] = gapSeries(all, [1, 2, 3, 4], "driver", 2)
+        expect(a.gaps).toEqual([null, -1, -1, -0.5, 1])
+        expect(b.gaps).toEqual([null, 0, 0, 0, 0])
+        expect(c.gaps).toEqual([null, 4, 5])
+        // Car 4 is a lap down on car 2 by its lap 3, and still 94.5 s behind it then.
+        expect(d.gaps).toEqual([null, 19, 49, 94.5])
+        expect(d.down).toEqual([0, 0, 0, 0])
+        // Car 4's lap 4 is never run: car 2's gap to it ends with lap 3.
+        expect(gapSeries(all, [2], "driver", 4)[0].gaps).toEqual([
+            null,
+            -19,
+            -49,
+            -94.5,
+            null
+        ])
+    })
+
     test("a missing lap breaks the line; a car with no laps or no data has none", () => {
         const holes = new Map<number, Crossings>([
             ...all,
@@ -206,34 +224,62 @@ describe("gap chart: safety car laps", () => {
 describe("gap chart: y scale", () => {
     test("fits the largest gap in round steps, at least 1 s", () => {
         expect(gapScale(0, "leader", 4)).toEqual({
+            min: 0,
             max: 1,
             step: 0.5,
             capped: false
         })
         expect(gapScale(3.2, "leader", 4)).toEqual({
+            min: 0,
             max: 4,
             step: 1,
             capped: false
         })
         expect(gapScale(47, "leader", 4)).toEqual({
+            min: 0,
             max: 60,
             step: 15,
             capped: false
         })
         expect(gapScale(95, "leader", 2)).toEqual({
+            min: 0,
             max: 120,
             step: 60,
             capped: false
         })
     })
 
+    test("to a driver: the cars ahead of them above 0, the cars behind below", () => {
+        expect(gapScale(94.5, "driver", 4)).toEqual({
+            min: 0,
+            max: 120,
+            step: 30,
+            capped: false
+        })
+        expect(gapScale(10, "driver", 4, 3)).toEqual({
+            min: -5,
+            max: 15,
+            step: 5,
+            capped: false
+        })
+        // Nobody behind: 0 at the bottom.
+        expect(gapScale(0, "driver", 4, 3)).toEqual({
+            min: -4,
+            max: 0,
+            step: 1,
+            capped: false
+        })
+    })
+
     test("interval stops at the cap", () => {
         expect(gapScale(25, "interval", 4)).toEqual({
+            min: 0,
             max: INTERVAL_CAP,
             step: 5,
             capped: true
         })
         expect(gapScale(2.1, "interval", 4)).toEqual({
+            min: 0,
             max: 3,
             step: 1,
             capped: false

@@ -36,6 +36,13 @@ import {
 
 type Settings = { gapMode: GapMode }
 
+/** The title switches the mode: leader, interval, to a driver, and round again. */
+const NEXT: Record<GapMode, { mode: GapMode; title: string }> = {
+    leader: { mode: "interval", title: "Show the interval to the car ahead" },
+    interval: { mode: "driver", title: "Show the gaps to one driver" },
+    driver: { mode: "leader", title: "Show the gap to the leader" }
+}
+
 /** With nothing selected, the chart shows the first this many at the line. */
 const FALLBACK = 4
 const FONT = "10px ui-sans-serif, system-ui, sans-serif"
@@ -91,6 +98,8 @@ interface Layout {
     /** The lap at the left edge (0: the start) and laps across the chart: the race distance, or the timeline's lap window. */
     from: number
     laps: number
+    /** The scale: `min` at the top (below 0 when a car is ahead of the driver the gaps are to), `max` at the bottom. */
+    min: number
     max: number
     step: number
     capped: boolean
@@ -98,7 +107,9 @@ interface Layout {
 
 const xOf = (L: Layout, lap: number) => ((lap - L.from) / L.laps) * L.plotW
 const yOf = (L: Layout, g: number) =>
-    TOP + (Math.min(g, L.max) / L.max) * (L.plotBottom - TOP)
+    TOP +
+    ((Math.min(Math.max(g, L.min), L.max) - L.min) / (L.max - L.min)) *
+        (L.plotBottom - TOP)
 const lapAt = (L: Layout, x: number) =>
     L.from + Math.round((x / L.plotW) * L.laps)
 /** The laps with a gap that the chart shows: gaps are at the end of a lap, from lap 1. */
@@ -145,23 +156,26 @@ function draw(
         ctx.fillText(NEUTRALISED[kind].label, (x0 + x1) / 2, 1)
     }
 
-    // Gridlines, labelled in seconds at the left; the bottom one says "+" when gaps go past it. None
-    // before the first lap is done (nothing to scale).
+    // Gridlines, labelled in seconds at the left (ahead of the driver the gaps are to: "−"); the bottom one says
+    // "+" when gaps go past it. 0 is brighter when there's a gridline above it. None before the first lap is
+    // done (nothing to scale).
     ctx.lineWidth = 1
     ctx.strokeStyle = "#27272a"
     ctx.fillStyle = "#9f9fa9"
     ctx.textAlign = "left"
     ctx.textBaseline = "bottom"
     const any = lines.some((l) => l.series.gaps.some(seconds))
-    for (let v = 0; any && v <= L.max + 1e-9; v += L.step) {
+    for (let v = L.min; any && v <= L.max + 1e-9; v += L.step) {
         const y = Math.round(yOf(L, v)) + 0.5
+        ctx.strokeStyle =
+            Math.abs(v) < 1e-9 && L.min < 0 ? "#52525c" : "#27272a"
         ctx.beginPath()
         ctx.moveTo(0, y)
         ctx.lineTo(L.plotW, y)
         ctx.stroke()
-        if (v > 0)
+        if (Math.abs(v) > 1e-9)
             ctx.fillText(
-                `${+v.toFixed(1)}s${L.capped && v + L.step > L.max + 1e-9 ? "+" : ""}`,
+                `${v < 0 ? "−" : ""}${+Math.abs(v).toFixed(1)}s${L.capped && v + L.step > L.max + 1e-9 ? "+" : ""}`,
                 2,
                 y - 1
             )
@@ -209,50 +223,60 @@ function draw(
     ctx.setLineDash([])
     ctx.restore()
 
-    // The end of each line: a dot and the driver's code, unless it would cover one already placed.
-    const placed: [number, number][] = []
-    ctx.font = LABEL_FONT
-    ctx.textAlign = "left"
-    ctx.textBaseline = "middle"
-    for (const line of lines) {
+    // The end of each line: a dot, then the driver's code beside it (else over it, else under it) where it
+    // covers no dot and no code already placed; none where there's no room.
+    const ends = lines.flatMap((line) => {
         const { gaps } = line.series
         let n = Math.min(gaps.length - 1, hi)
         while (n >= lo && !seconds(gaps[n])) n--
-        if (n < lo) continue
-        const x = xOf(L, n)
-        const y = yOf(L, gaps[n] as number)
-        dot(ctx, x, y, 3, line.color)
-        if (
-            placed.some(
-                ([px, py]) => Math.abs(px - x) < 30 && Math.abs(py - y) < 11
+        return n < lo
+            ? []
+            : [{ line, x: xOf(L, n), y: yOf(L, gaps[n] as number) }]
+    })
+    for (const e of ends) dot(ctx, e.x, e.y, 3, e.line.color)
+    const taken: Box[] = ends.map(({ x, y }) => [x - 5, y - 5, x + 5, y + 5])
+    /** `text` at the first of `at` (offsets from x, y to its middle left) that's clear, if any. */
+    const place = (
+        text: string,
+        x: number,
+        y: number,
+        at: [number, number][]
+    ) => {
+        const w = ctx.measureText(text).width
+        const box = at
+            .map(
+                ([dx, dy]): Box => [x + dx, y + dy - 6, x + dx + w, y + dy + 6]
             )
-        )
-            continue
-        placed.push([x, y])
-        ctx.fillStyle = "#d4d4d8"
-        ctx.fillText(line.info.acronym, x + 6, y)
+            .find((b) => !taken.some((t) => overlaps(b, t)))
+        if (!box) return
+        taken.push(box)
+        ctx.fillText(text, box[0], (box[1] + box[3]) / 2)
+    }
+    ctx.textAlign = "left"
+    ctx.textBaseline = "middle"
+    ctx.font = LABEL_FONT
+    ctx.fillStyle = "#d4d4d8"
+    for (const e of ends) {
+        const w = ctx.measureText(e.line.info.acronym).width
+        place(e.line.info.acronym, e.x, e.y, [
+            [6, 0],
+            [-w / 2, -12],
+            [-w / 2, 12]
+        ])
     }
 
-    // Where a car went a lap down (to the leader): "+1L" over its line, unless it would cover a label.
+    // Where a car went a lap down (to the leader): "+1L" over its line, where there's room.
     ctx.font = FONT
-    ctx.textAlign = "center"
-    ctx.textBaseline = "bottom"
     ctx.fillStyle = "#9f9fa9"
     for (const line of lines) {
         const { gaps, down } = line.series
         for (let n = Math.max(lo, 2); n < gaps.length && n <= hi; n++) {
             const g = gaps[n]
             if (!seconds(g) || down[n] <= (down[n - 1] ?? 0)) continue
-            const x = xOf(L, n)
-            const y = yOf(L, g)
-            if (
-                placed.some(
-                    ([px, py]) => Math.abs(px - x) < 24 && Math.abs(py - y) < 11
-                )
-            )
-                continue
-            placed.push([x, y])
-            ctx.fillText(`+${down[n]}L`, x, y - 4)
+            const text = `+${down[n]}L`
+            place(text, xOf(L, n), yOf(L, g), [
+                [-ctx.measureText(text).width / 2, -10]
+            ])
         }
     }
 
@@ -271,6 +295,11 @@ function draw(
         }
     }
 }
+
+/** A rectangle on the canvas: left, top, right, bottom. */
+type Box = [number, number, number, number]
+const overlaps = (a: Box, b: Box) =>
+    a[0] < b[2] && b[0] < a[2] && a[1] < b[3] && b[1] < a[3]
 
 /** A dot with a 2 px ring in the ground colour, so it stays clear of the lines it sits on. */
 function dot(
@@ -314,21 +343,35 @@ function LineKey({ line }: { line: Line }) {
     )
 }
 
-const gapText = (g: Gap) =>
-    g === "leading" || g === 0 ? "Leader" : seconds(g) ? gap(g) : ""
+const gapText = (g: Gap, mode: GapMode) =>
+    mode === "driver" && seconds(g)
+        ? g < 0
+            ? `−${(-g).toFixed(3)}`
+            : `+${g.toFixed(3)}`
+        : g === "leading" || g === 0
+          ? "Leader"
+          : seconds(g)
+            ? gap(g)
+            : ""
 
 function Tooltip({
     lap,
     lines,
     sc,
-    left
+    left,
+    mode,
+    to
 }: {
     lap: number
     lines: Line[]
     sc: Neutralised | null
     left: boolean
+    mode: GapMode
+    /** The driver the gaps are to: their own row (0) is left out. */
+    to: number | null
 }) {
     const rows = lines
+        .filter((line) => line.info.number !== to)
         .map((line) => ({
             line,
             g: line.series.gaps[lap] ?? null,
@@ -360,7 +403,7 @@ function Tooltip({
                 >
                     <LineKey line={line} />
                     <span className="font-semibold tabular-nums text-zinc-100">
-                        {gapText(g)}
+                        {gapText(g, mode)}
                         {down > 0 && (
                             <span className="font-normal text-zinc-400">
                                 {" "}
@@ -380,7 +423,10 @@ function Tooltip({
     )
 }
 
-/** Gaps lap by lap for the selected drivers (else the first few at the line), to the leader or the car ahead. */
+/**
+ * Gaps lap by lap for the selected drivers (else the first few at the line), to the leader, the car ahead, or one
+ * of them (the first selected, or the one picked in the key).
+ */
 function GapChart() {
     // Every car's crossings, not just the shown ones: the leader at each lap can be anyone.
     const all = useAllLaps(allCrossings)
@@ -393,6 +439,8 @@ function GapChart() {
     const seekToLap = usePlayback((p) => p.seekToLap)
     const size = useWidgetSize()
     const [hover, setHover] = useCardState<number | null>("hover", null)
+    // The driver picked in the key to measure the gaps to (else the first shown).
+    const [pick, setPick] = useCardState<number | null>("to", null)
     const canvasRef = useRef<HTMLCanvasElement>(null)
     const markerRef = useRef<HTMLDivElement>(null)
 
@@ -408,6 +456,12 @@ function GapChart() {
                 : orderAtLine(all).slice(0, FALLBACK),
         [selected, all]
     )
+    const to =
+        gapMode !== "driver"
+            ? null
+            : pick != null && shown.includes(pick)
+              ? pick
+              : (shown[0] ?? null)
     const lines = useMemo((): Line[] => {
         const info = new Map(drivers.map((d) => [d.number, d]))
         // The first car of each team in session order is solid, the second dashed.
@@ -421,23 +475,26 @@ function GapChart() {
                 )
                 .map((d) => d.number)
         )
-        return gapSeries(all, shown, gapMode).flatMap((series) => {
-            const d = info.get(series.driver)
-            if (!d) return []
-            const mate = shown.some(
-                (n) =>
-                    n !== d.number && info.get(n)?.teamColour === d.teamColour
-            )
-            return [
-                {
-                    series,
-                    info: d,
-                    color: teamColor(d.teamColour),
-                    dashed: mate && second.has(d.number)
-                }
-            ]
-        })
-    }, [all, shown, gapMode, drivers])
+        return gapSeries(all, shown, gapMode, to ?? undefined).flatMap(
+            (series) => {
+                const d = info.get(series.driver)
+                if (!d) return []
+                const mate = shown.some(
+                    (n) =>
+                        n !== d.number &&
+                        info.get(n)?.teamColour === d.teamColour
+                )
+                return [
+                    {
+                        series,
+                        info: d,
+                        color: teamColor(d.teamColour),
+                        dashed: mate && second.has(d.number)
+                    }
+                ]
+            }
+        )
+    }, [all, shown, gapMode, to, drivers])
 
     const completed = leader.length - 1
     const win = useLapWindow(Math.max(totalLaps, completed, 1))
@@ -448,6 +505,7 @@ function GapChart() {
         // Scaled to the gaps in the window: zoomed in past lap 1's spread, the gaps that matter fill the chart.
         const from = win.from - 1
         let largest = 0
+        let ahead = 0
         for (const l of lines) {
             for (
                 let n = Math.max(from, 1);
@@ -456,12 +514,14 @@ function GapChart() {
             ) {
                 const g = l.series.gaps[n]
                 if (seconds(g) && g > largest) largest = g
+                if (seconds(g) && -g > ahead) ahead = -g
             }
         }
         const scale = gapScale(
             largest,
             gapMode,
-            Math.min(Math.floor((plotBottom - TOP) / ROW_PX), MAX_ROWS)
+            Math.min(Math.floor((plotBottom - TOP) / ROW_PX), MAX_ROWS),
+            ahead
         )
         return {
             w,
@@ -554,7 +614,13 @@ function GapChart() {
         else if (e.key === "Escape") setHover(null)
     }
 
-    const title = gapMode === "leader" ? "Gap to leader" : "Interval"
+    const toName = lines.find((l) => l.info.number === to)?.info.acronym
+    const title =
+        gapMode === "leader"
+            ? "Gap to leader"
+            : gapMode === "interval"
+              ? "Interval"
+              : `Gap to ${toName ?? "a driver"}`
     const names = lines.map((l) => l.info.acronym).join(", ")
     const hoverX = hover != null ? xOf(layout, hover) : 0
 
@@ -567,18 +633,9 @@ function GapChart() {
                 <span className={`${LABEL_CLASS} shrink-0`}>
                     <button
                         type="button"
-                        onClick={() =>
-                            update({
-                                gapMode:
-                                    gapMode === "leader" ? "interval" : "leader"
-                            })
-                        }
+                        onClick={() => update({ gapMode: NEXT[gapMode].mode })}
                         className={`${TAP_CLASS} rounded-sm uppercase hover:text-zinc-100`}
-                        title={
-                            gapMode === "leader"
-                                ? "Show the interval to the car ahead"
-                                : "Show the gap to the leader"
-                        }
+                        title={NEXT[gapMode].title}
                     >
                         {title}
                     </button>
@@ -596,15 +653,30 @@ function GapChart() {
                     )}
                 </span>
                 <span className="flex min-w-0 items-center gap-2.5 overflow-hidden whitespace-nowrap text-[11px] text-zinc-400">
-                    {lines.map((l) => (
-                        <span
-                            key={l.info.number}
-                            className="flex items-center gap-1"
-                        >
-                            <LineKey line={l} />
-                            {l.info.acronym}
-                        </span>
-                    ))}
+                    {lines.map((l) =>
+                        gapMode === "driver" ? (
+                            // To a driver: each key picks whose the gaps are to.
+                            <button
+                                type="button"
+                                key={l.info.number}
+                                onClick={() => setPick(l.info.number)}
+                                aria-pressed={l.info.number === to}
+                                title={`Gaps to ${l.info.acronym}`}
+                                className={`${TAP_CLASS} flex items-center gap-1 rounded-sm hover:text-zinc-100 ${l.info.number === to ? "font-semibold text-zinc-100" : ""}`}
+                            >
+                                <LineKey line={l} />
+                                {l.info.acronym}
+                            </button>
+                        ) : (
+                            <span
+                                key={l.info.number}
+                                className="flex items-center gap-1"
+                            >
+                                <LineKey line={l} />
+                                {l.info.acronym}
+                            </span>
+                        )
+                    )}
                 </span>
             </div>
             <div className="relative" style={{ width: w, height: h }}>
@@ -656,6 +728,8 @@ function GapChart() {
                             lines={lines}
                             sc={sc[hover] ?? null}
                             left={hoverX > layout.plotW / 2}
+                            mode={gapMode}
+                            to={to}
                         />
                     </div>
                 )}
@@ -669,7 +743,7 @@ export default defineWidget({
     name: "Gaps",
     group: "analysis",
     description:
-        "Gap to the leader or the car ahead, lap by lap. Click a lap to watch it.",
+        "Gap to the leader, the car ahead or a driver, lap by lap. Click a lap to watch it.",
     version: "1.0.0",
     // Fills its column: the title line and a chart with room for a few gridlines.
     height: { min: PAD_Y + HEAD_H + 120 },
@@ -682,7 +756,8 @@ export default defineWidget({
             label: "Gap",
             options: [
                 { value: "leader", label: "Gap to leader" },
-                { value: "interval", label: "Interval to the car ahead" }
+                { value: "interval", label: "Interval to the car ahead" },
+                { value: "driver", label: "Gap to a driver" }
             ]
         }
     },

@@ -2,19 +2,22 @@
 // Everything here works on what the hooks give at t (completed laps, the SC/VSC periods so far), so the chart
 // only ever shows the race up to now. No imports, so its test can live outside the widget (src/engine).
 
-export type GapMode = "leader" | "interval"
+export type GapMode = "leader" | "interval" | "driver"
 
 /** crossings[n] = when the car crossed the line to finish lap n (ms), or null; index 0 is unused. */
 export type Crossings = readonly (number | null)[]
 
-/** A driver's gap at the end of a lap: seconds, or why there's none ("leading": interval mode, nobody ahead). */
+/**
+ * A driver's gap at the end of a lap: seconds, or why there's none ("leading": interval mode, nobody ahead). To a
+ * driver, negative: ahead of them.
+ */
 export type Gap = number | "leading" | null
 
 export interface GapSeries {
     driver: number
     /** gaps[n] at the end of lap n; index 0 is unused. Ends with the driver's last completed lap. */
     gaps: Gap[]
-    /** down[n]: laps behind the leader at the end of lap n (to the leader only; 0 in interval mode). */
+    /** down[n]: laps behind the leader at the end of lap n (to the leader only; 0 otherwise). */
     down: number[]
 }
 
@@ -66,13 +69,18 @@ const lapsDown = (leader: readonly (number | null)[], n: number, t: number) => {
  *   leader:   the car's crossing at lap n minus the first crossing at lap n. A lapped car keeps its gap
  *             (more than a lap, compared at the same lap count), with how many laps down it is in `down`.
  *   interval: the car's crossing minus the crossing just before it at lap n (the car ahead in the order).
+ *   driver:   the car's crossing at lap n minus `to`'s at lap n (0 for `to` itself), so negative when ahead of
+ *             them. Compared at the same lap count, it goes on when one of them is lapped; a lap either of them
+ *             didn't complete has no gap.
  * A lap the car didn't complete (retired, data missing) has no gap (null), so its line ends there.
  */
 export function gapSeries(
     all: ReadonlyMap<number, Crossings>,
     drivers: readonly number[],
-    mode: GapMode
+    mode: GapMode,
+    to?: number
 ): GapSeries[] {
+    const ref = (to != null && all.get(to)) || []
     const cars = [...all.values()]
     const leader = leaderCrossings(cars)
     // Every crossing at lap n, sorted, for the interval.
@@ -95,6 +103,10 @@ export function gapSeries(
                 // Null only for a crossing that can't be (leaderCrossings left it out).
                 const lead = leader[n]
                 return lead == null || t < lead ? null : (t - lead) / 1000
+            }
+            if (mode === "driver") {
+                const r = ref[n]
+                return r == null ? null : (t - r) / 1000
             }
             const ts = byLap[n]
             const i = ts.indexOf(t)
@@ -171,22 +183,33 @@ export const INTERVAL_CAP = 10
 const STEPS = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 300]
 
 /**
- * The y scale: 0 at the top (the leader, or the car ahead), down to `max`, in steps of `step`, with at
- * most `ticks` steps. Fitted to the largest gap shown (at least 1 s); in interval mode no further than
+ * The y scale: `min` at the top, down to `max`, in steps of `step`, with at most `ticks` steps. 0 (the leader, the
+ * car ahead, the driver the gaps are to) is at the top unless a car is ahead of the driver: `ahead`, the most any
+ * is, goes above it. Fitted to the largest gap shown (at least 1 s); in interval mode no further than
  * INTERVAL_CAP (`capped` when a gap is beyond it).
  */
 export function gapScale(
     largest: number,
     mode: GapMode,
-    ticks: number
-): { max: number; step: number; capped: boolean } {
+    ticks: number,
+    ahead = 0
+): { min: number; max: number; step: number; capped: boolean } {
     const capped = mode === "interval" && largest > INTERVAL_CAP
-    const fit = Math.max(capped ? INTERVAL_CAP : largest * 1.05, 1)
+    // At least 1 s across, made up on the side there's something (behind, when there's nothing either way).
+    const pad = Math.max(
+        1 - (capped ? INTERVAL_CAP : largest * 1.05) - ahead * 1.05,
+        0
+    )
+    const onlyAhead = ahead > 0 && largest <= 0
+    const below = capped ? INTERVAL_CAP : largest * 1.05 + (onlyAhead ? 0 : pad)
+    const above = ahead * 1.05 + (onlyAhead ? pad : 0)
+    const n = (v: number, s: number) => Math.ceil(v / s - 1e-9)
     const step =
-        STEPS.find((s) => Math.ceil(fit / s - 1e-9) <= Math.max(ticks, 1)) ??
+        STEPS.find((s) => n(below, s) + n(above, s) <= Math.max(ticks, 1)) ??
         STEPS[STEPS.length - 1]
     return {
-        max: capped ? INTERVAL_CAP : Math.ceil(fit / step - 1e-9) * step,
+        min: above > 0 ? -n(above, step) * step : 0,
+        max: capped ? INTERVAL_CAP : below > 0 ? n(below, step) * step : 0,
         step,
         capped
     }
