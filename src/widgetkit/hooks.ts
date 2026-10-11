@@ -66,6 +66,8 @@ import {
     feedUpTo,
     historyOf,
     historyRange,
+    type LapInProgress,
+    lapInProgressAt,
     lapsAt,
     type NeutralPeriod,
     neutralPeriodsAt,
@@ -438,6 +440,24 @@ export function useLaps<R = readonly Lap[]>(
         [n],
         select
     )
+}
+
+/**
+ * API gap: car n's lap in progress at t as the timing screen has it: the sectors crossed and the mini-sectors passed
+ * so far. Null between laps (in the garage, the pits) and without lap data.
+ */
+export function useLapInProgress<R = LapInProgress>(
+    n: number | null,
+    select?: Select<LapInProgress, R>
+): R | null {
+    return useKit(
+        (s) => {
+            const d = n == null ? undefined : s.session.drivers.get(n)
+            return d ? lapInProgressAt(d, s.t) : null
+        },
+        [n],
+        orNull(select)
+    ) as R | null
 }
 
 /** Car n's stints started by t; the current one is `open`, cut at the current lap. */

@@ -25,6 +25,7 @@ import {
     feedUpTo,
     historyRange,
     historySlice,
+    lapInProgressAt,
     lapsAt,
     neutralPeriodsAt,
     pitsAt,
@@ -79,6 +80,65 @@ describe("laps", () => {
             laps: [lap(1, 0, 50_000), lap(2, 50_000, null)]
         } as unknown as DriverData
         expect(lapsAt(d, 1e9).map((l) => l.lap)).toEqual([1])
+    })
+})
+
+describe("lap in progress", () => {
+    // A 90 s lap from t = 0: sectors of 30 s, each of 3 mini-sectors (2049 green, 2048 yellow, 2051 purple).
+    const timed: Lap = {
+        ...lap(1, 0, 90_000),
+        sectors: [30, 30, 30],
+        segments: [
+            [2049, 2049, 2049],
+            [2048, 2051, 2049],
+            [2049, 2049, 2048]
+        ]
+    }
+    const of = (l: Lap) =>
+        ({
+            laps: [l],
+            lapStarts: Float64Array.from([l.start])
+        }) as unknown as DriverData
+
+    test("a sector's time once it's crossed, its mini-sectors as they're passed", () => {
+        const at = (t: number) => must(lapInProgressAt(of(timed), t))
+        expect(at(5_000).sectors).toEqual([null, null, null])
+        expect(at(5_000).segments).toEqual([
+            [null, null, null],
+            [null, null, null],
+            [null, null, null]
+        ])
+        expect(at(20_000).segments[0]).toEqual([2049, 2049, null])
+        expect(at(45_000).sectors).toEqual([30, null, null])
+        expect(at(45_000).segments).toEqual([
+            [2049, 2049, 2049],
+            [2048, null, null],
+            [null, null, null]
+        ])
+        expect(at(89_999).sectors).toEqual([30, 30, null])
+    })
+
+    test("none between laps or once it's over", () => {
+        expect(lapInProgressAt(of(timed), 90_000)).toBeNull()
+        expect(
+            lapInProgressAt(of({ ...timed, start: 10_000 }), 5_000)
+        ).toBeNull()
+    })
+
+    test("live, the timing has only what's been driven: shown as it is", () => {
+        const live: Lap = {
+            ...lap(1, 0, null),
+            sectors: [30, null, null],
+            segments: [
+                [2049, 2049, 2049],
+                [2048, null, null],
+                [null, null, null]
+            ]
+        }
+        const now = must(lapInProgressAt(of(live), 40_000))
+        expect(now.sectors).toEqual([30, null, null])
+        expect(now.segments[1]).toEqual([2048, null, null])
+        expect(now.segments[2]).toEqual([null, null, null])
     })
 })
 

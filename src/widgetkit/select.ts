@@ -124,6 +124,58 @@ export function lapsAt(d: DriverData, t: number): Lap[] {
     return d.laps.filter((l) => l.end != null && l.end <= t)
 }
 
+/** The lap a car is driving at t, as far as the timing has got: what the timing screen shows of it. */
+export interface LapInProgress {
+    lap: number
+    pitOut: boolean
+    /** Ms since t0 the lap started. */
+    start: number
+    /** Each sector's time once the car has crossed its end; null until then. */
+    sectors: [number | null, number | null, number | null]
+    /** Each sector's mini-sectors (status codes, as Lap.segments): null for the ones not passed yet. */
+    segments: [(number | null)[], (number | null)[], (number | null)[]]
+}
+
+/**
+ * Car n's lap in progress at t; null between laps (in the garage) and once it's over. A sector's time shows once
+ * the car has crossed its end. Mini-sectors show as the car passes them: a finished session knows the sector's time,
+ * so each one shows at its share of it; live, the timing has only what's been driven, and that's shown as it is.
+ */
+export function lapInProgressAt(
+    d: DriverData,
+    t: number
+): LapInProgress | null {
+    const li = indexAtOrBefore(d.lapStarts, t)
+    if (li < 0) return null
+    const l = d.laps[li]
+    if (l.end != null && l.end <= t) return null
+    const sectors: LapInProgress["sectors"] = [null, null, null]
+    const segments: LapInProgress["segments"] = [[], [], []]
+    let from: number | null = l.start
+    for (let k = 0; k < 3; k++) {
+        const s = l.sectors[k]
+        const minis = l.segments[k]
+        // Mini-sectors passed in this sector: all of them, some, or none (a sector not reached yet).
+        let passed = 0
+        if (from != null && s != null && from + s * 1000 <= t) {
+            sectors[k] = s
+            passed = minis.length
+            from += s * 1000
+        } else if (from != null) {
+            const unknown = minis.indexOf(null)
+            passed =
+                s != null
+                    ? Math.floor(((t - from) / (s * 1000)) * minis.length)
+                    : unknown < 0
+                      ? minis.length
+                      : unknown
+            from = null
+        }
+        segments[k] = minis.map((c, i) => (i < passed ? c : null))
+    }
+    return { lap: l.lap, pitOut: l.pitOut, start: l.start, sectors, segments }
+}
+
 /** A stint started by t. The one in progress is `open`, and its `lapEnd` is cut at the current lap. */
 export interface StintView extends Stint {
     open: boolean

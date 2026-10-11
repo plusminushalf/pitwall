@@ -84,7 +84,7 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
             id: "overview",
             name: "Overview",
             description:
-                "The order by segment with its cut, the map and the feed, and the push laps being driven, followed live",
+                "The timing screen (the order by segment with its cut, each lap's mini-sectors as they're driven, who's on a push lap), the map and the feed, and the push laps followed live",
             layout: QUALI_LAYOUT
         },
         {

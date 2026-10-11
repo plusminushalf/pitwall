@@ -357,6 +357,7 @@ describe("driver layout", () => {
         "long-runs",
         "lap-compare",
         "live-laps",
+        "live-timing",
         "safety-cars",
         "strategy-history",
         "overtakes-history",

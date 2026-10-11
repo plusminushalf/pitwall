@@ -7,6 +7,7 @@ import gapChart from "../widgets/gap-chart"
 import lapCompare from "../widgets/lap-compare"
 import lapTimes from "../widgets/lap-times"
 import liveLaps from "../widgets/live-laps"
+import liveTiming from "../widgets/live-timing"
 import longRuns from "../widgets/long-runs"
 import overtakesHistory from "../widgets/overtakes-history"
 import paceOrder from "../widgets/pace-order"
@@ -51,6 +52,7 @@ const ALL: WidgetDefinition<any>[] = [
     longRuns,
     lapCompare,
     liveLaps,
+    liveTiming,
     safetyCars,
     strategyHistory,
     overtakesHistory,
