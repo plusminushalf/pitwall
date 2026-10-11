@@ -51,6 +51,30 @@ describe("gap chart: crossings", () => {
     })
 })
 
+describe("gap chart: impossible crossings", () => {
+    // Car 9's laps 3 and 4 are timed near the start (a mistimed record, as live timing sometimes has).
+    const glitched = new Map<number, Crossings>([
+        ...all,
+        [9, at(100, 200, 5, 6)]
+    ])
+
+    test("left out of the leader's: nobody finishes a lap before anyone has finished the one before", () => {
+        expect(leaderCrossings([...glitched.values()])).toEqual([
+            null,
+            90_000,
+            180_000,
+            270_000,
+            360_000
+        ])
+    })
+
+    test("so the gaps stay as they were, and nobody looks lapped", () => {
+        const [a, b] = gapSeries(glitched, [1, 2], "leader")
+        expect(a.gaps).toEqual([null, 0, 0, 0, 1])
+        expect(b.gaps).toEqual([null, 1, 1, 0.5, 0])
+    })
+})
+
 describe("gap chart: gaps", () => {
     test("to the leader: the leader changes with the lead, a retired car's line ends, a lapped car's line ends", () => {
         const [a, b, c, d] = gapSeries(all, [1, 2, 3, 4], "leader")

@@ -26,18 +26,29 @@ export function crossingsOf(
     return out
 }
 
-/** first[n] = the first crossing at the end of lap n by anyone: the leader's. Ends with the last lap anyone completed. */
+/**
+ * first[n] = the first crossing at the end of lap n by anyone: the leader's. Ends with the last lap anyone completed.
+ * A crossing that can't be (before the car's own lap before, or before anyone had finished the lap before: a lap
+ * record mistimed or misnumbered, as live timing sometimes has for a moment) is left out, or every other car would
+ * look lapped and the gaps run to the length of the race.
+ */
 export function leaderCrossings(all: readonly Crossings[]): (number | null)[] {
+    const last = all.reduce((m, c) => Math.max(m, c.length - 1), 0)
     const first: (number | null)[] = [null]
-    for (const c of all) {
-        for (let n = 1; n < c.length; n++) {
+    for (let n = 1; n <= last; n++) {
+        const before = first[n - 1] ?? null
+        let f: number | null = null
+        for (const c of all) {
             const t = c[n]
             if (t == null) continue
-            while (first.length <= n) first.push(null)
-            const f = first[n]
-            if (f == null || t < f) first[n] = t
+            const own = c[n - 1]
+            if (own != null && t <= own) continue
+            if (before != null && t <= before) continue
+            if (f == null || t < f) f = t
         }
+        first.push(f)
     }
+    while (first.length > 1 && first[first.length - 1] == null) first.pop()
     return first
 }
 
@@ -76,9 +87,9 @@ export function gapSeries(
             if (n === 0 || t == null) return null
             if (mode === "leader") {
                 if (lappedAt(leader, n, t)) return "lapped"
-                // Never null: this car's own crossing at lap n is among those the leader's is the first of.
+                // Null only for a crossing that can't be (leaderCrossings left it out).
                 const lead = leader[n]
-                return lead == null ? null : (t - lead) / 1000
+                return lead == null || t < lead ? null : (t - lead) / 1000
             }
             const ts = byLap[n]
             const i = ts.indexOf(t)
