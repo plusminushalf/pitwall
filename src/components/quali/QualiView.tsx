@@ -2,7 +2,7 @@
 // board on the left, speed, delta, throttle, brake and gear on one distance axis, and the track map with who's
 // fastest in each mini-sector and the laps as ghosts.
 
-import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useState } from "react"
 import { cornerLabel } from "../../data/circuits"
 import { type CompareModel, compareModel } from "../../data/compare"
 import { type DecodedLap, miniSectors } from "../../engine/compare"
@@ -29,8 +29,6 @@ import { QualiBoard } from "./QualiBoard"
 import { SectorTable } from "./SectorTable"
 
 const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
-const PUBLISH_EVERY_MS = 100
-
 const SHORTCUTS: [string, string][] = [
     ["Space / P", "Play the ghost laps"],
     ["← / →", "Ghost back / forward 1 s (shift: 5 s)"],
@@ -255,39 +253,6 @@ function CompareHeader({
     )
 }
 
-/** Advances the ghost clock while the replay store is playing (space / P / the play button). */
-function useGhostLoop(maxDuration: number) {
-    const max = useRef(maxDuration)
-    max.current = maxDuration
-    useEffect(() => {
-        let raf = 0
-        let last = performance.now()
-        let lastPublish = 0
-        let wasPlaying = false
-        const frame = (now: number) => {
-            const dt = now - last
-            last = now
-            const { playing, setPlaying } = useReplay.getState()
-            const { ghostSpeed } = useQuali.getState()
-            if (playing && max.current > 0) {
-                if (!wasPlaying && ghost.t >= max.current) ghost.t = 0 // play at the end restarts the laps
-                ghost.t = Math.min(ghost.t + dt * ghostSpeed, max.current)
-                if (ghost.t >= max.current) {
-                    setPlaying(false)
-                    useQuali.setState({ ghostT: ghost.t })
-                } else if (now - lastPublish >= PUBLISH_EVERY_MS) {
-                    lastPublish = now
-                    useQuali.setState({ ghostT: ghost.t })
-                }
-            }
-            wasPlaying = playing
-            raf = requestAnimationFrame(frame)
-        }
-        raf = requestAnimationFrame(frame)
-        return () => cancelAnimationFrame(raf)
-    }, [])
-}
-
 /** Ghost keys (the replay's own handler leaves them to this view: they'd move the replay behind it). */
 function useGhostKeys() {
     useEffect(() => {
@@ -394,7 +359,13 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
         [entries]
     )
     const maxDuration = Math.max(0, ...withTrace.map((e) => e.trace.duration))
-    useGhostLoop(maxDuration)
+    // The replay loop plays the ghost laps (useReplayLoop) up to the longest one.
+    useEffect(() => {
+        ghost.end = maxDuration
+        return () => {
+            ghost.end = 0
+        }
+    }, [maxDuration])
     useGhostKeys()
 
     const sectors = useMemo(

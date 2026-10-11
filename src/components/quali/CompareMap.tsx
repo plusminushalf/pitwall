@@ -15,6 +15,7 @@ import {
 } from "../../lib/trackTransform"
 import { ghost, useQuali } from "../../qualiStore"
 import type { TrackGeometry } from "../../types"
+import { addFrameCallback } from "../../widgetkit/frame"
 
 const PADDING = 26
 const HIT_PX = 18
@@ -184,7 +185,7 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
         return { canvas, tf, dpr }
     }, [size, track, ref, sectors, withTrace, names])
 
-    // Dynamic layer: hover cursor and ghost cars, every frame.
+    // Dynamic layer: hover cursor and ghost cars, on the replay loop's ticks (useReplayLoop), redrawn when they changed.
     useEffect(() => {
         const canvas = canvasRef.current
         if (!canvas || !layer) return
@@ -195,13 +196,17 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
         const { tf, dpr } = layer
         const cssW = layer.canvas.width / dpr
         const cssH = layer.canvas.height / dpr
-        let raf = 0
+        let drawn: unknown[] | null = null
         const draw = () => {
+            const { hover, zoom } = useQuali.getState()
+            const t = ghost.t
+            const now = [t, hover, zoom]
+            if (drawn?.every((v, i) => v === now[i])) return
+            drawn = now
             ctx.setTransform(1, 0, 0, 1, 0, 0)
             ctx.clearRect(0, 0, canvas.width, canvas.height)
             ctx.drawImage(layer.canvas, 0, 0)
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-            const { hover, zoom } = useQuali.getState()
             // Charts zoomed: dim the map, then redraw the zoomed stretch at full strength with an outline.
             if (zoom && ref) {
                 const [z0, z1] = [
@@ -244,7 +249,6 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
                     ctx.stroke()
                 }
             }
-            const t = ghost.t
             if (t > 0 && ref) {
                 ctx.font = "700 10px ui-sans-serif, system-ui"
                 ctx.textBaseline = "middle"
@@ -305,10 +309,8 @@ export function CompareMap({ track, entries, sectors, names }: Props) {
                     ctx.fillText(label, lx + 6, ly + 0.5)
                 }
             }
-            raf = requestAnimationFrame(draw)
         }
-        raf = requestAnimationFrame(draw)
-        return () => cancelAnimationFrame(raf)
+        return addFrameCallback({ current: draw })
     }, [layer, withTrace, ref, sectors])
 
     /** Distance along the reference lap nearest to a point on the map, if close enough. */

@@ -452,6 +452,10 @@ function GapChart() {
     // The chart is redrawn on the next animation frame when something changed; the marker for where the
     // leader is now moves every frame (estimated from their last lap, as the tyre strip does).
     const drawn = useRef<unknown[]>([])
+    const markerStyle = useRef<{ el: HTMLElement | null; style: string }>({
+        el: null,
+        style: ""
+    })
     useFrame(({ t }) => {
         const marker = markerRef.current
         if (marker) {
@@ -463,13 +467,28 @@ function GapChart() {
                     ? Math.min(Math.max((t - lastEnd) / lapMs, 0), 0.99)
                     : 0
             const at = completed + frac
-            marker.style.transform = `translateX(${xOf(layout, Math.min(at, layout.from + layout.laps))}px)`
-            marker.style.visibility =
+            // Written only when it moves a whole device pixel: a style change every frame re-layers the page.
+            const { pixelRatio } = size
+            const x =
+                Math.round(
+                    xOf(layout, Math.min(at, layout.from + layout.laps)) *
+                        pixelRatio
+                ) / pixelRatio
+            const visibility =
                 t >= lightsOut &&
                 at >= layout.from &&
                 at <= layout.from + layout.laps
                     ? "visible"
                     : "hidden"
+            const style = `translateX(${x}px) ${visibility}`
+            if (
+                markerStyle.current.el !== marker ||
+                markerStyle.current.style !== style
+            ) {
+                markerStyle.current = { el: marker, style }
+                marker.style.transform = `translateX(${x}px)`
+                marker.style.visibility = visibility
+            }
         }
         const canvas = canvasRef.current
         const now = [layout, lines, sc, hover, size.pixelRatio]

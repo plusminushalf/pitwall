@@ -13,8 +13,11 @@ export const GHOST_SPEEDS = [0.25, 0.5, 1, 2, 4] as const
 export const MINI_SECTOR_COUNTS = [12, 25, 50] as const
 const MINI_SECTORS = 25
 
-/** Per-frame ghost time (ms since the compared laps started); published to React at ~10 Hz. */
-export const ghost = { t: 0 }
+/**
+ * Per-frame ghost time (ms since the compared laps started), advanced by the replay loop and published to React at
+ * ~10 Hz; `end` is the longest compared lap's duration while the comparison is on screen (0 when it isn't).
+ */
+export const ghost = { t: 0, end: 0 }
 
 export type BoardTab = "result" | number // the classification, or one segment's standings
 
