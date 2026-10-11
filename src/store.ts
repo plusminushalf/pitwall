@@ -1,6 +1,6 @@
 import { create } from "zustand"
 import { canCompare } from "./data/compare"
-import { LiveEdge, timingEdgeOf } from "./data/liveEdge"
+import { LiveEdge } from "./data/liveEdge"
 import {
     appendTelemetry,
     buildSession,
@@ -245,13 +245,6 @@ const NO_LIVE: LiveInfo = {
 export const liveEdge = new LiveEdge()
 
 /**
- * Live mode's timing edge: the newest timing in the session so far (ms since t0, see timingEdgeOf). Following live,
- * the race state (the timing tower, gaps, lap times, the feed...) is as of here, while the cars (`clock.t`) run a
- * few seconds behind the live edge, where every car has samples ahead to move towards. Timing is as live as the data.
- */
-let timingEdge = 0
-
-/**
  * Live updates (timing, telemetry) waiting for the replay loop's next tick (useReplayLoop), which publishes them with
  * the clock in one store change: every widget recomputes once a tick, not again for each message.
  */
@@ -263,13 +256,6 @@ function stage(update: Partial<Pick<ReplayState, "session" | "liveEdge">>) {
 
 /** Live data is waiting for the next tick. */
 export const hasStaged = () => staged != null
-
-/** The time the race state shows: the timing edge while following live (never behind the cars), else the clock. */
-function shownTime(s: { mode: Mode; followLive: boolean }): number {
-    return s.mode === "live" && s.followLive
-        ? Math.max(clock.t, timingEdge)
-        : clock.t
-}
 
 /** Where the clock sits while following live right now (the very end once the live session has ended). */
 export function liveTarget(wall = performance.now()): number {
@@ -645,7 +631,6 @@ export const useReplay = create<ReplayState>((set, get) => {
                     live: true
                 })
                 liveEdge.update(msg.now, wall, true)
-                timingEdge = timingEdgeOf(session.meta)
                 if (s.session?.meta.sessionKey === session.meta.sessionKey) {
                     // Reconnected to the same session: carry on (following or watching back) with the fresh data.
                     clock.t = Math.min(
@@ -694,7 +679,6 @@ export const useReplay = create<ReplayState>((set, get) => {
                     return // a snapshot comes first
                 liveEdge.update(msg.now, wall)
                 const session = withMeta(staged?.session ?? s.session, msg.meta)
-                timingEdge = timingEdgeOf(session.meta)
                 stage({ session, liveEdge: msg.now })
                 return
             }
@@ -967,7 +951,7 @@ export const useReplay = create<ReplayState>((set, get) => {
             const s = { ...get(), ...extra }
             const { session, watchedTo, stream } = s
             if (session) {
-                const t = shownTime(s)
+                const t = clock.t
                 set({
                     ...extra,
                     t,
@@ -1058,11 +1042,9 @@ export const useReplay = create<ReplayState>((set, get) => {
 
         togglePlay: () => {
             const s = get()
-            // Following live: P freezes the picture (and stops following), at the time the timing showed: the cars catch
-            // up to it (their latest samples) rather than the timing going back a few seconds.
+            // Following live: P freezes the picture where it is (and stops following).
             if (s.mode === "live" && s.followLive) {
                 if (!s.session) return
-                clock.t = Math.min(shownTime(s), endOf(s))
                 set({ followLive: false, playing: false, latched: false })
                 return get().publish()
             }
@@ -1115,7 +1097,6 @@ export const useReplay = create<ReplayState>((set, get) => {
                     : null
             liveOpts = opts
             liveEdge.update(0, performance.now(), true)
-            timingEdge = 0
             const via = liveVia()
             set({
                 mode: "live",
