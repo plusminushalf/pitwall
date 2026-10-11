@@ -22,13 +22,17 @@ import {
     usePlayback,
     useSelectedDriver,
     useSelection,
+    useSessionInfo,
     useSettings,
     useTotalLaps,
     useWidgetSize
 } from "widget-kit"
 import {
     EXCLUDED_TEXT,
+    leaderCrossings,
     MIN_FIT_LAPS,
+    type Neutralised,
+    neutralisedLaps,
     type PaceLap,
     type PacePoint,
     type PaceStint,
@@ -52,12 +56,20 @@ const TICK_TEXT = "#9f9fa9"
 const LABEL_TEXT = "#d4d4d8"
 const EXCLUDED_DOT = "#52525b"
 const NOW_LINE = "#f4f4f5"
+/** Safety car and VSC laps, as the gap chart shades them. */
+const NEUTRALISED: Record<Neutralised, { fill: string; label: string }> = {
+    SC: { fill: "rgba(255, 210, 48, 0.12)", label: "SC" },
+    VSC: { fill: "rgba(255, 210, 48, 0.06)", label: "VSC" }
+}
+const NEUTRALISED_TEXT = "#fee685"
 /** The header line, and the padding around the chart (px-3, pb-2). */
 const HEAD_H = 28
 const PAD_X = 24
 const PAD_B = 8
 /** Room for the time labels (left), stint trend labels (right) and lap numbers (bottom). */
 const M = { left: 40, right: 44, top: 6, bottom: 16 }
+/** By lap, the top margin holds the SC and VSC labels. */
+const SC_TOP = 14
 const DOT_R = 3
 const HIT_R = 12
 /** A fingertip's reach on a touch screen. */
@@ -133,6 +145,8 @@ interface DrawInput {
     leaderLap: number
     /** The timeline's lap window: by lap, the axis spans it (the series are cut to it already). */
     lapWindow: LapWindow
+    /** sc[n]: the leader's lap n ran under a safety car or VSC (races only; empty with none so far). */
+    sc: readonly (Neutralised | null)[]
     hover: Hit | null
 }
 
@@ -155,7 +169,7 @@ function draw(
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, w, h)
 
-    const { series, axis, byTyre, totalLaps, leaderLap, lapWindow, hover } =
+    const { series, axis, byTyre, totalLaps, leaderLap, lapWindow, sc, hover } =
         input
     const all = series.flatMap((s) => s.points)
     const clean = all.filter((p) => p.excluded == null)
@@ -163,7 +177,7 @@ function draw(
 
     const plotL = M.left
     const plotR = w - M.right
-    const plotT = M.top
+    const plotT = axis === "lap" && sc.length > 0 ? SC_TOP : M.top
     const plotB = h - M.bottom
     const plotW = plotR - plotL
     const plotH = plotB - plotT
@@ -198,6 +212,24 @@ function draw(
 
     ctx.font = FONT
     ctx.lineWidth = 1
+
+    // Safety car laps: a wash over each run of laps, labelled on top.
+    if (axis === "lap")
+        for (let n = 1; n < sc.length; n++) {
+            const kind = sc[n]
+            if (!kind || sc[n - 1] === kind) continue
+            let end = n
+            while (sc[end + 1] === kind) end++
+            const x0 = Math.max(xAt(n - 0.5), plotL)
+            const x1 = Math.min(xAt(end + 0.5), plotR)
+            if (x1 <= x0) continue
+            ctx.fillStyle = NEUTRALISED[kind].fill
+            ctx.fillRect(x0, plotT, x1 - x0, plotH)
+            ctx.fillStyle = NEUTRALISED_TEXT
+            ctx.textAlign = "center"
+            ctx.textBaseline = "top"
+            ctx.fillText(NEUTRALISED[kind].label, (x0 + x1) / 2, 1)
+        }
 
     // Time grid and labels.
     const yStep = tickStep(hi - lo, plotH, 30, [0.1, 0.2, 0.5, 1, 2, 5, 10, 30])
@@ -469,6 +501,10 @@ function StintPace() {
         shown.map((n) => slimStints(all.get(n) ?? []))
     )
     const neutral = useNeutralPeriods()
+    const race = useSessionInfo((i) => i.kind === "race")
+    const lightsOut = useSessionInfo((i) => i.lightsOut)
+    // The leader's crossings, from every car's laps: compared by value, so a re-render only when the leader completes a lap.
+    const leader = useAllLaps((all) => leaderCrossings(all.values()))
     const drivers = useDrivers()
     const totalLaps = useTotalLaps()
     const leaderLap = useLeaderLap()
@@ -502,6 +538,12 @@ function StintPace() {
         return out
         // `laps` and `stints` keep their identity until a shown driver completes a lap (or a stint starts).
     }, [drivers, shown.join(), laps, stints, neutral])
+
+    // Empty with none so far: the chart keeps its top margin for their labels until there's one.
+    const sc = useMemo(() => {
+        const laps = race ? neutralisedLaps(neutral, leader, lightsOut) : []
+        return laps.some((k) => k != null) ? laps : []
+    }, [race, neutral, leader, lightsOut])
 
     // The timeline's lap window: only its laps are drawn (by tyre age too), each stint's trend cut to them.
     const lapWindow = useLapWindow(Math.max(totalLaps, leaderLap))
@@ -556,6 +598,7 @@ function StintPace() {
             totalLaps,
             leaderLap,
             lapWindow,
+            sc,
             hover,
             w,
             h,
@@ -578,6 +621,7 @@ function StintPace() {
                 totalLaps,
                 leaderLap,
                 lapWindow,
+                sc,
                 hover
             },
             w,

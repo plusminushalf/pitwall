@@ -180,3 +180,59 @@ export const EXCLUDED_TEXT: Record<Excluded, string> = {
     RED: "Red flag",
     slow: "Over 107% of median"
 }
+
+// ---------------------------------------------------------------- safety car laps (by the leader's laps)
+
+export type Neutralised = "SC" | "VSC"
+
+/**
+ * first[n] = the first crossing at the end of lap n by anyone: the leader's (ms). For useAllLaps' select, so it
+ * changes only when the leader completes a lap. A crossing no later than the lap before's is left out (a lap
+ * mistimed or misnumbered, as live timing sometimes has for a moment).
+ */
+export function leaderCrossings(
+    all: Iterable<readonly { lap: number; end: number | null }[]>
+): (number | null)[] {
+    const first: (number | null)[] = [null]
+    for (const laps of all)
+        for (const l of laps) {
+            if (l.end == null) continue
+            while (first.length <= l.lap) first.push(null)
+            const f = first[l.lap]
+            if (f == null || l.end < f) first[l.lap] = l.end
+        }
+    for (let n = 2; n < first.length; n++) {
+        const before = first[n - 1]
+        const f = first[n]
+        if (before != null && f != null && f <= before) first[n] = null
+    }
+    return first
+}
+
+/**
+ * laps[n]: whether the leader's lap n (from their crossing at lap n - 1, or lights out, to lap n) ran partly
+ * under a safety car or VSC (SC wins; red flags aren't marked), as the gap chart marks them. One more entry than
+ * the leader's completed laps: the lap in progress, which counts as running until now.
+ */
+export function neutralisedLaps(
+    periods: readonly NeutralPeriod[],
+    leader: readonly (number | null)[],
+    lightsOut: number
+): (Neutralised | null)[] {
+    const laps: (Neutralised | null)[] = [null]
+    for (let n = 1; n <= leader.length; n++) {
+        const from = n === 1 ? lightsOut : leader[n - 1]
+        const to = leader[n] ?? Infinity
+        if (from == null) {
+            laps.push(null)
+            continue
+        }
+        const kinds = periods
+            .filter((p) => p.start < to && (p.end ?? Infinity) > from)
+            .map((p) => p.status)
+        laps.push(
+            kinds.includes("SC") ? "SC" : kinds.includes("VSC") ? "VSC" : null
+        )
+    }
+    return laps
+}

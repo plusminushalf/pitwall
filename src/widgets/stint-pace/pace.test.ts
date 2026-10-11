@@ -3,6 +3,8 @@
 
 import type { NeutralPeriod } from "widget-kit"
 import {
+    leaderCrossings,
+    neutralisedLaps,
     type PaceLap,
     type PaceStint,
     pacePoints,
@@ -209,5 +211,38 @@ describe("stint pace", () => {
     test("trend text", () => {
         expect(trendText(0.0834)).toBe("+0.08 s/lap")
         expect(trendText(-0.031)).toBe("−0.03 s/lap")
+    })
+})
+
+describe("safety car laps", () => {
+    const lap = (n: number, end: number | null) => ({ lap: n, end })
+
+    test("the leader's crossing is the first anyone made at each lap", () => {
+        const a = [lap(1, 100), lap(2, 200), lap(3, 300)]
+        const b = [lap(1, 110), lap(2, 190)]
+        expect(leaderCrossings([a, b])).toEqual([null, 100, 190, 300])
+    })
+
+    test("a crossing no later than the lap before's is left out", () => {
+        const a = [lap(1, 100), lap(2, 200)]
+        const glitch = [lap(3, 50)]
+        expect(leaderCrossings([a, glitch])).toEqual([null, 100, 200, null])
+    })
+
+    test("a lap touched by a period is marked, SC over VSC, and the lap in progress counts", () => {
+        const leader = [null, 100, 200, 300]
+        const periods: NeutralPeriod[] = [
+            { status: "VSC", start: 150, end: 180 },
+            { status: "SC", start: 170, end: 250 },
+            { status: "RED", start: 260, end: 280 },
+            { status: "VSC", start: 350, end: null }
+        ]
+        expect(neutralisedLaps(periods, leader, 0)).toEqual([
+            null,
+            null,
+            "SC",
+            "SC",
+            "VSC"
+        ])
     })
 })
