@@ -308,46 +308,52 @@ function draw(
         }
     }
 
-    // Each stint's trend at its end, where there's room: the number people want.
+    // Each stint's trend at its end, where there's room: the number people want. With more
+    // than one driver it says whose. Past the right edge it sits above the line's end instead.
     ctx.textAlign = "left"
     ctx.textBaseline = "middle"
     ctx.fillStyle = LABEL_TEXT
     const placed: [number, number, number, number][] = []
+    const free = (box: [number, number, number, number], y: number) =>
+        box[0] >= plotL &&
+        box[2] <= w &&
+        !placed.some(
+            (b) =>
+                b[0] < box[2] && box[0] < b[2] && b[1] < box[3] && box[1] < b[3]
+        ) &&
+        !hits.some(
+            (hp) =>
+                hp.x > box[0] - DOT_R &&
+                hp.x < box[2] + DOT_R &&
+                Math.abs(hp.y - y) < 6 + DOT_R
+        )
     for (const s of series) {
         for (const f of s.fits) {
-            const text = `${(COMPOUND[f.compound] ?? COMPOUND.UNKNOWN).letter} ${trendText(f.slope).replace(" s/lap", "")}`
+            const trend = `${(COMPOUND[f.compound] ?? COMPOUND.UNKNOWN).letter} ${trendText(f.slope).replace(" s/lap", "")}`
+            const text =
+                series.length > 1 ? `${s.info.acronym} ${trend}` : trend
             const end = view.xOf({ lap: f.toLap, age: f.toAge })
             if (end == null) continue
-            const x = end + DOT_R + 4
-            const y = yOf(f.intercept + f.slope * f.toLap)
-            const box: [number, number, number, number] = [
-                x,
-                y - 6,
-                x + ctx.measureText(text).width,
-                y + 6
+            const tw = ctx.measureText(text).width
+            const yEnd = yOf(f.intercept + f.slope * f.toLap)
+            const spot = [
+                { x: end + DOT_R + 4, y: yEnd },
+                { x: Math.min(end, w) - tw, y: yEnd - 12 }
             ]
-            if (
-                box[2] > w ||
-                placed.some(
-                    (b) =>
-                        b[0] < box[2] &&
-                        box[0] < b[2] &&
-                        b[1] < box[3] &&
-                        box[1] < b[3]
-                )
-            )
-                continue
-            if (
-                hits.some(
-                    (hp) =>
-                        hp.x > box[0] - DOT_R &&
-                        hp.x < box[2] + DOT_R &&
-                        Math.abs(hp.y - y) < 6 + DOT_R
-                )
-            )
-                continue
-            placed.push(box)
-            ctx.fillText(text, x, y)
+                .map(({ x, y }) => ({
+                    x,
+                    y,
+                    box: [x, y - 6, x + tw, y + 6] as [
+                        number,
+                        number,
+                        number,
+                        number
+                    ]
+                }))
+                .find((c) => free(c.box, c.y))
+            if (!spot) continue
+            placed.push(spot.box)
+            ctx.fillText(text, spot.x, spot.y)
         }
     }
 
