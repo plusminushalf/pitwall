@@ -4,6 +4,7 @@ import {
     defineWidget,
     drawCornerLabels,
     type SectorFlag,
+    TAP_CLASS,
     TRACK_STATUS,
     type Track,
     type TrackStatus,
@@ -66,7 +67,11 @@ const PIT_CLEAR = 13
 const PIT_TAPER = 40
 
 /** cornerNames: corner names next to their numbers, where the circuit's corners have names. */
-type Settings = { cornerNames: boolean }
+type Show = "selected" | "all"
+type Settings = { cornerNames: boolean; show: Show }
+
+/** No selection: every car drawn. */
+const EVERY_CAR: readonly number[] = []
 
 interface StaticLayer {
     canvas: HTMLCanvasElement
@@ -638,14 +643,16 @@ function drawCars(
 }
 
 function TrackMap() {
-    const [{ cornerNames }] = useSettings<Settings>()
+    const [{ cornerNames, show }, update] = useSettings<Settings>()
     const track = useTrack()
     const drivers = useDrivers()
     const order = useRunningOrder()
     const positions = usePositions()
     const trackStatus = useTrackStatus()
     const sectorFlags = useSectorFlags()
-    const { selected, focused, toggle } = useSelection()
+    const { selected: picked, focused, toggle } = useSelection()
+    // "All": every car, whatever's selected (the charts still follow the selection).
+    const selected = show === "all" ? EVERY_CAR : picked
     const { width: w, height: h, pixelRatio } = useWidgetSize()
     const trackRef = useRef<HTMLCanvasElement>(null)
     const carsRef = useRef<HTMLCanvasElement>(null)
@@ -979,6 +986,29 @@ function TrackMap() {
                 className="absolute inset-0 touch-pan-y"
                 style={{ width: w, height: h }}
             />
+            {picked.length > 0 && (
+                <div
+                    data-shot-control=""
+                    className="absolute bottom-2 left-2 flex rounded-md bg-zinc-900 p-0.5"
+                >
+                    {(["selected", "all"] as const).map((v) => (
+                        <button
+                            type="button"
+                            key={v}
+                            onClick={() => update({ show: v })}
+                            aria-pressed={show === v}
+                            className={`${TAP_CLASS} rounded px-2 text-[11px] leading-5 ${show === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
+                            title={
+                                v === "selected"
+                                    ? "Only the selected drivers on the map"
+                                    : "Every car on the map (the charts still show the selected drivers)"
+                            }
+                        >
+                            {v === "selected" ? "Selected" : "All"}
+                        </button>
+                    ))}
+                </div>
+            )}
             {banner && (
                 <div
                     className={`absolute left-1/2 top-3 -translate-x-1/2 rounded px-4 py-1 text-sm font-bold uppercase tracking-wider shadow-lg ${banner.className}`}
@@ -995,12 +1025,12 @@ export default defineWidget({
     name: "Track map",
     group: "session",
     description:
-        "Every car on the circuit, and the sectors under a flag. Click a car to add it to the selection.",
+        "Every car on the circuit, and the sectors under a flag. Click a car to add it to the selection; with a selection, show only those cars or all of them.",
     version: "1.0.0",
     // Fills its column; the circuit is fitted inside, whatever the box's shape.
     height: { min: 200 },
     width: { min: 20, default: 55, max: 80 },
     sessions: ["race", "practice", "qualifying"],
-    settings: { cornerNames: false },
+    settings: { cornerNames: false, show: "selected" as Show },
     Component: TrackMap
 })
