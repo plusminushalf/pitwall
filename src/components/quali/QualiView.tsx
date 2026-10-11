@@ -32,7 +32,7 @@ const LABEL = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
 const PUBLISH_EVERY_MS = 100
 
 const SHORTCUTS: [string, string][] = [
-    ["P / hold space", "Play the ghost laps"],
+    ["Space / P", "Play the ghost laps"],
     ["← / →", "Ghost back / forward 1 s (shift: 5 s)"],
     ["Home", "Ghost back to the line"],
     ["− / +", "Slower / faster ghost"],

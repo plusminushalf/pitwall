@@ -23,8 +23,7 @@ import { LiveControl } from "./LiveControl"
 import { RacesButton } from "./Navigation"
 
 const SHORTCUTS: [string, string][] = [
-    ["Hold space", "Play (release to pause)"],
-    ["P", "Play / pause (keeps playing)"],
+    ["Space / P", "Play / pause"],
     ["← / →", "Back / forward 5 s"],
     ["Shift ← / →", "Back / forward 30 s"],
     ["[ / ]", "Previous / next lap"],

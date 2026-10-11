@@ -51,7 +51,7 @@ bun run check:quali                   # CLI: sanity-check every qualifying sessi
 - `scripts/lib/quali.ts` runs on top of `normalize()`: segments from race control (`SESSION STARTED`/`FINISHED` per qualifying phase), laps attributed to the segment they started in, deleted lap times (race control's `... DELETED` messages, matched by lap time or incident time), the classification (who went out in which segment) and one track-status flag per segment. Pit-out laps get no lap time (OpenF1 times them from the previous pit-lane crossing, garage time included).
 - Lap starts are chained through the official lap times within each run (OpenF1's `date_start` jitters by up to ~1 s; the anchor is the median of the laps' starts and their GPS line crossings).
 - Every full timed lap gets a trace in `laps/<number>.json` (`LapTrace` in `src/types.ts`; `scripts/lib/lapTraces.ts`, shared with free practice): the car samples from line to line with a distance each. Distance is the integrated speed trace, pinned at the line and the two sector boundaries (exact from the official sector times) and scaled to fit in between; stuck car-data samples (every channel repeating for over a second while moving) are dropped and their gap filled from the sector length. GPS positions projected onto the track outline agree with it to ~5 m RMS.
-- In the app, the compared drivers are the normal driver selection (`?drivers=` in the URL, Esc clears it) and the ghosts follow the normal play controls (P / hold space).
+- In the app, the compared drivers are the normal driver selection (`?drivers=` in the URL, Esc clears it) and the ghosts follow the normal play controls (space / P).
 
 ## Free practice
 

@@ -152,7 +152,7 @@ export function GhostBar({
                         onClick={() => useReplay.getState().togglePlay()}
                         disabled={!withTrace.length}
                         className={`flex h-9 w-9 items-center justify-center rounded-full text-lg transition disabled:opacity-40 pointer-coarse:h-11 pointer-coarse:w-11 ${playing ? "bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25" : "bg-zinc-100 text-zinc-900 hover:bg-white"}`}
-                        title="Play / pause the ghost laps (P, or hold space)"
+                        title="Play / pause the ghost laps (space or P)"
                         aria-label={playing ? "Pause" : "Play"}
                     >
                         {playing ? (

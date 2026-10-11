@@ -126,7 +126,7 @@ function Dots({
                         onClick={() => onPick(p)}
                         onKeyDown={(e) => {
                             if (e.key !== "Enter" && e.key !== " ") return
-                            // Space picks the lap, not the replay's hold-to-play.
+                            // Space picks the lap, not the replay's play/pause.
                             e.preventDefault()
                             e.stopPropagation()
                             onPick(p)

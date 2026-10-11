@@ -505,7 +505,7 @@ export function Timeline() {
             >
                 <Icon name="previous" size={14} />
             </button>
-            {/* A click plays and pauses, like P; holding to play is the space bar's. */}
+            {/* A click plays and pauses, like space and P. */}
             <button
                 type="button"
                 onClick={(e) => {
@@ -517,7 +517,7 @@ export function Timeline() {
                         ? "scale-95 bg-emerald-400 text-zinc-950 ring-4 ring-emerald-400/25"
                         : "bg-zinc-100 text-zinc-900 hover:bg-white"
                 }`}
-                title="Play / pause (P) · hold space to play"
+                title="Play / pause (space or P)"
                 aria-label={pauses ? "Pause" : "Play"}
             >
                 {pauses ? (

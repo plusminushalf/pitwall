@@ -425,7 +425,7 @@ interface ReplayState {
     t: number
     race: RaceState | null
     playing: boolean
-    /** Playback latched on with P or the play button: ending a space hold doesn't pause it. */
+    /** Playback latched on with space, P or the play button: the next toggle pauses it. */
     latched: boolean
     speed: number
     /** Drivers picked by the user, in the order picked. When non-empty, the track map shows only these. */
@@ -503,10 +503,8 @@ interface ReplayState {
      */
     stepLap: (dir: -1 | 1) => void
     setPlaying: (playing: boolean) => void
-    /** P and the play button: latch playback on, or pause if it's latched (or following live). */
+    /** Space, P and the play button: latch playback on, or pause if it's latched (or following live). */
     togglePlay: () => void
-    /** End of a hold-to-play gesture: pauses unless playback is latched. */
-    releaseHold: () => void
     setSpeed: (speed: number) => void
     /** Adds a driver to the selection, or removes it (clearing focus if it was the focused driver). Never focuses. */
     toggleSelected: (driver: number) => void
@@ -1051,11 +1049,6 @@ export const useReplay = create<ReplayState>((set, get) => {
             if (s.latched) return s.setPlaying(false)
             s.setPlaying(true)
             if (get().playing) set({ latched: true })
-        },
-
-        releaseHold: () => {
-            const { playing, latched, setPlaying } = get()
-            if (playing && !latched) setPlaying(false)
         },
 
         setSpeed: (speed) => set({ speed }),

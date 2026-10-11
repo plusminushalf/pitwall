@@ -3,7 +3,7 @@ import { useShare } from "../share/ShareShot"
 import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store"
 
 /**
- * hold space: play · p: play/pause (latched) · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
+ * space / p: play/pause · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
  * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× (8: a hidden 128×, for captures) · esc: clear selection · s: share a screenshot
  *
  * S works on every page (Home, a circuit's); the others need a session.
@@ -14,13 +14,6 @@ import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store"
  */
 export function useKeyboard() {
     useEffect(() => {
-        // Whether space is being held for playback (so only its own keyup ends the hold).
-        let holding = false
-        const release = () => {
-            holding = false
-            useReplay.getState().releaseHold()
-        }
-
         const onKeyDown = (e: KeyboardEvent) => {
             const t = e.target
             if (
@@ -60,11 +53,6 @@ export function useKeyboard() {
                     : SPEEDS.indexOf(s.speed as (typeof SPEEDS)[number])
             switch (e.key) {
                 case " ":
-                    if (!e.repeat) {
-                        holding = true
-                        s.setPlaying(true)
-                    }
-                    break
                 case "p":
                 case "P":
                     // Leave browser shortcuts (e.g. Ctrl/Cmd+P) alone.
@@ -121,26 +109,7 @@ export function useKeyboard() {
             e.preventDefault()
         }
 
-        const onKeyUp = (e: KeyboardEvent) => {
-            if (e.key !== " " || !holding) return
-            e.preventDefault()
-            release()
-        }
-
-        // The keyup never arrives if the key is released while the page is unfocused or hidden.
-        const onVisibility = () => {
-            if (document.visibilityState === "hidden") release()
-        }
-
         window.addEventListener("keydown", onKeyDown)
-        window.addEventListener("keyup", onKeyUp)
-        window.addEventListener("blur", release)
-        document.addEventListener("visibilitychange", onVisibility)
-        return () => {
-            window.removeEventListener("keydown", onKeyDown)
-            window.removeEventListener("keyup", onKeyUp)
-            window.removeEventListener("blur", release)
-            document.removeEventListener("visibilitychange", onVisibility)
-        }
+        return () => window.removeEventListener("keydown", onKeyDown)
     }, [])
 }

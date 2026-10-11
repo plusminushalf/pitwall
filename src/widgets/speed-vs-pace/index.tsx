@@ -540,7 +540,7 @@ function SpeedVsPace() {
                                 onKeyDown={(e) => {
                                     if (e.key !== "Enter" && e.key !== " ")
                                         return
-                                    // Space picks the dot, not the replay's hold-to-play.
+                                    // Space picks the dot, not the replay's play/pause.
                                     e.preventDefault()
                                     e.stopPropagation()
                                     onPick(p.dot)
