@@ -2,7 +2,7 @@
 // (needs the raw cache: run `bun run ingest 11377` first).
 
 import { describe, expect, test } from "bun:test"
-import { existsSync } from "node:fs"
+import { existsSync, readdirSync } from "node:fs"
 import {
     type RawCarData,
     type RawLap,
@@ -40,6 +40,24 @@ async function loadBaku(): Promise<RawSessionData> {
             await read<RawLocation>(`location_${d.driver_number}`)
         )
     }
+    // Newer caches hold telemetry in time slices (car_data_<from>_<to>), every driver in each.
+    const slices = readdirSync(dir)
+        .flatMap((f) => {
+            const m = /^(car_data|location)_(\d+)_\d+\.json/.exec(f)
+            return m
+                ? [
+                      {
+                          name: f.replace(/\.gz$/, ""),
+                          car: m[1] === "car_data",
+                          from: Number(m[2])
+                      }
+                  ]
+                : []
+        })
+        .sort((a, b) => a.from - b.from)
+    for (const s of slices)
+        for (const r of (await readCache<Rec[]>(`${dir}${s.name}`)) ?? [])
+            (s.car ? car : location).get(r.driver_number)?.push(r as never)
     return {
         session: (await read<RawSession>("sessions"))[0],
         meeting: (await read<Rec>("meeting"))[0] as never,
@@ -145,7 +163,15 @@ describe.skipIf(!available)("live normalization, Baku 2026", async () => {
         expect(meta.lightsOut).toBe(lightsOutAbs - t0)
         expect(meta.lightsOutEstimated).toBe(false)
         expect(meta.chequered).toBeNull()
-        expect(meta.results).toEqual([])
+        // No results yet: only the car that stopped after 7 laps (#18), out from when it last moved.
+        expect(
+            meta.results.map((r) => [
+                r.driver,
+                r.laps,
+                r.dnf,
+                r.retired != null
+            ])
+        ).toEqual([[18, 7, true, true]])
         expect(meta.totalLaps).toBe(51)
         expect(meta.totalLapsEstimated).toBe(true)
 

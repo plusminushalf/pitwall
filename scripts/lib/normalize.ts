@@ -1509,6 +1509,34 @@ export function normalize(
         const t = lastMoving(driver)
         return covered(t, t + RETIRED_SEEN_MS) ? t : null
     }
+    /**
+     * Results come after the flag: until then (live), a car is out once it has stood still for a minute between
+     * the start and the flag, starting no lap after. Not while the cars wait out a red flag in the pit lane.
+     */
+    function stoppedAt(driver: number): Ms | null {
+        if (clocked) return null
+        const t = lastMoving(driver)
+        if (t < lightsOut || (chequered != null && t >= chequered)) return null
+        // Standing samples for that minute: a stalled feed is not a stopped car.
+        const last = carTimes.get(driver)?.at(-1) ?? 0
+        if (last < t + RETIRED_SEEN_MS || !covered(t, t + RETIRED_SEEN_MS))
+            return null
+        if (laps.some((l) => l.driver === driver && l.start > t)) return null
+        let status: TrackStatus = "GREEN"
+        for (const e of trackStatus) {
+            if (e.t > t) break
+            status = e.status
+        }
+        return status === "RED" ? null : t
+    }
+
+    const completedLaps = (driver: number) =>
+        Math.max(
+            0,
+            ...laps
+                .filter((l) => l.driver === driver && l.end != null)
+                .map((l) => l.lap)
+        )
 
     const results: Result[] = rawResults
         .map((r) => {
@@ -1522,18 +1550,7 @@ export function normalize(
                 driver: r.driver_number,
                 position: r.position,
                 // null for disqualified drivers: count their completed laps instead.
-                laps:
-                    r.number_of_laps ??
-                    Math.max(
-                        0,
-                        ...laps
-                            .filter(
-                                (l) =>
-                                    l.driver === r.driver_number &&
-                                    l.end != null
-                            )
-                            .map((l) => l.lap)
-                    ),
+                laps: r.number_of_laps ?? completedLaps(r.driver_number),
                 points: r.points ?? 0,
                 dnf: r.dnf,
                 dns: r.dns,
@@ -1545,6 +1562,28 @@ export function normalize(
                 retired: r.dnf || r.dns ? retiredAt(r.driver_number) : null
             }
         })
+        .concat(
+            driverNumbers.flatMap((n) => {
+                if (rawResults.some((r) => r.driver_number === n)) return []
+                const retired = stoppedAt(n)
+                if (retired == null) return []
+                return [
+                    {
+                        driver: n,
+                        position: null,
+                        laps: completedLaps(n),
+                        points: 0,
+                        dnf: true,
+                        dns: false,
+                        dsq: false,
+                        duration: null,
+                        gapToLeader: null,
+                        finish: null,
+                        retired
+                    }
+                ]
+            })
+        )
         .sort((a, b) => (a.position ?? 99) - (b.position ?? 99))
 
     const grid = (clocked ? [] : driverNumbers)
