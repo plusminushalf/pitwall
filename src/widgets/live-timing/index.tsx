@@ -12,6 +12,7 @@ import {
     type LiveLap,
     type LiveQualiSegment,
     lapTime,
+    MiniSectors,
     type QualiPhase,
     type SessionKind,
     sectorTime,
@@ -64,14 +65,6 @@ const PUSH_SLACK_MS = 1_000
 const PUSH_FROM_M = 300
 
 const EPS = 1e-6
-// Mini-sector status codes: 2048 yellow, 2049 green, 2051 purple, 2064 pit lane.
-const SEGMENT_COLOR: Record<number, string> = {
-    2048: "#eab308",
-    2049: "#10b981",
-    2051: "#d946ef",
-    2064: "#3b82f6"
-}
-const NOT_YET = "#3f3f46"
 
 /** What a row shows of its driver: it re-renders only when one of these changes. */
 interface RowData {
@@ -105,28 +98,6 @@ const personalBestSectors = (laps: readonly Lap[]) =>
         }, Infinity)
     )
 
-function MiniSectors({ codes }: { codes: readonly (number | null)[] }) {
-    return (
-        <span className="flex h-[3px] gap-px">
-            {codes.length > 0 ? (
-                codes.map((c, i) => (
-                    <span
-                        // biome-ignore lint/suspicious/noArrayIndexKey: mini-sectors are positions along the sector (their colours repeat): the index is each one's identity
-                        key={i}
-                        className="flex-1 rounded-[1px]"
-                        style={{
-                            background:
-                                (c != null && SEGMENT_COLOR[c]) || NOT_YET
-                        }}
-                    />
-                ))
-            ) : (
-                <span className="flex-1 rounded-[1px] bg-zinc-800" />
-            )}
-        </span>
-    )
-}
-
 /**
  * The three sectors of the lap being driven (for a few seconds after the line, the one just driven): the time once
  * crossed, a dash until then, purple for the fastest by anyone, green for the driver's own best, lit up as it comes
@@ -158,7 +129,10 @@ function SectorCells({ n, times }: { n: number; times: boolean }) {
                                 {v == null ? "—" : sectorTime(v)}
                             </Flash>
                         )}
-                        <MiniSectors codes={shown?.segments[k] ?? []} />
+                        <MiniSectors
+                            codes={shown?.segments[k] ?? []}
+                            className="h-[3px]"
+                        />
                     </span>
                 )
             })}

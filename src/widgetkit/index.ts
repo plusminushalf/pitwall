@@ -103,6 +103,7 @@
 //     Icon                        the app's icons (16-unit SVG, 1.5 stroke): never Unicode or emoji
 //     DriverTag                   a driver's acronym on their team colour
 //     TyreBadge                   compound circle and tyre age
+//     MiniSectors                 a sector's mini-sectors as a strip of bars in the timing screen's colours
 //     Flash                       a value that lights up for a moment when it changes (a new sector or lap time)
 //   and, still as they were lifted from the core: format helpers, colours, the track projection and corner labels.
 
@@ -276,4 +277,5 @@ export { DriverTag } from "./ui/DriverTag"
 export { Flash } from "./ui/Flash"
 export { Icon, type IconName } from "./ui/Icon"
 export { LABEL_CLASS, Label, Stat, TAP_CLASS } from "./ui/Label"
+export { MiniSectors } from "./ui/MiniSectors"
 export { TyreBadge } from "./ui/TyreBadge"

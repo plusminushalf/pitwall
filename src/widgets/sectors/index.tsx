@@ -3,6 +3,7 @@ import {
     defineWidget,
     Label,
     type Lap,
+    MiniSectors,
     sectorTime,
     useBestSectors,
     useDriver,
@@ -13,14 +14,6 @@ import {
 const EPS = 1e-6
 /** A sector's line (the label and the time, both 16 px lines) and its mini-sector bar 4 px under it. */
 const CELL_H = 16 + 4 + 4
-
-// Mini-sector status codes: 2048 yellow, 2049 green, 2051 purple, 2064 pit lane.
-const SEGMENT_COLOR: Record<number, string> = {
-    2048: "#eab308",
-    2049: "#10b981",
-    2051: "#d946ef",
-    2064: "#3b82f6"
-}
 
 /** The driver's fastest time in each sector over laps finished by the end of `upTo`. */
 function personalBestSectors(laps: readonly Lap[], upTo: Lap | null): number[] {
@@ -56,7 +49,6 @@ function SectorCell({
               : v <= personal + EPS
                 ? "text-emerald-400"
                 : "text-yellow-400"
-    const segments = lap?.segments[index] ?? []
     return (
         <div className="min-w-0">
             <div className="flex items-center justify-between gap-1 leading-4">
@@ -65,23 +57,10 @@ function SectorCell({
                     {sectorTime(v)}
                 </span>
             </div>
-            <div className="mt-1 flex h-1 gap-px">
-                {segments.length > 0 ? (
-                    segments.map((c, i) => (
-                        <span
-                            // biome-ignore lint/suspicious/noArrayIndexKey: mini-sectors are positions along the sector (their colours repeat): the index is each one's identity
-                            key={i}
-                            className="flex-1 rounded-[1px]"
-                            style={{
-                                background:
-                                    (c != null && SEGMENT_COLOR[c]) || "#3f3f46"
-                            }}
-                        />
-                    ))
-                ) : (
-                    <span className="flex-1 rounded-[1px] bg-zinc-800" />
-                )}
-            </div>
+            <MiniSectors
+                codes={lap?.segments[index] ?? []}
+                className="mt-1 h-1"
+            />
         </div>
     )
 }

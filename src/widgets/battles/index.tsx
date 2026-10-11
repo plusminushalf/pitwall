@@ -21,7 +21,12 @@ import {
 import { type Battle, type CarLaps, detectBattles, type Pass } from "./detect"
 
 type Show = "all" | "selected"
-type Settings = { gap: number; minLaps: number; show: Show }
+type Settings = {
+    gap: number
+    minLaps: number
+    closeGap: number
+    show: Show
+}
 
 /** A click jumps to this long before the moment, like the race feed. */
 const LEAD_MS = 5_000
@@ -173,7 +178,7 @@ function Battles() {
     const focus = useSelection((s) => s.focus)
     const seek = usePlayback((p) => p.seek)
     const playing = usePlayback((p) => p.playing)
-    const [{ gap, minLaps, show }, update] = useSettings<Settings>()
+    const [{ gap, minLaps, closeGap, show }, update] = useSettings<Settings>()
     const info = useMemo(
         () => new Map<number, DriverInfo>(drivers.map((d) => [d.number, d])),
         [drivers]
@@ -211,9 +216,9 @@ function Battles() {
         )
         return detectBattles(
             { cars, neutral, pitEntries, passes },
-            { gap, minLaps }
+            { gap, minLaps, closeGap }
         )
-    }, [feed, laps, starts, neutral, totalLaps, gap, minLaps])
+    }, [feed, laps, starts, neutral, totalLaps, gap, minLaps, closeGap])
 
     const shown =
         show === "selected"
@@ -245,6 +250,9 @@ function Battles() {
                 <Label as="h2">Battles</Label>
                 <span className="truncate text-[11px] text-zinc-400">
                     Within {gap.toFixed(1)} s at the line, {minLaps}+ laps
+                    {closeGap > 0 && closeGap < gap
+                        ? `, or ${closeGap.toFixed(1)} s once`
+                        : ""}
                 </span>
                 <div
                     data-shot-control=""
@@ -299,13 +307,13 @@ export default defineWidget({
     name: "Battles",
     group: "analysis",
     description:
-        "Cars within a second of each other for laps on end: who passed whom, and who's ahead now.",
+        "Cars within a second of each other for laps on end, or within 0.4 s even once: who passed whom, and who's ahead now.",
     version: "1.0.0",
     // Fills its column and scrolls inside, so the layout never jumps as battles come and go.
     height: { min: 150 },
     width: { min: 18, default: 24, max: 40 },
     sessions: ["race"],
-    settings: { gap: 1, minLaps: 3, show: "all" as Show },
+    settings: { gap: 1, minLaps: 3, closeGap: 0.4, show: "all" as Show },
     fields: {
         gap: {
             kind: "choice",
@@ -324,6 +332,16 @@ export default defineWidget({
                 { value: 2, label: "2 laps" },
                 { value: 3, label: "3 laps" },
                 { value: 5, label: "5 laps" }
+            ]
+        },
+        closeGap: {
+            kind: "choice",
+            label: "Or this close, once",
+            options: [
+                { value: 0, label: "Off" },
+                { value: 0.3, label: "0.3 s" },
+                { value: 0.4, label: "0.4 s" },
+                { value: 0.5, label: "0.5 s" }
             ]
         },
         show: {

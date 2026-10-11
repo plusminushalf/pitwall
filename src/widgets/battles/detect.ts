@@ -1,5 +1,6 @@
 // Battles from lap-line crossings: two cars next to each other on the road, within `gap` seconds at the
-// line for `minLaps` laps in a row. Pure, over what the widget hooks return at t (no spoilers).
+// line for `minLaps` laps in a row, or (`closeGap`) within that at the line even once: that close, they're
+// fighting. Pure, over what the widget hooks return at t (no spoilers).
 //
 // A lap counts for a pair only when it's clean for both: completed, not an in-lap or out-lap, and not
 // run under a safety car, VSC or red flag. Cars are compared on the same lap number, so a lapped car is
@@ -49,6 +50,8 @@ export interface Options {
     /** Seconds between the two at the line. */
     gap: number
     minLaps: number
+    /** Seconds: a pair this close at the line is in a battle from that lap, however few laps (0 or absent: off). */
+    closeGap?: number
 }
 
 export interface Pass {
@@ -135,6 +138,7 @@ const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`)
 export function detectBattles(input: Inputs, opts: Options): Battle[] {
     const gapMs = opts.gap * 1000
     const minLaps = Math.max(1, opts.minLaps)
+    const closeMs = Math.min(opts.closeGap ?? 0, opts.gap) * 1000
     const neutralAt = (start: number, end: number) =>
         input.neutral.some((n) => start < (n.end ?? Infinity) && end > n.start)
 
@@ -253,7 +257,6 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
             else runs.push([k, k])
         }
         for (const [from, to] of runs) {
-            if (to - from + 1 < minLaps) continue
             const passes: Pass[] = []
             let closest = Infinity
             let prev = at(from - 1, a, b)
@@ -264,6 +267,8 @@ export function detectBattles(input: Inputs, opts: Options): Battle[] {
                     passes.push(passOn(k, prev, now))
                 prev = now
             }
+            if (to - from + 1 < minLaps && !(closeMs > 0 && closest <= closeMs))
+                continue
             const firstAt = atClean(from, a, b)
             const lastAt = atClean(to, a, b)
             let ahead = lastAt.ahead

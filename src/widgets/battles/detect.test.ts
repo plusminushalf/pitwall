@@ -56,6 +56,21 @@ const input = (cars: CarLaps[], more: Partial<Inputs> = {}): Inputs => ({
 const OPTS = { gap: 1, minLaps: 3 }
 
 describe("detectBattles", () => {
+    test("within the close gap at the line, a battle from that lap however few laps", () => {
+        // 2 is 0.3 s behind 1 at the end of lap 4 only (else 3 s back).
+        const one = car(1, 6, () => 0)
+        const two = car(2, 6, (k) => (k === 4 ? 300 : 3_000))
+        expect(detectBattles(input([one, two]), OPTS)).toHaveLength(0)
+        const [b] = detectBattles(input([one, two]), { ...OPTS, closeGap: 0.4 })
+        expect(b).toMatchObject({ from: 4, to: 4, ahead: 1, behind: 2 })
+        expect(b.closest).toBeCloseTo(0.3, 6)
+        // 0.5 s isn't close enough.
+        const three = car(2, 6, (k) => (k === 4 ? 500 : 3_000))
+        expect(
+            detectBattles(input([one, three]), { ...OPTS, closeGap: 0.4 })
+        ).toHaveLength(0)
+    })
+
     test("a sustained battle with an overtake: who passed, on which lap, and the feed's moment", () => {
         // 1 leads 2 by 0.5 s on laps 1-5; 2 is 0.3 s ahead on laps 6-8, then pulls away. Both run 10 laps.
         const one = car(1, 10, () => 0)

@@ -10,6 +10,7 @@ import {
     type Lap,
     type LiveQualiSegment,
     lapTime,
+    MiniSectors,
     type QualiPhase,
     type SessionKind,
     sectorTime,
@@ -309,16 +310,17 @@ const personalBestSectors = (laps: readonly Lap[]) =>
 /**
  * The sector times of the lap being driven (for a few seconds after the line, the one just driven): a dash until the
  * car crosses the sector's end, so they reset at the line and fill in as the lap goes; purple for the fastest by
- * anyone so far, green for the driver's own best, lit up as each comes in.
+ * anyone so far, green for the driver's own best, lit up as each comes in. Under each, its mini-sectors as they're
+ * passed.
  */
 function SectorCells({ n }: { n: number }) {
-    const shown = useTimingLap(n, (l) => l.sectors)
+    const shown = useTimingLap(n)
     const overall = useBestSectors()
     const own = useLaps(n, personalBestSectors)
     return (
         <>
             {[0, 1, 2].map((k) => {
-                const v = shown?.[k] ?? null
+                const v = shown?.sectors[k] ?? null
                 const best = overall[k]
                 const mine = own[k]
                 const color =
@@ -330,10 +332,17 @@ function SectorCells({ n }: { n: number }) {
                             ? "text-emerald-400"
                             : "text-zinc-300"
                 return (
-                    <span key={k} className="text-xs">
-                        <Flash value={v} className={`tabular-nums ${color}`}>
+                    <span key={k} className="flex min-w-0 flex-col gap-0.5">
+                        <Flash
+                            value={v}
+                            className={`self-start text-xs leading-4 tabular-nums ${color}`}
+                        >
                             {v == null ? "—" : sectorTime(v)}
                         </Flash>
+                        <MiniSectors
+                            codes={shown?.segments[k] ?? []}
+                            className="h-[3px]"
+                        />
                     </span>
                 )
             })}
@@ -614,9 +623,15 @@ function TimingTower() {
                 </button>
                 {wide && (
                     <>
-                        <span title="Last lap's sector 1">S1</span>
-                        <span title="Last lap's sector 2">S2</span>
-                        <span title="Last lap's sector 3">S3</span>
+                        <span title="Sector 1 of the lap being driven, and its mini-sectors">
+                            S1
+                        </span>
+                        <span title="Sector 2 of the lap being driven, and its mini-sectors">
+                            S2
+                        </span>
+                        <span title="Sector 3 of the lap being driven, and its mini-sectors">
+                            S3
+                        </span>
                     </>
                 )}
                 {(!quali || wide) && <span>Last</span>}
@@ -673,7 +688,7 @@ export default defineWidget({
     name: "Timing tower",
     group: "session",
     description:
-        "Every driver's position, gap, last lap (with its sectors) and best lap, tyre and pit stops. In practice, by best lap; in live qualifying, by best lap in the segment, with its cut.",
+        "Every driver's position, gap, sectors and mini-sectors of the lap being driven, last and best lap, tyre and pit stops. In practice, by best lap; in live qualifying, by best lap in the segment, with its cut.",
     version: "1.0.0",
     // Fills its column; the rows scroll inside when they don't all fit.
     height: { min: HEAD_H + 5 * ROW_H },
