@@ -251,6 +251,12 @@ function sectorTimes(
 // ---------------------------------------------------------------- session constants
 
 const geometryCache = new WeakMap<Session, LapGeometry>()
+/** The latest session's geometry, kept across the Sessions a live session is rebuilt into (see lapGeometryOf). */
+let lastGeometry: {
+    sessionKey: number
+    laps: number
+    g: LapGeometry
+} | null = null
 
 /**
  * The lap length and sector boundaries measured on the session's clean laps at pace (within 107% of the fastest,
@@ -264,6 +270,18 @@ export function lapGeometryOf(session: Session): LapGeometry {
         (l): l is Lap & { duration: number } =>
             l.duration != null && !l.pitOut && l.lap > 1
     )
+    // Live, every timing update is a new Session: measuring every lap again each time would cost the page most of
+    // its time. A circuit's geometry settles in a few laps, so measure again only when there are twice the laps.
+    const kept = lastGeometry
+    if (
+        kept &&
+        kept.sessionKey === session.meta.sessionKey &&
+        Number.isFinite(kept.g.lapLength) &&
+        timed.length < 2 * kept.laps
+    ) {
+        geometryCache.set(session, kept.g)
+        return kept.g
+    }
     const fastest = Math.min(...timed.map((l) => l.duration))
     const lengths: number[] = []
     const f1s: number[] = []
@@ -339,6 +357,11 @@ export function lapGeometryOf(session: Session): LapGeometry {
     }
     g = { lapLength, sectorDistances, corners }
     geometryCache.set(session, g)
+    lastGeometry = {
+        sessionKey: session.meta.sessionKey,
+        laps: timed.length,
+        g
+    }
     return g
 }
 
@@ -377,10 +400,28 @@ export function lapTraceOf(
     const key = `${n}:${lapNo}`
     const hit = byKey.get(key)
     if (hit !== undefined) return hit
-    const trace = build(session, n, lapNo)
+    // Live, a finished lap's trace stays the same across the Sessions the session is rebuilt into: keep it while
+    // the lap's times and the lap's length do.
+    const l = session.drivers.get(n)?.laps.find((x) => x.lap === lapNo)
+    const { lapLength } = lapGeometryOf(session)
+    const stable = l
+        ? `${key}:${l.start}:${l.end}:${l.sectors.join(",")}:${lapLength}`
+        : null
+    if (keptTraces?.sessionKey !== session.meta.sessionKey)
+        keptTraces = { sessionKey: session.meta.sessionKey, byKey: new Map() }
+    const kept = stable != null ? keptTraces.byKey.get(stable) : undefined
+    const trace = kept ?? build(session, n, lapNo)
     byKey.set(key, trace)
+    // Only traces that were built: a lap without enough car data yet may have it after the next update.
+    if (stable != null && trace) keptTraces.byKey.set(stable, trace)
     return trace
 }
+
+/** The latest session's traces, kept across the Sessions a live session is rebuilt into (see lapTraceOf). */
+let keptTraces: {
+    sessionKey: number
+    byKey: Map<string, DecodedLap>
+} | null = null
 
 function build(session: Session, n: number, lapNo: number): DecodedLap | null {
     const d = session.drivers.get(n)
