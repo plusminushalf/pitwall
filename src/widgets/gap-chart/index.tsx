@@ -179,7 +179,7 @@ function draw(
     )
         ctx.fillText(String(n), xOf(L, n), L.plotBottom + 3)
 
-    // The lines: 2 px, broken where a car has no gap (lapped, retired, missing lap).
+    // The lines: 2 px, broken where a car has no gap (retired, missing lap).
     const [lo, hi] = shownLaps(L)
     ctx.save()
     ctx.beginPath()
@@ -231,6 +231,29 @@ function draw(
         placed.push([x, y])
         ctx.fillStyle = "#d4d4d8"
         ctx.fillText(line.info.acronym, x + 6, y)
+    }
+
+    // Where a car went a lap down (to the leader): "+1L" over its line, unless it would cover a label.
+    ctx.font = FONT
+    ctx.textAlign = "center"
+    ctx.textBaseline = "bottom"
+    ctx.fillStyle = "#9f9fa9"
+    for (const line of lines) {
+        const { gaps, down } = line.series
+        for (let n = Math.max(lo, 2); n < gaps.length && n <= hi; n++) {
+            const g = gaps[n]
+            if (!seconds(g) || down[n] <= (down[n - 1] ?? 0)) continue
+            const x = xOf(L, n)
+            const y = yOf(L, g)
+            if (
+                placed.some(
+                    ([px, py]) => Math.abs(px - x) < 24 && Math.abs(py - y) < 11
+                )
+            )
+                continue
+            placed.push([x, y])
+            ctx.fillText(`+${down[n]}L`, x, y - 4)
+        }
     }
 
     // The hovered lap: a crosshair, and each car's point on it.
@@ -292,13 +315,7 @@ function LineKey({ line }: { line: Line }) {
 }
 
 const gapText = (g: Gap) =>
-    g === "lapped"
-        ? "Lapped"
-        : g === "leading" || g === 0
-          ? "Leader"
-          : seconds(g)
-            ? gap(g)
-            : ""
+    g === "leading" || g === 0 ? "Leader" : seconds(g) ? gap(g) : ""
 
 function Tooltip({
     lap,
@@ -312,7 +329,11 @@ function Tooltip({
     left: boolean
 }) {
     const rows = lines
-        .map((line) => ({ line, g: line.series.gaps[lap] ?? null }))
+        .map((line) => ({
+            line,
+            g: line.series.gaps[lap] ?? null,
+            down: line.series.down[lap] ?? 0
+        }))
         .filter((r) => r.g != null)
         .sort(
             (a, b) =>
@@ -332,7 +353,7 @@ function Tooltip({
                     </span>
                 )}
             </div>
-            {rows.map(({ line, g }) => (
+            {rows.map(({ line, g, down }) => (
                 <div
                     key={line.info.number}
                     className="mt-1 flex items-center gap-2"
@@ -340,6 +361,12 @@ function Tooltip({
                     <LineKey line={line} />
                     <span className="font-semibold tabular-nums text-zinc-100">
                         {gapText(g)}
+                        {down > 0 && (
+                            <span className="font-normal text-zinc-400">
+                                {" "}
+                                · {down} lap{down > 1 ? "s" : ""} down
+                            </span>
+                        )}
                     </span>
                     <span className="ml-auto text-zinc-400">
                         {line.info.acronym}

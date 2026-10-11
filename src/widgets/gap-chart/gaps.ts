@@ -8,12 +8,14 @@ export type GapMode = "leader" | "interval"
 export type Crossings = readonly (number | null)[]
 
 /** A driver's gap at the end of a lap: seconds, or why there's none ("leading": interval mode, nobody ahead). */
-export type Gap = number | "leading" | "lapped" | null
+export type Gap = number | "leading" | null
 
 export interface GapSeries {
     driver: number
     /** gaps[n] at the end of lap n; index 0 is unused. Ends with the driver's last completed lap. */
     gaps: Gap[]
+    /** down[n]: laps behind the leader at the end of lap n (to the leader only; 0 in interval mode). */
+    down: number[]
 }
 
 /** A car's completed laps as crossing times (for useAllLaps' select: changes only when a lap is completed). */
@@ -52,16 +54,17 @@ export function leaderCrossings(all: readonly Crossings[]): (number | null)[] {
     return first
 }
 
-/** Whether a car that finished lap n at t was lapped by then: the leader had already finished lap n + 1. */
-const lappedAt = (leader: readonly (number | null)[], n: number, t: number) => {
-    const next = leader[n + 1]
-    return next != null && next < t
+/** Laps down for a car that finished lap n at t: how many laps past n the leader had already finished. */
+const lapsDown = (leader: readonly (number | null)[], n: number, t: number) => {
+    let k = n + 1
+    while (k < leader.length && (leader[k] ?? Infinity) < t) k++
+    return k - n - 1
 }
 
 /**
  * Each of `drivers`' gaps lap by lap, from `all` (every car's crossings, by car number).
- *   leader:   the car's crossing at lap n minus the first crossing at lap n. A lapped car has no gap
- *             ("lapped"): its line ends where it was caught, instead of running off a lap behind.
+ *   leader:   the car's crossing at lap n minus the first crossing at lap n. A lapped car keeps its gap
+ *             (more than a lap, compared at the same lap count), with how many laps down it is in `down`.
  *   interval: the car's crossing minus the crossing just before it at lap n (the car ahead in the order).
  * A lap the car didn't complete (retired, data missing) has no gap (null), so its line ends there.
  */
@@ -83,10 +86,12 @@ export function gapSeries(
     })
     return drivers.map((driver) => {
         const own = all.get(driver) ?? []
+        const down = own.map((t, n) =>
+            mode === "leader" && n > 0 && t != null ? lapsDown(leader, n, t) : 0
+        )
         const gaps: Gap[] = own.map((t, n): Gap => {
             if (n === 0 || t == null) return null
             if (mode === "leader") {
-                if (lappedAt(leader, n, t)) return "lapped"
                 // Null only for a crossing that can't be (leaderCrossings left it out).
                 const lead = leader[n]
                 return lead == null || t < lead ? null : (t - lead) / 1000
@@ -95,7 +100,7 @@ export function gapSeries(
             const i = ts.indexOf(t)
             return i <= 0 ? "leading" : (t - ts[i - 1]) / 1000
         })
-        return { driver, gaps }
+        return { driver, gaps, down }
     })
 }
 
@@ -163,7 +168,7 @@ export function neutralisedLaps(
 
 /** In interval mode the scale stops here: what's further back is drawn on the bottom edge. */
 export const INTERVAL_CAP = 10
-const STEPS = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120]
+const STEPS = [0.5, 1, 2, 5, 10, 15, 20, 30, 60, 120, 180, 300]
 
 /**
  * The y scale: 0 at the top (the leader, or the car ahead), down to `max`, in steps of `step`, with at

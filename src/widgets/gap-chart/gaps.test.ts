@@ -76,13 +76,15 @@ describe("gap chart: impossible crossings", () => {
 })
 
 describe("gap chart: gaps", () => {
-    test("to the leader: the leader changes with the lead, a retired car's line ends, a lapped car's line ends", () => {
+    test("to the leader: the leader changes with the lead, a retired car's line ends, a lapped car's goes on", () => {
         const [a, b, c, d] = gapSeries(all, [1, 2, 3, 4], "leader")
         expect(a.gaps).toEqual([null, 0, 0, 0, 1])
         expect(b.gaps).toEqual([null, 1, 1, 0.5, 0])
         expect(c.gaps).toEqual([null, 5, 6])
-        // Lap 3 ends after car 2 finished lap 4: lapped.
-        expect(d.gaps).toEqual([null, 20, 50, "lapped"])
+        // Lap 3 ends after car 2 finished lap 4: a lap down, 95 s behind at the same lap count.
+        expect(d.gaps).toEqual([null, 20, 50, 95])
+        expect(d.down).toEqual([0, 0, 0, 1])
+        expect(a.down).toEqual([0, 0, 0, 0, 0])
     })
 
     test("interval: to whoever crossed just before at that lap; nobody ahead is leading", () => {
