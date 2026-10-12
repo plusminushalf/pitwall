@@ -2,6 +2,7 @@ import { type KeyboardEvent, type MouseEvent, useMemo, useRef } from "react"
 import {
     type DriverInfo,
     defineWidget,
+    type FeedEntry,
     gap,
     LABEL_CLASS,
     type Lap,
@@ -10,6 +11,7 @@ import {
     useAllLaps,
     useCardState,
     useDrivers,
+    useFeed,
     useFrame,
     useLapWindow,
     useNeutralPeriods,
@@ -81,12 +83,21 @@ const allCrossings = (
 ): ReadonlyMap<number, Crossings> =>
     new Map([...laps].map(([n, l]) => [n, crossingsOf(l)]))
 
-/** A line as drawn: its car, colour and dash. */
+/** The cars that have retired so far (the feed's retirements, so never ahead of the replay), by number. */
+const retiredCars = (feed: readonly FeedEntry[]): number[] =>
+    feed
+        .flatMap((e) =>
+            e.kind === "retired" && e.driver != null ? [e.driver] : []
+        )
+        .sort((a, b) => a - b)
+
+/** A line as drawn: its car, colour and dash, and whether the car has retired (its line ends in a cross). */
 interface Line {
     series: GapSeries
     info: DriverInfo
     color: string
     dashed: boolean
+    out: boolean
 }
 
 /** Where things go on the canvas, CSS px. */
@@ -118,6 +129,12 @@ const shownLaps = (L: Layout): [number, number] => [
     L.from + L.laps
 ]
 const seconds = (g: Gap): g is number => typeof g === "number"
+/** The last lap with a gap, else 0. */
+const lastGap = (gaps: readonly Gap[]) => {
+    let n = gaps.length - 1
+    while (n > 0 && !seconds(gaps[n])) n--
+    return n
+}
 
 function draw(
     canvas: HTMLCanvasElement,
@@ -223,17 +240,27 @@ function draw(
     ctx.setLineDash([])
     ctx.restore()
 
-    // The end of each line: a dot, then the driver's code beside it (else over it, else under it) where it
-    // covers no dot and no code already placed; none where there's no room.
+    // The end of each line: a dot (a cross where a retired car's line ends for good), then the driver's code
+    // beside it (else over it, else under it) where it covers no dot and no code already placed; none where
+    // there's no room.
     const ends = lines.flatMap((line) => {
         const { gaps } = line.series
         let n = Math.min(gaps.length - 1, hi)
         while (n >= lo && !seconds(gaps[n])) n--
         return n < lo
             ? []
-            : [{ line, x: xOf(L, n), y: yOf(L, gaps[n] as number) }]
+            : [
+                  {
+                      line,
+                      x: xOf(L, n),
+                      y: yOf(L, gaps[n] as number),
+                      out: line.out && n === lastGap(gaps)
+                  }
+              ]
     })
-    for (const e of ends) dot(ctx, e.x, e.y, 3, e.line.color)
+    for (const e of ends)
+        if (e.out) cross(ctx, e.x, e.y, 3.5, e.line.color)
+        else dot(ctx, e.x, e.y, 3, e.line.color)
     const taken: Box[] = ends.map(({ x, y }) => [x - 5, y - 5, x + 5, y + 5])
     /** `text` at the first of `at` (offsets from x, y to its middle left) that's clear, if any. */
     const place = (
@@ -257,8 +284,9 @@ function draw(
     ctx.font = LABEL_FONT
     ctx.fillStyle = "#d4d4d8"
     for (const e of ends) {
-        const w = ctx.measureText(e.line.info.acronym).width
-        place(e.line.info.acronym, e.x, e.y, [
+        const text = `${e.line.info.acronym}${e.out ? " DNF" : ""}`
+        const w = ctx.measureText(text).width
+        place(text, e.x, e.y, [
             [6, 0],
             [-w / 2, -12],
             [-w / 2, 12]
@@ -317,6 +345,31 @@ function dot(
     ctx.arc(x, y, r, 0, Math.PI * 2)
     ctx.fillStyle = color
     ctx.fill()
+}
+
+/** An × with a 2 px outline in the ground colour: where a retired car's line ends. */
+function cross(
+    ctx: CanvasRenderingContext2D,
+    x: number,
+    y: number,
+    r: number,
+    color: string
+) {
+    ctx.save()
+    ctx.setLineDash([])
+    ctx.lineCap = "round"
+    ctx.beginPath()
+    ctx.moveTo(x - r, y - r)
+    ctx.lineTo(x + r, y + r)
+    ctx.moveTo(x + r, y - r)
+    ctx.lineTo(x - r, y + r)
+    ctx.strokeStyle = GROUND
+    ctx.lineWidth = 6
+    ctx.stroke()
+    ctx.strokeStyle = color
+    ctx.lineWidth = 2
+    ctx.stroke()
+    ctx.restore()
 }
 
 /** A short stroke of the line's colour (dashed for a second teammate), as the key for a driver. */
@@ -383,6 +436,11 @@ function Tooltip({
                 (seconds(a.g) ? a.g : Infinity) -
                 (seconds(b.g) ? b.g : Infinity)
         )
+    // Past a retired car's last lap: a row saying so, under the gaps (the driver the gaps are to: a note instead).
+    const gone = lines.filter(
+        (line) => line.out && lap > lastGap(line.series.gaps)
+    )
+    const toGone = gone.find((line) => line.info.number === to)
     return (
         <div
             className={`pointer-events-none absolute top-0 z-10 min-w-32 rounded-md border border-zinc-800 bg-zinc-900 px-2.5 py-2 text-xs shadow-lg ${left ? "-translate-x-full" : ""}`}
@@ -416,6 +474,25 @@ function Tooltip({
                     </span>
                 </div>
             ))}
+            {gone
+                .filter((line) => line !== toGone)
+                .map((line) => (
+                    <div
+                        key={line.info.number}
+                        className="mt-1 flex items-center gap-2"
+                    >
+                        <LineKey line={line} />
+                        <span className="text-zinc-400">Retired</span>
+                        <span className="ml-auto text-zinc-400">
+                            {line.info.acronym}
+                        </span>
+                    </div>
+                ))}
+            {toGone && (
+                <div className="mt-1 whitespace-nowrap text-zinc-400">
+                    {toGone.info.acronym} retired: no gaps to them
+                </div>
+            )}
             <div className="mt-1.5 whitespace-nowrap text-[11px] text-zinc-400">
                 Click to watch from lap {lap}
             </div>
@@ -431,6 +508,7 @@ function GapChart() {
     // Every car's crossings, not just the shown ones: the leader at each lap can be anyone.
     const all = useAllLaps(allCrossings)
     const drivers = useDrivers()
+    const retired = useFeed(retiredCars)
     const selected = useSelection((s) => s.selected)
     const [{ gapMode }, update] = useSettings<Settings>()
     const periods = useNeutralPeriods()
@@ -489,12 +567,13 @@ function GapChart() {
                         series,
                         info: d,
                         color: teamColor(d.teamColour),
-                        dashed: mate && second.has(d.number)
+                        dashed: mate && second.has(d.number),
+                        out: retired.includes(d.number)
                     }
                 ]
             }
         )
-    }, [all, shown, gapMode, to, drivers])
+    }, [all, shown, gapMode, to, drivers, retired])
 
     const completed = leader.length - 1
     const win = useLapWindow(Math.max(totalLaps, completed, 1))
