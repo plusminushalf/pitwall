@@ -9,6 +9,8 @@ import { readUrl, upgradeUrl, urlFor } from "../url"
 
 /** Browsers rate-limit history.replaceState (Safari throws past ~100 calls per 30 s). */
 const MIN_WRITE_INTERVAL_MS = 1_000
+/** How often watching progress is saved while the clock moves. */
+const SAVE_WATCHED_MS = 1_000
 
 /**
  * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), a circuit, a driver, a team, or Home. On
@@ -85,9 +87,15 @@ export function useUrlSync() {
     const view = useReplay((s) => s.view)
     const session = useReplay((s) => s.session?.meta.sessionKey)
     const live = useReplay((s) => s.mode === "live")
-    // Following live, the link just says live (no time): -1 keeps this from changing every second.
+    // Following live, the link just says live (no time): -1 keeps this from changing every second. Playing, the
+    // address keeps the time it has (null), and takes the clock's when it stops: a new address every second read as a
+    // navigation to the browser (and to React DevTools, whose panel started over). Share's Copy link has the moment.
     const second = useReplay((s) =>
-        s.mode === "live" && s.followLive ? -1 : Math.floor(s.t / 1000)
+        s.mode === "live" && s.followLive
+            ? -1
+            : s.playing
+              ? null
+              : Math.floor(s.t / 1000)
     )
     const selected = useReplay((s) => s.selected)
     const focused = useReplay((s) => s.focused)
@@ -106,27 +114,19 @@ export function useUrlSync() {
         if (view !== "replay" || (session == null && !live)) return
         const write = () => {
             if (useReplay.getState().view !== "replay") return
-            const s = useReplay.getState()
-            // (Only into this session's entry: the store may have moved on to another one.)
-            if (
-                !live &&
-                session != null &&
-                s.session?.meta.sessionKey === session
-            ) {
-                saveWatched(session, {
-                    t: second * 1000,
-                    raceTime: s.race?.raceTime ?? null,
-                    frac: Math.min(
-                        1,
-                        (second * 1000) / s.session.meta.duration
-                    ),
-                    watchedTo: s.watchedTo
-                })
-            }
+            const shown = readUrl(location.pathname, location.search)
+            const t =
+                second == null
+                    ? shown.session === session
+                        ? shown.t
+                        : undefined
+                    : second >= 0
+                      ? second * 1000
+                      : undefined
             const url = urlFor({
                 live,
                 session: session ?? null,
-                t: second >= 0 ? second * 1000 : undefined,
+                t,
                 drivers: selected,
                 focus: focused,
                 view: screen,
@@ -138,7 +138,7 @@ export function useUrlSync() {
             // Keeps the entry's state (whether it was opened from Home).
             history.replaceState(history.state, "", url)
         }
-        // During fast playback `second` changes ~10×/s: write at most once per interval, always ending on the latest state.
+        // Paused and stepped or scrubbed, `second` changes quickly: write at most once per interval, always ending on the latest state.
         const wait =
             lastWrite.current + MIN_WRITE_INTERVAL_MS - performance.now()
         if (wait <= 0) {
@@ -159,4 +159,36 @@ export function useUrlSync() {
         dash,
         grid
     ])
+}
+
+/**
+ * Watching progress (Home's resume, no spoilers' watched-to), saved as the clock moves: at most once a second, ending
+ * on the latest, and as the page goes. Through the store, so the app doesn't re-render with the clock for it.
+ */
+export function useSaveWatched() {
+    useEffect(() => {
+        let timer = 0
+        const save = () => {
+            timer = 0
+            const s = useReplay.getState()
+            if (s.view !== "replay" || s.mode === "live" || !s.session) return
+            const t = Math.floor(s.t / 1000) * 1000
+            saveWatched(s.session.meta.sessionKey, {
+                t,
+                raceTime: s.race?.raceTime ?? null,
+                frac: Math.min(1, t / s.session.meta.duration),
+                watchedTo: s.watchedTo
+            })
+        }
+        const unsubscribe = useReplay.subscribe((s, prev) => {
+            if (s.t === prev.t && s.session === prev.session) return
+            if (!timer) timer = window.setTimeout(save, SAVE_WATCHED_MS)
+        })
+        window.addEventListener("pagehide", save)
+        return () => {
+            unsubscribe()
+            window.removeEventListener("pagehide", save)
+            clearTimeout(timer)
+        }
+    }, [])
 }

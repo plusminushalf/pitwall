@@ -681,25 +681,127 @@ export function ShareShot() {
     )
 }
 
+/** Copies the link to this moment (or page). Inside the click, so the clipboard takes it while the link is made. */
+function copyMomentLink(): Promise<void> {
+    const link = shareLink()
+    try {
+        return navigator.clipboard.write([
+            new ClipboardItem({
+                "text/plain": link.then(
+                    (l) => new Blob([l], { type: "text/plain" })
+                )
+            })
+        ])
+    } catch {
+        return link.then((l) => navigator.clipboard.writeText(l))
+    }
+}
+
+const MENU_ITEM =
+    "flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-xs font-semibold text-zinc-200 hover:bg-zinc-800 hover:text-white"
+
 /**
- * The top bar's Share button. Not on a phone: the screenshot is of the whole grid, which there is a column
- * scrolled to one part, so the frozen picture wouldn't be the screen; the link to the moment is in the URL anyway.
+ * The top bar's Share: a screenshot (as S) or the link to this moment. On a phone only the link: the screenshot is of
+ * the whole grid, which there is a column scrolled to one part, so the frozen picture wouldn't be the screen.
  */
 export function ShareButton() {
     const phone = usePhone()
-    if (phone) return null
+    const [open, setOpen] = useState(false)
+    const [copied, setCopied] = useState(false)
+    const wrap = useRef<HTMLSpanElement>(null)
+
+    // Closes on a click outside or Escape.
+    useEffect(() => {
+        if (!open) return
+        const onDown = (e: PointerEvent) => {
+            if (!wrap.current?.contains(e.target as Node)) setOpen(false)
+        }
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") setOpen(false)
+        }
+        document.addEventListener("pointerdown", onDown)
+        document.addEventListener("keydown", onKey)
+        return () => {
+            document.removeEventListener("pointerdown", onDown)
+            document.removeEventListener("keydown", onKey)
+        }
+    }, [open])
+
+    useEffect(() => {
+        if (!copied) return
+        const id = setTimeout(() => setCopied(false), 2000)
+        return () => clearTimeout(id)
+    }, [copied])
+
+    const copyLink = () => {
+        setOpen(false)
+        copyMomentLink().then(
+            () => {
+                setCopied(true)
+                track("moment_link_copied")
+            },
+            () => {}
+        )
+    }
+
+    if (phone)
+        return (
+            <button
+                type="button"
+                onClick={copyLink}
+                className="touch-hit flex items-center gap-1.5 whitespace-nowrap rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
+                title="Copy the link to this moment"
+            >
+                <Icon name={copied ? "check" : "link"} size={14} />
+                {copied ? "Copied" : "Link"}
+            </button>
+        )
     return (
-        <button
-            type="button"
-            onClick={(e) => {
-                e.currentTarget.blur()
-                useShare.getState().start()
-            }}
-            className="touch-hit flex items-center gap-1.5 whitespace-nowrap rounded-md bg-zinc-800 px-2.5 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white"
-            title="Copy a screenshot of an area, with a link to this moment (S)"
-        >
-            <Icon name="camera" size={14} />
-            Share
-        </button>
+        <span ref={wrap} className="relative inline-flex">
+            <button
+                type="button"
+                onClick={(e) => {
+                    e.currentTarget.blur()
+                    setOpen((o) => !o)
+                }}
+                className={`touch-hit flex items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1 text-xs font-semibold text-zinc-100 hover:bg-zinc-700 hover:text-white ${open ? "bg-zinc-700" : "bg-zinc-800"}`}
+                title="Share a screenshot, or the link to this moment"
+                aria-haspopup="menu"
+                aria-expanded={open}
+            >
+                <Icon name={copied ? "check" : "camera"} size={14} />
+                {copied ? "Link copied" : "Share"}
+            </button>
+            {open && (
+                <div
+                    role="menu"
+                    data-shot-ignore=""
+                    className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-lg border border-zinc-800 bg-zinc-900 p-1 shadow-2xl"
+                >
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                            setOpen(false)
+                            useShare.getState().start()
+                        }}
+                        className={MENU_ITEM}
+                    >
+                        <Icon name="camera" size={14} />
+                        <span className="flex-1">Capture screenshot</span>
+                        <Kbd>S</Kbd>
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onClick={copyLink}
+                        className={MENU_ITEM}
+                    >
+                        <Icon name="link" size={14} />
+                        <span className="flex-1">Copy link to this moment</span>
+                    </button>
+                </div>
+            )}
+        </span>
     )
 }

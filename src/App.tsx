@@ -15,7 +15,12 @@ import { Timeline } from "./components/Timeline"
 import { Grid } from "./grid/Grid"
 import { useKeyboard } from "./hooks/useKeyboard"
 import { useReplayLoop } from "./hooks/useReplayLoop"
-import { applyUrl, useHistoryNav, useUrlSync } from "./hooks/useUrlState"
+import {
+    applyUrl,
+    useHistoryNav,
+    useSaveWatched,
+    useUrlSync
+} from "./hooks/useUrlState"
 import { useLibrary } from "./library"
 import { ShareShot } from "./share/ShareShot"
 import { comparing, useReplay } from "./store"
@@ -77,6 +82,7 @@ export function App() {
     useReplayLoop()
     useKeyboard()
     useUrlSync()
+    useSaveWatched()
     useHistoryNav()
     const view = useReplay((s) => s.view)
     const circuit = useReplay((s) => s.circuit)
