@@ -1,4 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 400" width="400" height="400">
+  <title>Pitwall</title>
   <rect width="400" height="400" fill="#EDA4AB"/>
   <g transform="translate(200 200) scale(1.02) translate(-125.5 -121)">
     <path fill="#16161A" d="M39 211 L75 45 Q79 31 95 31 H159 Q201 31 211 63 Q221 95 199 119 Q181 138 151 138 H112 L96 211 Z M119 105 H148 Q164 105 170 94 Q175 84 169 75 Q163 67 148 67 H128 Z"/>
