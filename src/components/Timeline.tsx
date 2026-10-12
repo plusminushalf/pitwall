@@ -6,6 +6,7 @@ import {
     useRef,
     useState
 } from "react"
+import type { Session } from "../data/session"
 import { lapEdges, lapWindowIn } from "../engine/lapWindow"
 import { stepAt } from "../engine/lookup"
 import { spoilerFreeEnd } from "../engine/noSpoilers"
@@ -132,6 +133,116 @@ function MarkerGlyph({
     }
 }
 
+/** No spoilers, in a replay (live, the bar already ends at what has happened). */
+const spoilerFree = (
+    s: Pick<ReturnType<typeof useReplay.getState>, "noSpoilers" | "mode">
+) => s.noSpoilers !== false && s.mode !== "live"
+
+/** Everything on the bar that no spoilers holds back until watched, by time: markers, pit stops, ticks, bands. */
+const shownTimes = new WeakMap<Session, number[]>()
+
+/**
+ * The last thing on the bar watched by `watchedTo`. It moves when one more thing shows, not on every tick as
+ * watchedTo does, so the bar re-renders then: every `<= shownTo` on the bar gives the same answer with either.
+ */
+function lastShown(session: Session, watchedTo: number): number {
+    let times = shownTimes.get(session)
+    if (!times) {
+        const { meta } = session
+        times = [
+            ...timelineEvents(meta).map((e) => e.t),
+            ...meta.trackStatus.map((e) => e.t),
+            ...session.lapStartTimes.filter((lt) => lt !== undefined),
+            ...[...session.drivers.values()].flatMap((d) =>
+                d.pits.map((p) => p.entry)
+            ),
+            ...(meta.chequered != null ? [meta.chequered] : [])
+        ]
+        if (meta.practice != null || meta.qualiLive != null)
+            for (let mt = meta.lightsOut; mt <= meta.duration; mt += TICK_MS)
+                times.push(mt)
+        times.sort((a, b) => a - b)
+        shownTimes.set(session, times)
+    }
+    let lo = 0
+    let hi = times.length
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1
+        if (times[mid] <= watchedTo) lo = mid + 1
+        else hi = mid
+    }
+    return lo > 0 ? times[lo - 1] : -Infinity
+}
+
+// The bar's moving parts follow the clock on every tick themselves, so the rest of the bar doesn't re-render with them.
+
+function Played({ pct }: { pct: (ms: number) => string }) {
+    const t = useReplay((s) => s.t)
+    return (
+        <div
+            className="absolute inset-y-0 left-0 bg-zinc-500"
+            style={{ width: pct(t) }}
+        />
+    )
+}
+
+function Playhead({ pct }: { pct: (ms: number) => string }) {
+    const t = useReplay((s) => s.t)
+    return (
+        <div
+            className="pointer-events-none absolute top-[26px] h-5 w-1 -translate-x-1/2 rounded bg-white shadow"
+            style={{ left: pct(t) }}
+        />
+    )
+}
+
+/** No spoilers: the rest of the bar, not watched yet. */
+function Unwatched({
+    pct,
+    duration
+}: {
+    pct: (ms: number) => string
+    duration: number
+}) {
+    const watchedTo = useReplay((s) => s.watchedTo)
+    return watchedTo < duration ? (
+        <div
+            className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(-45deg,var(--color-zinc-700)_0_2px,transparent_2px_6px)]"
+            style={{ left: pct(watchedTo) }}
+        />
+    ) : null
+}
+
+/** No spoilers: a safety car (or other) period being watched, up to what has been watched of it. */
+function WatchingBand({
+    from,
+    to,
+    className,
+    pct
+}: {
+    from: number
+    to: number
+    className: string
+    pct: (ms: number) => string
+}) {
+    const watchedTo = useReplay((s) => s.watchedTo)
+    return (
+        <div
+            className={`absolute inset-y-0 ${className}`}
+            style={{
+                left: pct(from),
+                width: `calc(${pct(Math.min(to, watchedTo))} - ${pct(from)})`
+            }}
+        />
+    )
+}
+
+/** The clock at the playhead: a render a second, when its text changes. */
+function ClockTime({ lightsOut }: { lightsOut: number }) {
+    const text = useReplay((s) => raceClock(s.t - lightsOut))
+    return <span className="text-sm tabular-nums text-zinc-300">{text}</span>
+}
+
 function PitGlyph({ color }: { color: string }) {
     return (
         <span
@@ -143,7 +254,6 @@ function PitGlyph({ color }: { color: string }) {
 
 export function Timeline() {
     const session = useReplay((s) => s.session)
-    const t = useReplay((s) => s.t)
     const playing = useReplay((s) => s.playing)
     const latched = useReplay((s) => s.latched)
     const speed = useReplay((s) => s.speed)
@@ -151,12 +261,36 @@ export function Timeline() {
     const focused = useReplay((s) => s.focused)
     const live = useReplay((s) => s.mode === "live")
     const followLive = useReplay((s) => s.followLive)
-    const liveEdge = useReplay((s) => s.liveEdge)
-    // Live, the bar already ends at what has happened. Not chosen yet (the spoiler prompt is open over it): hidden.
-    const noSpoilers = useReplay(
-        (s) => s.noSpoilers !== false && s.mode !== "live"
+    // Not chosen yet (the spoiler prompt is open over it): hidden.
+    const noSpoilers = useReplay(spoilerFree)
+    // Live, the bar grows with the live edge (its right end). No spoilers: it shows nothing past what has been
+    // watched, and its length (until the flag) doesn't give the race away.
+    const duration = useReplay((s) =>
+        !s.session
+            ? 0
+            : s.mode === "live"
+              ? Math.max(s.liveEdge, s.session.meta.duration)
+              : spoilerFree(s)
+                ? spoilerFreeEnd(s.session.meta, s.watchedTo)
+                : s.session.meta.duration
     )
-    const watchedTo = useReplay((s) => s.watchedTo)
+    const shownTo = useReplay((s) =>
+        s.session && spoilerFree(s)
+            ? lastShown(s.session, s.watchedTo)
+            : Infinity
+    )
+    // The zoom rail's laps: the race distance as the lap charts know it at t, placed where each lap is on the bar.
+    const zoomLaps = useReplay((s) =>
+        !s.session || s.session.meta.practice || s.session.meta.qualiLive
+            ? 0
+            : Math.max(
+                  raceDistanceAt(s.session.meta, s.t).totalLaps,
+                  leaderLapAt(
+                      s.session,
+                      spoilerFree(s) ? Math.min(s.t, s.watchedTo) : s.t
+                  )
+              )
+    )
     // A race watched while it downloads: what's in so far.
     const spans = useReplay((s) =>
         s.stream && s.session?.meta.sessionKey === s.stream.key
@@ -179,16 +313,6 @@ export function Timeline() {
     const phone = usePhone()
 
     const hasSession = session != null
-    // Live, the bar grows with the live edge (its right end). No spoilers: it shows nothing past what has been
-    // watched, and its length (until the flag) doesn't give the race away.
-    const duration = !session
-        ? 0
-        : live
-          ? Math.max(liveEdge, session.meta.duration)
-          : noSpoilers
-            ? spoilerFreeEnd(session.meta, watchedTo)
-            : session.meta.duration
-    const shownTo = noSpoilers ? watchedTo : Infinity
     // biome-ignore lint/correctness/useExhaustiveDependencies: the bar mounts with a session: observe it then
     useEffect(() => {
         const el = barRef.current
@@ -254,14 +378,6 @@ export function Timeline() {
         )
     }, [events, shownEvents, duration, barWidth, coarse])
 
-    // The zoom rail's laps: the race distance as the lap charts know it at t, placed where each lap is on the bar.
-    const zoomLaps =
-        !session || session.meta.practice || session.meta.qualiLive
-            ? 0
-            : Math.max(
-                  raceDistanceAt(session.meta, t).totalLaps,
-                  leaderLapAt(session, Math.min(t, shownTo))
-              )
     const edges = useMemo(
         () =>
             session && zoomLaps > 0
@@ -450,7 +566,11 @@ export function Timeline() {
                 </span>
             )
         }
-    } else if (hover && hover.t > shownTo) {
+    } else if (
+        hover &&
+        noSpoilers &&
+        hover.t > useReplay.getState().watchedTo
+    ) {
         tip = { t: hover.t, content: `${clockAt(hover.t)} · not watched yet` }
     } else if (hover) {
         const status =
@@ -625,29 +745,28 @@ export function Timeline() {
                         />
                     ) : null
                 )}
-                <div
-                    className="absolute inset-y-0 left-0 bg-zinc-500"
-                    style={{ width: pct(t) }}
-                />
+                <Played pct={pct} />
                 {bands.map((b) =>
-                    b.from < shownTo ? (
+                    b.from > shownTo ? null : b.to > shownTo ? (
+                        <WatchingBand
+                            key={`${b.from}-${b.status}`}
+                            from={b.from}
+                            to={b.to}
+                            className={BAND[b.status] ?? ""}
+                            pct={pct}
+                        />
+                    ) : (
                         <div
                             key={`${b.from}-${b.status}`}
                             className={`absolute inset-y-0 ${BAND[b.status]}`}
                             style={{
                                 left: pct(b.from),
-                                width: `calc(${pct(Math.min(b.to, shownTo))} - ${pct(b.from)})`
+                                width: `calc(${pct(b.to)} - ${pct(b.from)})`
                             }}
                         />
-                    ) : null
+                    )
                 )}
-                {/* not watched yet */}
-                {noSpoilers && watchedTo < duration && (
-                    <div
-                        className="absolute inset-y-0 right-0 bg-[repeating-linear-gradient(-45deg,var(--color-zinc-700)_0_2px,transparent_2px_6px)]"
-                        style={{ left: pct(watchedTo) }}
-                    />
-                )}
+                {noSpoilers && <Unwatched pct={pct} duration={duration} />}
             </div>
 
             {/* practice: minute ticks */}
@@ -801,11 +920,7 @@ export function Timeline() {
                 />
             )}
 
-            {/* playhead */}
-            <div
-                className="pointer-events-none absolute top-[26px] h-5 w-1 -translate-x-1/2 rounded bg-white shadow"
-                style={{ left: pct(t) }}
-            />
+            <Playhead pct={pct} />
 
             {tip && (
                 <div
@@ -823,9 +938,7 @@ export function Timeline() {
         <div
             className={`flex flex-col items-end leading-tight ${phone ? "" : "w-20"}`}
         >
-            <span className="text-sm tabular-nums text-zinc-300">
-                {raceClock(t - meta.lightsOut)}
-            </span>
+            <ClockTime lightsOut={meta.lightsOut} />
             <StreamBadge />
             {lapWindow.zoomed && (
                 <button

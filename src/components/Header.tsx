@@ -16,7 +16,7 @@ import {
     screenInLink,
     useReplay
 } from "../store"
-import type { SessionMeta, WeatherSample } from "../types"
+import type { SessionMeta } from "../types"
 import { Icon } from "../widgetkit/ui/Icon"
 import { Label, Stat } from "../widgetkit/ui/Label"
 import { LiveControl } from "./LiveControl"
@@ -272,20 +272,48 @@ function QualiClock({ race, meta }: { race: RaceState; meta: SessionMeta }) {
     )
 }
 
+// The header's moving parts follow the clock on every tick themselves, so the rest of the header (the pickers,
+// Share, the keyboard help) doesn't re-render with them.
+
 /** The session's clock: laps in a race, time left in practice and live qualifying. */
-function SessionProgress({
-    race,
-    meta
-}: {
-    race: RaceState
-    meta: SessionMeta
-}) {
+function SessionProgress({ meta }: { meta: SessionMeta }) {
+    const race = useReplay((s) => s.race)
+    if (!race) return null
     if (meta.qualiLive) return <QualiClock race={race} meta={meta} />
     if (meta.practice) return <SessionClock race={race} meta={meta} />
     return <LapCounter race={race} meta={meta} />
 }
 
-function Weather({ w }: { w: WeatherSample | null }) {
+/** Time since the green light. */
+function RaceTime() {
+    const text = useReplay((s) => (s.race ? raceClock(s.race.raceTime) : "—"))
+    return <span className="text-sm tabular-nums text-zinc-100">{text}</span>
+}
+
+/** Local time at the circuit. */
+function LocalTime({ meta }: { meta: SessionMeta }) {
+    const text = useReplay((s) => localTime(meta.t0, s.t, meta.gmtOffset))
+    return <span className="text-sm tabular-nums text-zinc-300">{text}</span>
+}
+
+function StatusPill() {
+    const status = useReplay((s) =>
+        s.race ? TRACK_STATUS[s.race.trackStatus] : null
+    )
+    return (
+        status && (
+            <span
+                className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${status.className}`}
+            >
+                {status.label}
+            </span>
+        )
+    )
+}
+
+function Weather() {
+    // A sample from the session's weather: the same object until the next one.
+    const w = useReplay((s) => s.race?.weather ?? null)
     if (!w)
         return <span className="text-xs text-zinc-400">No weather data</span>
     const items: [string, string, string?][] = [
@@ -623,21 +651,11 @@ function LayoutControls() {
 
 export function Header() {
     const session = useReplay((s) => s.session)
-    const race = useReplay((s) => s.race)
-    const t = useReplay((s) => s.t)
     const phone = usePhone()
     // Edit mode's controls take the room of the weather, Share and the keyboard help.
     const editing = useLayout((s) => s.editing)
     if (!session) return null
     const { meta } = session
-    const status = race ? TRACK_STATUS[race.trackStatus] : null
-    const statusPill = status && (
-        <span
-            className={`whitespace-nowrap rounded px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${status.className}`}
-        >
-            {status.label}
-        </span>
-    )
 
     if (phone) {
         // Two rows: the way around (Races, the session, live mode's controls), then the race's state. Weather, the
@@ -651,7 +669,7 @@ export function Header() {
                     <LiveControl />
                 </div>
                 <div className="flex h-9 items-center gap-3 px-3 pb-1">
-                    {race && <SessionProgress race={race} meta={meta} />}
+                    <SessionProgress meta={meta} />
                     <Stat
                         label={
                             meta.practice || meta.qualiLive ? "Session" : "Race"
@@ -663,11 +681,9 @@ export function Header() {
                                 : undefined
                         }
                     >
-                        <span className="text-sm tabular-nums text-zinc-100">
-                            {race ? raceClock(race.raceTime) : "—"}
-                        </span>
+                        <RaceTime />
                     </Stat>
-                    {statusPill}
+                    <StatusPill />
                     <span className="flex-1" />
                     <ScreenSwitch />
                 </div>
@@ -685,7 +701,7 @@ export function Header() {
             </div>
 
             <div className="flex items-center gap-5">
-                {race && <SessionProgress race={race} meta={meta} />}
+                <SessionProgress meta={meta} />
                 <div className="flex items-center gap-4">
                     <Stat
                         label={
@@ -698,25 +714,21 @@ export function Header() {
                                 : undefined
                         }
                     >
-                        <span className="text-sm tabular-nums text-zinc-100">
-                            {race ? raceClock(race.raceTime) : "—"}
-                        </span>
+                        <RaceTime />
                     </Stat>
                     <Stat
                         label="Local"
                         className="leading-tight"
                         title={`Local time at the circuit (UTC${meta.gmtOffset.startsWith("-") ? "" : "+"}${meta.gmtOffset.slice(0, -3)})`}
                     >
-                        <span className="text-sm tabular-nums text-zinc-300">
-                            {localTime(meta.t0, t, meta.gmtOffset)}
-                        </span>
+                        <LocalTime meta={meta} />
                     </Stat>
                 </div>
-                {statusPill}
+                <StatusPill />
             </div>
 
             <div className="flex items-center justify-end gap-4">
-                {!editing && <Weather w={race?.weather ?? null} />}
+                {!editing && <Weather />}
                 <LayoutControls />
                 {!editing && <ShareButton />}
                 {!editing && <ShortcutsHelp />}
