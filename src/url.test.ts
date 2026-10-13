@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { must } from "./lib/must"
-import { readUrl, upgradeUrl, urlFor } from "./url"
+import { readCompared, readUrl, upgradeUrl, urlFor, withCompared } from "./url"
 
 describe("readUrl", () => {
     test("Home", () => {
@@ -315,5 +315,24 @@ describe("upgradeUrl", () => {
     test("a path the app doesn't have goes Home", () => {
         expect(upgradeUrl("/races", "")).toBe("/")
         expect(upgradeUrl("/races", "?vault=debug")).toBe("/?vault=debug")
+    })
+})
+
+describe("a team page's drivers compared", () => {
+    test("read: F1DB ids, each once; absent, the page picks", () => {
+        expect(
+            readCompared(
+                "?compare=charles-leclerc,lewis-hamilton,Bad,,charles-leclerc"
+            )
+        ).toEqual(["charles-leclerc", "lewis-hamilton"])
+        expect(readCompared("?compare=")).toEqual([])
+        expect(readCompared("")).toBeNull()
+    })
+
+    test("written with the rest of the query kept; none, left out", () => {
+        expect(
+            withCompared("?now=2026-05-01", ["max-verstappen", "sergio-perez"])
+        ).toBe("?compare=max-verstappen,sergio-perez&now=2026-05-01")
+        expect(withCompared("?compare=max-verstappen", [])).toBe("")
     })
 })

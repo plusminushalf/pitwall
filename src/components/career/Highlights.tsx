@@ -234,7 +234,15 @@ export function Tally({
 }
 
 /** "12–4", the leader's figure bold. */
-function Score({ a, b }: { a: number; b: number }) {
+export function Score({
+    a,
+    b,
+    show = String
+}: {
+    a: number
+    b: number
+    show?: (n: number) => string
+}) {
     return (
         <>
             <span
@@ -242,7 +250,7 @@ function Score({ a, b }: { a: number; b: number }) {
                     a > b ? "font-semibold text-zinc-50" : "text-zinc-300"
                 }
             >
-                {a}
+                {show(a)}
             </span>
             <span className="text-zinc-500">–</span>
             <span
@@ -250,7 +258,7 @@ function Score({ a, b }: { a: number; b: number }) {
                     b > a ? "font-semibold text-zinc-50" : "text-zinc-300"
                 }
             >
-                {b}
+                {show(b)}
             </span>
         </>
     )

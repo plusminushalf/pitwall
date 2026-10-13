@@ -8,6 +8,7 @@
 //   /circuit/singapore                               a circuit: every session there, and its history (../circuit.ts)
 //   /driver/max-verstappen                           a driver: their season and career (F1DB's driver id)
 //   /team/red-bull                                   a team: its season and history (F1DB's constructor id)
+//   /team/ferrari?compare=charles-leclerc,lewis-hamilton   its drivers compared (up to 3, F1DB's driver ids)
 //   /session/11377?dash=strategy                     a dashboard other than the first (grid/dashboards.ts); live too
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
 //   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't a preset's
@@ -59,6 +60,7 @@ const LIVE_PATH = /^\/live\/?$/
 const CIRCUIT_PATH = /^\/circuit\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
 const DRIVER_PATH = /^\/driver\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
 const TEAM_PATH = /^\/team\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
+const DRIVER_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
 const OWN = new Set([
     "session",
@@ -85,6 +87,24 @@ export const livePath = "/live"
 export const circuitPath = (slug: string) => `/circuit/${slug}`
 export const driverPath = (id: string) => `/driver/${id}`
 export const teamPath = (id: string) => `/team/${id}`
+
+/** A team page's drivers compared, as its address says them; null when it doesn't (the page picks). */
+export function readCompared(search: string): string[] | null {
+    const v = new URLSearchParams(search).get("compare")
+    return v == null
+        ? null
+        : [...new Set(v.split(",").filter((id) => DRIVER_ID.test(id)))]
+}
+
+/** `search` with the drivers compared in it (none: left out), the rest of it kept. */
+export function withCompared(search: string, ids: readonly string[]): string {
+    const q = new URLSearchParams(search)
+    q.delete("compare")
+    const rest = q.toString()
+    const own = ids.length > 0 ? `compare=${ids.join(",")}` : ""
+    const all = [own, rest].filter(Boolean).join("&")
+    return all ? `?${all}` : ""
+}
 
 export function readUrl(pathname: string, search: string): UrlState {
     const q = new URLSearchParams(search)

@@ -7,6 +7,8 @@ import {
     milestones,
     summarize,
     tally,
+    teamDriverRecord,
+    teamHeadToHeads,
     teamOutings,
     winStreak
 } from "./careerStats"
@@ -136,6 +138,32 @@ describe("a team's races", () => {
         ).toEqual([
             ["max", 2, 4],
             ["checo", 0, 4]
+        ])
+    })
+
+    test("its drivers side by side: each one's record in its cars, and against each other", () => {
+        expect(teamDriverRecord(team, "checo")).toMatchObject({
+            driverId: "checo",
+            years: [2024, 2025],
+            seasons: 2,
+            races: 4,
+            wins: 0,
+            podiums: 2,
+            points: 49,
+            best: { pos: 2 },
+            fastestLaps: 0
+        })
+        expect(teamDriverRecord(team, "lando")).toBeNull()
+        expect(teamHeadToHeads(team, ["checo", "lando", "max"])).toEqual([
+            {
+                driverId: "checo",
+                mateId: "max",
+                races: 4,
+                quali: [1, 3],
+                race: [1, 3],
+                points: [49, 60],
+                years: [2024, 2025]
+            }
         ])
     })
 })

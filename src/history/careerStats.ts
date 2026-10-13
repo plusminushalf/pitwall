@@ -351,3 +351,54 @@ export function tally(outings: readonly Outing[], by: "team" | "driver") {
 
 /** The latest `n` outings, newest last. */
 export const form = (outings: readonly Outing[], n = 5) => outings.slice(-n)
+
+/** A team's races as one of its drivers raced them: their car, and the team's others as teammates. */
+export const asDriverRaces = (
+    races: readonly TeamRace[],
+    driverId: string
+): DriverRace[] =>
+    races.flatMap(({ cars, ...race }) => {
+        const car = cars.find((c) => c.driverId === driverId)
+        return car
+            ? [{ ...race, car, mates: cars.filter((c) => c !== car) }]
+            : []
+    })
+
+/** What a driver did in a team's cars, for setting its drivers side by side. */
+export interface TeamDriverRecord extends SeasonSummary {
+    driverId: string
+    /** First and last season with the team, and how many. */
+    years: [number, number]
+    seasons: number
+    fastestLaps: number
+}
+
+/** The driver's record with the team, from its races; null if they never raced for it. */
+export function teamDriverRecord(
+    races: readonly TeamRace[],
+    driverId: string
+): TeamDriverRecord | null {
+    const own = asDriverRaces(races, driverId)
+    if (own.length === 0) return null
+    const years = new Set(own.map((r) => r.year))
+    return {
+        ...summarize(driverOutings(own)),
+        driverId,
+        years: [own[0].year, own[own.length - 1].year],
+        seasons: years.size,
+        fastestLaps: own.filter((r) => r.car.fastestLap).length
+    }
+}
+
+/** Each pair of the drivers that shared the team, as headToHeads counts it: the first given on the left. */
+export function teamHeadToHeads(
+    races: readonly TeamRace[],
+    driverIds: readonly string[]
+): (HeadToHead & { driverId: string })[] {
+    return driverIds.flatMap((a, i) => {
+        const later = new Set(driverIds.slice(i + 1))
+        return headToHeads(asDriverRaces(races, a))
+            .filter((h) => later.has(h.mateId))
+            .map((h) => ({ ...h, driverId: a }))
+    })
+}
