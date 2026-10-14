@@ -2,13 +2,13 @@ import { describe, expect, test } from "bun:test"
 import {
     bestCircuits,
     driverOutings,
+    driverRecord,
     driverSplit,
     headToHeads,
+    meetings,
     milestones,
     summarize,
     tally,
-    teamDriverRecord,
-    teamHeadToHeads,
     teamOutings,
     winStreak
 } from "./careerStats"
@@ -140,30 +140,56 @@ describe("a team's races", () => {
             ["checo", 0, 4]
         ])
     })
+})
 
-    test("its drivers side by side: each one's record in its cars, and against each other", () => {
-        expect(teamDriverRecord(team, "checo")).toMatchObject({
+describe("any two drivers side by side", () => {
+    // Checo's own races: two of them with Max (above), one without.
+    const checo: DriverRace[] = [
+        {
+            ...ref(2, 2025, "zandvoort"),
+            car: car("checo", 2, { quali: 2, grid: 2, points: 18 }),
+            mates: []
+        },
+        {
+            ...ref(3, 2025, "zandvoort"),
+            car: car("checo", 3, { quali: 2, grid: 2, points: 15 }),
+            mates: []
+        },
+        {
+            ...ref(9, 2026),
+            car: car("checo", 6, {
+                quali: 7,
+                grid: 7,
+                points: 8,
+                fastestLap: true
+            }),
+            mates: []
+        }
+    ]
+
+    test("a record over their races; none, null", () => {
+        expect(driverRecord(checo, "checo")).toMatchObject({
             driverId: "checo",
-            years: [2024, 2025],
+            years: [2025, 2026],
             seasons: 2,
-            races: 4,
-            wins: 0,
+            races: 3,
             podiums: 2,
-            points: 49,
+            points: 41,
             best: { pos: 2 },
-            fastestLaps: 0
+            fastestLaps: 1
         })
-        expect(teamDriverRecord(team, "lando")).toBeNull()
-        expect(teamHeadToHeads(team, ["checo", "lando", "max"])).toEqual([
-            {
-                driverId: "checo",
-                mateId: "max",
-                races: 4,
-                quali: [1, 3],
-                race: [1, 3],
-                points: [49, 60],
-                years: [2024, 2025]
-            }
-        ])
+        expect(driverRecord([], "lando")).toBeNull()
+    })
+
+    test("against each other in the races both started, teammates or not", () => {
+        expect(meetings(races, checo)).toEqual({
+            mateId: "checo",
+            races: 2,
+            quali: [1, 1],
+            race: [1, 1],
+            points: [25, 33],
+            years: [2025, 2025]
+        })
+        expect(meetings(races, checo.slice(2))).toBeNull()
     })
 })

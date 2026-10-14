@@ -2,12 +2,15 @@
 // ../../history/careers.ts). A row opens the driver's page (../career/DriverPage.tsx): their season and career. Each
 // reads position, the team's colour, name and car number, team, the season's wins, podiums and poles, points and the gap to the
 // leader. Drivers who raced this season but not the latest round (stand-ins, drivers replaced) follow, quieter.
+// Ticking up to three opens them compared (../career/ComparePage.tsx), from the bar that comes up under the sheet.
 
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import { byStanding, fetchDriverIndex } from "../../history/careers"
 import type { SeasonDriver } from "../../history/types"
 import { useReplay } from "../../store"
+import { MAX_COMPARED } from "../career/ComparePage"
 import { SeasonNote, TeamStripe, useHistoryFile } from "../career/common"
+import { FOCUS } from "../controls"
 import {
     AT_40,
     AT_52,
@@ -35,15 +38,25 @@ function rounds(list: number[]): string {
     return out.join(", ")
 }
 
+/** The drivers ticked to compare, and ticking one (or not). */
+interface Ticks {
+    picked: string[]
+    toggle: (id: string) => void
+}
+
 function Row({
     d,
     leader,
-    quiet
+    quiet,
+    ticks
 }: {
     d: SeasonDriver
     leader: number
     quiet: boolean
+    ticks: Ticks
 }) {
+    const ticked = ticks.picked.includes(d.id)
+    const full = ticks.picked.length >= MAX_COMPARED
     const openDriver = useReplay((s) => s.openDriver)
     const team = (
         <>
@@ -58,6 +71,22 @@ function Row({
             grid={STANDINGS_GRID}
             onOpen={() => openDriver(d.id)}
             title={`${d.name}: the season and the career`}
+            raised={ticked}
+            lead={
+                <input
+                    type="checkbox"
+                    checked={ticked}
+                    disabled={!ticked && full}
+                    onChange={() => ticks.toggle(d.id)}
+                    aria-label={`Compare ${d.name}`}
+                    title={
+                        !ticked && full
+                            ? `Up to ${MAX_COMPARED} drivers at a time`
+                            : `Compare ${d.name}`
+                    }
+                    className={`h-4 w-4 cursor-pointer accent-zinc-100 disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-5 pointer-coarse:w-5 ${FOCUS}`}
+                />
+            }
         >
             <span
                 className={`font-bold tabular-nums ${quiet ? "text-zinc-400" : "text-zinc-50"}`}
@@ -110,8 +139,62 @@ function Row({
     )
 }
 
+/** Under the sheet while drivers are ticked: who, and the button that compares them. */
+function CompareBar({
+    picked,
+    names,
+    clear
+}: {
+    picked: string[]
+    names: (id: string) => string
+    clear: () => void
+}) {
+    const openCompare = useReplay((s) => s.openCompare)
+    if (picked.length === 0) return null
+    return (
+        <div
+            data-shot-control=""
+            className="sticky bottom-4 z-10 mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-zinc-700 bg-zinc-900/95 px-4 py-3 shadow-lg backdrop-blur"
+        >
+            <span className="min-w-0 flex-1 text-sm text-zinc-200">
+                {picked.map(names).join(" v ")}
+                {picked.length < 2 && (
+                    <span className="text-zinc-400"> · tick another</span>
+                )}
+            </span>
+            <button
+                type="button"
+                onClick={clear}
+                className={`h-8 rounded-md px-3 text-sm text-zinc-300 hover:bg-zinc-800 hover:text-zinc-100 ${FOCUS}`}
+            >
+                Clear
+            </button>
+            <button
+                type="button"
+                disabled={picked.length < 2}
+                onClick={() => openCompare(picked)}
+                className={`h-8 rounded-md bg-zinc-100 px-3 text-sm font-semibold text-zinc-950 hover:bg-white disabled:cursor-not-allowed disabled:bg-zinc-700 disabled:text-zinc-400 ${FOCUS}`}
+            >
+                Compare {picked.length > 1 ? picked.length : ""} drivers
+            </button>
+        </div>
+    )
+}
+
 export function Drivers({ heading }: { heading: ReactNode }) {
     const index = useHistoryFile("index", loadIndex)
+    const [picked, setPicked] = useState<string[]>([])
+    const ticks: Ticks = {
+        picked,
+        toggle: (id) =>
+            setPicked((p) =>
+                p.includes(id)
+                    ? p.filter((x) => x !== id)
+                    : p.length < MAX_COMPARED
+                      ? [...p, id]
+                      : p
+            )
+    }
 
     let body: ReactNode
     if (index == null)
@@ -139,15 +222,25 @@ export function Drivers({ heading }: { heading: ReactNode }) {
                 <SeasonNote
                     through={through}
                     source={index.source}
-                    className="mb-3 px-3"
+                    className="px-3"
                 />
+                <p className="mb-3 mt-1 px-3 text-xs text-zinc-400">
+                    Tick up to {MAX_COMPARED} drivers to compare them.
+                </p>
                 <Sheet
                     label={`${index.year} drivers' championship`}
                     grid={STANDINGS_GRID}
                     columns={<StandingsColumns who="Driver" with="Team" />}
+                    lead={<span className="sr-only">Compare</span>}
                 >
                     {grid.map((d) => (
-                        <Row key={d.id} d={d} leader={leader} quiet={false} />
+                        <Row
+                            key={d.id}
+                            d={d}
+                            leader={leader}
+                            quiet={false}
+                            ticks={ticks}
+                        />
                     ))}
                 </Sheet>
                 {others.length > 0 && (
@@ -162,13 +255,27 @@ export function Drivers({ heading }: { heading: ReactNode }) {
                                     with="Team · rounds"
                                 />
                             }
+                            lead={<span className="sr-only">Compare</span>}
                         >
                             {others.map((d) => (
-                                <Row key={d.id} d={d} leader={leader} quiet />
+                                <Row
+                                    key={d.id}
+                                    d={d}
+                                    leader={leader}
+                                    quiet
+                                    ticks={ticks}
+                                />
                             ))}
                         </Sheet>
                     </>
                 )}
+                <CompareBar
+                    picked={picked}
+                    names={(id) =>
+                        index.drivers.find((d) => d.id === id)?.lastName ?? id
+                    }
+                    clear={() => setPicked([])}
+                />
             </>
         )
     }

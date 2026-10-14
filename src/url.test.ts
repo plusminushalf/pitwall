@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { must } from "./lib/must"
-import { readCompared, readUrl, upgradeUrl, urlFor, withCompared } from "./url"
+import { readUrl, upgradeUrl, urlFor } from "./url"
 
 describe("readUrl", () => {
     test("Home", () => {
@@ -318,21 +318,34 @@ describe("upgradeUrl", () => {
     })
 })
 
-describe("a team page's drivers compared", () => {
-    test("read: F1DB ids, each once; absent, the page picks", () => {
+describe("drivers compared", () => {
+    test("read: F1DB ids, each once; none yet", () => {
         expect(
-            readCompared(
-                "?compare=charles-leclerc,lewis-hamilton,Bad,,charles-leclerc"
-            )
-        ).toEqual(["charles-leclerc", "lewis-hamilton"])
-        expect(readCompared("?compare=")).toEqual([])
-        expect(readCompared("")).toBeNull()
+            readUrl(
+                "/compare/lando-norris-vs-oscar-piastri-vs-lando-norris",
+                ""
+            ).versus
+        ).toEqual(["lando-norris", "oscar-piastri"])
+        expect(readUrl("/compare/carlos-sainz-jr", "").versus).toEqual([
+            "carlos-sainz-jr"
+        ])
+        expect(readUrl("/compare", "").versus).toEqual([])
+        expect(readUrl("/compare/Bad", "").versus).toBeUndefined()
+        expect(upgradeUrl("/compare/a-vs-b", "")).toBeNull()
     })
 
-    test("written with the rest of the query kept; none, left out", () => {
-        expect(
-            withCompared("?now=2026-05-01", ["max-verstappen", "sergio-perez"])
-        ).toBe("?compare=max-verstappen,sergio-perez&now=2026-05-01")
-        expect(withCompared("?compare=max-verstappen", [])).toBe("")
+    test("written", () => {
+        const at = (versus: string[]) =>
+            urlFor({
+                live: false,
+                session: null,
+                drivers: [],
+                focus: null,
+                versus
+            })
+        expect(at(["max-verstappen", "sergio-perez"])).toBe(
+            "/compare/max-verstappen-vs-sergio-perez"
+        )
+        expect(at([])).toBe("/compare")
     })
 })

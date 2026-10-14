@@ -87,50 +87,73 @@ export interface HeadToHead {
     years: [number, number]
 }
 
+/** One race more in a head-to-head: who qualified ahead, who finished ahead, the points each. */
+function score(
+    h: HeadToHead,
+    mine: CarResult,
+    theirs: CarResult,
+    year: number
+) {
+    h.races++
+    const q = [mine.quali ?? mine.grid, theirs.quali ?? theirs.grid]
+    if (q[0] != null && q[1] != null && q[0] > 0 && q[1] > 0 && q[0] !== q[1])
+        h.quali[q[0] < q[1] ? 0 : 1]++
+    if (mine.order !== theirs.order) h.race[mine.order < theirs.order ? 0 : 1]++
+    h.points = [
+        h.points[0] + (mine.points ?? 0),
+        h.points[1] + (theirs.points ?? 0)
+    ]
+    h.years = [Math.min(h.years[0], year), Math.max(h.years[1], year)]
+}
+
+const versus = (mateId: string, year: number): HeadToHead => ({
+    mateId,
+    races: 0,
+    quali: [0, 0],
+    race: [0, 0],
+    points: [0, 0],
+    years: [year, year]
+})
+
+const rounded = (h: HeadToHead): HeadToHead => ({
+    ...h,
+    points: [
+        Math.round(h.points[0] * 100) / 100,
+        Math.round(h.points[1] * 100) / 100
+    ]
+})
+
 /** The driver against each teammate, the most races together first. */
 export function headToHeads(races: readonly DriverRace[]): HeadToHead[] {
     const by = new Map<string, HeadToHead>()
-    for (const r of races) {
+    for (const r of races)
         for (const m of r.mates) {
-            const h = by.get(m.driverId) ?? {
-                mateId: m.driverId,
-                races: 0,
-                quali: [0, 0],
-                race: [0, 0],
-                points: [0, 0],
-                years: [r.year, r.year]
-            }
-            h.races++
-            const q = [r.car.quali ?? r.car.grid, m.quali ?? m.grid]
-            if (
-                q[0] != null &&
-                q[1] != null &&
-                q[0] > 0 &&
-                q[1] > 0 &&
-                q[0] !== q[1]
-            )
-                h.quali[q[0] < q[1] ? 0 : 1]++
-            if (r.car.order !== m.order) h.race[r.car.order < m.order ? 0 : 1]++
-            h.points = [
-                h.points[0] + (r.car.points ?? 0),
-                h.points[1] + (m.points ?? 0)
-            ]
-            h.years = [
-                Math.min(h.years[0], r.year),
-                Math.max(h.years[1], r.year)
-            ]
+            const h = by.get(m.driverId) ?? versus(m.driverId, r.year)
+            score(h, r.car, m, r.year)
             by.set(m.driverId, h)
         }
-    }
     return [...by.values()]
-        .map((h) => ({
-            ...h,
-            points: [
-                Math.round(h.points[0] * 100) / 100,
-                Math.round(h.points[1] * 100) / 100
-            ] as [number, number]
-        }))
+        .map(rounded)
         .sort((a, b) => b.races - a.races || b.years[1] - a.years[1])
+}
+
+/**
+ * Two drivers in every Grand Prix they both started, teammates or not, counted as headToHeads counts teammates
+ * (`mateId`: the second driver). Null if they never raced each other.
+ */
+export function meetings(
+    a: readonly DriverRace[],
+    b: readonly DriverRace[]
+): HeadToHead | null {
+    const theirs = new Map(b.map((r) => [r.raceId, r.car]))
+    let h: HeadToHead | null = null
+    for (const r of a) {
+        const other = theirs.get(r.raceId)
+        if (!other) continue
+        h ??= versus(other.driverId, r.year)
+        score(h, r.car, other, r.year)
+    }
+    return h && rounded(h)
 }
 
 /** Each driver's share of a team's season: races, points, wins, best finish. Most points first. */
@@ -352,53 +375,26 @@ export function tally(outings: readonly Outing[], by: "team" | "driver") {
 /** The latest `n` outings, newest last. */
 export const form = (outings: readonly Outing[], n = 5) => outings.slice(-n)
 
-/** A team's races as one of its drivers raced them: their car, and the team's others as teammates. */
-export const asDriverRaces = (
-    races: readonly TeamRace[],
+/** What a driver did over some of their races, for setting drivers side by side. */
+export interface DriverRecord extends SeasonSummary {
     driverId: string
-): DriverRace[] =>
-    races.flatMap(({ cars, ...race }) => {
-        const car = cars.find((c) => c.driverId === driverId)
-        return car
-            ? [{ ...race, car, mates: cars.filter((c) => c !== car) }]
-            : []
-    })
-
-/** What a driver did in a team's cars, for setting its drivers side by side. */
-export interface TeamDriverRecord extends SeasonSummary {
-    driverId: string
-    /** First and last season with the team, and how many. */
+    /** First and last season, and how many. */
     years: [number, number]
     seasons: number
     fastestLaps: number
 }
 
-/** The driver's record with the team, from its races; null if they never raced for it. */
-export function teamDriverRecord(
-    races: readonly TeamRace[],
+/** The driver's record over `races` (theirs, oldest first); null with none. */
+export function driverRecord(
+    races: readonly DriverRace[],
     driverId: string
-): TeamDriverRecord | null {
-    const own = asDriverRaces(races, driverId)
-    if (own.length === 0) return null
-    const years = new Set(own.map((r) => r.year))
+): DriverRecord | null {
+    if (races.length === 0) return null
     return {
-        ...summarize(driverOutings(own)),
+        ...summarize(driverOutings(races)),
         driverId,
-        years: [own[0].year, own[own.length - 1].year],
-        seasons: years.size,
-        fastestLaps: own.filter((r) => r.car.fastestLap).length
+        years: [races[0].year, races[races.length - 1].year],
+        seasons: new Set(races.map((r) => r.year)).size,
+        fastestLaps: races.filter((r) => r.car.fastestLap).length
     }
-}
-
-/** Each pair of the drivers that shared the team, as headToHeads counts it: the first given on the left. */
-export function teamHeadToHeads(
-    races: readonly TeamRace[],
-    driverIds: readonly string[]
-): (HeadToHead & { driverId: string })[] {
-    return driverIds.flatMap((a, i) => {
-        const later = new Set(driverIds.slice(i + 1))
-        return headToHeads(asDriverRaces(races, a))
-            .filter((h) => later.has(h.mateId))
-            .map((h) => ({ ...h, driverId: a }))
-    })
 }

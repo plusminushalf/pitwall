@@ -1,8 +1,7 @@
 // A team's page (/team/<F1DB constructor id>, ../../url.ts), read top down as a driver's is: what it is and who drives
 // for it; its season (the one under way, or its last): its figures, its drivers' shares, race by race; its history:
-// its figures, firsts and lasts, runs, its most successful drivers, best circuits; up to three of its drivers compared
-// (./CompareDrivers.tsx); then every season. From F1DB (../../history/careers.ts). Reached from Home's Teams tab and
-// from team names on driver pages.
+// its figures, firsts and lasts, runs, its most successful drivers, best circuits; then every season. From F1DB
+// (../../history/careers.ts). Reached from Home's Teams tab and from team names on driver pages.
 
 import { useEffect, useMemo } from "react"
 import {
@@ -16,7 +15,6 @@ import type { TeamHistory, TeamRace, TeamTotals } from "../../history/types"
 import { currentYear } from "../../library"
 import { useShareHeading } from "../../share/ShareCard"
 import { LABEL } from "../controls"
-import { CompareDrivers } from "./CompareDrivers"
 import {
     Block,
     CareerPage,
@@ -449,7 +447,6 @@ export function TeamPage({ id }: { id: string }) {
                         />
                     )}
                     <History h={h} />
-                    <CompareDrivers key={h.team.id} h={h} />
                     <Section title="Seasons">
                         <Seasons h={h} />
                     </Section>

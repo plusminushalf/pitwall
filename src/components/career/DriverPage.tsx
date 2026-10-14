@@ -20,7 +20,8 @@ import type {
 } from "../../history/types"
 import { currentYear } from "../../library"
 import { useShareHeading } from "../../share/ShareCard"
-import { LABEL } from "../controls"
+import { useReplay } from "../../store"
+import { FOCUS, LABEL } from "../controls"
 import {
     Block,
     CareerPage,
@@ -317,6 +318,7 @@ function Career({ h }: { h: DriverHistory }) {
 
 export function DriverPage({ id }: { id: string }) {
     const h = useHistoryFile(id, fetchDriverHistory)
+    const openCompare = useReplay((s) => s.openCompare)
     const d = h && h !== "none" ? h.driver : null
     const last = h && h !== "none" ? h.races.at(-1) : undefined
     const teamId = last?.year === currentYear() ? last.car.constructorId : null
@@ -379,6 +381,14 @@ export function DriverPage({ id }: { id: string }) {
                                 ? ` · died ${longDate(h.driver.dateOfDeath)}, aged ${age(h.driver.dateOfBirth, h.driver.dateOfDeath)}`
                                 : ` · age ${age(h.driver.dateOfBirth, today)}`}
                         </p>
+                        <button
+                            type="button"
+                            data-shot-control=""
+                            onClick={() => openCompare([h.driver.id])}
+                            className={`mt-4 flex h-8 items-center gap-1.5 rounded-md bg-zinc-800 px-3 text-sm font-semibold text-zinc-100 hover:bg-zinc-700 ${FOCUS}`}
+                        >
+                            Compare with…
+                        </button>
                     </header>
                     {last && (
                         <Season

@@ -13,7 +13,7 @@ const MIN_WRITE_INTERVAL_MS = 1_000
 const SAVE_WATCHED_MS = 1_000
 
 /**
- * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), a circuit, a driver, a team, or Home. On
+ * Show what the URL says (addresses in ../url.ts): live mode, a session (or the offer to watch it), a circuit, a driver, a team, drivers compared, or Home. On
  * startup (once the library is read) and on the browser's Back / Forward; never adds a history entry.
  */
 export function applyUrl() {
@@ -26,6 +26,7 @@ export function applyUrl() {
         library.setLink(null)
         if (url.circuit) return useReplay.getState().showCircuit(url.circuit)
         if (url.driver) return useReplay.getState().showDriver(url.driver)
+        if (url.versus) return useReplay.getState().showCompare(url.versus)
         return url.team
             ? useReplay.getState().showTeam(url.team)
             : useReplay.getState().showHome()

@@ -8,7 +8,7 @@
 //   /circuit/singapore                               a circuit: every session there, and its history (../circuit.ts)
 //   /driver/max-verstappen                           a driver: their season and career (F1DB's driver id)
 //   /team/red-bull                                   a team: its season and history (F1DB's constructor id)
-//   /team/ferrari?compare=charles-leclerc,lewis-hamilton   its drivers compared (up to 3, F1DB's driver ids)
+//   /compare/lando-norris-vs-oscar-piastri           drivers compared (up to 3, F1DB's driver ids); /compare: none yet
 //   /session/11377?dash=strategy                     a dashboard other than the first (grid/dashboards.ts); live too
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
 //   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't a preset's
@@ -39,6 +39,8 @@ export interface UrlState {
     driver?: string
     /** A team's page (no session open): F1DB's constructor id. */
     team?: string
+    /** Drivers compared (no session open): F1DB's driver ids, maybe none yet. */
+    versus?: string[]
 }
 
 /** How a shared link sets up the lap comparison (qualifying, practice's Fastest laps). */
@@ -60,7 +62,7 @@ const LIVE_PATH = /^\/live\/?$/
 const CIRCUIT_PATH = /^\/circuit\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
 const DRIVER_PATH = /^\/driver\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
 const TEAM_PATH = /^\/team\/([a-z0-9]+(?:-[a-z0-9]+)*)\/?$/
-const DRIVER_ID = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
+const COMPARE_PATH = /^\/compare(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?\/?$/
 /** The query parameters this file owns; others (`?vault=debug`, `?now=`) are left alone. */
 const OWN = new Set([
     "session",
@@ -88,23 +90,9 @@ export const circuitPath = (slug: string) => `/circuit/${slug}`
 export const driverPath = (id: string) => `/driver/${id}`
 export const teamPath = (id: string) => `/team/${id}`
 
-/** A team page's drivers compared, as its address says them; null when it doesn't (the page picks). */
-export function readCompared(search: string): string[] | null {
-    const v = new URLSearchParams(search).get("compare")
-    return v == null
-        ? null
-        : [...new Set(v.split(",").filter((id) => DRIVER_ID.test(id)))]
-}
-
-/** `search` with the drivers compared in it (none: left out), the rest of it kept. */
-export function withCompared(search: string, ids: readonly string[]): string {
-    const q = new URLSearchParams(search)
-    q.delete("compare")
-    const rest = q.toString()
-    const own = ids.length > 0 ? `compare=${ids.join(",")}` : ""
-    const all = [own, rest].filter(Boolean).join("&")
-    return all ? `?${all}` : ""
-}
+/** Drivers compared: "/compare/lando-norris-vs-oscar-piastri", or "/compare" before any are picked. */
+export const comparePath = (ids: readonly string[]) =>
+    ids.length > 0 ? `/compare/${ids.join("-vs-")}` : "/compare"
 
 export function readUrl(pathname: string, search: string): UrlState {
     const q = new URLSearchParams(search)
@@ -114,6 +102,7 @@ export function readUrl(pathname: string, search: string): UrlState {
     const circuit = CIRCUIT_PATH.exec(pathname)?.[1]
     const driver = DRIVER_PATH.exec(pathname)?.[1]
     const team = TEAM_PATH.exec(pathname)?.[1]
+    const versus = COMPARE_PATH.exec(pathname)
     const t = num("t")
     const legacy = num("driver")
     const range = /^(\d+)-(\d+)$/.exec(q.get("range") ?? "")
@@ -153,7 +142,10 @@ export function readUrl(pathname: string, search: string): UrlState {
         ...(dash != null && DASHBOARD_ID.test(dash) ? { dash } : {}),
         ...(circuit && !live && session == null ? { circuit } : {}),
         ...(driver && !live && session == null ? { driver } : {}),
-        ...(team && !live && session == null ? { team } : {})
+        ...(team && !live && session == null ? { team } : {}),
+        ...(versus && !live && session == null
+            ? { versus: [...new Set(versus[1]?.split("-vs-") ?? [])] }
+            : {})
     }
 }
 
@@ -194,7 +186,9 @@ export function urlFor(v: UrlState): string {
               ? driverPath(v.driver)
               : v.team
                 ? teamPath(v.team)
-                : "/"
+                : v.versus
+                  ? comparePath(v.versus)
+                  : "/"
     const q: string[] = []
     if (!v.live && v.view) q.push(`view=${v.view}`)
     if (v.session != null && v.t != null)
@@ -235,7 +229,8 @@ export function upgradeUrl(pathname: string, search: string): string | null {
         SESSION_PATH.test(pathname) ||
         CIRCUIT_PATH.test(pathname) ||
         DRIVER_PATH.test(pathname) ||
-        TEAM_PATH.test(pathname)
+        TEAM_PATH.test(pathname) ||
+        COMPARE_PATH.test(pathname)
     const legacy =
         q.has("live") || q.has("driver") || (q.has("session") && !live)
     if (known && !legacy) return null

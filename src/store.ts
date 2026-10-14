@@ -28,6 +28,7 @@ import { fetchSession, listPlayable } from "./storage/load"
 import type { SessionIndexEntry, SessionMeta } from "./types"
 import {
     circuitPath,
+    comparePath,
     driverPath,
     livePath,
     readUrl,
@@ -54,7 +55,7 @@ export type Mode = "replay" | "live"
  * The Home page (library + calendar), a circuit's page (its sessions over the years, and its history), or the session
  * on screen (a replay, live mode, or the offer to download a linked one).
  */
-export type View = "home" | "circuit" | "driver" | "team" | "replay"
+export type View = "home" | "circuit" | "driver" | "team" | "compare" | "replay"
 
 /**
  * A finished session's two screens: the replay, or its laps compared (the Fastest laps). Practice opens on the replay
@@ -131,7 +132,9 @@ const initialView = (): View =>
             ? "driver"
             : initialUrl?.team
               ? "team"
-              : "home"
+              : initialUrl?.versus
+                ? "compare"
+                : "home"
 
 /**
  * History entries opened from Home or a circuit's page: the Races button goes back to it rather than stacking another
@@ -443,6 +446,8 @@ interface ReplayState {
     driver: string | null
     /** The team page on screen (F1DB's constructor id). */
     team: string | null
+    /** The drivers compared on the compare page (F1DB's driver ids), maybe none yet. */
+    versus: string[]
     live: LiveInfo
     /** Latest live edge from the relay (ms since meta.t0), updated with every message. */
     liveEdge: number
@@ -492,6 +497,12 @@ interface ReplayState {
     openTeam: (id: string) => void
     /** openTeam() without touching history. */
     showTeam: (id: string) => void
+    /** Drivers compared (a new history entry), as openCircuit(). */
+    openCompare: (ids: string[]) => void
+    /** openCompare() without touching history. */
+    showCompare: (ids: string[]) => void
+    /** Other drivers on the compare page: the address follows, no new entry. */
+    setVersus: (ids: string[]) => void
     publish: () => void
     seek: (t: number) => void
     seekBy: (dt: number) => void
@@ -715,6 +726,7 @@ export const useReplay = create<ReplayState>((set, get) => {
         circuit: initialUrl?.circuit ?? null,
         driver: initialUrl?.driver ?? null,
         team: initialUrl?.team ?? null,
+        versus: initialUrl?.versus ?? [],
         live: NO_LIVE,
         liveEdge: 0,
         followLive: false,
@@ -941,6 +953,35 @@ export const useReplay = create<ReplayState>((set, get) => {
                 playing: false,
                 latched: false
             })
+        },
+
+        openCompare: (ids) => {
+            const { view } = get()
+            history.pushState(
+                view === "home" ? { fromHome: true } : null,
+                "",
+                comparePath(ids)
+            )
+            get().showCompare(ids)
+        },
+
+        showCompare: (ids) => {
+            autoplayPending = false
+            if (get().mode === "live") restoreReplay()
+            set({
+                view: "compare",
+                versus: ids,
+                circuit: null,
+                driver: null,
+                team: null,
+                playing: false,
+                latched: false
+            })
+        },
+
+        setVersus: (ids) => {
+            history.replaceState(history.state, "", comparePath(ids))
+            set({ versus: ids })
         },
 
         publish: () => {

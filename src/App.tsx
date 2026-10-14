@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect } from "react"
+import { ComparePage } from "./components/career/ComparePage"
 import { DriverPage } from "./components/career/DriverPage"
 import { TeamPage } from "./components/career/TeamPage"
 import { CircuitPage } from "./components/circuit/CircuitPage"
@@ -114,6 +115,7 @@ export function App() {
         page = <CircuitPage slug={circuit} />
     else if (view === "driver" && driver) page = <DriverPage id={driver} />
     else if (view === "team" && team) page = <TeamPage id={team} />
+    else if (view === "compare") page = <ComparePage />
     // Live mode before there's a live session to show: connecting, relay offline, or no race right now.
     else if (!session && live) page = <LiveScreen />
     // A shared link to a session that isn't downloaded: offer to.

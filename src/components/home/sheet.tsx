@@ -10,49 +10,69 @@ export const AT_40 = "hidden @[40rem]:block"
 export const AT_52 = "hidden @[52rem]:block"
 export const AT_66 = "hidden @[66rem]:block"
 
-/** A sheet: its column headers (`grid`, the rows' columns too) over its rows. */
+/** A cell before a row's columns, outside what opens the page: a tick box. */
+const LEAD = "flex w-10 shrink-0 items-center justify-end"
+
+/**
+ * A sheet: its column headers (`grid`, the rows' columns too) over its rows. `lead`: what heads the rows' lead cells
+ * (SheetRow), if they have them.
+ */
 export function Sheet({
     label,
     grid,
     columns,
+    lead,
     children,
     className = ""
 }: {
     label: string
     grid: string
     columns: ReactNode
+    lead?: ReactNode
     children: ReactNode
     className?: string
 }) {
     return (
         <div className={`@container ${className}`}>
             <div
-                className={`${grid} ${LABEL} items-end whitespace-nowrap border-b border-zinc-800 px-3 pb-2`}
+                className={`flex ${LABEL} items-end whitespace-nowrap border-b border-zinc-800 pb-2`}
                 aria-hidden
             >
-                {columns}
+                {lead !== undefined && <span className={LEAD}>{lead}</span>}
+                <div className={`${grid} min-w-0 flex-1 items-end px-3`}>
+                    {columns}
+                </div>
             </div>
             <ul aria-label={label}>{children}</ul>
         </div>
     )
 }
 
-/** A row: the whole of it opens the page. `raised`: the one to look at now (the next weekend). */
+/**
+ * A row: the whole of it opens the page, but for `lead` (a tick box) before it. `raised`: the one to look at now (the
+ * next weekend, a driver ticked).
+ */
 export function SheetRow({
     grid,
     onOpen,
     title,
     raised = false,
+    lead,
     children
 }: {
     grid: string
     onOpen: () => void
     title: string
     raised?: boolean
+    lead?: ReactNode
     children: ReactNode
 }) {
     return (
-        <li data-shot="" className="border-b border-zinc-800/70">
+        <li
+            data-shot=""
+            className={`flex border-b border-zinc-800/70 transition-colors ${raised ? "bg-zinc-900" : "hover:bg-zinc-900"}`}
+        >
+            {lead !== undefined && <span className={LEAD}>{lead}</span>}
             <button
                 type="button"
                 onClick={(e) => {
@@ -60,7 +80,7 @@ export function SheetRow({
                     onOpen()
                 }}
                 title={title}
-                className={`${grid} min-h-11 w-full items-center px-3 py-1.5 text-left text-sm transition-colors focus-visible:-outline-offset-2 ${FOCUS} ${raised ? "bg-zinc-900" : "hover:bg-zinc-900"}`}
+                className={`${grid} min-h-11 min-w-0 flex-1 items-center px-3 py-1.5 text-left text-sm focus-visible:-outline-offset-2 ${FOCUS}`}
             >
                 {children}
             </button>
