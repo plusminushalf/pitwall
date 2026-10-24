@@ -21,6 +21,7 @@ import {
     allLapsAt,
     allPitsAt,
     allStintsAt,
+    bestSectorsAt,
     feedEndAt,
     feedUpTo,
     historyRange,
@@ -223,6 +224,40 @@ describe("pit stops", () => {
         expect(pitsAt(d, 299_000)).toEqual([])
         expect(pitsAt(d, 310_000)).toEqual([]) // in the pit lane: its times aren't known yet
         expect(pitsAt(d, 322_000)).toEqual([stop])
+    })
+})
+
+describe("best sectors", () => {
+    const timed = (
+        driver: number,
+        start: number,
+        sectors: [number | null, number | null, number | null],
+        end: number | null
+    ): Lap => ({ ...lap(1, start, end), driver, sectors })
+    const field = (all: Lap[]) =>
+        ({ meta: { laps: all } }) as unknown as Session
+
+    test("a sector counts once it's crossed, not when the lap ends", () => {
+        // ANT's 25.525 on a finished lap; then VER, HAD and HAM all go under it on laps still being driven.
+        const s = field([
+            timed(12, 0, [25.525, 37.782, 32.083], 95_390),
+            timed(1, 100_000, [25.28, null, null], null),
+            timed(6, 101_000, [25.482, null, null], null),
+            timed(44, 102_000, [25.503, null, null], null)
+        ])
+        expect(bestSectorsAt(s, 0)).toEqual([null, null, null])
+        expect(bestSectorsAt(s, 25_525)).toEqual([25.525, null, null])
+        expect(bestSectorsAt(s, 120_000)).toEqual([25.525, 37.782, 32.083])
+        // VER crosses at 125.28 s, HAD at 126.482, HAM at 127.503: only VER's is the fastest.
+        expect(bestSectorsAt(s, 125_279)[0]).toBe(25.525)
+        expect(bestSectorsAt(s, 125_280)[0]).toBe(25.28)
+        expect(bestSectorsAt(s, 130_000)[0]).toBe(25.28)
+    })
+
+    test("with an earlier sector's time missing, at the lap's end", () => {
+        const s = field([timed(1, 0, [null, 30, 30], 90_000)])
+        expect(bestSectorsAt(s, 89_999)).toEqual([null, null, null])
+        expect(bestSectorsAt(s, 90_000)).toEqual([null, 30, 30])
     })
 })
 

@@ -386,38 +386,67 @@ export const neutralPeriodsAt = (
 ): readonly NeutralPeriod[] =>
     neutral(session, indexAtOrBefore(statusTimes(session.meta), t), t)
 
-/** Every completed lap in the session by end time, with the running best per sector. */
+/** Every completed lap in the session by end time, and each sector's times by when they were set. */
 interface SectorIndex {
     ends: Float64Array
-    best: Float64Array[] // best[k][i] = fastest sector k among the first i + 1 laps to finish
+    /** Per sector: when each time was set (sorted), and best[i] = the fastest among the first i + 1 set. */
+    sectors: { at: Float64Array; best: Float64Array }[]
+}
+
+/**
+ * When a lap's sector k time is set: as the car crosses the sector's end (start plus the sectors up to it), as the
+ * timing screen shows it (lapInProgressAt), or at the lap's end when an earlier sector's time is missing. Null when
+ * neither is known.
+ */
+function sectorSetAt(l: Lap, k: number): number | null {
+    let at = l.start
+    for (let j = 0; j <= k; j++) {
+        const v = l.sectors[j]
+        if (v == null) return l.end
+        at += v * 1000
+    }
+    return l.end == null ? at : Math.min(at, l.end)
 }
 
 const sectorIndex = cached((meta: SessionMeta): SectorIndex => {
-    const laps = meta.laps
+    const ends = meta.laps
         .filter((l): l is Lap & { end: number } => l.end != null)
-        .sort((a, b) => a.end - b.end)
-    const best = [0, 1, 2].map((k) => {
-        const out = new Float64Array(laps.length)
-        let min = Infinity
-        for (let i = 0; i < laps.length; i++) {
-            const v = laps[i].sectors[k]
-            if (v != null && v < min) min = v
-            out[i] = min
+        .map((l) => l.end)
+        .sort((a, b) => a - b)
+    const sectors = [0, 1, 2].map((k) => {
+        const set: [number, number][] = []
+        for (const l of meta.laps) {
+            const v = l.sectors[k]
+            const at = sectorSetAt(l, k)
+            if (v != null && at != null) set.push([at, v])
         }
-        return out
+        set.sort((a, b) => a[0] - b[0])
+        const best = new Float64Array(set.length)
+        let min = Infinity
+        for (let i = 0; i < set.length; i++) {
+            if (set[i][1] < min) min = set[i][1]
+            best[i] = min
+        }
+        return { at: Float64Array.from(set, (x) => x[0]), best }
     })
-    return { ends: Float64Array.from(laps, (l) => l.end), best }
+    return { ends: Float64Array.from(ends), sectors }
 })
 
-/** Fastest time in each sector (seconds) by anyone, among laps finished by t; null before any. */
+/**
+ * Fastest time in each sector (seconds) by anyone by t, counting a sector as soon as it's crossed (a lap still being
+ * driven included, as the timing screen shows it); null before any.
+ */
 export function bestSectorsAt(
     session: Session,
     t: number
 ): [number | null, number | null, number | null] {
-    const { ends, best } = sectorIndex(session.meta)
-    const i = indexAtOrBefore(ends, t)
-    const at = (k: number) =>
-        i >= 0 && Number.isFinite(best[k][i]) ? best[k][i] : null
+    const { sectors } = sectorIndex(session.meta)
+    const at = (k: number) => {
+        const i = indexAtOrBefore(sectors[k].at, t)
+        return i >= 0 && Number.isFinite(sectors[k].best[i])
+            ? sectors[k].best[i]
+            : null
+    }
     return [at(0), at(1), at(2)]
 }
 

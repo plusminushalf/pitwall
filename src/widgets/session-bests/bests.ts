@@ -3,9 +3,9 @@
 // quickest pit stop, each with who set it, on which lap and tyres, and the next driver's best behind it. Pure: the
 // widget feeds it what it has at t (nothing past it).
 //
-// The same rules as the rest of the app, so the purple here is the purple in the tower: a sector counts from any
-// completed lap (useBestSectors), the fastest lap leaves out laps race control has deleted by t (useFastestLap). A tie
-// goes to whoever set it first, as in the timing.
+// The same rules as the rest of the app, so the purple here is the purple in the tower once the lap is done: a sector
+// counts from any completed lap (the tower's useBestSectors counts it as soon as it's crossed), the fastest lap leaves
+// out laps race control has deleted by t (useFastestLap). A tie goes to whoever set it first, as in the timing.
 
 import type { Lap, PitStop, Stint } from "widget-kit"
 
