@@ -19,6 +19,7 @@ import type {
     RawMeeting,
     RawSession
 } from "../../scripts/lib/openf1Types"
+import { parseUtc } from "../../scripts/lib/utc"
 import type { DriverTelemetry } from "../types"
 import type { LiveSnapshot } from "./protocol"
 import { TOPICS, type Topic } from "./topics"
@@ -28,7 +29,7 @@ export type DocTopic = Exclude<Topic, "sessions" | "car_data" | "location">
 
 export type Rec = Record<string, any>
 
-const ms = (iso: unknown) => (typeof iso === "string" ? Date.parse(iso) : NaN)
+const ms = (iso: unknown) => (typeof iso === "string" ? parseUtc(iso) : NaN)
 
 /**
  * Natural document keys. A newer version of a document (MQTT `_key`; e.g. a lap updated as its

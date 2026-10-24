@@ -25,6 +25,7 @@ import {
 import type { NormalizeResult } from "./normalize"
 import type { RawLap, RawPit, RawRaceControl } from "./openf1Types"
 import { prepareQualiLaps } from "./quali"
+import { parseUtc } from "./utc"
 
 /** A replay starts this long before the green light (cars leave the garage from then on). */
 export const PRACTICE_PRE_MS = 60_000
@@ -42,7 +43,7 @@ export function practiceStart(
             (m.category === "SessionStatus" && /STARTED/i.test(m.message)) ||
             (m.category === "Flag" && m.flag === "GREEN" && m.scope === "Track")
         if (!green) continue
-        const t = Date.parse(m.date)
+        const t = parseUtc(m.date)
         if (start == null || t < start) start = t
     }
     return start

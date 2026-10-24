@@ -55,6 +55,7 @@ import {
 import { liveSegments, qualiStandings } from "./qualiLive"
 import { isFreePractice, venueCountry } from "./season"
 import { repairStints } from "./stintRepair"
+import { parseUtc } from "./utc"
 
 const PRE_START_MS = 5 * 60_000 // keep the formation lap
 const POST_FINISH_MS = 3 * 60_000 // keep the last finishers and cool-down
@@ -172,7 +173,7 @@ const parsed = new Map<string, number>()
 function abs(iso: string): number {
     let t = parsed.get(iso)
     if (t === undefined) {
-        t = Date.parse(iso)
+        t = parseUtc(iso)
         if (parsed.size >= 1_000_000) parsed.clear()
         parsed.set(iso, t)
     }
@@ -323,7 +324,7 @@ export class DriverSamples {
     ) {}
 
     addCar(s: RawCarData): void {
-        const t = Math.round(Date.parse(s.date) - this.t0)
+        const t = Math.round(parseUtc(s.date) - this.t0)
         if (!(t >= 0)) return
         const c = this.car
         const { i, same } = place(c.t, t)
@@ -366,7 +367,7 @@ export class DriverSamples {
 
     addLocation(s: RawLocation): void {
         if (s.x === 0 && s.y === 0 && s.z === 0) return // no position signal, not a real point on track
-        const t = Math.round(Date.parse(s.date) - this.t0)
+        const t = Math.round(parseUtc(s.date) - this.t0)
         if (!(t >= 0)) return
         const f = this.fixes
         const { i, same } = place(f.t, t)
@@ -533,7 +534,7 @@ export function endingFlag<T extends { flag: string | null; date: string }>(
         return raceControl.find((m) => m.flag === "CHEQUERED")
     const flags = raceControl
         .filter((m) => m.flag === "CHEQUERED")
-        .sort((a, b) => Date.parse(a.date) - Date.parse(b.date))
+        .sort((a, b) => parseUtc(a.date) - parseUtc(b.date))
     return flags.length >= 3 ? flags.at(-1) : undefined
 }
 
