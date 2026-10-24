@@ -43,17 +43,17 @@ import {
 const ROW_H = 34
 /** The selection line (h-7 and its hairline) and the column titles (py-1.5, a line of 11 px label, the hairline). */
 const HEAD_H = 28 + 1 + 12 + (11 * 20) / 14 + 1
-const PAD = "pl-5 pr-2"
+const PAD = "pl-5 pr-4"
 
 /**
  * Columns by width: all of them; without the laps run; and (narrowest) the sectors as their mini-sectors only. Pos,
  * driver, best and its gap, S1–S3, now, tyre, [laps].
  */
 const FULL = 700
-const MEDIUM = 600
+const MEDIUM = 660
 const colsOf = (width: number) =>
     width >= FULL
-        ? "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,80px)_96px_40px_24px]"
+        ? "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,80px)_96px_40px_32px]"
         : width >= MEDIUM
           ? "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,80px)_96px_40px]"
           : "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,44px)_96px_40px]"
@@ -353,7 +353,7 @@ const Row = memo(function Row({
                     ? `Remove ${d.acronym} from the selection`
                     : `Add ${d.acronym} to the selection (filters the track map)`
             }
-            className={`group absolute inset-x-0 grid ${colsOf(width)} items-center gap-1 border-b border-zinc-800/70 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
+            className={`group absolute inset-x-0 grid ${colsOf(width)} items-center gap-x-2 border-b border-zinc-800/70 ${PAD} text-left transition-transform duration-500 ease-out focus-visible:-outline-offset-2 ${
                 isFocused
                     ? "bg-zinc-800"
                     : isSelected
@@ -523,7 +523,7 @@ function LiveTiming() {
                 )}
             </div>
             <div
-                className={`grid shrink-0 ${colsOf(width)} items-center gap-1 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}
+                className={`grid shrink-0 ${colsOf(width)} items-center gap-x-2 border-b border-zinc-800 ${PAD} py-1.5 ${LABEL_CLASS}`}
             >
                 <span>Pos</span>
                 <span>Driver</span>
