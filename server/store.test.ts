@@ -121,6 +121,42 @@ describe("LiveStore", () => {
         clock.now = 60
         expect(s.now()).toBe(start + 45_000) // 15 s behind the clock
     })
+
+    test("the live edge waits for locations running behind the car data, up to 15 s", () => {
+        const clock = { now: 40 }
+        const s = store(clock)
+        const loc = (t: number) =>
+            s.ingest("location", {
+                driver_number: 1,
+                date: at(t),
+                x: 1,
+                y: 1,
+                z: 0,
+                session_key: 99
+            })
+        const car = (t: number) =>
+            s.ingest("car_data", {
+                driver_number: 1,
+                date: at(t),
+                speed: 200,
+                rpm: 10_000,
+                n_gear: 6,
+                throttle: 100,
+                brake: 0,
+                drs: 0,
+                session_key: 99
+            })
+        car(36)
+        expect(s.now()).toBe(start + 36_000) // no locations yet: the car data's
+        loc(32)
+        expect(s.now()).toBe(start + 32_000) // the cars are drawn up to here
+        car(39)
+        loc(37)
+        expect(s.now()).toBe(start + 37_000)
+        car(55)
+        clock.now = 56
+        expect(s.now()).toBe(start + 55_000) // 18 s behind: dead-reckoned
+    })
 })
 
 describe("LiveSession telemetry", () => {
@@ -183,7 +219,8 @@ describe("LiveSession telemetry", () => {
         for (let i = 1; i < locTimes.length; i++)
             expect(locTimes[i]).toBeGreaterThan(locTimes[i - 1])
         expect(carTimes).toHaveLength(9 * 4)
-        expect(locTimes).toHaveLength(9 * 4) // the live edge is the latest sample, location included
+        // The live edge is the lagging feed's latest sample: the car data's, 0.1 s before the last location.
+        expect(locTimes).toHaveLength(9 * 4 - 1)
         expect(chunks[0].car.t[0]).toBe(600_000 + 5000) // chunk t[0] is absolute
     })
 })
@@ -236,6 +273,7 @@ describe("LiveSession quick ticks", () => {
         expect(q1).toHaveLength(1)
         expect(q1[0].car.t).toHaveLength(4)
         expect(q1[0].loc.t[0]).toBeGreaterThan(lastLoc)
+        expect(q1[0].loc.t).toHaveLength(4) // the 5th (5.85 s) is past the car data
         expect(live.quickChunks()).toEqual([])
 
         // Location drops out for 5 s while car data continues: the fix after the gap waits.
@@ -243,9 +281,10 @@ describe("LiveSession quick ticks", () => {
         for (let t = 6; t < 11; t += 0.25) car(t)
         loc(11.1)
         car(11)
+        car(11.25)
         const q2 = live.quickChunks()
-        expect(q2[0].car.t).toHaveLength(21)
-        expect(q2[0].loc.t).toHaveLength(0)
+        expect(q2[0].car.t).toHaveLength(21) // to 11 s: 11.25 s is past the location
+        expect(q2[0].loc.t).toEqual([600_000 + 5850]) // up to the gap
         live.recompute()
         const full = live.telemetryChunks()
         expect(full[0].loc.t).toEqual([600_000 + 11_100])

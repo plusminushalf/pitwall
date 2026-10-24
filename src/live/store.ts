@@ -52,6 +52,11 @@ const KEYS: Record<DocTopic, (r: Rec) => string> = {
 
 // If the data stops, the live edge keeps moving with the clock, this far behind it.
 const LIVE_LAG_MS = 15_000
+/**
+ * The live edge waits for locations running at most this far behind the car data. Further behind, it follows the car
+ * data again: the normalizer dead-reckons a car whose locations end more than 10 s before it (LIVE_EDGE_GAP_MS).
+ */
+const LOCATION_WAIT_MS = 15_000
 
 export interface StoreOptions {
     session: RawSession
@@ -76,8 +81,8 @@ export class LiveStore {
     readonly samples = new Map<number, DriverSamples>()
     private rawCar = new Map<number, RawCarData[]>()
     private rawLoc = new Map<number, RawLocation[]>()
-    /** Latest car/location sample time (absolute ms). */
-    latestDataTime = -Infinity
+    /** Latest car / location sample time (absolute ms). */
+    private latest = { car_data: -Infinity, location: -Infinity }
     /** When the last record was received (any topic), on the session's clock. */
     lastMessageAt: number | null = null
     records = 0
@@ -94,6 +99,18 @@ export class LiveStore {
         this.t0 = opts.t0
         this.clock = opts.clock ?? Date.now
         this.keepRaw = opts.keepRaw ?? false
+    }
+
+    /**
+     * How far the telemetry goes: the latest sample of the feed that lags (absolute ms). The two arrive with their
+     * own delays, and a car is only drawn up to its latest location: following the car data's edge while the
+     * locations run a few seconds behind it left every car past its last location, and the map empty.
+     */
+    get latestDataTime(): number {
+        const { car_data: car, location } = this.latest
+        return car > -Infinity && location >= car - LOCATION_WAIT_MS
+            ? Math.min(car, location)
+            : Math.max(car, location)
     }
 
     get sessionKey(): number {
@@ -135,8 +152,8 @@ export class LiveStore {
             }
             // (A timestamp far ahead of the clock is bogus; a few seconds is just clock skew.)
             const t = ms(rec.date)
-            if (t > this.latestDataTime && t <= this.clock() + 60_000)
-                this.latestDataTime = t
+            if (t > this.latest[topic] && t <= this.clock() + 60_000)
+                this.latest[topic] = t
             return true
         }
         let docs = this.docs.get(topic)

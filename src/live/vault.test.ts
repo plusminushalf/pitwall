@@ -286,8 +286,20 @@ describe("live through the vault", () => {
         ).toBe(true)
         expect(vault.maxInFlight()).toBeLessThanOrEqual(MAX_IN_FLIGHT)
 
-        // The stream: a new sample reaches the app in the next `tel`.
+        // The stream: a new sample reaches the app in the next `tel` (once the locations are as far along).
         const t = Date.now() + 500
+        vault.push("location", [
+            {
+                session_key: 9001,
+                driver_number: 44,
+                date: iso(t),
+                x: 100,
+                y: 200,
+                z: 0,
+                _id: 2,
+                _key: "y"
+            }
+        ])
         vault.push("car_data", [
             {
                 session_key: 9001,
