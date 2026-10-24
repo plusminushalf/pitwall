@@ -53,9 +53,9 @@ const FULL = 700
 const MEDIUM = 600
 const colsOf = (width: number) =>
     width >= FULL
-        ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,72px)_62px_96px_40px_24px]"
+        ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,80px)_62px_96px_40px_24px]"
         : width >= MEDIUM
-          ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,72px)_96px_40px]"
+          ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,80px)_96px_40px]"
           : "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,44px)_96px_40px]"
 
 /** A push lap: not an out-lap, and within this share (plus the slack) of the fastest lap's time to the same point. */
@@ -101,7 +101,8 @@ const personalBestSectors = (laps: readonly Lap[]) =>
 /**
  * The three sectors of the lap being driven (for a few seconds after the line, the one just driven): the time once
  * crossed, a dash until then, purple for the fastest by anyone, green for the driver's own best, lit up as it comes
- * in; under it the mini-sectors as they're passed.
+ * in; beside it, dimmed, the driver's best in that sector so far (purple when it's the fastest by anyone); under it the
+ * mini-sectors as they're passed.
  */
 function SectorCells({ n, times }: { n: number; times: boolean }) {
     const shown = useTimingLap(n)
@@ -122,12 +123,28 @@ function SectorCells({ n, times }: { n: number; times: boolean }) {
                 return (
                     <span key={k} className="flex min-w-0 flex-col gap-1">
                         {times && (
-                            <Flash
-                                value={v}
-                                className={`self-start text-xs leading-4 tabular-nums ${color}`}
-                            >
-                                {v == null ? "—" : sectorTime(v)}
-                            </Flash>
+                            <span className="flex items-baseline justify-between gap-1">
+                                <Flash
+                                    value={v}
+                                    className={`text-xs leading-4 tabular-nums ${color}`}
+                                >
+                                    {v == null ? "—" : sectorTime(v)}
+                                </Flash>
+                                {Number.isFinite(own[k]) && (
+                                    <Flash
+                                        value={own[k]}
+                                        className={`text-[10px] leading-4 tabular-nums ${
+                                            own[k] <=
+                                            (overall[k] ?? Infinity) + EPS
+                                                ? "text-fuchsia-400/70"
+                                                : "text-zinc-500"
+                                        }`}
+                                        title={`Best S${k + 1} so far`}
+                                    >
+                                        {sectorTime(own[k])}
+                                    </Flash>
+                                )}
+                            </span>
                         )}
                         <MiniSectors
                             codes={shown?.segments[k] ?? []}
@@ -504,7 +521,7 @@ function LiveTiming() {
                 {[1, 2, 3].map((k) => (
                     <span
                         key={k}
-                        title={`Sector ${k} of the lap being driven, and its mini-sectors`}
+                        title={`Sector ${k} of the lap being driven, the driver's best in it so far, and its mini-sectors`}
                     >
                         S{k}
                     </span>
