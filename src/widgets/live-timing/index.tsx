@@ -4,8 +4,8 @@ import {
     type DriverState,
     defineWidget,
     Flash,
-    gap,
     Icon,
+    inSegment,
     LABEL_CLASS,
     type Lap,
     type LapTrace,
@@ -16,12 +16,12 @@ import {
     type QualiPhase,
     type SessionKind,
     sectorTime,
-    segmentBest,
     standingOf,
     TAP_CLASS,
     TyreBadge,
     teamColor,
     timeAtDistance,
+    useAllLaps,
     useBestSectors,
     useCoarsePointer,
     useDriver,
@@ -46,17 +46,17 @@ const HEAD_H = 28 + 1 + 12 + (11 * 20) / 14 + 1
 const PAD = "pl-5 pr-2"
 
 /**
- * Columns by width: all of them; without the last lap and laps run; and (narrowest) the sectors as their mini-sectors
- * only. Pos, driver, best, gap, S1–S3, [last], now, tyre, [laps].
+ * Columns by width: all of them; without the laps run; and (narrowest) the sectors as their mini-sectors only. Pos,
+ * driver, best and its gap, S1–S3, now, tyre, [laps].
  */
 const FULL = 700
 const MEDIUM = 600
 const colsOf = (width: number) =>
     width >= FULL
-        ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,80px)_62px_96px_40px_24px]"
+        ? "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,80px)_96px_40px_24px]"
         : width >= MEDIUM
-          ? "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,80px)_96px_40px]"
-          : "grid-cols-[22px_minmax(48px,1fr)_62px_52px_repeat(3,44px)_96px_40px]"
+          ? "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,80px)_96px_40px]"
+          : "grid-cols-[22px_minmax(48px,1fr)_116px_repeat(3,44px)_96px_40px]"
 
 /** A push lap: not an out-lap, and within this share (plus the slack) of the fastest lap's time to the same point. */
 const PUSH_RATIO = 1.05
@@ -69,25 +69,44 @@ const EPS = 1e-6
 /** What a row shows of its driver: it re-renders only when one of these changes. */
 interface RowData {
     status: DriverState["status"]
-    position: number | null
-    gap: number | string | null
-    lastLap: Lap | null
-    bestLap: number | null
-    personalBest: boolean
     compound: string | null
     tyreAge: number | null
 }
 
 const rowData = (s: DriverState): RowData => ({
     status: s.status,
-    position: s.position,
-    gap: s.gapToLeader,
-    lastLap: s.lastLap,
-    bestLap: s.bestLap?.duration ?? null,
-    personalBest: s.lastLap != null && s.bestLap === s.lastLap,
     compound: s.compound,
     tyreAge: s.tyreAge
 })
+
+/** The latest lap deletion by t (laps deleted later still count until then). */
+function lastDeletion(all: ReadonlyMap<number, readonly Lap[]>, t: number) {
+    let last = -Infinity
+    for (const laps of all.values())
+        for (const l of laps)
+            if (l.deleted && l.deleted.t <= t && l.deleted.t > last)
+                last = l.deleted.t
+    return last
+}
+
+/**
+ * A driver's best lap time so far (seconds): timed, not an out-lap, not deleted by `deletedBy`. In qualifying's Q2 and
+ * Q3 only the segment's laps count; in Q1 every lap does.
+ */
+function bestOf(
+    laps: readonly Lap[],
+    segment: LiveQualiSegment | null,
+    deletedBy: number
+): number | null {
+    let best: number | null = null
+    for (const l of laps) {
+        if (l.duration == null || l.pitOut) continue
+        if (l.deleted && l.deleted.t <= deletedBy) continue
+        if (segment && segment.number > 1 && !inSegment(segment, l)) continue
+        if (best == null || l.duration < best) best = l.duration
+    }
+    return best
+}
 
 /** Each sector's fastest time among a driver's laps so far. */
 const personalBestSectors = (laps: readonly Lap[]) =>
@@ -157,57 +176,23 @@ function SectorCells({ n, times }: { n: number; times: boolean }) {
     )
 }
 
-function LastLapCell({ n, s }: { n: number; s: RowData }) {
-    const l = s.lastLap
-    const fastest = useFastestLap((f) => (f?.driver === n ? f.lap : null))
-    const deleted = useTime((t) => l?.deleted != null && t >= l.deleted.t)
-    if (!l) return <span className="text-xs text-zinc-600">—</span>
-    if (deleted)
-        return (
-            <Flash
-                value={l.lap}
-                className="text-xs tabular-nums text-zinc-400 line-through"
-                title={`Deleted: ${l.deleted?.reason.toLowerCase()}`}
-            >
-                {lapTime(l.duration)}
-            </Flash>
-        )
-    const color =
-        fastest === l.lap
-            ? "text-fuchsia-400"
-            : s.personalBest
-              ? "text-emerald-400"
-              : "text-zinc-300"
-    return (
-        <Flash value={l.lap} className={`text-xs tabular-nums ${color}`}>
-            {lapTime(l.duration)}
-        </Flash>
-    )
-}
-
-/** Practice: the best lap so far. Live qualifying: the best in the segment the driver is in (or went out in). */
-function BestCell({
-    n,
-    s,
-    segment
-}: {
-    n: number
-    s: RowData
-    segment: LiveQualiSegment | null
-}) {
-    const laps = useLaps(n)
-    const inSegment = useTime((t) =>
-        segment ? segmentBest(laps, segment, t) : null
-    )
-    const best = segment ? inSegment : s.bestLap
+/** The best lap so far and, beside it, the gap to the fastest one. */
+function BestCell({ best, gap }: { best: number | null; gap: number | null }) {
     if (best == null) return <span className="text-xs text-zinc-600">—</span>
     return (
-        <Flash
-            value={best}
-            className={`text-xs tabular-nums ${s.position === 1 ? "text-fuchsia-400" : "text-zinc-200"}`}
-        >
-            {lapTime(best)}
-        </Flash>
+        <span className="flex items-baseline gap-2">
+            <Flash
+                value={best}
+                className={`text-xs tabular-nums ${gap === 0 ? "font-semibold text-fuchsia-400" : "text-zinc-100"}`}
+            >
+                {lapTime(best)}
+            </Flash>
+            {gap != null && gap > 0 && (
+                <span className="text-[11px] tabular-nums text-zinc-400">
+                    +{gap.toFixed(3)}
+                </span>
+            )}
+        </span>
     )
 }
 
@@ -255,7 +240,7 @@ function NowCell({
     const now =
         useLiveLap(n, (l) => nowOf(l, reference, lapLength)) ??
         (s.status === "PIT" ? { kind: "pit" as const } : null)
-    if (!now) return null
+    if (!now) return <span />
     if (now.kind === "pit")
         return (
             <span className="rounded bg-zinc-800 px-1 text-[10px] font-bold text-zinc-300">
@@ -318,6 +303,9 @@ function LapsCell({ n }: { n: number }) {
 const Row = memo(function Row({
     d,
     index,
+    position,
+    best,
+    gap,
     width,
     kind,
     phase,
@@ -329,6 +317,10 @@ const Row = memo(function Row({
 }: {
     d: DriverInfo
     index: number
+    position: number
+    /** Best lap (seconds) and the gap to the fastest one: null without a time, or out in an earlier segment. */
+    best: number | null
+    gap: number | null
     width: number
     kind: SessionKind
     /** Live qualifying at t (its clock left out: rows don't show it). */
@@ -347,8 +339,7 @@ const Row = memo(function Row({
             (l) => nowOf(l, reference, lapLength).kind === "push"
         ) ?? false
     if (!s) return null
-    const standing =
-        kind === "qualifying" ? standingOf(phase, s.position) : null
+    const standing = kind === "qualifying" ? standingOf(phase, position) : null
     const out = standing && "out" in standing ? standing.out : null
     const danger = standing != null && "danger" in standing
     const full = width >= FULL
@@ -402,7 +393,7 @@ const Row = memo(function Row({
                           : undefined
                 }
             >
-                {s.status === "OUT" ? "–" : s.position}
+                {s.status === "OUT" ? "–" : position}
             </span>
             <span className="flex min-w-0 items-center gap-2">
                 <span
@@ -416,20 +407,8 @@ const Row = memo(function Row({
                     </span>
                 )}
             </span>
-            <BestCell
-                n={d.number}
-                s={s}
-                segment={
-                    kind === "qualifying"
-                        ? (out ?? phase?.segment ?? null)
-                        : null
-                }
-            />
-            <span className="text-xs tabular-nums">
-                {s.position === 1 ? "" : gap(s.gap)}
-            </span>
+            <BestCell best={best} gap={gap} />
             <SectorCells n={d.number} times={width >= MEDIUM} />
-            {full && <LastLapCell n={d.number} s={s} />}
             <NowCell
                 n={d.number}
                 s={s}
@@ -443,7 +422,7 @@ const Row = memo(function Row({
 })
 
 /**
- * The timing screen: every car by best lap (in live qualifying, by best lap in the segment, with its cut), the sectors
+ * The timing screen: every car by best lap so far (in qualifying, by best lap in the segment, with its cut), the sectors
  * and mini-sectors of the lap being driven as they come in, and who's on a push lap now with their gap to the fastest
  * lap at the same point.
  */
@@ -451,10 +430,6 @@ function LiveTiming() {
     const drivers = useDrivers()
     const order = useRunningOrder()
     const { selected, focused, toggle, clear } = useSelection()
-    const rowIndex = useMemo(
-        () => new Map(order.map((n, i) => [n, i])),
-        [order]
-    )
     const { width } = useWidgetSize()
     const coarse = useCoarsePointer()
     const kind = useSessionInfo((i) => i.kind)
@@ -463,6 +438,50 @@ function LiveTiming() {
     const phase = useQualiPhase((p) =>
         p ? { ...p, left: 0, red: false } : null
     )
+    const laps = useAllLaps()
+    const deletedBy = useTime((t) => lastDeletion(laps, t))
+    // By best lap: the cars still in it (qualifying: the segment) fastest first, those without a time after them in
+    // running order, then the cars out in earlier segments as the running order has them.
+    const rows = useMemo(() => {
+        const entries = order.map((n, i) => {
+            const out = quali
+                ? (phase?.out.find((o) => i + 1 >= o.from && i + 1 <= o.to)
+                      ?.segment ?? null)
+                : null
+            const segment = quali ? (out ?? phase?.segment ?? null) : null
+            return {
+                n,
+                i,
+                out,
+                best: bestOf(laps.get(n) ?? [], segment, deletedBy)
+            }
+        })
+        const racing = entries
+            .filter((e) => !e.out)
+            .sort((a, b) =>
+                a.best != null && b.best != null
+                    ? a.best - b.best || a.i - b.i
+                    : a.best != null
+                      ? -1
+                      : b.best != null
+                        ? 1
+                        : a.i - b.i
+            )
+        const leader = racing[0]?.best ?? null
+        return new Map(
+            [...racing, ...entries.filter((e) => e.out)].map((e, k) => [
+                e.n,
+                {
+                    index: k,
+                    best: e.best,
+                    gap:
+                        !e.out && e.best != null && leader != null
+                            ? e.best - leader
+                            : null
+                }
+            ])
+        )
+    }, [order, laps, deletedBy, quali, phase?.segment, phase?.out])
     const cut =
         quali &&
         phase?.segment?.advance != null &&
@@ -509,15 +528,14 @@ function LiveTiming() {
                 <span>Pos</span>
                 <span>Driver</span>
                 <span
-                    title={
+                    title={`${
                         quali
                             ? `Best lap in ${phase?.segment?.name ?? "the segment"}`
                             : "Best lap so far"
-                    }
+                    }, and the gap to the fastest`}
                 >
-                    {quali ? (phase?.segment?.name ?? "Best") : "Best"}
+                    {quali ? (phase?.segment?.name ?? "Best") : "Best"} · Gap
                 </span>
-                <span title="Gap to the fastest by best lap">Gap</span>
                 {[1, 2, 3].map((k) => (
                     <span
                         key={k}
@@ -526,7 +544,6 @@ function LiveTiming() {
                         S{k}
                     </span>
                 ))}
-                {full && <span title="Last lap">Last</span>}
                 <span title="On a push lap now, with the gap to the fastest lap at the same point; an out lap, a slow lap or in the pits">
                     Now
                 </span>
@@ -558,7 +575,10 @@ function LiveTiming() {
                         <Row
                             key={d.number}
                             d={d}
-                            index={rowIndex.get(d.number) ?? 0}
+                            index={rows.get(d.number)?.index ?? 0}
+                            position={(rows.get(d.number)?.index ?? 0) + 1}
+                            best={rows.get(d.number)?.best ?? null}
+                            gap={rows.get(d.number)?.gap ?? null}
                             width={full ? FULL : times ? MEDIUM : 0}
                             kind={kind}
                             phase={phase}

@@ -57,7 +57,7 @@
 //     useNeutralPeriods(select?) safety car, VSC and red flag periods so far (the top bar's track status)
 //     useTrackLimits(select?)    each driver's track limits so far: lap times deleted, black and white flag, stewards
 //     useQualiPhase(select?)     live qualifying: the segment (Q1..Q3), its clock and cut; standingOf() a position,
-//                                segmentBest() a driver's best lap in a segment
+//                                segmentBest() a driver's best lap in a segment, inSegment() whether a lap counts in one
 //   The lap window
 //     useLapWindow(totalLaps)    the laps picked on the timeline's zoom rail (the whole race if none), for
 //                                charts by lap: the user zooms every lap chart at once
@@ -129,6 +129,7 @@ export {
 export type { LapGeometry, LiveLap } from "../engine/lapTrace"
 export type { LapWindow } from "../engine/lapWindow"
 export {
+    inSegment,
     type QualiPhase,
     type QualiStanding,
     segmentBest,
