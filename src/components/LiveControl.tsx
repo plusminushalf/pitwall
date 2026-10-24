@@ -294,15 +294,44 @@ export function GoLiveButton({ className = "" }: { className?: string }) {
                 e.currentTarget.blur()
                 goLive()
             }}
-            className={`flex items-center gap-1.5 whitespace-nowrap rounded border border-red-500/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-red-300 hover:bg-red-600 hover:text-white ${className}`}
+            className={`${GO_LIVE_CLASS} hover:bg-red-600 hover:text-white ${className}`}
             title="Jump to the live edge and follow it"
         >
+            <GoLiveLabel behind={raceClock(behind)} />
+        </button>
+    )
+}
+
+const GO_LIVE_CLASS =
+    "flex items-center gap-1.5 whitespace-nowrap rounded border border-red-500/60 px-2 py-0.5 text-[11px] font-bold uppercase tracking-wider text-red-300"
+
+function GoLiveLabel({ behind }: { behind: string }) {
+    return (
+        <>
             <LiveDot pulse={false} />
             Go live
             <span className="font-semibold normal-case tabular-nums">
-                · −{raceClock(behind)}
+                · −{behind}
             </span>
-        </button>
+        </>
+    )
+}
+
+/**
+ * GoLiveButton in a slot as wide as its widest state ("Go live · −0:00:00"), so whatever sits beside it doesn't
+ * jump as it turns from LIVE to Go live and back.
+ */
+export function GoLiveSlot({ className = "" }: { className?: string }) {
+    return (
+        <div className={`grid justify-items-end ${className}`}>
+            <span
+                aria-hidden
+                className={`invisible col-start-1 row-start-1 ${GO_LIVE_CLASS}`}
+            >
+                <GoLiveLabel behind="0:00:00" />
+            </span>
+            <GoLiveButton className="col-start-1 row-start-1 self-center" />
+        </div>
     )
 }
 

@@ -25,7 +25,7 @@ import { SPEEDS, useReplay } from "../store"
 import type { DriverInfo, PitStop, TrackStatus } from "../types"
 import { Icon } from "../widgetkit/ui/Icon"
 import { LapZoom } from "./LapZoom"
-import { GoLiveButton } from "./LiveControl"
+import { GoLiveButton, GoLiveSlot } from "./LiveControl"
 import { StreamBadge } from "./StreamStatus"
 
 const BAND: Partial<Record<TrackStatus, string>> = {
@@ -955,7 +955,11 @@ export function Timeline() {
     )
 
     const tail = live ? (
-        <GoLiveButton className={phone ? "shrink-0" : "-ml-1 shrink-0"} />
+        phone ? (
+            <GoLiveButton className="shrink-0" />
+        ) : (
+            <GoLiveSlot className="-ml-1 shrink-0" />
+        )
     ) : (
         <button
             type="button"
