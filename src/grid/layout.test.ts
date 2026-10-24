@@ -369,7 +369,8 @@ describe("driver layout", () => {
         "session-bests",
         "speed-vs-pace",
         "run-plans",
-        "track-evolution"
+        "track-evolution",
+        "track-limits"
     ]
 
     test("places every built-in widget but those off its screen once, within its width range", () => {

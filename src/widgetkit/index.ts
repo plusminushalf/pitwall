@@ -55,6 +55,7 @@
 //     useAllStints(select?)      every car's stints so far
 //     useAllPitStops(select?)    every car's pit stops finished so far
 //     useNeutralPeriods(select?) safety car, VSC and red flag periods so far (the top bar's track status)
+//     useTrackLimits(select?)    each driver's track limits so far: lap times deleted, black and white flag, stewards
 //     useQualiPhase(select?)     live qualifying: the segment (Q1..Q3), its clock and cut; standingOf() a position,
 //                                segmentBest() a driver's best lap in a segment
 //   The lap window
@@ -140,6 +141,11 @@ export type {
     Telemetry
 } from "../engine/raceState"
 export type {
+    DriverLimits,
+    LimitStrike,
+    StewardsNote
+} from "../engine/trackLimits"
+export type {
     NeutralKind,
     NeutralLaps,
     PastDriver,
@@ -224,6 +230,7 @@ export {
     useTimingLap,
     useTotalLaps,
     useTrack,
+    useTrackLimits,
     useTrackStatus,
     useWeather,
     useWholeSession,

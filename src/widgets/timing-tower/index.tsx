@@ -1,6 +1,7 @@
 import { memo, useMemo } from "react"
 import {
     type DriverInfo,
+    type DriverLimits,
     type DriverState,
     defineWidget,
     Flash,
@@ -34,6 +35,7 @@ import {
     useSettings,
     useTime,
     useTimingLap,
+    useTrackLimits,
     useWidgetSize
 } from "widget-kit"
 
@@ -376,6 +378,63 @@ function Change({ s }: { s: RowData }) {
     )
 }
 
+/** What the track limits tag needs (gets past its width check: TAG_W). */
+const TAG_W = 34 + 8
+/** Races: the black and white flag comes after this many deleted lap times. */
+const FLAG_AT = 3
+
+/** A driver gets the tag with a lap time deleted, the black and white flag or the stewards' word on it. */
+const tagged = (d: DriverLimits | undefined): d is DriverLimits =>
+    d != null && (d.count > 0 || d.blackWhite != null || d.stewards.length > 0)
+
+/** Lap times deleted for track limits so far: "TL 2", white once the black and white flag is out, amber when it's due. */
+function LimitsTag({ n, race }: { n: number; race: boolean }) {
+    const l = useTrackLimits((all) => {
+        const d = all.get(n)
+        return tagged(d)
+            ? {
+                  count: d.count,
+                  turns: [
+                      ...new Set(
+                          d.strikes.flatMap((s) =>
+                              !s.reinstated && s.turn != null ? [s.turn] : []
+                          )
+                      )
+                  ],
+                  flag: d.blackWhite != null,
+                  stewards: d.stewards.at(-1)?.label ?? null
+              }
+            : null
+    })
+    if (!l) return null
+    const due = race && !l.flag && l.count >= FLAG_AT
+    const title = [
+        `Track limits: ${l.count} lap ${l.count === 1 ? "time" : "times"} deleted${l.turns.length ? ` (${l.turns.length === 1 ? "turn" : "turns"} ${l.turns.join(", ")})` : ""}`,
+        l.flag && "black and white flag shown",
+        l.stewards && `stewards: ${l.stewards.toLowerCase()}`
+    ]
+        .filter(Boolean)
+        .join("; ")
+    return (
+        <span
+            className={`shrink-0 rounded px-1 text-[10px] font-bold leading-4 tabular-nums ${
+                l.flag
+                    ? "bg-zinc-200 text-black"
+                    : due
+                      ? "bg-zinc-800 text-amber-400"
+                      : "bg-zinc-800 text-zinc-300"
+            }`}
+            title={title}
+        >
+            TL {l.count}
+        </span>
+    )
+}
+
+/** Whether a driver has a track limits tag in the tower (to make room for it). */
+const hasTag = (n: number) => (all: ReadonlyMap<number, DriverLimits>) =>
+    tagged(all.get(n))
+
 /** One driver's row: memoised, and subscribed to just that driver's fields. */
 const Row = memo(function Row({
     d,
@@ -393,8 +452,8 @@ const Row = memo(function Row({
     index: number
     mode: GapMode
     wide: boolean
-    /** Show the team's name after the acronym. */
-    team: boolean
+    /** Show the team's name after the acronym: without a track limits tag, and with one. */
+    team: { bare: boolean; tagged: boolean }
     kind: SessionKind
     /** Live qualifying at t (its clock left out: rows don't show it). */
     phase: QualiPhase | null
@@ -404,6 +463,8 @@ const Row = memo(function Row({
 }) {
     const select = useMemo(() => rowData(mode), [mode])
     const s = useDriver(d.number, select)
+    const pickTag = useMemo(() => hasTag(d.number), [d.number])
+    const withTag = useTrackLimits(pickTag)
     if (!s) return null
     const practice = kind === "practice"
     const quali = kind === "qualifying"
@@ -470,7 +531,7 @@ const Row = memo(function Row({
                     style={{ background: teamColor(d.teamColour) }}
                 />
                 <span className="font-bold tracking-wide">{d.acronym}</span>
-                {team && (
+                {(withTag ? team.tagged : team.bare) && (
                     <span
                         className="whitespace-nowrap text-xs text-zinc-400"
                         title={d.team}
@@ -478,6 +539,7 @@ const Row = memo(function Row({
                         {shortTeam(d.team)}
                     </span>
                 )}
+                <LimitsTag n={d.number} race={!practice && !quali} />
             </span>
             {quali ? (
                 <>
@@ -558,7 +620,11 @@ function TimingTower() {
             ? phase.segment.advance
             : null
     const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers])
-    const teams = width - fixedWidthOf(wide, kind) >= teamRoom
+    const room = width - fixedWidthOf(wide, kind)
+    const teams = useMemo(
+        () => ({ bare: room >= teamRoom, tagged: room >= teamRoom + TAG_W }),
+        [room, teamRoom]
+    )
 
     return (
         <div className="flex h-full flex-col text-sm">

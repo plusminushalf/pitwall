@@ -29,6 +29,7 @@ import strategyHistory from "../widgets/strategy-history"
 import throttleBrakeRpm from "../widgets/throttle-brake-rpm"
 import timingTower from "../widgets/timing-tower"
 import trackEvolution from "../widgets/track-evolution"
+import trackLimits from "../widgets/track-limits"
 import trackMap from "../widgets/track-map"
 import tyreStrip from "../widgets/tyre-strip"
 import weather from "../widgets/weather"
@@ -64,7 +65,8 @@ const ALL: WidgetDefinition<any>[] = [
     sessionBests,
     speedVsPace,
     runPlans,
-    trackEvolution
+    trackEvolution,
+    trackLimits
 ]
 
 export const BUILTIN_WIDGETS: ReadonlyMap<string, WidgetDefinition> = new Map(

@@ -1,6 +1,7 @@
 // Lap times race control deleted (track limits, yellow flags), matched to the laps they belong to. Shared by
 // qualifying (quali.ts: a deleted lap can't count) and free practice (practice.ts: the timing screen drops it). Pure.
 
+import { localClockToT } from "../../src/engine/trackLimits"
 import type { Lap, Ms, RaceControlMsg } from "../../src/types"
 
 // "CAR 30 (LAW) TIME 2:00.207 DELETED - DOUBLE YELLOW AT TURN 7 LAP 3 16:07:45"
@@ -35,23 +36,9 @@ export function deletedLaps(
     gmtOffset: string,
     t0: number
 ): { deleted: Map<string, DeletedLap>; unmatched: number } {
-    const [oh, om] = gmtOffset.replace("-", "").split(":").map(Number)
-    const offsetMs =
-        (gmtOffset.startsWith("-") ? -1 : 1) *
-        ((oh || 0) * 60 + (om || 0)) *
-        60_000
     /** Local wall-clock time of an incident -> ms since t0, on the day that puts it just before `issued`. */
-    function incidentTime(issued: Ms, h: number, m: number, s: number): Ms {
-        const local = new Date(t0 + issued + offsetMs)
-        const day = Date.UTC(
-            local.getUTCFullYear(),
-            local.getUTCMonth(),
-            local.getUTCDate()
-        )
-        let t = day + ((h * 60 + m) * 60 + s) * 1000 - offsetMs - t0
-        if (t > issued + 60_000) t -= 86_400_000
-        return t
-    }
+    const incidentTime = (issued: Ms, h: number, m: number, s: number) =>
+        localClockToT(issued, h, m, s, gmtOffset, t0)
     const deleted = new Map<string, DeletedLap>()
     let unmatched = 0
     for (const m of raceControl) {

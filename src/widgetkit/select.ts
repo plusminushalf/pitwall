@@ -6,6 +6,7 @@ import type { CarSeries, DriverData, FeedItem, Session } from "../data/session"
 import { indexAtOrBefore } from "../engine/lookup"
 import { scheduledDistance } from "../engine/raceDistance"
 import { carPositionAt, mapOpacity, type RaceState } from "../engine/raceState"
+import { type DriverLimits, trackLimits } from "../engine/trackLimits"
 import type {
     DriverInfo,
     Lap,
@@ -472,6 +473,32 @@ export const feedUpTo = (session: Session, end: number): FeedEntry[] =>
     feedEntriesOf(session)
         .slice(0, end + 1)
         .reverse()
+
+/** The last track limits worked out per session, by the feed index they run to: they only change with a message. */
+const limitsCache = new WeakMap<
+    Session,
+    { end: number; value: Map<number, DriverLimits> }
+>()
+
+/** Each driver's track limits by t, from race control's messages in the feed (after the flag, the stewards' too). */
+export function trackLimitsAt(
+    session: Session,
+    t: number
+): Map<number, DriverLimits> {
+    const end = feedEndAt(session, t)
+    const hit = limitsCache.get(session)
+    if (hit?.end === end) return hit.value
+    const { t0, gmtOffset } = session.meta
+    const value = trackLimits(
+        session.feed.slice(0, end + 1).filter((f) => CONTROL_KINDS.has(f.kind)),
+        Date.parse(t0),
+        gmtOffset
+    )
+    limitsCache.set(session, { end, value })
+    return value
+}
+
+const CONTROL_KINDS = new Set<FeedItem["kind"]>(["control", "flag", "stewards"])
 
 /** The session part of the height input (HeightInput); the previous object while they're unchanged (a live session is rebuilt often). */
 let lastHeightInput: {

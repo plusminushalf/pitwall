@@ -34,6 +34,7 @@ import {
     type Telemetry,
     telemetryAt
 } from "../engine/raceState"
+import type { DriverLimits } from "../engine/trackLimits"
 import { SPEEDS, useReplay } from "../store"
 import type {
     DriverInfo,
@@ -82,6 +83,7 @@ import {
     type TimingLap,
     type Track,
     timingLapAt,
+    trackLimitsAt,
     trackOf,
     type WholeSession,
     wholeSessionOf
@@ -639,6 +641,16 @@ export function useFeed<R = readonly FeedEntry[]>(
         [],
         select
     )
+}
+
+/**
+ * Each driver's track limits so far, by driver number (only drivers with any): the lap times race control deleted for
+ * them (and any it gave back), the black and white flag, and the stewards' messages about it.
+ */
+export function useTrackLimits<R = ReadonlyMap<number, DriverLimits>>(
+    select?: Select<ReadonlyMap<number, DriverLimits>, R>
+): R {
+    return useKit((s) => trackLimitsAt(s.session, s.t), [], select)
 }
 
 // ---------------------------------------------------------------- the lap window
