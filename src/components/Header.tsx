@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { circuitSlug } from "../circuit"
 import { qualiPhaseAt } from "../engine/qualiPhase"
 import { raceDistanceAt } from "../engine/raceDistance"
@@ -7,6 +7,7 @@ import { dashboardList, NAME_MAX, PRESETS } from "../grid/dashboards"
 import { useLayout } from "../grid/store"
 import { usePhone } from "../hooks/usePhone"
 import { localTime, raceClock, TRACK_STATUS } from "../lib/format"
+import { rowForKey, useLibrary } from "../library"
 import { useQuali } from "../qualiStore"
 import { ShareButton } from "../share/ShareShot"
 import {
@@ -116,24 +117,84 @@ const VIEWS: { id: SessionScreen; label: string; title: string }[] = [
     }
 ]
 
+/** Live qualifying this long after its last chequered flag: every lap is in at OpenF1, so the session can be downloaded. */
+const LIVE_LAPS_AFTER_MS = 2 * 60_000
+
+/** When (wall ms) live qualifying's Fastest laps can be had: once the last segment's flag is LIVE_LAPS_AFTER_MS old. */
+function liveLapsAt(meta: SessionMeta): number | null {
+    const last = meta.qualiLive?.segments.at(-1)
+    if (!last || last.advance != null || last.end == null) return null
+    return Date.parse(meta.t0) + last.end + LIVE_LAPS_AFTER_MS
+}
+
+/** The live qualifying session whose Fastest laps can be opened now, or null. */
+function useLiveLaps(): number | null {
+    const at = useReplay((s) =>
+        s.mode === "live" && s.session ? liveLapsAt(s.session.meta) : null
+    )
+    const key = useReplay((s) => s.session?.meta.sessionKey ?? null)
+    const [ready, setReady] = useState(false)
+    useEffect(() => {
+        setReady(false)
+        if (at == null) return
+        const id = setTimeout(
+            () => setReady(true),
+            Math.max(0, at - Date.now())
+        )
+        return () => clearTimeout(id)
+    }, [at])
+    return ready ? key : null
+}
+
+/** Leave live for the session downloaded, opening on its laps compared (as the library's download would). */
+async function openLiveLaps(key: number) {
+    const lib = useLibrary.getState()
+    let row = rowForKey(key, lib)
+    if (!row) {
+        await lib.lookup(key)
+        row = useLibrary.getState().lookups[key]?.row ?? null
+    }
+    if (!row) {
+        console.warn(`[live] no calendar row for session ${key}`)
+        return
+    }
+    // Over before its scheduled end: the calendar would still call it upcoming.
+    const now = Date.now()
+    useLibrary
+        .getState()
+        .stream(
+            Date.parse(row.dateEnd) > now
+                ? { ...row, dateEnd: new Date(now).toISOString() }
+                : row,
+            { view: "laps" }
+        )
+}
+
 /**
  * Finished practice and qualifying: the replay, or the laps compared. Only once it's downloaded (the comparison needs
- * every lap's trace): live, and while it streams, there's only the replay.
+ * every lap's trace): while it streams there's only the replay. Live qualifying offers its Fastest laps
+ * LIVE_LAPS_AFTER_MS after the last flag: choosing them leaves live and downloads the session.
  */
 export function ScreenSwitch() {
-    const shown = useReplay((s) =>
+    const downloaded = useReplay((s) =>
         s.session && s.mode === "replay" && hasScreens(s.session.meta)
             ? comparing(s)
                 ? "laps"
                 : "replay"
             : null
     )
+    const liveLaps = useLiveLaps()
+    const shown = downloaded ?? (liveLaps != null ? "replay" : null)
     if (!shown) return null
     const choose = (
         view: SessionScreen,
         e: { currentTarget: HTMLButtonElement }
     ) => {
         e.currentTarget.blur()
+        if (!downloaded) {
+            if (view === "laps" && liveLaps != null) void openLiveLaps(liveLaps)
+            return
+        }
         const s = useReplay.getState()
         // Back to the replay: if the comparison picked its drivers itself, the replay's selection goes back to none.
         const picked = useQuali.getState().autoPicked
