@@ -331,10 +331,7 @@ function PaceOrder() {
     }, [byPace, laps, stints, neutral, deletedBy, teamOf])
     const scale = Math.min(
         SCALE_MAX,
-        Math.max(
-            SCALE_MIN,
-            ...(byPace ? racePaceRows : rows).map((r) => r.gap)
-        )
+        Math.max(SCALE_MIN, ...(byPace ? racePaceRows : rows).map((r) => r.gap))
     )
 
     // Watch the lap from its start, with its driver focused; with drivers selected, it joins them (so the other
