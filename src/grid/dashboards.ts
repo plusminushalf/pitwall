@@ -52,7 +52,7 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
             id: "debrief",
             name: "Debrief",
             description:
-                "The race's records: the fastest sectors, lap, top speed and stop and who set them, each car's sectors, the order by best lap, the stint pace and the stops",
+                "The race's records: the fastest sectors, lap, top speed and stop and who set them, each car's sectors, the order by race pace and by best lap, the stint pace and the stops",
             layout: RACE_DEBRIEF_LAYOUT
         }
     ],

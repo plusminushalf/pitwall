@@ -9,6 +9,8 @@ import {
     type PaceLap,
     type PaceStint,
     paceRows,
+    racePace,
+    raceRows,
     tyreOf,
     validLaps,
     watching,
@@ -206,6 +208,80 @@ describe("pace rows", () => {
         ).toEqual([
             [81, 1, 0],
             [44, 2, 200]
+        ])
+    })
+})
+
+describe("race pace", () => {
+    // A race from the grid: lap 1, then laps of the given times, a stop and an out-lap (lap 8).
+    const race = (
+        times: number[],
+        extra: Partial<Record<number, Partial<PaceLap>>> = {}
+    ) =>
+        lapsOf(
+            times.map((t) => [30, 40, t - 70] as Spec),
+            extra
+        )
+    const oneStop: PaceStint[] = [
+        { lapStart: 1, compound: "MEDIUM", ageAtStart: 0 },
+        { lapStart: 8, compound: "HARD", ageAtStart: 0 }
+    ]
+
+    test("the median clean lap: not lap 1, the in- and out-lap or a slow lap", () => {
+        // Lap 1 (98), laps 2-6, the in-lap (7: 110), the out-lap (8: 115), laps 9-11 and a lap in traffic (12: 99).
+        const laps = race([
+            98, 92, 91.5, 91.8, 92.2, 92, 110, 115, 91, 90.8, 91.1, 99
+        ])
+        const p = must(racePace(4, laps, oneStop, [], 0))
+        expect(p.laps).toBe(8)
+        expect(p.time).toBeCloseTo((91.5 + 91.8) / 2, 6)
+        expect(p.best).toBeCloseTo(90.8, 6)
+        expect(p.end).toBe(laps[10].end)
+    })
+
+    test("one quick lap doesn't move it; laps under a VSC and deleted laps aren't in it", () => {
+        const laps = race([98, 92, 92, 92, 88, 92, 92], {
+            7: { deleted: { t: 0 } }
+        })
+        // The VSC covers lap 6 (laps 1-5 take 98 + 92 * 3 + 88 = 462 s).
+        const vsc: NeutralPeriod[] = [
+            { status: "VSC", start: 470_000, end: 500_000 }
+        ]
+        const p = must(racePace(4, laps, oneStop.slice(0, 1), vsc, 0))
+        expect(p.laps).toBe(4)
+        expect(p.time).toBeCloseTo(92, 6)
+        expect(p.best).toBeCloseTo(88, 6)
+    })
+
+    test("none without a clean lap", () => {
+        expect(racePace(4, race([98]), oneStop, [], 0)).toBeNull()
+        expect(racePace(4, [], [], [], 0)).toBeNull()
+    })
+
+    test("ranked by it, by team too", () => {
+        const pace = (driver: number, time: number) => ({
+            driver,
+            time,
+            laps: 20,
+            best: time - 1,
+            end: 0
+        })
+        const team = (n: number) =>
+            n === 1 || n === 81 ? "McLaren" : "Ferrari"
+        const paces = [pace(16, 92.3), pace(1, 92.1), pace(81, 91.9)]
+        expect(
+            raceRows(paces).map((r) => [
+                r.pace.driver,
+                r.rank,
+                Math.round(r.gap * 1000)
+            ])
+        ).toEqual([
+            [81, 1, 0],
+            [1, 2, 200],
+            [16, 3, 400]
+        ])
+        expect(raceRows(paces, team).map((r) => r.pace.driver)).toEqual([
+            81, 16
         ])
     })
 })

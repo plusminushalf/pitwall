@@ -1,11 +1,12 @@
-// Pace order in free practice: every driver's best valid lap so far, ranked, with the tyre it was set on and the
-// ideal lap (the driver's best valid sectors added up). Pure: the widget feeds it the laps, stints and safety car,
-// VSC and red flag periods it has so far (nothing past t).
+// Pace order: every driver's best valid lap so far, ranked, with the tyre it was set on and the ideal lap (the
+// driver's best valid sectors added up). In a race it also ranks by race pace: the median of each driver's clean
+// laps, so one quick lap on new softs at the end doesn't put a car up the order. Pure: the widget feeds it the laps,
+// stints and safety car, VSC and red flag periods it has so far (nothing past t).
 //
 // A lap is valid when it's timed, isn't an out-lap or an in-lap, isn't touched by a neutral period and hasn't been
 // deleted by race control by then (a deleted lap counts until it's deleted, as on the timing screens).
 
-import type { NeutralPeriod } from "widget-kit"
+import { median, type NeutralPeriod } from "widget-kit"
 
 /** The part of a completed lap this needs. */
 export interface PaceLap {
@@ -124,6 +125,35 @@ export function bestLap(
 export const leftOf = (b: Best) =>
     b.ideal == null ? null : Math.max(0, b.time - b.ideal)
 
+/** Something to rank: a time (s), and when it was set for equal times (ms). */
+interface Timed {
+    driver: number
+    time: number
+    end: number
+}
+
+/** Ranked quickest first (equal times: the one set first). With `teamOf`, one per team: its quicker driver's. */
+function ranked<T extends Timed>(
+    items: readonly T[],
+    teamOf?: (driver: number) => string
+): { item: T; rank: number; gap: number }[] {
+    let list = [...items].sort((a, b) => a.time - b.time || a.end - b.end)
+    if (teamOf) {
+        const seen = new Set<string>()
+        list = list.filter((b) => {
+            const team = teamOf(b.driver)
+            if (seen.has(team)) return false
+            seen.add(team)
+            return true
+        })
+    }
+    return list.map((item, i) => ({
+        item,
+        rank: i + 1,
+        gap: item.time - list[0].time
+    }))
+}
+
 export interface PaceRow {
     best: Best
     rank: number
@@ -135,26 +165,80 @@ export interface PaceRow {
  * The bests ranked, quickest first (equal times: the one set first). With `teamOf`, one row per team: its quicker
  * driver's.
  */
-export function paceRows(
+export const paceRows = (
     bests: readonly Best[],
     teamOf?: (driver: number) => string
-): PaceRow[] {
-    let list = [...bests].sort((a, b) => a.time - b.time || a.end - b.end)
-    if (teamOf) {
-        const seen = new Set<string>()
-        list = list.filter((b) => {
-            const team = teamOf(b.driver)
-            if (seen.has(team)) return false
-            seen.add(team)
-            return true
-        })
-    }
-    return list.map((best, i) => ({
-        best,
-        rank: i + 1,
-        gap: best.time - list[0].time
+): PaceRow[] =>
+    ranked(bests, teamOf).map(({ item, rank, gap }) => ({
+        best: item,
+        rank,
+        gap
     }))
+
+// ---------------------------------------------------------------- race pace
+
+/** Slower than this share of the driver's median valid lap isn't pace: traffic, a mistake, a car being lapped. */
+export const SLOW = 1.07
+
+/** A driver's race pace so far: the median of their clean laps. */
+export interface RacePace {
+    driver: number
+    /** Seconds: the median clean lap. */
+    time: number
+    /** Clean laps in it. */
+    laps: number
+    /** Seconds: the quickest of them. */
+    best: number
+    /** When the last of them ended (ms): equal times rank by it. */
+    end: number
 }
+
+/**
+ * A driver's race pace: the median of their clean laps, the valid laps (as the best lap's: no out-, in- or deleted
+ * laps, none touched by a neutral period) but lap 1, and none slower than SLOW of the median of the rest (as the
+ * stint pace and the circuit history count them). Null without one.
+ */
+export function racePace(
+    driver: number,
+    laps: readonly PaceLap[],
+    stints: readonly PaceStint[],
+    neutral: readonly NeutralPeriod[],
+    deletedBy: number
+): RacePace | null {
+    const valid = validLaps(laps, stints, neutral, deletedBy).filter(
+        (l) => l.lap > 1
+    )
+    const limit = median(valid.map((l) => l.duration ?? 0)) * SLOW
+    const clean = valid.filter((l) => (l.duration ?? 0) <= limit)
+    if (!clean.length) return null
+    const times = clean.map((l) => l.duration ?? 0)
+    const last = clean[clean.length - 1]
+    return {
+        driver,
+        time: median(times),
+        laps: clean.length,
+        best: Math.min(...times),
+        end: last.end ?? last.start + (last.duration ?? 0) * 1000
+    }
+}
+
+export interface RaceRow {
+    pace: RacePace
+    rank: number
+    /** Seconds behind the first row (0: the first). */
+    gap: number
+}
+
+/** The race paces ranked, quickest first. With `teamOf`, one row per team: its quicker driver's. */
+export const raceRows = (
+    paces: readonly RacePace[],
+    teamOf?: (driver: number) => string
+): RaceRow[] =>
+    ranked(paces, teamOf).map(({ item, rank, gap }) => ({
+        pace: item,
+        rank,
+        gap
+    }))
 
 // ---------------------------------------------------------------- the lap being watched
 //
