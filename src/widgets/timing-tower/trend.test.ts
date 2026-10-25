@@ -1,4 +1,6 @@
-import { describe, expect, test } from "bun:test"
+// describe/test/expect are bun test's globals: a widget folder may only import react, widget-kit and its own
+// files (bun run lint), so not "bun:test".
+
 import { type Crossings, intervalTrend } from "./trend"
 
 const NONE = new Map()
