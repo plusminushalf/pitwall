@@ -43,6 +43,8 @@ const PATHS = {
     ),
     download: <path {...STROKE} d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" />,
     "chevron-left": <path {...STROKE} d="M10 3.5 5.5 8l4.5 4.5" />,
+    "chevron-up": <path {...STROKE} d="M3.5 10.5 8 6l4.5 4.5" />,
+    "chevron-down": <path {...STROKE} d="M3.5 5.5 8 10l4.5-4.5" />,
     /** Two ways: switches between two readings of the same thing (gap to the leader, or to the car ahead). */
     swap: (
         <path

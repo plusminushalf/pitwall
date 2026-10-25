@@ -12,6 +12,7 @@ import {
     type LiveQualiSegment,
     lapTime,
     MiniSectors,
+    type PitStop,
     type QualiPhase,
     type SessionKind,
     sectorTime,
@@ -21,6 +22,8 @@ import {
     TAP_CLASS,
     TyreBadge,
     teamColor,
+    useAllLaps,
+    useAllPitStops,
     useBestSectors,
     useCoarsePointer,
     useDriver,
@@ -28,6 +31,7 @@ import {
     useFastestLap,
     useLaps,
     useLeaderLap,
+    useNeutralPeriods,
     useQualiPhase,
     useRunningOrder,
     useSelection,
@@ -38,6 +42,7 @@ import {
     useTrackLimits,
     useWidgetSize
 } from "widget-kit"
+import { type Crossings, intervalTrend, type Span, TREND_MIN } from "./trend"
 
 type GapMode = "leader" | "interval"
 type Settings = { gapMode: GapMode }
@@ -45,10 +50,11 @@ type Settings = { gapMode: GapMode }
 const ROW_H = 30
 /** The selection line (h-7 and its hairline) and the column titles (py-1.5, a line of 11 px label, the hairline). */
 const HEAD_H = 28 + 1 + 12 + (11 * 20) / 14 + 1
-const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_60px_58px_40px_20px]"
+/** Races' gap column also holds the caret for the interval's trend. */
+const COLS = "grid-cols-[22px_22px_minmax(0,1fr)_66px_58px_40px_20px]"
 /** With the last lap's sectors and the best lap, once the widget is WIDE px or more. */
 const WIDE_COLS =
-    "grid-cols-[22px_22px_minmax(0,1fr)_60px_46px_46px_46px_58px_58px_40px_20px]"
+    "grid-cols-[22px_22px_minmax(0,1fr)_66px_46px_46px_46px_58px_58px_40px_20px]"
 /** Practice: no grid to gain places from, and laps run (or a PIT tag) in the last column. */
 const PRACTICE_COLS = "grid-cols-[28px_minmax(0,1fr)_60px_58px_40px_28px]"
 const PRACTICE_WIDE_COLS =
@@ -73,7 +79,7 @@ const WIDE = 590
 // Left gutter for the selection check.
 const PAD = "pl-5 pr-2"
 /** What the columns other than the driver's take (fixed widths, gap-1 between, PAD), so the driver's gets the rest. */
-const FIXED_W = 22 + 22 + 60 + 58 + 40 + 20 + 6 * 4 + 20 + 8
+const FIXED_W = 22 + 22 + 66 + 58 + 40 + 20 + 6 * 4 + 20 + 8
 const WIDE_FIXED_W = FIXED_W + 3 * 46 + 58 + 4 * 4
 /** Practice's (no grid-change column, a wider last one). */
 const PRACTICE_FIXED_W = 28 + 60 + 58 + 40 + 28 + 5 * 4 + 20 + 8
@@ -164,7 +170,48 @@ function PracticeGapCell({ s }: { s: RowData }) {
     return <span className="tabular-nums">{gap(s.gap)}</span>
 }
 
-function GapCell({ s, mode }: { s: RowData; mode: GapMode }) {
+/** How the interval to the car ahead went over the last lap, as the caret after the gap shows it. */
+interface RowTrend {
+    /** Seconds: negative is closing. */
+    delta: number
+    /** The car ahead's acronym. */
+    ahead: string
+}
+
+/**
+ * The caret after a race gap: up (towards the car ahead, and green like a place gained) when the car closed on it
+ * over its last lap, down and red when it lost time; nothing when it held station within TREND_MIN.
+ */
+function TrendCaret({ trend }: { trend: RowTrend }) {
+    const closing = trend.delta < 0
+    const by = Math.abs(trend.delta).toFixed(1)
+    const label = closing
+        ? `Closing on ${trend.ahead}: ${by} s faster on the last lap`
+        : `Losing ${by} s to ${trend.ahead} on the last lap`
+    return (
+        <span
+            title={label}
+            className={closing ? "text-emerald-400" : "text-red-400"}
+        >
+            <Icon
+                name={closing ? "chevron-up" : "chevron-down"}
+                size={10}
+                label={label}
+                className="[&_path]:[stroke-width:2.5]"
+            />
+        </span>
+    )
+}
+
+function GapCell({
+    s,
+    mode,
+    trend
+}: {
+    s: RowData
+    mode: GapMode
+    trend: RowTrend | null
+}) {
     // Only the leader's row reads the leader's lap (whether the race has started).
     const started = useLeaderLap((l) => l > 0)
     if (s.status === "OUT")
@@ -192,9 +239,12 @@ function GapCell({ s, mode }: { s: RowData; mode: GapMode }) {
             </span>
         )
     return (
-        <span className="tabular-nums">
-            {flag}
-            {gap(s.gap)}
+        <span className="flex items-center justify-between gap-0.5">
+            <span className="tabular-nums">
+                {flag}
+                {gap(s.gap)}
+            </span>
+            {trend && s.status === "RUNNING" && <TrendCaret trend={trend} />}
         </span>
     )
 }
@@ -435,6 +485,33 @@ function LimitsTag({ n, race }: { n: number; race: boolean }) {
 const hasTag = (n: number) => (all: ReadonlyMap<number, DriverLimits>) =>
     tagged(all.get(n))
 
+/** Every car's completed laps as line-crossing times (changes only when a lap is completed). */
+const allCrossings = (
+    laps: ReadonlyMap<number, readonly Lap[]>
+): ReadonlyMap<number, Crossings> =>
+    new Map(
+        [...laps].map(([n, ls]) => {
+            const last = ls.reduce((m, l) => Math.max(m, l.lap), 0)
+            const c: (number | null)[] = Array.from(
+                { length: last + 1 },
+                () => null
+            )
+            for (const l of ls) c[l.lap] = l.end
+            return [n, c]
+        })
+    )
+
+/** Each car's pit stops so far, entry to exit. */
+const pitSpans = (
+    pits: ReadonlyMap<number, readonly PitStop[]>
+): ReadonlyMap<number, Span[]> =>
+    new Map(
+        [...pits].map(([n, ps]) => [
+            n,
+            ps.map((p) => ({ start: p.entry, end: p.exit }))
+        ])
+    )
+
 /** One driver's row: memoised, and subscribed to just that driver's fields. */
 const Row = memo(function Row({
     d,
@@ -444,6 +521,8 @@ const Row = memo(function Row({
     team,
     kind,
     phase,
+    trendDelta,
+    trendAhead,
     isSelected,
     isFocused,
     onToggle
@@ -457,6 +536,9 @@ const Row = memo(function Row({
     kind: SessionKind
     /** Live qualifying at t (its clock left out: rows don't show it). */
     phase: QualiPhase | null
+    /** Races: the interval's change over the last lap (seconds, negative closing) and the car ahead, if it moved. */
+    trendDelta: number | null
+    trendAhead: string | null
     isSelected: boolean
     isFocused: boolean
     onToggle: (n: number) => void
@@ -564,7 +646,18 @@ const Row = memo(function Row({
                         {practice ? (
                             <PracticeGapCell s={s} />
                         ) : (
-                            <GapCell s={s} mode={mode} />
+                            <GapCell
+                                s={s}
+                                mode={mode}
+                                trend={
+                                    trendDelta != null && trendAhead != null
+                                        ? {
+                                              delta: trendDelta,
+                                              ahead: trendAhead
+                                          }
+                                        : null
+                                }
+                            />
                         )}
                     </span>
                     {wide && <SectorCells n={d.number} />}
@@ -620,6 +713,25 @@ function TimingTower() {
             ? phase.segment.advance
             : null
     const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers])
+    const crossings = useAllLaps(allCrossings)
+    const pits = useAllPitStops(pitSpans)
+    const neutral = useNeutralPeriods()
+    // Races: each car's interval trend over its last lap, against the car ahead of it now.
+    const trends = useMemo(() => {
+        const out = new Map<number, RowTrend>()
+        if (kind !== "race") return out
+        const acronym = new Map(drivers.map((d) => [d.number, d.acronym]))
+        order.forEach((n, i) => {
+            if (i === 0) return
+            const t = intervalTrend(crossings, n, pits, neutral, order[i - 1])
+            if (t && Math.abs(t.delta) >= TREND_MIN)
+                out.set(n, {
+                    delta: t.delta,
+                    ahead: acronym.get(t.ahead) ?? `#${t.ahead}`
+                })
+        })
+        return out
+    }, [kind, drivers, order, crossings, pits, neutral])
     const room = width - fixedWidthOf(wide, kind)
     const teams = useMemo(
         () => ({ bare: room >= teamRoom, tagged: room >= teamRoom + TAG_W }),
@@ -738,6 +850,8 @@ function TimingTower() {
                             team={teams}
                             kind={kind}
                             phase={phase}
+                            trendDelta={trends.get(d.number)?.delta ?? null}
+                            trendAhead={trends.get(d.number)?.ahead ?? null}
                             isSelected={selected.includes(d.number)}
                             isFocused={focused === d.number}
                             onToggle={toggle}
