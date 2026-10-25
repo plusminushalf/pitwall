@@ -16,6 +16,8 @@ import { Swatch } from "./CompareCharts"
 
 const ROW = "grid items-center gap-1 pl-5 pr-2"
 const HEAD = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
+/** A share card's board compares no one. */
+const NONE: readonly number[] = []
 
 function Tabs({ quali: q }: { quali: QualiData }) {
     const board = useQuali((s) => s.board)
@@ -73,10 +75,12 @@ function Cutoff({ label }: { label: string }) {
     )
 }
 
-export function QualiBoard() {
+/** `card`: on a share card (QualiView's useCardSection), the tab shown as its title, without the comparison. */
+export function QualiBoard({ card = false }: { card?: boolean }) {
     const session = useReplay((s) => s.session)
     if (!session) throw new Error("QualiBoard: no session")
-    const selected = useReplay((s) => s.selected)
+    const comparing = useReplay((s) => s.selected)
+    const selected = card ? NONE : comparing
     const board = useQuali((s) => s.board)
     const coarse = useCoarsePointer()
     const meta = session.meta
@@ -139,6 +143,7 @@ export function QualiBoard() {
         return `group relative w-full text-left ${on ? "bg-zinc-800/70" : "hover:bg-zinc-900"} ${!on && full ? "cursor-not-allowed" : ""}`
     }
     const check = (n: number) => {
+        if (card) return null
         const style = styles.get(n)
         return (
             <span
@@ -409,8 +414,21 @@ export function QualiBoard() {
 
     return (
         <div className="flex h-full flex-col text-sm">
-            {q ? <Tabs quali={q} /> : <Title>Classification</Title>}
-            <div className="flex h-7 shrink-0 items-center border-b border-zinc-800 px-2 text-[11px] text-zinc-500">
+            {!q ? (
+                <Title>Classification</Title>
+            ) : card ? (
+                <Title>
+                    {board === "result"
+                        ? "Result"
+                        : q.segments[board - 1]?.name}
+                </Title>
+            ) : (
+                <Tabs quali={q} />
+            )}
+            <div
+                data-shot-control=""
+                className="flex h-7 shrink-0 items-center border-b border-zinc-800 px-2 text-[11px] text-zinc-500"
+            >
                 {selected.length > 0 ? (
                     <span>
                         Comparing{" "}

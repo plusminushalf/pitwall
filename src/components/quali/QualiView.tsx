@@ -2,7 +2,7 @@
 // board on the left, speed, delta, throttle, brake and gear on one distance axis, and the track map with who's
 // fastest in each mini-sector and the laps as ghosts.
 
-import { type ReactNode, useEffect, useMemo, useState } from "react"
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react"
 import { cornerLabel } from "../../data/circuits"
 import { type CompareModel, compareModel } from "../../data/compare"
 import { type DecodedLap, miniSectors } from "../../engine/compare"
@@ -15,6 +15,7 @@ import {
     MINI_SECTOR_COUNTS,
     useQuali
 } from "../../qualiStore"
+import { useCardSection } from "../../share/ShareCard"
 import { ShareButton } from "../../share/ShareShot"
 import { useReplay } from "../../store"
 import type { QualiData, SessionMeta } from "../../types"
@@ -399,9 +400,17 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
     const phone = usePhone()
     const coarse = useCoarsePointer()
     const [panel, setPanel] = useState<Panel>("charts")
+    // Shared on its own, the board is a card: the tab shown, every row of it, without the comparison.
+    const boardRef = useRef<HTMLElement>(null)
+    useCardSection(boardRef, () => (
+        <div className="border border-zinc-800">
+            <QualiBoard card />
+        </div>
+    ))
 
     const board = (
         <aside
+            ref={boardRef}
             data-shot=""
             className={phone ? "min-h-0" : "min-h-0 border-r border-zinc-800"}
         >
