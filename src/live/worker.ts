@@ -1,6 +1,7 @@
 // The live worker: the browser's live engine (./vaultEngine.ts) off the page's main thread. The page (./vault.ts)
 // starts it while live mode runs through the vault with a connected account, and terminates it when it stops.
 
+import { liveCache } from "./cache"
 import { type FromEngine, type ToEngine, VaultEngine } from "./vaultEngine"
 
 const scope = self as unknown as {
@@ -10,6 +11,7 @@ const scope = self as unknown as {
 
 const engine = new VaultEngine({
     post: (m, transfer = []) => scope.postMessage(m, transfer),
+    cache: typeof indexedDB === "undefined" ? undefined : liveCache,
     log: (line) => console.info(line),
     warn: (line) => console.warn(line)
 })

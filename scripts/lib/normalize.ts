@@ -269,6 +269,27 @@ function place(times: number[], t: number): { i: number; same: boolean } {
     return { i, same: times[i] === t }
 }
 
+/** (A loop: spreading a long array into push() overflows the call stack.) */
+function append(dst: number[], src: ArrayLike<number>) {
+    for (let i = 0; i < src.length; i++) dst.push(src[i])
+}
+
+/** DriverSamples.dump(): one car's samples as typed arrays. */
+export interface SamplesDump {
+    driver: number
+    car: {
+        t: Int32Array
+        speed: Int16Array
+        rpm: Int16Array
+        gear: Int16Array
+        throttle: Int16Array
+        brake: Int16Array
+        /** -1: none. */
+        drs: Int16Array
+    }
+    fixes: { t: Int32Array; x: Int32Array; y: Int32Array; z: Int32Array }
+}
+
 function put(
     arrays: unknown[][],
     values: unknown[],
@@ -382,6 +403,49 @@ export class DriverSamples {
 
     get size(): number {
         return this.car.t.length + this.fixes.t.length
+    }
+
+    /** The samples as typed arrays (the live worker's cache across page loads): ints, as OpenF1 sends them. */
+    dump(): SamplesDump {
+        const c = this.car
+        const f = this.fixes
+        return {
+            driver: this.driver,
+            car: {
+                t: Int32Array.from(c.t),
+                speed: Int16Array.from(c.speed),
+                rpm: Int16Array.from(c.rpm),
+                gear: Int16Array.from(c.gear),
+                throttle: Int16Array.from(c.throttle),
+                brake: Int16Array.from(c.brake),
+                drs: Int16Array.from(c.drs, (v) => v ?? -1)
+            },
+            fixes: {
+                t: Int32Array.from(f.t),
+                x: Int32Array.from(f.x),
+                y: Int32Array.from(f.y),
+                z: Int32Array.from(f.z)
+            }
+        }
+    }
+
+    /** Samples back from `dump()` (same t0). */
+    static restore(d: SamplesDump, t0: number): DriverSamples {
+        const s = new DriverSamples(d.driver, t0)
+        const c = s.car
+        const f = s.fixes
+        append(c.t, d.car.t)
+        append(c.speed, d.car.speed)
+        append(c.rpm, d.car.rpm)
+        append(c.gear, d.car.gear)
+        append(c.throttle, d.car.throttle)
+        append(c.brake, d.car.brake)
+        for (const v of d.car.drs) c.drs.push(v < 0 ? null : v)
+        append(f.t, d.fixes.t)
+        append(f.x, d.fixes.x)
+        append(f.y, d.fixes.y)
+        append(f.z, d.fixes.z)
+        return s
     }
 
     /** Stale fix: same x/y as the previous fix while the car (last sample at or before it) was moving. */

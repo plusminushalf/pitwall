@@ -10,7 +10,8 @@ import {
     LOC_GAP_MS,
     type NormalizeResult,
     normalize,
-    type RawSessionData
+    type RawSessionData,
+    type SamplesDump
 } from "../../scripts/lib/normalize"
 import type {
     RawCarData,
@@ -69,6 +70,17 @@ export interface StoreOptions {
     clock?: () => number
     /** Keep raw car/location records so the relay can write the session to the raw cache at the end. */
     keepRaw?: boolean
+}
+
+/** A LiveStore as plain data (structured-cloneable): the live worker's cache across page loads (./cache.ts). */
+export interface StoreDump {
+    session: RawSession
+    meeting: RawMeeting | null
+    circuit: RawCircuit | null
+    t0: number
+    docs: [DocTopic, Rec[]][]
+    samples: SamplesDump[]
+    latest: { car_data: number; location: number }
 }
 
 export class LiveStore {
@@ -213,6 +225,41 @@ export class LiveStore {
             results: this.list("session_result"),
             samples: this.samples
         }
+    }
+
+    dump(): StoreDump {
+        return {
+            session: this.session,
+            meeting: this.meeting,
+            circuit: this.circuit,
+            t0: this.t0,
+            docs: [...this.docs].map(([topic, docs]) => [
+                topic,
+                [...docs.values()]
+            ]),
+            samples: [...this.samples.values()].map((s) => s.dump()),
+            latest: { ...this.latest }
+        }
+    }
+
+    /** A store back from `dump()` (no raw telemetry: the relay doesn't cache). */
+    static restore(
+        d: StoreDump,
+        opts: Pick<StoreOptions, "clock"> = {}
+    ): LiveStore {
+        const store = new LiveStore({
+            session: d.session,
+            meeting: d.meeting,
+            circuit: d.circuit,
+            t0: d.t0,
+            clock: opts.clock
+        })
+        for (const [topic, recs] of d.docs)
+            for (const r of recs) store.ingest(topic, r)
+        for (const s of d.samples)
+            store.samples.set(s.driver, DriverSamples.restore(s, d.t0))
+        store.latest = { ...d.latest }
+        return store
     }
 
     /** One car's raw car/location records as received (only with `keepRaw`), for the relay's raw cache. */

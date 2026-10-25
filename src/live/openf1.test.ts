@@ -9,11 +9,14 @@ import type { LiveSink, StatusPatch } from "./hub"
 import {
     backfill,
     backfillEarlier,
+    type CachedSession,
     type FeedHooks,
     finished,
+    type LiveCache,
     OpenF1Live,
     type Params,
     QUICK_TELEMETRY_MS,
+    REFILL_OVERLAP_MS,
     TELEMETRY_PIECE_MS
 } from "./openf1"
 import type { LiveState } from "./protocol"
@@ -213,6 +216,88 @@ describe("OpenF1Live", () => {
             now - MIN - t0
         ])
         await live.shutdown()
+    })
+
+    test("a page load mid-session: the cached session on screen before any REST; then only what came since, and a fresh snapshot", async () => {
+        let saved: CachedSession | null = null
+        let saves = 0
+        const cache: LiveCache = {
+            load: async (key) =>
+                saved?.store.session.session_key === key
+                    ? structuredClone(saved)
+                    : null,
+            save: async (c) => {
+                saved = structuredClone(c)
+                saves++
+            },
+            clear: async () => {
+                saved = null
+            }
+        }
+        const rows = {
+            drivers: [{ session_key: 11731, driver_number: 1 }],
+            car_data: [car(1, now - 12 * MIN), car(1, now - MIN)]
+        }
+        const t0 = Date.parse(race.date_start) - 10 * MIN
+        // The first load: a quick start, saved, then saved again once the earlier telemetry is in.
+        const first = sink()
+        const one = new OpenF1Live(first, {
+            rest: api(rows).rest,
+            circuit: async () => ({}) as never,
+            feed: feeds().feed,
+            cache,
+            now: () => now,
+            ...quiet
+        })
+        await one.poll()
+        while (first.log.at(-1) !== "refresh") await Bun.sleep(1)
+        while (saves < 2) await Bun.sleep(1)
+        expect(saved).not.toBeNull()
+        expect(must(saved as CachedSession | null).missingBefore).toBeNull()
+        await one.shutdown()
+
+        // The next: on screen from the cache, then a refill from the cache's latest sample.
+        rows.car_data.push(car(1, now + 10_000))
+        const hub = sink()
+        const { rest, calls } = api(rows)
+        const { made, feed } = feeds()
+        const two = new OpenF1Live(hub, {
+            rest,
+            circuit: async () => ({}) as never,
+            feed,
+            cache,
+            now: () => now + 20_000,
+            ...quiet
+        })
+        let before: string[] = []
+        const start = hub.startSession
+        hub.startSession = (st) => {
+            before = calls.map(([e]) => e)
+            start(st)
+        }
+        await two.poll()
+        expect(hub.log[0]).toBe("start")
+        expect(before).toEqual(["sessions"])
+        const store = hub.stores[0]
+        expect(store.list("drivers")).toHaveLength(1)
+        expect(must(store.samples.get(1)).car.t).toEqual([
+            now - 12 * MIN - t0,
+            now - MIN - t0
+        ])
+        while (hub.log.at(-1) !== "refresh") await Bun.sleep(1)
+        expect(made[0].started).toBe(true)
+        expect(calls.some(([e]) => e === "meetings")).toBe(false)
+        expect(
+            calls
+                .filter(([e]) => e === "car_data")
+                .map(([, p]) => [p["date>"], p["date<="] ?? null])
+        ).toEqual([[iso(now - MIN - REFILL_OVERLAP_MS), null]])
+        expect(must(store.samples.get(1)).car.t).toEqual([
+            now - 12 * MIN - t0,
+            now - MIN - t0,
+            now + 10_000 - t0
+        ])
+        await two.shutdown()
     })
 
     test("free practice and qualifying are followed too; testing isn't", async () => {

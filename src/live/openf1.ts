@@ -14,7 +14,7 @@ import type {
 import { isFollowedLive } from "../../scripts/lib/season"
 import type { LiveSink } from "./hub"
 import type { LiveStatus } from "./protocol"
-import { LiveStore, type Rec, type Topic } from "./store"
+import { LiveStore, type Rec, type StoreDump, type Topic } from "./store"
 
 export const POLL_MS = 60_000
 /** After a failed attempt to go live (not a refused login), the next poll comes this soon. */
@@ -34,6 +34,8 @@ export const TELEMETRY_PIECE_MS = 10 * 60_000
 export const QUICK_TELEMETRY_MS = 5 * 60_000
 /** A refill after a gap in the feed starts this long before the last sample received before it. */
 export const REFILL_OVERLAP_MS = 30_000
+/** The session followed is written to the cache (LiveDeps.cache) this often, when it changed. */
+export const SAVE_MS = 15_000
 /** The status says how the backfill is going at most this often. */
 const PROGRESS_EVERY_MS = 2_000
 
@@ -138,10 +140,27 @@ export interface LiveDeps {
     now?: () => number
     /** Keep raw telemetry in the store (the relay writes it to the raw cache). */
     keepRaw?: boolean
+    /** Keeps the session followed across restarts: the browser's live worker starts over with every page load. */
+    cache?: LiveCache
     /** The session is over, or the source is shutting down during one: the relay saves it. Returns words for the status. */
     save?(store: LiveStore): Promise<string | undefined>
     log?: (line: string) => void
     warn?: (line: string) => void
+}
+
+/** The session followed, as last saved. */
+export interface CachedSession {
+    store: StoreDump
+    /** The telemetry before this (absolute ms) wasn't fetched yet (a quick start; see fillEarlier). */
+    missingBefore: number | null
+}
+
+/** Where the session followed is kept between runs (src/live/cache.ts: IndexedDB). One session at a time. */
+export interface LiveCache {
+    /** The session saved, if it's this one. */
+    load(sessionKey: number): Promise<CachedSession | null>
+    save(session: CachedSession): Promise<void>
+    clear(): Promise<void>
 }
 
 /**
@@ -264,6 +283,10 @@ export function backfillEarlier(
 interface Following {
     store: LiveStore
     feed: LiveFeed
+    /** The telemetry before this wasn't fetched yet (CachedSession.missingBefore). */
+    missingBefore: number | null
+    /** store.records when last saved to the cache. */
+    saved: number
 }
 
 export class OpenF1Live {
@@ -272,6 +295,10 @@ export class OpenF1Live {
     private stopped = false
     private timer: ReturnType<typeof setInterval> | null = null
     private retry: ReturnType<typeof setTimeout> | null = null
+    private saver: ReturnType<typeof setInterval> | null = null
+    private saving = false
+    /** Saving to the cache failed (said once until it works again). */
+    private saveFailed = false
     private next: { at: number; value: LiveStatus["next"] } | null = null
     /** REST failed while following a session (said once until it answers again). */
     private restDown = false
@@ -292,6 +319,89 @@ export class OpenF1Live {
     start(): void {
         void this.poll()
         this.timer = setInterval(() => void this.poll(), POLL_MS)
+        if (this.deps.cache)
+            this.saver = setInterval(() => void this.save(), SAVE_MS)
+    }
+
+    /** Write the session followed to the cache, if it changed since the last time. */
+    private async save(): Promise<void> {
+        const live = this.live
+        const cache = this.deps.cache
+        if (!live || !cache || this.saving || live.store.records === live.saved)
+            return
+        this.saving = true
+        const records = live.store.records
+        try {
+            await cache.save({
+                store: live.store.dump(),
+                missingBefore: live.missingBefore
+            })
+            live.saved = records
+            this.saveFailed = false
+        } catch (e) {
+            if (!this.saveFailed)
+                this.warn(`[live] couldn't cache the session: ${errorText(e)}`)
+            this.saveFailed = true
+        } finally {
+            this.saving = false
+        }
+    }
+
+    /**
+     * The session as the last run left it (the cache: a page load mid-session), on screen at once; then the feed, and
+     * REST for what came since. False when there's nothing cached for it.
+     */
+    private async resume(session: RawSession): Promise<boolean> {
+        const cached = await this.deps.cache
+            ?.load(session.session_key)
+            .catch((e) => {
+                this.warn(
+                    `[live] the cached session didn't load: ${errorText(e)}`
+                )
+                return null
+            })
+        if (!cached || this.stopped) return false
+        let store: LiveStore
+        try {
+            store = LiveStore.restore(cached.store, { clock: this.now })
+        } catch (e) {
+            // (Dropped, or every poll would trip over it again.)
+            this.warn(`[live] the cached session is unusable: ${errorText(e)}`)
+            await this.deps.cache?.clear().catch(() => {})
+            return false
+        }
+        store.ingest("sessions", session)
+        const since = store.latestDataTime
+        const feed = this.deps.feed(store, {
+            deliver: (topic, rec) => store.ingest(topic, rec),
+            refill: async (from) => {
+                if (this.live?.store === store)
+                    await this.refillStore(store, from)
+            }
+        })
+        const { missingBefore } = cached
+        this.live = { store, feed, missingBefore, saved: store.records }
+        this.hub.startSession(store)
+        this.log(
+            `[live] #${session.session_key} from the cache: ${store.records} records${Number.isFinite(since) ? `, up to ${iso(since)}` : ""}`
+        )
+        void (async () => {
+            try {
+                await feed.start()
+            } catch (e) {
+                this.warn(
+                    `[live] live feed not up yet (${errorText(e)}); it keeps trying`
+                )
+            }
+            if (this.live?.store !== store) return
+            await this.refillStore(store, since)
+            if (this.live?.store !== store) return
+            // (What the stream carried meanwhile may have moved past what the refill inserted.)
+            this.hub.refresh()
+            if (missingBefore != null)
+                void this.fillEarlier(store, missingBefore)
+        })()
+        return true
     }
 
     /** The session followed now, if any. */
@@ -426,6 +536,7 @@ export class OpenF1Live {
 
     /** Subscribe (holding what arrives), backfill over REST, apply what arrived meanwhile, then stream. */
     private async goLive(session: RawSession): Promise<void> {
+        if (await this.resume(session)) return
         const key = session.session_key
         this.hub.setStatus({
             state: "connecting",
@@ -503,8 +614,10 @@ export class OpenF1Live {
         if (this.stopped) return feed.stop()
         for (const [topic, rec] of buffer) store.ingest(topic, rec)
         buffer = null
-        this.live = { store, feed }
+        const missingBefore = quickFrom > store.t0 ? quickFrom : null
+        this.live = { store, feed, missingBefore, saved: -1 }
         this.hub.startSession(store)
+        void this.save()
         if (gap.since != null) void this.refillStore(store, gap.since)
         if (quickFrom > store.t0) void this.fillEarlier(store, quickFrom)
     }
@@ -517,6 +630,9 @@ export class OpenF1Live {
                 alive: () => this.live?.store === store
             })
             if (this.live?.store !== store) return
+            this.live.missingBefore = null
+            this.live.saved = -1
+            void this.save()
             this.hub.refresh()
             this.log(
                 `[live] earlier telemetry (before ${iso(to)}): ${n} records in ${((Date.now() - started) / 1000).toFixed(0)}s`
@@ -533,6 +649,11 @@ export class OpenF1Live {
         if (!live) return
         this.live = null
         live.feed.stop()
+        void this.deps.cache
+            ?.clear()
+            .catch((e) =>
+                this.warn(`[live] couldn't clear the cache: ${errorText(e)}`)
+            )
         const detail = await this.deps.save?.(live.store)
         this.hub.endSession(detail)
         this.hub.setStatus({
@@ -546,6 +667,7 @@ export class OpenF1Live {
         this.stopped = true
         if (this.timer) clearInterval(this.timer)
         if (this.retry) clearTimeout(this.retry)
+        if (this.saver) clearInterval(this.saver)
         const live = this.live
         if (!live) return
         this.live = null

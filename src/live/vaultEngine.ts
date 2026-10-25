@@ -13,6 +13,7 @@ import { LiveHub } from "./hub"
 import {
     type Endpoint,
     type FeedHooks,
+    type LiveCache,
     type LiveFeed,
     OpenF1Live,
     type Params
@@ -79,6 +80,8 @@ export class VaultGetError extends Error {
 export interface EngineDeps {
     post(m: FromEngine, transfer?: Transferable[]): void
     circuit?: (url: string) => Promise<RawCircuit>
+    /** Keeps the session across page loads (./cache.ts). */
+    cache?: LiveCache
     log?: (line: string) => void
     warn?: (line: string) => void
     sleep?: (ms: number) => Promise<void>
@@ -173,6 +176,8 @@ export class VaultEngine {
             rest: (endpoint, params) => this.rest(endpoint, params),
             circuit: this.deps.circuit ?? fetchCircuit,
             feed: (_store, hooks) => (this.feed = new VaultFeed(this, hooks)),
+            // (Simulations replay a cached session on a shifted clock: nothing to keep.)
+            cache: sim ? undefined : this.deps.cache,
             now: this.now,
             log: this.deps.log,
             warn: this.deps.warn
