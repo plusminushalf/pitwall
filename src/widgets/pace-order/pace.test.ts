@@ -5,11 +5,16 @@ import type { NeutralPeriod } from "widget-kit"
 import {
     type Best,
     bestLap,
+    crossingsOf,
+    type FitLap,
+    fitLaps,
+    fitPace,
+    gapAhead,
     leftOf,
     type PaceLap,
     type PaceStint,
     paceRows,
-    racePace,
+    racePaces,
     raceRows,
     tyreOf,
     validLaps,
@@ -213,49 +218,174 @@ describe("pace rows", () => {
 })
 
 describe("race pace", () => {
-    // A race from the grid: lap 1, then laps of the given times, a stop and an out-lap (lap 8).
-    const race = (
-        times: number[],
-        extra: Partial<Record<number, Partial<PaceLap>>> = {}
-    ) =>
-        lapsOf(
-            times.map((t) => [30, 40, t - 70] as Spec),
-            extra
-        )
-    const oneStop: PaceStint[] = [
-        { lapStart: 1, compound: "MEDIUM", ageAtStart: 0 },
-        { lapStart: 8, compound: "HARD", ageAtStart: 0 }
-    ]
-
-    test("the median clean lap: not lap 1, the in- and out-lap or a slow lap", () => {
-        // Lap 1 (98), laps 2-6, the in-lap (7: 110), the out-lap (8: 115), laps 9-11 and a lap in traffic (12: 99).
-        const laps = race([
-            98, 92, 91.5, 91.8, 92.2, 92, 110, 115, 91, 90.8, 91.1, 99
-        ])
-        const p = must(racePace(4, laps, oneStop, [], 0))
-        expect(p.laps).toBe(8)
-        expect(p.time).toBeCloseTo((91.5 + 91.8) / 2, 6)
-        expect(p.best).toBeCloseTo(90.8, 6)
-        expect(p.end).toBe(laps[10].end)
-    })
-
-    test("one quick lap doesn't move it; laps under a VSC and deleted laps aren't in it", () => {
-        const laps = race([98, 92, 92, 92, 88, 92, 92], {
-            7: { deleted: { t: 0 } }
-        })
-        // The VSC covers lap 6 (laps 1-5 take 98 + 92 * 3 + 88 = 462 s).
-        const vsc: NeutralPeriod[] = [
-            { status: "VSC", start: 470_000, end: 500_000 }
+    test("the gap ahead: since another car last crossed the line, lapped or not", () => {
+        const crossings = [
+            { t: 1000, driver: 1 },
+            { t: 1500, driver: 16 },
+            { t: 2000, driver: 4 },
+            { t: 2000, driver: 1 }
         ]
-        const p = must(racePace(4, laps, oneStop.slice(0, 1), vsc, 0))
-        expect(p.laps).toBe(4)
-        expect(p.time).toBeCloseTo(92, 6)
-        expect(p.best).toBeCloseTo(88, 6)
+        expect(gapAhead(crossings, 4, 2000)).toBeCloseTo(0, 6)
+        expect(gapAhead(crossings, 16, 1500)).toBeCloseTo(0.5, 6)
+        expect(gapAhead(crossings, 1, 1000)).toBe(Infinity)
+        // A car's own crossings don't count.
+        expect(gapAhead(crossings, 1, 2000)).toBeCloseTo(0, 6)
+        expect(gapAhead([{ t: 0, driver: 1 }], 1, 5000)).toBe(Infinity)
     })
 
-    test("none without a clean lap", () => {
-        expect(racePace(4, race([98]), oneStop, [], 0)).toBeNull()
-        expect(racePace(4, [], [], [], 0)).toBeNull()
+    test("the laps that count: valid, not lap 1, not slow, in clear air", () => {
+        // Lap 1 (98), laps 2-6, the in-lap (7), the out-lap (8), laps 9-10 and a slow lap (11: 99).
+        const times = [98, 92, 91.5, 91.8, 92.2, 92, 110, 115, 91, 90.8, 99]
+        const laps = lapsOf(times.map((t) => [30, 40, t - 70] as Spec))
+        const stints: PaceStint[] = [
+            { lapStart: 1, compound: "MEDIUM", ageAtStart: 0 },
+            { lapStart: 8, compound: "HARD", ageAtStart: 0 }
+        ]
+        // Another car 0.5 s ahead at the end of lap 4 (so at the start of lap 5 too).
+        const end4 = laps[3].end ?? 0
+        const crossings = [
+            ...crossingsOf([[4, laps]]),
+            { t: end4 - 500, driver: 1 }
+        ].sort((a, b) => a.t - b.t)
+        const kept = fitLaps(4, laps, stints, [], 0, crossings)
+        expect(kept.map((l) => l.lap)).toEqual([2, 3, 6, 9, 10])
+        expect(kept.map((l) => [l.compound, l.age])).toEqual([
+            ["MEDIUM", 1],
+            ["MEDIUM", 2],
+            ["MEDIUM", 5],
+            ["HARD", 1],
+            ["HARD", 2]
+        ])
+    })
+
+    /** Laps from a known race: pace + fuel per lap + wear per lap on the set + the compound's offset. */
+    const FUEL = -0.06
+    const WEAR: Record<string, number> = { MEDIUM: 0.08, HARD: 0.05 }
+    const OFFSET: Record<string, number> = { MEDIUM: 0, HARD: 0.3 }
+    const driven = (
+        driver: number,
+        pace: number,
+        stints: [string, number, number][]
+    ): FitLap[] =>
+        stints.flatMap(([compound, from, to]) =>
+            Array.from({ length: to - from + 1 }, (_, k) => {
+                const lap = from + k
+                return {
+                    driver,
+                    lap,
+                    time:
+                        pace +
+                        FUEL * lap +
+                        WEAR[compound] * (lap - from) +
+                        OFFSET[compound],
+                    compound,
+                    age: lap - from,
+                    end: lap * 100_000
+                }
+            })
+        )
+
+    /** Six cars driving each plan (numbered n, n + 100...): a field's worth of laps, as a race has. */
+    const field = (laps: FitLap[]) =>
+        [0, 1, 2, 3, 4, 5].flatMap((k) =>
+            laps.map((l) => ({ ...l, driver: l.driver + 100 * k }))
+        )
+
+    /** Within 0.01 s: what the prior's pull leaves on a field of laps. */
+    const near = (x: number, y: number) =>
+        expect(Math.abs(x - y)).toBeLessThan(0.01)
+
+    test("the fit takes fuel, wear and compound out", () => {
+        const laps = [
+            ...driven(16, 100, [
+                ["MEDIUM", 2, 15],
+                ["HARD", 17, 50]
+            ]),
+            ...driven(12, 100.1, [
+                ["MEDIUM", 2, 25],
+                ["HARD", 27, 50]
+            ]),
+            ...driven(1, 100.3, [
+                ["HARD", 2, 30],
+                ["MEDIUM", 32, 50]
+            ])
+        ]
+        const fit = must(fitPace(field(laps)))
+        expect(fit.base).toBe("HARD")
+        near(fit.fuel, FUEL)
+        near(fit.wear.MEDIUM, 0.08)
+        near(fit.wear.HARD, 0.05)
+        // The offset takes up what the prior holds back of the wear (a stint's average age times it): looser.
+        expect(Math.abs(fit.offset.MEDIUM + 0.3)).toBeLessThan(0.15)
+        const gap = (n: number) =>
+            (fit.pace.get(n) ?? 0) - (fit.pace.get(16) ?? 0)
+        near(gap(12), 0.1)
+        near(gap(1), 0.3)
+    })
+
+    test("fresher tyres from an extra stop don't make a car quicker", () => {
+        // 16 is quicker and stops once; 1 stops twice, so it's on fresher tyres: by median lap, 1 looks quicker.
+        const laps = [
+            ...driven(16, 100, [
+                ["MEDIUM", 2, 25],
+                ["MEDIUM", 27, 50]
+            ]),
+            ...driven(1, 100.2, [
+                ["MEDIUM", 2, 16],
+                ["MEDIUM", 18, 33],
+                ["MEDIUM", 35, 50]
+            ])
+        ]
+        const median = (n: number) => {
+            const t = laps
+                .filter((l) => l.driver === n)
+                .map((l) => l.time)
+                .sort((a, b) => a - b)
+            return t[t.length >> 1]
+        }
+        expect(median(1)).toBeLessThan(median(16))
+        const fit = must(fitPace(field(laps)))
+        near((fit.pace.get(1) ?? 0) - (fit.pace.get(16) ?? 0), 0.2)
+    })
+
+    test("before the stops, fuel and wear lean on the prior and the order still holds", () => {
+        const laps = [
+            ...driven(16, 100, [["MEDIUM", 2, 8]]),
+            ...driven(1, 100.2, [["MEDIUM", 2, 8]])
+        ]
+        const fit = must(fitPace(laps))
+        expect(Number.isFinite(fit.fuel)).toBe(true)
+        expect((fit.pace.get(1) ?? 0) - (fit.pace.get(16) ?? 0)).toBeCloseTo(
+            0.2,
+            3
+        )
+        expect(fitPace([])).toBeNull()
+    })
+
+    test("every driver's race pace from their laps, the median as driven", () => {
+        // Two cars far apart on the road: 16 a second a lap quicker.
+        const at = (offset: number, times: number[]) =>
+            lapsOf(times.map((t) => [30, 40, t - 70] as Spec)).map((l) => ({
+                ...l,
+                start: l.start + offset,
+                end: (l.end ?? 0) + offset
+            }))
+        const laps = new Map([
+            [16, at(0, [98, 92, 92.1, 92.2, 92.3])],
+            [1, at(30_000, [99, 93, 93.1, 93.2, 93.3])]
+        ])
+        const stints = new Map<number, PaceStint[]>([
+            [16, [{ lapStart: 1, compound: "MEDIUM", ageAtStart: 0 }]],
+            [1, [{ lapStart: 1, compound: "MEDIUM", ageAtStart: 0 }]]
+        ])
+        const { paces } = racePaces(laps, stints, [], 0)
+        const rows = raceRows(paces)
+        expect(rows.map((r) => [r.pace.driver, r.pace.laps])).toEqual([
+            [16, 4],
+            [1, 4]
+        ])
+        expect(rows[1].gap).toBeCloseTo(1, 3)
+        expect(rows[0].pace.median).toBeCloseTo(92.15, 6)
     })
 
     test("ranked by it, by team too", () => {
@@ -263,7 +393,7 @@ describe("race pace", () => {
             driver,
             time,
             laps: 20,
-            best: time - 1,
+            median: time + 1,
             end: 0
         })
         const team = (n: number) =>

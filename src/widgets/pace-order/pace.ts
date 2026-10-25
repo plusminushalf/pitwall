@@ -1,6 +1,7 @@
 // Pace order: every driver's best valid lap so far, ranked, with the tyre it was set on and the ideal lap (the
-// driver's best valid sectors added up). In a race it also ranks by race pace: the median of each driver's clean
-// laps, so one quick lap on new softs at the end doesn't put a car up the order. Pure: the widget feeds it the laps,
+// driver's best valid sectors added up). In a race it also ranks by race pace: each driver's clean laps in clear air
+// with fuel, tyre age and compound taken out (below), so one quick lap on new softs at the end doesn't put a car up
+// the order, nor a late stop's fresh tyres. Pure: the widget feeds it the laps,
 // stints and safety car, VSC and red flag periods it has so far (nothing past t).
 //
 // A lap is valid when it's timed, isn't an out-lap or an in-lap, isn't touched by a neutral period and hasn't been
@@ -176,50 +177,244 @@ export const paceRows = (
     }))
 
 // ---------------------------------------------------------------- race pace
+//
+// A median lap mixes laps on new and old tyres, full and light: whoever stopped later had fresher tyres at the end and
+// looks quicker. So race pace is fitted across the field: each lap time is the driver's pace, plus how much quicker
+// the cars get each lap (fuel burning off, the track rubbering in), plus wear for each lap on the set and an offset for
+// its compound. Only clean laps in clear air count. Before the stops, the laps and the sets' ages go up together and
+// the data can't tell fuel from wear: both lean on a typical value (PRIOR) until it can.
 
 /** Slower than this share of the driver's median valid lap isn't pace: traffic, a mistake, a car being lapped. */
 export const SLOW = 1.07
+/** Closer than this (s) behind another car at either end of a lap: its dirty air, a DRS train. Not clear air. */
+export const CLEAR_AIR = 1
 
-/** A driver's race pace so far: the median of their clean laps. */
-export interface RacePace {
+/** What a fit leans on (s per lap) until the laps can say: quicker each lap with fuel burning off, slower with wear. */
+export const PRIOR = { fuel: -0.05, wear: 0.05 }
+/** How hard (in squared s per lap, like a lap's): enough to hold before the stops, not against a race's worth. */
+const WEIGHT = { fuel: 1000, wear: 1000, offset: 20 }
+
+/** A line crossing: when (ms) and who. */
+export interface Crossing {
+    t: number
     driver: number
-    /** Seconds: the median clean lap. */
+}
+
+/** Every car's line crossings (the start and end of each lap but the first's start, the start), in time order. */
+export function crossingsOf(
+    all: Iterable<readonly [number, readonly PaceLap[]]>
+): Crossing[] {
+    const out: Crossing[] = []
+    for (const [driver, laps] of all)
+        for (const l of laps) {
+            if (l.lap > 1) out.push({ t: l.start, driver })
+            const end =
+                l.end ??
+                (l.duration != null ? l.start + l.duration * 1000 : null)
+            if (end != null) out.push({ t: end, driver })
+        }
+    return out.sort((a, b) => a.t - b.t)
+}
+
+/** Seconds since another car crossed the line when `driver` did at t: the car ahead on the road, lapped or not. */
+export function gapAhead(
+    crossings: readonly Crossing[],
+    driver: number,
+    t: number
+): number {
+    let lo = 0
+    let hi = crossings.length
+    while (lo < hi) {
+        const m = (lo + hi) >> 1
+        if (crossings[m].t <= t) lo = m + 1
+        else hi = m
+    }
+    for (let i = lo - 1; i >= 0; i--)
+        if (crossings[i].driver !== driver) return (t - crossings[i].t) / 1000
+    return Infinity
+}
+
+/** A lap that shows pace, for the fit. */
+export interface FitLap {
+    driver: number
+    lap: number
+    /** Seconds. */
     time: number
-    /** Clean laps in it. */
-    laps: number
-    /** Seconds: the quickest of them. */
-    best: number
-    /** When the last of them ended (ms): equal times rank by it. */
+    compound: string
+    /** Laps on the set before this one. */
+    age: number
+    /** When it ended (ms). */
     end: number
 }
 
 /**
- * A driver's race pace: the median of their clean laps, the valid laps (as the best lap's: no out-, in- or deleted
- * laps, none touched by a neutral period) but lap 1, and none slower than SLOW of the median of the rest (as the
- * stint pace and the circuit history count them). Null without one.
+ * A driver's laps that show pace: valid (as the best lap's), not lap 1, not slower than SLOW of the median valid lap,
+ * and in clear air at both ends.
  */
-export function racePace(
+export function fitLaps(
     driver: number,
     laps: readonly PaceLap[],
     stints: readonly PaceStint[],
     neutral: readonly NeutralPeriod[],
-    deletedBy: number
-): RacePace | null {
+    deletedBy: number,
+    crossings: readonly Crossing[]
+): FitLap[] {
     const valid = validLaps(laps, stints, neutral, deletedBy).filter(
         (l) => l.lap > 1
     )
     const limit = median(valid.map((l) => l.duration ?? 0)) * SLOW
-    const clean = valid.filter((l) => (l.duration ?? 0) <= limit)
-    if (!clean.length) return null
-    const times = clean.map((l) => l.duration ?? 0)
-    const last = clean[clean.length - 1]
-    return {
-        driver,
-        time: median(times),
-        laps: clean.length,
-        best: Math.min(...times),
-        end: last.end ?? last.start + (last.duration ?? 0) * 1000
+    return valid.flatMap((l) => {
+        const time = l.duration ?? 0
+        if (time > limit) return []
+        const end = l.end ?? l.start + time * 1000
+        const gap = Math.min(
+            gapAhead(crossings, driver, l.start),
+            gapAhead(crossings, driver, end)
+        )
+        if (gap < CLEAR_AIR) return []
+        const tyre = tyreOf(stints, l.lap)
+        return [
+            {
+                driver,
+                lap: l.lap,
+                time,
+                compound: tyre?.compound ?? "UNKNOWN",
+                age: tyre?.age ?? 0,
+                end
+            }
+        ]
+    })
+}
+
+/** The field's fit. */
+export interface PaceFit {
+    /** Seconds per lap of the race: fuel burning off and the track rubbering in (negative: quicker). */
+    fuel: number
+    /** Seconds per lap on the set, by compound. */
+    wear: Record<string, number>
+    /** Seconds on each compound against `base`'s (the one most laps are on: 0). */
+    offset: Record<string, number>
+    base: string
+    /** Each driver's pace with those taken out (s): a model lap, to compare drivers by. */
+    pace: Map<number, number>
+}
+
+/** Least squares with the priors: solves (A + W) x = b + W prior by elimination. Null when it can't. */
+function solve(a: number[][], b: number[]): number[] | null {
+    const n = b.length
+    const m = a.map((row, i) => [...row, b[i]])
+    for (let i = 0; i < n; i++) {
+        let p = i
+        for (let r = i + 1; r < n; r++)
+            if (Math.abs(m[r][i]) > Math.abs(m[p][i])) p = r
+        if (!(Math.abs(m[p][i]) > 1e-9)) return null
+        ;[m[i], m[p]] = [m[p], m[i]]
+        for (let r = 0; r < n; r++) {
+            if (r === i || m[r][i] === 0) continue
+            const f = m[r][i] / m[i][i]
+            for (let c = i; c <= n; c++) m[r][c] -= f * m[i][c]
+        }
     }
+    return m.map((row, i) => row[n] / row[i])
+}
+
+/** The fit through every driver's laps; null without any. */
+export function fitPace(laps: readonly FitLap[]): PaceFit | null {
+    if (!laps.length) return null
+    const drivers = [...new Set(laps.map((l) => l.driver))].sort(
+        (a, b) => a - b
+    )
+    const count = new Map<string, number>()
+    for (const l of laps)
+        count.set(l.compound, (count.get(l.compound) ?? 0) + 1)
+    const compounds = [...count.keys()].sort()
+    const base = compounds.reduce((a, c) =>
+        (count.get(c) ?? 0) > (count.get(a) ?? 0) ? c : a
+    )
+    const others = compounds.filter((c) => c !== base)
+    // Columns: each driver's pace, each other compound's offset, each compound's wear, fuel.
+    const di = new Map(drivers.map((d, i) => [d, i]))
+    const oi = new Map(others.map((c, i) => [c, drivers.length + i]))
+    const wi = new Map(
+        compounds.map((c, i) => [c, drivers.length + others.length + i])
+    )
+    const fi = drivers.length + others.length + compounds.length
+    const n = fi + 1
+    const a = Array.from({ length: n }, () => new Array<number>(n).fill(0))
+    const b = new Array<number>(n).fill(0)
+    for (const l of laps) {
+        const row: [number, number][] = [
+            [di.get(l.driver) ?? 0, 1],
+            [wi.get(l.compound) ?? 0, l.age],
+            [fi, l.lap]
+        ]
+        const o = oi.get(l.compound)
+        if (o != null) row.push([o, 1])
+        for (const [i, x] of row) {
+            b[i] += x * l.time
+            for (const [j, y] of row) a[i][j] += x * y
+        }
+    }
+    for (const i of oi.values()) a[i][i] += WEIGHT.offset
+    for (const i of wi.values()) {
+        a[i][i] += WEIGHT.wear
+        b[i] += WEIGHT.wear * PRIOR.wear
+    }
+    a[fi][fi] += WEIGHT.fuel
+    b[fi] += WEIGHT.fuel * PRIOR.fuel
+    const x = solve(a, b)
+    if (!x) return null
+    return {
+        fuel: x[fi],
+        wear: Object.fromEntries(compounds.map((c) => [c, x[wi.get(c) ?? 0]])),
+        offset: Object.fromEntries(
+            compounds.map((c) => [c, c === base ? 0 : x[oi.get(c) ?? 0]])
+        ),
+        base,
+        pace: new Map(drivers.map((d) => [d, x[di.get(d) ?? 0]]))
+    }
+}
+
+/** A driver's race pace so far. */
+export interface RacePace {
+    driver: number
+    /** Seconds: the fitted pace (only to compare: the gap between two drivers is what it says). */
+    time: number
+    /** Laps in the fit. */
+    laps: number
+    /** Seconds: the median of them, as they were. */
+    median: number
+    /** When the last of them ended (ms): equal times rank by it. */
+    end: number
+}
+
+/** Every driver's race pace from their laps so far, and the fit (null without a lap to fit). */
+export function racePaces(
+    laps: ReadonlyMap<number, readonly PaceLap[]>,
+    stints: ReadonlyMap<number, readonly PaceStint[]>,
+    neutral: readonly NeutralPeriod[],
+    deletedBy: number
+): { paces: RacePace[]; fit: PaceFit | null } {
+    const crossings = crossingsOf(laps)
+    const own = [...laps].map(([n, l]) =>
+        fitLaps(n, l, stints.get(n) ?? [], neutral, deletedBy, crossings)
+    )
+    const fit = fitPace(own.flat())
+    if (!fit) return { paces: [], fit }
+    const paces = own.flatMap((ls) => {
+        const time = ls.length ? fit.pace.get(ls[0].driver) : undefined
+        if (time == null) return []
+        return [
+            {
+                driver: ls[0].driver,
+                time,
+                laps: ls.length,
+                median: median(ls.map((l) => l.time)),
+                end: Math.max(...ls.map((l) => l.end))
+            }
+        ]
+    })
+    return { paces, fit }
 }
 
 export interface RaceRow {

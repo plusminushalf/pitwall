@@ -25,19 +25,21 @@ import {
 } from "widget-kit"
 import {
     bestLap,
+    CLEAR_AIR,
     leftOf,
+    type PaceFit,
     type PaceRow,
     type PinnedBest,
     paceRows,
     type RaceRow,
-    racePace,
+    racePaces,
     raceRows,
     watching,
     withPin
 } from "./pace"
 
 type Show = "drivers" | "teams"
-/** In a race: rank by race pace (the median clean lap) or by best lap. Other sessions rank by best lap. */
+/** In a race: rank by race pace (fuel and tyres taken out) or by best lap. Other sessions rank by best lap. */
 type By = "pace" | "best"
 type Settings = { show: Show; by: By }
 
@@ -54,15 +56,15 @@ const NARROW_TEAM_COLS =
 const NARROW = 460
 const colsOf = (narrow: boolean, teams: boolean) =>
     narrow ? (teams ? NARROW_TEAM_COLS : NARROW_COLS) : teams ? TEAM_COLS : COLS
-/** Race pace: rank, driver (or team), the gap bar, median lap, gap, best clean lap, clean laps. Narrow: no best. */
+/** Race pace: rank, driver (or team), the gap bar, the gap, the median lap as driven, the laps in the fit. */
 const RACE_COLS =
-    "grid grid-cols-[18px_44px_minmax(40px,1fr)_68px_56px_68px_36px] items-center gap-x-2"
+    "grid grid-cols-[18px_44px_minmax(40px,1fr)_60px_68px_36px] items-center gap-x-2"
 const RACE_TEAM_COLS =
-    "grid grid-cols-[18px_128px_minmax(40px,1fr)_68px_56px_68px_36px] items-center gap-x-2"
+    "grid grid-cols-[18px_128px_minmax(40px,1fr)_60px_68px_36px] items-center gap-x-2"
 const NARROW_RACE_COLS =
-    "grid grid-cols-[18px_44px_minmax(24px,1fr)_68px_56px_36px] items-center gap-x-1.5"
+    "grid grid-cols-[18px_44px_minmax(24px,1fr)_56px_64px_32px] items-center gap-x-1.5"
 const NARROW_RACE_TEAM_COLS =
-    "grid grid-cols-[18px_96px_minmax(24px,1fr)_68px_56px_36px] items-center gap-x-1.5"
+    "grid grid-cols-[18px_96px_minmax(24px,1fr)_56px_64px_32px] items-center gap-x-1.5"
 const raceColsOf = (narrow: boolean, teams: boolean) =>
     narrow
         ? teams
@@ -113,6 +115,21 @@ function Chip({
         </span>
     )
 }
+
+const s3 = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(3)}`
+const compoundName = (c: string) => c.charAt(0) + c.slice(1).toLowerCase()
+/** What the fit took out, for the footnote's title. */
+const fitText = (f: PaceFit) =>
+    `The fit so far: ${s3(f.fuel)} s each lap of the race (fuel burning off, the track rubbering in); ` +
+    `${Object.entries(f.wear)
+        .map(([c, w]) => `${compoundName(c)} ${s3(w)} s`)
+        .join(", ")} each lap on the set; ` +
+    `${
+        Object.entries(f.offset)
+            .filter(([c]) => c !== f.base)
+            .map(([c, o]) => `${compoundName(c)} ${s3(o)} s`)
+            .join(", ") || "one compound"
+    }${Object.keys(f.offset).length > 1 ? ` against a new ${f.base.toLowerCase()}` : ""}.`
 
 /** The gap to the quickest, on one scale for every row (none for the quickest). */
 function GapBar({
@@ -234,9 +251,12 @@ function RaceRowView({
     const name = info?.acronym ?? `#${pace.driver}`
     const first = rank === 1
     const title =
-        `${teams && info ? `${shortTeam(info.team)}, ${name}` : name}: a median lap of ${lapTime(pace.time)} over ` +
-        `${plural(pace.laps, "clean lap")} (quickest ${lapTime(pace.best)})` +
-        `${first ? "" : `, ${gap.toFixed(3)} s a lap slower than the quickest`}. Click to follow ${name}.`
+        `${teams && info ? `${shortTeam(info.team)}, ${name}` : name}: ` +
+        (first
+            ? "the quickest race pace"
+            : `${gap.toFixed(3)} s a lap off the quickest race pace`) +
+        ` once fuel, tyre age and compound are taken out, from ${plural(pace.laps, "clean lap")} in clear air ` +
+        `(a median of ${lapTime(pace.median)} as driven). Click to follow ${name}.`
     return (
         <li>
             <button
@@ -260,18 +280,13 @@ function RaceRowView({
                 </span>
                 <GapBar gap={gap} scale={scale} info={info} />
                 <span
-                    className={`text-right text-xs tabular-nums ${first ? "font-semibold text-zinc-50" : "text-zinc-200"}`}
+                    className={`text-right tabular-nums ${first ? "text-[11px] text-zinc-400" : "text-xs text-zinc-100"}`}
                 >
-                    {lapTime(pace.time)}
+                    {first ? "quickest" : `+${gap.toFixed(3)}`}
                 </span>
                 <span className="text-right text-xs tabular-nums text-zinc-400">
-                    {first ? "" : `+${gap.toFixed(3)}`}
+                    {lapTime(pace.median)}
                 </span>
-                {!narrow && (
-                    <span className="text-right text-xs tabular-nums text-zinc-300">
-                        {lapTime(pace.best)}
-                    </span>
-                )}
                 <span className="text-right text-xs tabular-nums text-zinc-400">
                     {pace.laps}
                 </span>
@@ -321,13 +336,10 @@ function PaceOrder() {
         )
         return paceRows(withPin(bests, watched ? pin : null), teamOf)
     }, [byPace, laps, stints, neutral, deletedBy, pin, watched, teamOf])
-    const racePaceRows = useMemo(() => {
-        if (!byPace) return []
-        const paces = [...laps].flatMap(
-            ([n, own]) =>
-                racePace(n, own, stints.get(n) ?? [], neutral, deletedBy) ?? []
-        )
-        return raceRows(paces, teamOf)
+    const { racePaceRows, fit } = useMemo(() => {
+        if (!byPace) return { racePaceRows: [], fit: null }
+        const { paces, fit } = racePaces(laps, stints, neutral, deletedBy)
+        return { racePaceRows: raceRows(paces, teamOf), fit }
     }, [byPace, laps, stints, neutral, deletedBy, teamOf])
     const scale = Math.min(
         SCALE_MAX,
@@ -357,14 +369,14 @@ function PaceOrder() {
                     className="truncate text-[11px] text-zinc-400"
                     title={
                         byPace
-                            ? "Each driver's median clean lap so far, ranked; the bar is the gap to the quickest"
+                            ? "Each driver's race pace so far, ranked: clean laps in clear air with fuel, tyre age and compound taken out; the bar is the gap to the quickest"
                             : "Each best valid lap so far, ranked; the bar is the gap to the quickest"
                     }
                 >
                     {teams
                         ? "Each team's quicker driver"
                         : byPace
-                          ? "Median lap so far"
+                          ? "Fuel and tyres taken out"
                           : "Best lap so far"}
                 </span>
                 {race && (
@@ -381,7 +393,7 @@ function PaceOrder() {
                                 className={`${TAP_CLASS} rounded px-2 text-[11px] leading-5 ${by === v ? "bg-zinc-700 text-zinc-50" : "text-zinc-300 hover:text-white"}`}
                                 title={
                                     v === "pace"
-                                        ? "By race pace: each driver's median clean lap"
+                                        ? "By race pace: clean laps in clear air, with fuel, tyre age and compound taken out"
                                         : "By best lap: each driver's quickest valid lap"
                                 }
                             >
@@ -421,22 +433,20 @@ function PaceOrder() {
                     <span />
                     <span
                         className="text-right"
-                        title="Median clean lap so far"
+                        title="Seconds a lap off the quickest race pace, once fuel, tyre age and compound are taken out"
+                    >
+                        Gap
+                    </span>
+                    <span
+                        className="text-right"
+                        title="The median of those laps, as driven"
                     >
                         Median
                     </span>
                     <span
                         className="text-right"
-                        title="Slower a lap than the quickest"
+                        title="Clean laps in clear air, in the fit"
                     >
-                        Gap
-                    </span>
-                    {!narrow && (
-                        <span className="text-right" title="Quickest clean lap">
-                            Best
-                        </span>
-                    )}
-                    <span className="text-right" title="Clean laps counted">
                         Laps
                     </span>
                 </div>
@@ -507,9 +517,12 @@ function PaceOrder() {
                     ))}
                 </ol>
             </div>
-            <p className="border-t border-zinc-800 px-3 py-1 text-[11px] leading-4 text-zinc-400">
+            <p
+                className="border-t border-zinc-800 px-3 py-1 text-[11px] leading-4 text-zinc-400"
+                title={byPace && fit ? fitText(fit) : undefined}
+            >
                 {byPace
-                    ? "Lap 1, out-, in- and deleted laps, laps under a VSC, safety car or red flag and laps over 107% of the median (traffic, mistakes) aren't counted. Tyres and fuel differ with strategy."
+                    ? `Clean laps ${CLEAR_AIR} s or more behind any car, with fuel, tyre age and compound taken out by one fit across the field. Not lap 1, out-, in- or deleted laps, laps under a VSC, safety car or red flag, or laps over 107% of the median. Engine modes aren't known.`
                     : "Out-, in- and deleted laps and laps under a VSC, safety car or red flag aren't counted. Fuel loads and engine modes aren't known."}
             </p>
         </section>
@@ -521,7 +534,7 @@ export default defineWidget({
     name: "Pace order",
     group: "analysis",
     description:
-        "The order by best lap: every driver's best valid lap so far, the tyre it was on, the gap to the quickest, and the ideal lap from their best sectors. In a race, also by race pace: each driver's median clean lap.",
+        "The order by best lap: every driver's best valid lap so far, the tyre it was on, the gap to the quickest, and the ideal lap from their best sectors. In a race, also by race pace: clean laps in clear air with fuel, tyre age and compound taken out.",
     version: "1.0.0",
     // Fills its column and scrolls inside.
     height: { min: 200 },
@@ -533,7 +546,10 @@ export default defineWidget({
             kind: "choice",
             label: "Rank by (races)",
             options: [
-                { value: "pace", label: "Race pace (median lap)" },
+                {
+                    value: "pace",
+                    label: "Race pace (fuel and tyres taken out)"
+                },
                 { value: "best", label: "Best lap" }
             ]
         },
