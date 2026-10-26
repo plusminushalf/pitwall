@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { buildSession } from "../data/session"
 import type { DriverTelemetry, SessionMeta } from "../types"
 import {
+    activationDistance,
     detectionDistance,
     overtakeModeOf,
     overtakeSwitch
@@ -39,6 +40,14 @@ describe.skipIf(!available)("overtake mode: Kuala Lumpur 2026", () => {
         const d = detectionDistance(s)
         expect(d).toBeGreaterThan(4_900)
         expect(d).toBeLessThan(5_100)
+    })
+
+    test("activated at T15's exit: after the detection point, before the line", () => {
+        if (!s) return
+        const d = detectionDistance(s)
+        const a = activationDistance(s)
+        expect(a - d).toBeGreaterThan(30)
+        expect(a - d).toBeLessThan(70)
     })
 
     test("LEC chasing VER: within a second into T15", () => {

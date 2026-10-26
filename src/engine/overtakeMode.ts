@@ -47,6 +47,22 @@ export function detectionDistance(session: Session): number {
     return last ? Math.max(0, last.d - ENTRY_M) : lapLength
 }
 
+/**
+ * Metres from the line to the activation point, from where a car with Overtake Mode can use it (until the next lap's).
+ * A circuit not in the FIA's table: the exit of its last corner.
+ */
+export function activationDistance(session: Session): number {
+    const { lapLength, corners } = lapGeometryOf(session)
+    const fia = OVERTAKE_DETECTION[session.meta.circuit]
+    if (fia) return (fia.activation / fia.centreline) * lapLength
+    const last = corners.at(-1)
+    return last ? Math.min(lapLength, last.d + ENTRY_M) : lapLength
+}
+
+/** Whether the session has Overtake Mode at all: race control switches it (2026 on). */
+export const hasOvertakeMode = (session: Session) =>
+    cacheOf(session).switches.length > 0
+
 interface Cache {
     d: number
     switches: { t: number; on: boolean }[]

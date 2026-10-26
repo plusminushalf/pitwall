@@ -1,5 +1,5 @@
-// The lap compare chart: strips of speed, delta to the reference lap, throttle, brake and gear against distance
-// from the timing line, in the compared drivers' colours; sector boundaries and corners along the top. Pure canvas
+// The lap compare chart: strips of speed, Overtake Mode, delta to the reference lap, throttle, brake and gear against
+// distance from the timing line, in the compared drivers' colours; sector boundaries and corners along the top. Pure canvas
 // drawing, sized by the caller (the component owns the pointer: hover, zoom, seek).
 
 import {
@@ -14,6 +14,9 @@ import {
 export const M = { left: 36, right: 8, top: 14, bottom: 16 } as const
 const STRIP_GAP = 8
 const LANE_H = 4 // brake lane per driver
+const OT_LANE_H = 5 // Overtake Mode lane per driver
+/** Overtake Mode's colour: the app's sky, apart from the drivers' and the callouts' amber. */
+const OT = "#38bdf8"
 const GAP_MS = 1_500 // break a line across missing car data
 const FONT = "9px ui-sans-serif, system-ui, sans-serif"
 const GRID = "#27272a"
@@ -21,7 +24,7 @@ const AXIS = "#3f3f46"
 const INK_MUTED = "#71717a"
 const INK = "#a1a1aa"
 
-export type StripKey = "speed" | "delta" | "throttle" | "brake" | "gear"
+export type StripKey = "speed" | "ot" | "delta" | "throttle" | "brake" | "gear"
 
 export interface Strip {
     key: StripKey
@@ -69,6 +72,12 @@ export interface ChartModel {
     hover: number | null
     throttle: boolean
     gear: boolean
+    /** Races from 2026: the FIA's detection and activation points (m) and, per series, where it had Overtake Mode. */
+    overtake: {
+        detection: number
+        activation: number
+        spans: readonly (readonly [number, number])[][]
+    } | null
 }
 
 /** A "nice" tick step (1, 2 or 5 × 10^k) giving about `count` ticks over `range`. */
@@ -125,12 +134,17 @@ export function layoutStrips(h: number, m: ChartModel): Strip[] {
     const sMax = Math.ceil((hi + 12) / 10) * 10
     const dRange = Math.max(0.05, dmax * 1.15)
     const brakeH = Math.max(1, m.series.length) * LANE_H + 3
+    const otH = m.overtake ? Math.max(1, m.series.length) * OT_LANE_H + 3 : 0
     const hasDelta = m.series.length > 1
     const count =
-        2 + (hasDelta ? 1 : 0) + (m.throttle ? 1 : 0) + (m.gear ? 1 : 0)
+        2 +
+        (m.overtake ? 1 : 0) +
+        (hasDelta ? 1 : 0) +
+        (m.throttle ? 1 : 0) +
+        (m.gear ? 1 : 0)
     const avail = Math.max(
         60,
-        h - M.top - M.bottom - brakeH - STRIP_GAP * (count - 1)
+        h - M.top - M.bottom - brakeH - otH - STRIP_GAP * (count - 1)
     )
     const weights = {
         speed: 5,
@@ -157,6 +171,16 @@ export function layoutStrips(h: number, m: ChartModel): Strip[] {
         ticks: ticksFor(sMin, sMax, Math.max(2, hOf("speed") / 30)),
         fmt: (v) => String(v)
     })
+    if (m.overtake)
+        push({
+            key: "ot",
+            label: "OT",
+            height: otH,
+            min: 0,
+            max: 1,
+            ticks: [],
+            fmt: () => ""
+        })
     if (hasDelta)
         push({
             key: "delta",
@@ -313,6 +337,44 @@ export function drawChart(
         ctx.rect(M.left, s.top - 2, plotW, s.height + 4)
         ctx.clip()
         // The reference drawn last, on top.
+        // Overtake Mode: a lane per driver in the series' order (the reference on top), filled where the car had it,
+        // over a faint track; the detection point dashed, the activation point solid.
+        if (s.key === "ot" && m.overtake) {
+            const { detection, activation, spans } = m.overtake
+            series.forEach(({ style }, k) => {
+                const y = s.top + 1.5 + k * OT_LANE_H
+                ctx.fillStyle = GRID
+                ctx.fillRect(M.left, y, plotW, OT_LANE_H - 1)
+                ctx.fillStyle = style.color
+                for (const [a, b] of spans[k] ?? []) {
+                    if (b < x0 || a > x1) continue
+                    const xa = xOf(Math.max(a, x0))
+                    ctx.fillRect(
+                        xa,
+                        y,
+                        Math.max(1, xOf(Math.min(b, x1)) - xa),
+                        OT_LANE_H - 1
+                    )
+                }
+            })
+            ctx.strokeStyle = OT
+            ctx.lineWidth = 1
+            for (const [d, dash] of [
+                [detection, [2, 2]],
+                [activation, []]
+            ] as const) {
+                if (d < x0 || d > x1) continue
+                const x = Math.round(xOf(d)) + 0.5
+                ctx.setLineDash(dash)
+                ctx.beginPath()
+                ctx.moveTo(x, s.top - 1)
+                ctx.lineTo(x, s.top + s.height + 1)
+                ctx.stroke()
+            }
+            ctx.setLineDash([])
+            ctx.restore()
+            continue
+        }
         for (let k = series.length - 1; k >= 0; k--) {
             const { trace: lap, style, delta } = series[k]
             ctx.strokeStyle = style.color
@@ -500,10 +562,11 @@ export function drawChart(
         ctx.stroke()
         const ref = series[0]?.trace
         for (const s of strips) {
-            if (s.key === "brake") continue
+            const key = s.key
+            if (key === "brake" || key === "ot") continue
             series.forEach(({ trace, style }, k) => {
                 const v =
-                    s.key === "delta"
+                    key === "delta"
                         ? k === 0
                             ? 0
                             : ref
@@ -511,7 +574,7 @@ export function drawChart(
                                     timeAtDistance(ref, hover)) /
                                 1000
                               : null
-                        : valueAtDistance(trace, s.key, hover)
+                        : valueAtDistance(trace, key, hover)
                 if (v == null) return
                 ctx.fillStyle = style.color
                 ctx.strokeStyle = "#09090b"

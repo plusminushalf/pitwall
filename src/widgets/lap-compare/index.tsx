@@ -11,7 +11,6 @@ import {
     type LapTrace,
     lapTime,
     miniSectors,
-    type OvertakeMode,
     TAP_CLASS,
     TyreBadge,
     timeAtDistance,
@@ -121,8 +120,6 @@ function Chip({
     lap,
     trace,
     tyre,
-    overtake,
-    acronym,
     reference,
     delta,
     onPick
@@ -133,9 +130,6 @@ function Chip({
     lap: number | null
     trace: LapTrace | null
     tyre: TyreOn | null
-    /** The laps with Overtake Mode, by lap number. */
-    overtake: Readonly<Record<number, OvertakeMode>> | undefined
-    acronym: (n: number) => string
     reference: boolean
     delta: number | null
     onPick: (lap: number) => void
@@ -144,7 +138,6 @@ function Chip({
     const prev = stepLap(numbers, lap, -1)
     const next = stepLap(numbers, lap, 1)
     const chosen = lap != null ? laps.find((l) => l.lap === lap) : undefined
-    const om = lap != null ? overtake?.[lap] : undefined
     return (
         <div className="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-900/60 py-0.5 pl-1.5 pr-1">
             <Swatch style={style} />
@@ -168,7 +161,6 @@ function Chip({
                 {laps.map((l) => (
                     <option key={l.lap} value={l.lap} className="bg-zinc-900">
                         L{l.lap} · {lapTime(l.duration)}
-                        {overtake?.[l.lap] ? " · OVT" : ""}
                     </option>
                 ))}
             </select>
@@ -179,14 +171,6 @@ function Chip({
             />
             {tyre && (
                 <TyreBadge compound={tyre.compound} age={tyre.age} size={14} />
-            )}
-            {om && (
-                <span
-                    className="rounded border border-sky-500 px-1 text-[9px] font-bold uppercase tracking-wider text-sky-300"
-                    title={`Overtake Mode on this lap: ${om.gap.toFixed(3)} s behind ${acronym(om.ahead)} at the detection point on the lap before (worked out from timing)`}
-                >
-                    ovt
-                </span>
             )}
             {reference ? (
                 <span
@@ -264,7 +248,7 @@ function LapCompare() {
     })
 
     // Overtake Mode on the compared cars' laps (races from 2026).
-    const overtakeOf = useOvertakeMode(race ? drivers : [])
+    const overtake = useOvertakeMode(race ? drivers : [])
 
     // Overtakes by or on a compared car (the race feed, spoiler-free), to mark on the laps shown.
     const passes = useFeed((feed) =>
@@ -396,6 +380,20 @@ function LapCompare() {
         }
         return out
     }, [series, uniquePasses, lapsOf, drivers, infos, geometry])
+    // Where along each lap shown the car could use Overtake Mode: earned at the detection point on the lap before, from
+    // the line to this lap's activation point; earned on this lap, from the activation point on to the line.
+    const otSpans = useMemo(() => {
+        if (!overtake.active) return null
+        const { activation, laps } = overtake
+        const end = geometry.lapLength
+        return series.map(({ trace }) => {
+            const mine = laps[trace.driver] ?? {}
+            const spans: [number, number][] = []
+            if (mine[trace.lap]) spans.push([0, activation])
+            if (mine[trace.lap + 1]) spans.push([activation, end])
+            return spans
+        })
+    }, [overtake, series, geometry.lapLength])
     const minis = useMemo(
         () =>
             series.length > 1
@@ -453,7 +451,12 @@ function LapCompare() {
             x1,
             hover,
             throttle: settings.throttle,
-            gear: settings.gear
+            gear: settings.gear,
+            overtake: otSpans && {
+                detection: overtake.detection,
+                activation: overtake.activation,
+                spans: otSpans
+            }
         }),
         [
             series,
@@ -465,7 +468,10 @@ function LapCompare() {
             hover,
             settings.throttle,
             settings.gear,
-            settings.overtakes
+            settings.overtakes,
+            otSpans,
+            overtake.detection,
+            overtake.activation
         ]
     )
     const strips = useMemo(() => layoutStrips(chart.h, model), [chart.h, model])
@@ -571,8 +577,6 @@ function LapCompare() {
                             lap={c.lap}
                             trace={traces[i]}
                             tyre={tyreOn(c.driver, c.lap)}
-                            overtake={overtakeOf[c.driver]}
-                            acronym={(n) => infoOf(n)?.acronym ?? `#${n}`}
                             reference={i === 0}
                             delta={d}
                             onPick={(lap) =>
@@ -855,6 +859,14 @@ function LapCompare() {
                                                 ) > 0 ? (
                                                     <span className="ml-1 font-semibold text-red-400">
                                                         BRK
+                                                    </span>
+                                                ) : null}
+                                                {otSpans?.[k]?.some(
+                                                    ([a, b]) =>
+                                                        hover >= a && hover < b
+                                                ) ? (
+                                                    <span className="ml-1 font-semibold text-sky-300">
+                                                        OT
                                                     </span>
                                                 ) : null}
                                             </span>

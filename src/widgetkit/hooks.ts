@@ -25,7 +25,13 @@ import {
     liveLapOf
 } from "../engine/lapTrace"
 import { type LapWindow, lapWindowIn } from "../engine/lapWindow"
-import { type OvertakeMode, overtakeModeOf } from "../engine/overtakeMode"
+import {
+    activationDistance,
+    detectionDistance,
+    hasOvertakeMode,
+    type OvertakeMode,
+    overtakeModeOf
+} from "../engine/overtakeMode"
 import { type QualiPhase, qualiPhaseAt } from "../engine/qualiPhase"
 import { raceDistanceAt } from "../engine/raceDistance"
 import {
@@ -581,13 +587,20 @@ export function useLiveLaps<R = readonly LapProgress[]>(
     )
 }
 
-type OvertakeLaps = Readonly<
-    Record<number, Readonly<Record<number, OvertakeMode>>>
->
+export interface OvertakeLaps {
+    /** The session has it at all (race control switches it, from 2026). */
+    active: boolean
+    /** Metres from the line. */
+    detection: number
+    activation: number
+    laps: Readonly<Record<number, Readonly<Record<number, OvertakeMode>>>>
+}
 
 /**
- * API gap: the completed laps of `drivers` on which they had Overtake Mode (2026 on: within a second of the car ahead
- * at the detection point on the lap before), by driver and lap number. Worked out from timing: OpenF1 has no channel.
+ * API gap: Overtake Mode (2026 on: within a second of the car ahead at the detection point earns it for the next lap,
+ * usable from the activation point). The two points as metres from the line, and the laps of `drivers` that had it so
+ * far (the lap in progress too: it was earned on the lap before), by driver and lap number. Worked out from timing:
+ * OpenF1 has no channel.
  */
 export function useOvertakeMode<R = OvertakeLaps>(
     drivers: readonly number[],
@@ -595,17 +608,22 @@ export function useOvertakeMode<R = OvertakeLaps>(
 ): R {
     return useKit(
         (s) => {
-            const out: Record<number, Record<number, OvertakeMode>> = {}
+            const laps: Record<number, Record<number, OvertakeMode>> = {}
             for (const n of drivers) {
                 const mine: Record<number, OvertakeMode> = {}
                 for (const l of s.session.drivers.get(n)?.laps ?? []) {
-                    if (l.end == null || l.end > s.t) break
+                    if (l.start > s.t) break
                     const mode = overtakeModeOf(s.session, n, l.lap)
                     if (mode) mine[l.lap] = mode
                 }
-                out[n] = mine
+                laps[n] = mine
             }
-            return out
+            return {
+                active: hasOvertakeMode(s.session),
+                detection: detectionDistance(s.session),
+                activation: activationDistance(s.session),
+                laps
+            }
         },
         [drivers.join()],
         select

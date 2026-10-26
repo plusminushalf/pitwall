@@ -46,7 +46,8 @@
 //     useLapGeometry(select?)    lap length, sector boundaries and corners as distances along the lap
 //     useLiveLap(n, select?)     the lap in progress as far as the car has got, aligned like useLapTrace's
 //     useLiveLaps(select?)       every car's lap in progress: distance covered and time taken
-//     useOvertakeMode(drivers, select?)  the laps each had Overtake Mode on (2026 on), worked out from timing
+//     useOvertakeMode(drivers, select?)  Overtake Mode (2026 on): detection and activation points, the laps each had
+//                                it on (worked out from timing)
 //     useStints(n, select?)      stints started so far (the current one open)
 //     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
@@ -197,6 +198,7 @@ export { defineWidget } from "./defineWidget"
 export type { DrawFn, Frame } from "./frame"
 export type { LapProgress, Playback, Radio, Select, Selection } from "./hooks"
 export {
+    type OvertakeLaps,
     useAllDrivers,
     useAllLaps,
     useAllPitStops,
