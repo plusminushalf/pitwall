@@ -51,6 +51,7 @@
 //     useFeed(select?)           race feed so far, newest first
 //     useBestSectors(select?)    fastest time in each sector by anyone so far
 //   The whole field at t (for widgets about every car: one hook, not one per car)
+//     useAllDrivers(select?)     every car's state (as useDriver), in tower order
 //     useAllLaps(select?)        every car's completed laps, by driver number
 //     useAllStints(select?)      every car's stints so far
 //     useAllPitStops(select?)    every car's pit stops finished so far
@@ -194,6 +195,7 @@ export { defineWidget } from "./defineWidget"
 export type { DrawFn, Frame } from "./frame"
 export type { LapProgress, Playback, Radio, Select, Selection } from "./hooks"
 export {
+    useAllDrivers,
     useAllLaps,
     useAllPitStops,
     useAllStints,

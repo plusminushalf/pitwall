@@ -359,6 +359,13 @@ export function useDriver<R = DriverState>(
     ) as R | null
 }
 
+/** API gap: every car's state at t (as useDriver), in timing-tower order. For widgets about the whole field. */
+export function useAllDrivers<R = readonly DriverState[]>(
+    select?: Select<readonly DriverState[], R>
+): R {
+    return useKit((s) => s.race.drivers, [], select)
+}
+
 /** Telemetry samples shared by every widget this 10 Hz tick. */
 let telemetryCache: {
     session: Session
