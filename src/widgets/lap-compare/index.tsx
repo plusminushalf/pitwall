@@ -40,6 +40,11 @@ import {
     stepLap,
     toggleLink
 } from "./laps"
+import {
+    type OvertakeMode,
+    overtakeModeLaps,
+    overtakeSwitch
+} from "./overtakeMode"
 
 type Settings = { throttle: boolean; gear: boolean; overtakes: boolean }
 
@@ -119,6 +124,8 @@ function Chip({
     lap,
     trace,
     tyre,
+    overtake,
+    acronym,
     reference,
     delta,
     onPick
@@ -129,6 +136,9 @@ function Chip({
     lap: number | null
     trace: LapTrace | null
     tyre: TyreOn | null
+    /** The laps with Overtake Mode, by lap number. */
+    overtake: Readonly<Record<number, OvertakeMode>> | undefined
+    acronym: (n: number) => string
     reference: boolean
     delta: number | null
     onPick: (lap: number) => void
@@ -137,6 +147,7 @@ function Chip({
     const prev = stepLap(numbers, lap, -1)
     const next = stepLap(numbers, lap, 1)
     const chosen = lap != null ? laps.find((l) => l.lap === lap) : undefined
+    const om = lap != null ? overtake?.[lap] : undefined
     return (
         <div className="flex items-center gap-1 rounded border border-zinc-800 bg-zinc-900/60 py-0.5 pl-1.5 pr-1">
             <Swatch style={style} />
@@ -160,6 +171,7 @@ function Chip({
                 {laps.map((l) => (
                     <option key={l.lap} value={l.lap} className="bg-zinc-900">
                         L{l.lap} · {lapTime(l.duration)}
+                        {overtake?.[l.lap] ? " · OVT" : ""}
                     </option>
                 ))}
             </select>
@@ -170,6 +182,14 @@ function Chip({
             />
             {tyre && (
                 <TyreBadge compound={tyre.compound} age={tyre.age} size={14} />
+            )}
+            {om && (
+                <span
+                    className="rounded border border-sky-500 px-1 text-[9px] font-bold uppercase tracking-wider text-sky-300"
+                    title={`Overtake Mode on this lap: ${om.gap.toFixed(3)} s behind ${acronym(om.ahead)} at the line before it (within a second at the detection point, near the line)`}
+                >
+                    ovt
+                </span>
             )}
             {reference ? (
                 <span
@@ -207,6 +227,7 @@ function LapCompare() {
     const sessionKey = useSessionInfo((i) => i.sessionKey)
     // Qualifying: each driver's best lap, until one is picked.
     const quali = useSessionInfo((i) => i.kind === "qualifying")
+    const race = useSessionInfo((i) => i.kind === "race")
     const start = quali ? BEST : FOLLOWING
     const drivers = useSelection((s) => s.selected.slice(0, MAX))
     const infos = useDrivers()
@@ -242,6 +263,29 @@ function LapCompare() {
                 compound: s.compound,
                 ageAtStart: s.ageAtStart
             }))
+        return out
+    })
+
+    // Overtake Mode on the compared cars' laps (races from 2026): race control's switches, and every car's line
+    // crossings, since the car ahead can be anyone.
+    const switches = useFeed((feed) =>
+        feed
+            .flatMap((f) => {
+                const on = f.kind === "control" ? overtakeSwitch(f.text) : null
+                return on == null ? [] : [{ t: f.t, on }]
+            })
+            .sort((a, b) => a.t - b.t)
+    )
+    // Plain records, which the hook's selector compares structurally.
+    const overtakeOf = useAllLaps((all) => {
+        const out: Record<number, Record<number, OvertakeMode>> = {}
+        if (!race || !switches.length) return out
+        const laps = overtakeModeLaps(
+            [...all.values()].flat(),
+            switches,
+            drivers
+        )
+        for (const [n, m] of laps) out[n] = Object.fromEntries(m)
         return out
     })
 
@@ -550,6 +594,8 @@ function LapCompare() {
                             lap={c.lap}
                             trace={traces[i]}
                             tyre={tyreOn(c.driver, c.lap)}
+                            overtake={overtakeOf[c.driver]}
+                            acronym={(n) => infoOf(n)?.acronym ?? `#${n}`}
                             reference={i === 0}
                             delta={d}
                             onPick={(lap) =>
