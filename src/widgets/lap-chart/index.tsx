@@ -44,7 +44,7 @@ const HEAD_H = 20
 /** Inside the canvas: the neutral laps' labels on top, the lap numbers under the plot, the order down each side. */
 const TOP = 14
 const BOTTOM = 16
-const SIDE = 44
+const SIDE = 50
 /** Room above the first place and below the last, so a dot or cross there isn't cut. */
 const INSET = 5
 const LAP_PX = 30
@@ -446,16 +446,25 @@ function LapChart() {
     const lines = useMemo((): Line[] => {
         const info = new Map(drivers.map((d) => [d.number, d]))
         const shown = series.filter((s) => info.has(s.driver))
-        // In session order, so teammates are told apart the same way every time (the second lighter and dashed).
-        const styles = compareStyles(shown.map((s) => info.get(s.driver)))
-        return shown.flatMap((s, i) => {
+        // Teammates told apart within their team only, in session order (the second lighter and dashed): across the
+        // whole field compareStyles would lighten every car whose livery is near an earlier one, towards white.
+        const teams = new Map<string, DriverInfo[]>()
+        for (const s of shown) {
+            const d = info.get(s.driver)
+            if (d) teams.set(d.team, [...(teams.get(d.team) ?? []), d])
+        }
+        const styleOf = (d: DriverInfo) => {
+            const mates = teams.get(d.team) ?? [d]
+            return compareStyles(mates)[mates.indexOf(d)]
+        }
+        return shown.flatMap((s) => {
             const d = info.get(s.driver)
             return d
                 ? [
                       {
                           series: s,
                           info: d,
-                          style: styles[i],
+                          style: styleOf(d),
                           pits: pits.get(s.driver) ?? [],
                           out: out.has(s.driver)
                       }

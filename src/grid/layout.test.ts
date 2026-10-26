@@ -370,7 +370,14 @@ describe("driver layout", () => {
         "speed-vs-pace",
         "run-plans",
         "track-evolution",
-        "track-limits"
+        "track-limits",
+        "pace-spread",
+        "places-gained",
+        "race-overtakes",
+        "top-speeds",
+        "pit-crews",
+        "lap-chart",
+        "race-strategy"
     ]
 
     test("places every built-in widget but those off its screen once, within its width range", () => {

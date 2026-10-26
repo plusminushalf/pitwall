@@ -12,6 +12,7 @@ import {
     PRACTICE_LAYOUT,
     QUALI_LAYOUT,
     RACE_DEBRIEF_LAYOUT,
+    RACE_STATS_LAYOUT,
     STRATEGY_LAYOUT,
     TELEMETRY_LAYOUT
 } from "./defaultLayout"
@@ -54,6 +55,13 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
             description:
                 "The race's records: the fastest sectors, lap, top speed and stop and who set them, each car's sectors, the order by race pace and by best lap, the stint pace and the stops",
             layout: RACE_DEBRIEF_LAYOUT
+        },
+        {
+            id: "stats",
+            name: "Race stats",
+            description:
+                "How the race went: places gained, the lap chart, every car's tyres, top speeds, overtakes, pit crews and the spread of lap times",
+            layout: RACE_STATS_LAYOUT
         }
     ],
     practice: [

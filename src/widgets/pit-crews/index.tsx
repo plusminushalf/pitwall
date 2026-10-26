@@ -35,7 +35,7 @@ const VALUE_W = 34
 
 /** Team, its quickest stop as a bar, who made it, the median and how many. */
 const COLS =
-    "grid grid-cols-[88px_minmax(0,1fr)_64px_40px_28px] items-center gap-x-2"
+    "grid grid-cols-[88px_minmax(0,1fr)_64px_40px_40px] items-center gap-x-2"
 
 const MEASURES: Record<
     Measure,
@@ -243,7 +243,10 @@ function PitCrews() {
                 className={`${COLS} border-b border-zinc-800 px-3 py-1 ${LABEL_CLASS}`}
             >
                 <span>Team</span>
-                <span title="The team's quickest stop, in seconds">
+                <span
+                    className="truncate"
+                    title="The team's quickest stop, in seconds"
+                >
                     Quickest
                 </span>
                 <span>By</span>

@@ -192,3 +192,24 @@ export const RACE_DEBRIEF_LAYOUT: Layout = {
         )
     }
 }
+
+/**
+ * Race stats: how the race went, the numbers posted after it. Filled in as the race plays, so the finished race's are
+ * there at the flag and none before. Across the top the places gained, the lap chart, the top speeds and the pit
+ * crews; under them the overtakes, every car's tyres and the spread of lap times. Each scrolls inside; a share card
+ * shows all of it.
+ */
+const STATS_TOP = 19 * ROW
+export const RACE_STATS_LAYOUT: Layout = {
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "places-gained": at(0, 0, 10, { height: STATS_TOP }),
+        "lap-chart": at(10, 0, 12, { height: STATS_TOP }),
+        "top-speeds": at(22, 0, 8, { height: STATS_TOP }),
+        "pit-crews": at(30, 0, 8, { height: STATS_TOP }),
+        "race-overtakes": at(0, 1, 11),
+        "race-strategy": at(11, 1, 14),
+        "pace-spread": at(25, 1, 13)
+    }
+}

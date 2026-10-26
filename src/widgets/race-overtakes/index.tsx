@@ -31,9 +31,9 @@ const HEADER_H = 30
 const NARROW = 320
 
 const COLS =
-    "grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_28px_28px_32px] items-center gap-x-2"
+    "grid grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)_36px_36px_32px] items-center gap-x-2"
 const NARROW_COLS =
-    "grid grid-cols-[minmax(0,1fr)_28px_28px_32px] items-center gap-x-2"
+    "grid grid-cols-[minmax(0,1fr)_36px_36px_32px] items-center gap-x-2"
 
 // What the widget reads of each hook: it re-renders when a pass, a stop or a lap 1 finish is added, not at 10 Hz.
 const toPasses = (feed: readonly FeedEntry[]): PassIn[] =>
