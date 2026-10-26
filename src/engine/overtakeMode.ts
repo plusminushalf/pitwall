@@ -1,9 +1,9 @@
 // Overtake Mode (2026 on, in DRS's place): a car within a second of the car ahead at the detection point gets 0.5 MJ
 // more to deploy on the next lap. OpenF1 has no channel for it (car_data's drs is null), so it's worked out here:
 //
-//   1. The detection point: on the way into the last corner (Hungary), or a named corner where the FIA put it
-//      elsewhere (Melbourne: before T13, the corner ahead of the last). A session without corner marks falls back to
-//      the line.
+//   1. The detection point: the FIA's detection line for the circuit (data/overtakeDetection.ts), scaled onto the
+//      session's lap length. A circuit not in there: the entry of its last corner, where it mostly is; without
+//      corner marks, the line.
 //   2. When each car got there: the lap's chained start (lapTrace.ts: OpenF1's date_start jitters by up to ~1 s, a
 //      lap's official duration doesn't) plus the time its distance-aligned trace reached the point. Without a trace,
 //      the point's share of the lap time.
@@ -12,22 +12,17 @@
 //
 // Cached on the session, by car and lap: a widget asks for every lap it lists, ten times a second.
 
+import { OVERTAKE_DETECTION } from "../data/overtakeDetection"
 import type { Session } from "../data/session"
 import { timeAtDistance } from "./compare"
 import { lapGeometryOf, lapTraceOf, lapWindowOf } from "./lapTrace"
 
 /** Within this many seconds of the car ahead. */
 export const OVERTAKE_GAP = 1
-/** Metres before the corner's mark (near its apex) that count as its entry. */
+/** A circuit without the FIA's point: metres before its last corner's mark (near the apex) that count as its entry. */
 const ENTRY_M = 50
 /** Cars that reached the point this long before the car (ms) are looked at closely. */
 const LOOK_BACK_MS = 3_000
-
-/** Where the FIA put the detection point, when not into the last corner: before this corner. */
-const DETECTION_BEFORE: Record<string, string> = {
-    Melbourne: "13",
-    "Monte Carlo": "18"
-}
 
 export interface OvertakeMode {
     /** The car ahead at the detection point on the lap before. */
@@ -43,14 +38,13 @@ export function overtakeSwitch(text: string): boolean | null {
     return null
 }
 
-/** Metres from the line to the detection point; the lap length (the line) without corner marks. */
+/** Metres from the line to the detection point, along the session's measured lap. */
 export function detectionDistance(session: Session): number {
     const { lapLength, corners } = lapGeometryOf(session)
-    const named = DETECTION_BEFORE[session.meta.circuit]
-    const corner = named
-        ? corners.find((c) => c.label === named)
-        : corners.at(-1)
-    return corner ? Math.max(0, corner.d - ENTRY_M) : lapLength
+    const fia = OVERTAKE_DETECTION[session.meta.circuit]
+    if (fia) return (fia.at / fia.centreline) * lapLength
+    const last = corners.at(-1)
+    return last ? Math.max(0, last.d - ENTRY_M) : lapLength
 }
 
 interface Cache {
