@@ -11,6 +11,7 @@ import {
     type LapTrace,
     lapTime,
     miniSectors,
+    type OvertakeMode,
     TAP_CLASS,
     TyreBadge,
     timeAtDistance,
@@ -22,6 +23,7 @@ import {
     useFeed,
     useLapGeometry,
     useLapTrace,
+    useOvertakeMode,
     usePlayback,
     useSelection,
     useSessionInfo,
@@ -40,11 +42,6 @@ import {
     stepLap,
     toggleLink
 } from "./laps"
-import {
-    type OvertakeMode,
-    overtakeModeLaps,
-    overtakeSwitch
-} from "./overtakeMode"
 
 type Settings = { throttle: boolean; gear: boolean; overtakes: boolean }
 
@@ -186,7 +183,7 @@ function Chip({
             {om && (
                 <span
                     className="rounded border border-sky-500 px-1 text-[9px] font-bold uppercase tracking-wider text-sky-300"
-                    title={`Overtake Mode on this lap: ${om.gap.toFixed(3)} s behind ${acronym(om.ahead)} at the line before it (within a second at the detection point, near the line)`}
+                    title={`Overtake Mode on this lap: ${om.gap.toFixed(3)} s behind ${acronym(om.ahead)} at the detection point on the lap before (worked out from timing)`}
                 >
                     ovt
                 </span>
@@ -266,28 +263,8 @@ function LapCompare() {
         return out
     })
 
-    // Overtake Mode on the compared cars' laps (races from 2026): race control's switches, and every car's line
-    // crossings, since the car ahead can be anyone.
-    const switches = useFeed((feed) =>
-        feed
-            .flatMap((f) => {
-                const on = f.kind === "control" ? overtakeSwitch(f.text) : null
-                return on == null ? [] : [{ t: f.t, on }]
-            })
-            .sort((a, b) => a.t - b.t)
-    )
-    // Plain records, which the hook's selector compares structurally.
-    const overtakeOf = useAllLaps((all) => {
-        const out: Record<number, Record<number, OvertakeMode>> = {}
-        if (!race || !switches.length) return out
-        const laps = overtakeModeLaps(
-            [...all.values()].flat(),
-            switches,
-            drivers
-        )
-        for (const [n, m] of laps) out[n] = Object.fromEntries(m)
-        return out
-    })
+    // Overtake Mode on the compared cars' laps (races from 2026).
+    const overtakeOf = useOvertakeMode(race ? drivers : [])
 
     // Overtakes by or on a compared car (the race feed, spoiler-free), to mark on the laps shown.
     const passes = useFeed((feed) =>

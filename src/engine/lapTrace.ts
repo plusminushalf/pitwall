@@ -103,6 +103,17 @@ function windowOf(
     return { start, end: start + Math.round(l.duration * 1000) }
 }
 
+/** Car n's lap `lapNo` from line to line (ms), with the chained start (step 1); null without a lap time. */
+export function lapWindowOf(
+    session: Session,
+    n: number,
+    lapNo: number
+): { start: number; end: number } | null {
+    const d = session.drivers.get(n)
+    const l = d?.laps.find((x) => x.lap === lapNo)
+    return d && l ? windowOf(d, l) : null
+}
+
 // ---------------------------------------------------------------- integration (step 2)
 
 interface Integrated {

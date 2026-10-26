@@ -46,6 +46,7 @@
 //     useLapGeometry(select?)    lap length, sector boundaries and corners as distances along the lap
 //     useLiveLap(n, select?)     the lap in progress as far as the car has got, aligned like useLapTrace's
 //     useLiveLaps(select?)       every car's lap in progress: distance covered and time taken
+//     useOvertakeMode(drivers, select?)  the laps each had Overtake Mode on (2026 on), worked out from timing
 //     useStints(n, select?)      stints started so far (the current one open)
 //     usePitStops(n, select?)    pit stops finished so far: entry, exit, pit lane and stationary time
 //     useFeed(select?)           race feed so far, newest first
@@ -129,6 +130,7 @@ export {
 } from "../engine/compare"
 export type { LapGeometry, LiveLap } from "../engine/lapTrace"
 export type { LapWindow } from "../engine/lapWindow"
+export type { OvertakeMode } from "../engine/overtakeMode"
 export {
     inSegment,
     type QualiPhase,
@@ -217,6 +219,7 @@ export {
     useLiveLap,
     useLiveLaps,
     useNeutralPeriods,
+    useOvertakeMode,
     usePitStops,
     usePlayback,
     usePositions,

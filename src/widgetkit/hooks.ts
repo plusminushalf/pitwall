@@ -25,6 +25,7 @@ import {
     liveLapOf
 } from "../engine/lapTrace"
 import { type LapWindow, lapWindowIn } from "../engine/lapWindow"
+import { type OvertakeMode, overtakeModeOf } from "../engine/overtakeMode"
 import { type QualiPhase, qualiPhaseAt } from "../engine/qualiPhase"
 import { raceDistanceAt } from "../engine/raceDistance"
 import {
@@ -576,6 +577,37 @@ export function useLiveLaps<R = readonly LapProgress[]>(
                     : []
             }),
         [],
+        select
+    )
+}
+
+type OvertakeLaps = Readonly<
+    Record<number, Readonly<Record<number, OvertakeMode>>>
+>
+
+/**
+ * API gap: the completed laps of `drivers` on which they had Overtake Mode (2026 on: within a second of the car ahead
+ * at the detection point on the lap before), by driver and lap number. Worked out from timing: OpenF1 has no channel.
+ */
+export function useOvertakeMode<R = OvertakeLaps>(
+    drivers: readonly number[],
+    select?: Select<OvertakeLaps, R>
+): R {
+    return useKit(
+        (s) => {
+            const out: Record<number, Record<number, OvertakeMode>> = {}
+            for (const n of drivers) {
+                const mine: Record<number, OvertakeMode> = {}
+                for (const l of s.session.drivers.get(n)?.laps ?? []) {
+                    if (l.end == null || l.end > s.t) break
+                    const mode = overtakeModeOf(s.session, n, l.lap)
+                    if (mode) mine[l.lap] = mode
+                }
+                out[n] = mine
+            }
+            return out
+        },
+        [drivers.join()],
         select
     )
 }
