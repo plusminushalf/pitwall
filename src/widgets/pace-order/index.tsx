@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import {
     type DriverInfo,
     defineWidget,
@@ -341,6 +341,16 @@ function PaceOrder() {
         const { paces, fit } = racePaces(laps, stints, neutral, deletedBy)
         return { racePaceRows: raceRows(paces, teamOf), fit }
     }, [byPace, laps, stints, neutral, deletedBy, teamOf])
+    // The list keeps where it's scrolled to as the order changes: the browser's scroll anchoring would follow a
+    // row that moves, so it's off, and the position is put back after each new order.
+    const list = useRef<HTMLDivElement>(null)
+    const scrolled = useRef(0)
+    // biome-ignore lint/correctness/useExhaustiveDependencies: put back after every new order
+    useLayoutEffect(() => {
+        const el = list.current
+        if (el && el.scrollTop !== scrolled.current)
+            el.scrollTop = scrolled.current
+    }, [rows, racePaceRows])
     const scale = Math.min(
         SCALE_MAX,
         Math.max(SCALE_MIN, ...(byPace ? racePaceRows : rows).map((r) => r.gap))
@@ -483,7 +493,13 @@ function PaceOrder() {
                 </div>
             )}
 
-            <div className="min-h-0 flex-1 overflow-y-auto">
+            <div
+                ref={list}
+                onScroll={(e) => {
+                    scrolled.current = e.currentTarget.scrollTop
+                }}
+                className="min-h-0 flex-1 overflow-y-auto [overflow-anchor:none]"
+            >
                 {(byPace ? racePaceRows : rows).length === 0 && (
                     <p className="px-3 py-6 text-center text-xs text-zinc-400">
                         {byPace ? "No clean laps yet" : "No valid laps yet"}
