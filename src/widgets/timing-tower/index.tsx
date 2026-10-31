@@ -13,6 +13,7 @@ import {
     lapTime,
     MiniSectors,
     type PitStop,
+    QualiCuts,
     type QualiPhase,
     type SessionKind,
     sectorTime,
@@ -706,12 +707,6 @@ function TimingTower() {
     const phase = useQualiPhase((p) =>
         p ? { ...p, left: 0, red: false } : null
     )
-    const cut =
-        quali &&
-        phase?.segment?.advance != null &&
-        phase.field > phase.segment.advance
-            ? phase.segment.advance
-            : null
     const teamRoom = useMemo(() => teamNamesWidth(drivers), [drivers])
     const crossings = useAllLaps(allCrossings)
     const pits = useAllPitStops(pitSpans)
@@ -828,18 +823,7 @@ function TimingTower() {
                     className="relative"
                     style={{ height: order.length * ROW_H }}
                 >
-                    {cut != null && (
-                        // The cut: the cars under it go out at the end of the segment.
-                        <div
-                            aria-hidden
-                            className="pointer-events-none absolute inset-x-0 z-10 border-t border-dashed border-red-500/70"
-                            style={{ top: cut * ROW_H }}
-                        >
-                            <span className="absolute right-1 top-0 -translate-y-1/2 bg-zinc-950 px-1 text-[9px] font-bold uppercase tracking-wider text-red-400">
-                                {phase?.settled ? "Out" : "Drop zone"}
-                            </span>
-                        </div>
-                    )}
+                    {quali && <QualiCuts phase={phase} rowH={ROW_H} />}
                     {drivers.map((d) => (
                         <Row
                             key={d.number}
