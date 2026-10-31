@@ -2,6 +2,7 @@
 // live button, and the screen shown while there's no live session to display. Live data comes from the relay
 // (dev), or through the credential vault with the user's own OpenF1 account (the hosted site): src/live/client.ts.
 
+import { useEffect, useState } from "react"
 import { createPortal } from "react-dom"
 import { usePhone } from "../hooks/usePhone"
 import { raceClock } from "../lib/format"
@@ -376,6 +377,37 @@ export function LiveControl() {
     )
 }
 
+/** Time left until `dateStart` ("0:42", "1:05:42", "2d 4h"); "Starting…" once it has passed. */
+function Countdown({ dateStart }: { dateStart: string }) {
+    const [now, setNow] = useState(Date.now)
+    useEffect(() => {
+        const id = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(id)
+    }, [])
+    const left = Math.ceil((Date.parse(dateStart) - now) / 1000)
+    if (left <= 0)
+        return <span className="text-sm text-zinc-400">Starting…</span>
+    const d = Math.floor(left / 86400)
+    const h = Math.floor((left % 86400) / 3600)
+    const m = Math.floor((left % 3600) / 60)
+    const s = left % 60
+    const pad = (n: number) => String(n).padStart(2, "0")
+    const text =
+        d > 0
+            ? `${d}d ${h}h`
+            : h > 0
+              ? `${h}:${pad(m)}:${pad(s)}`
+              : `${m}:${pad(s)}`
+    return (
+        <span
+            className="font-mono text-3xl font-semibold tabular-nums text-zinc-100"
+            data-testid="live-countdown"
+        >
+            {text}
+        </span>
+    )
+}
+
 /** Live mode without a session to show yet: connecting, the account or relay to sort out, or no live session right now. */
 export function LiveScreen() {
     const live = useReplay((s) => s.live)
@@ -393,6 +425,9 @@ export function LiveScreen() {
                     <span className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm">
                         <StatusLine status={status} />
                     </span>
+                )}
+                {live.state === "idle" && live.next && (
+                    <Countdown dateStart={live.next.dateStart} />
                 )}
                 {live.via === "relay" && live.offline && !live.connected && (
                     <p className="text-xs text-zinc-400">
