@@ -42,6 +42,7 @@ const PATHS = {
         />
     ),
     download: <path {...STROKE} d="M8 2.5v8M4.5 7 8 10.5 11.5 7M3 13.5h10" />,
+    pencil: <path {...STROKE} d="M10.5 2.5 13.5 5.5 5.5 13.5h-3v-3zM9 4l3 3" />,
     "chevron-left": <path {...STROKE} d="M10 3.5 5.5 8l4.5 4.5" />,
     "chevron-up": <path {...STROKE} d="M3.5 10.5 8 6l4.5 4.5" />,
     "chevron-down": <path {...STROKE} d="M3.5 5.5 8 10l4.5-4.5" />,

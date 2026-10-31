@@ -31,7 +31,8 @@ const SHORTCUTS: [string, string][] = [
     ["− / +", "Slower / faster"],
     ["1 – 7", "Speed 1× · 2× · 4× … 64×"],
     ["Esc", "Shrink a full-screen widget, or clear selection"],
-    ["S", "Share a screenshot and a link"]
+    ["S", "Share a screenshot and a link"],
+    ["C", "Write a post as an image"]
 ]
 
 const sessionLabel = (s: {

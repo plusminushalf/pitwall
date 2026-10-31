@@ -3,7 +3,8 @@
 // for all of it, and the area is copied to the clipboard as a PNG with Pitwall's name and address underneath. Widgets
 // picked (only widgets) are a share card instead (ShareCard.tsx): mounted again in a narrow column and drawn bigger,
 // so they read in a feed. A toast then offers the link to this moment, or off a session to the page (share/link.ts),
-// and the image to save.
+// and the image to save. C writes a post instead (PostComposer.tsx): a title and some text, drawn as a card of the same
+// look, for the words that go with no chart.
 
 import {
     type PointerEvent as ReactPointerEvent,
@@ -25,7 +26,9 @@ import {
     type Shot
 } from "./capture"
 import { shareLink, siteOrigin } from "./link"
+import { PostComposer, PostText } from "./PostComposer"
 import {
+    CARD_WIDTH,
     type CardJob,
     type CardStates,
     cardPanels,
@@ -50,6 +53,8 @@ interface Result {
     moment: boolean
     copied: "pending" | "yes" | "no"
     error?: string
+    /** A post written (C), not a screenshot: there's no link with it. */
+    post?: boolean
 }
 
 /** What's on screen: a session, or a page (Home, a circuit's, live mode waiting for a session). */
@@ -57,6 +62,7 @@ type Page = "session" | "page"
 
 type Phase =
     | { kind: "idle" }
+    | { kind: "composing" }
     | { kind: "capturing" }
     | {
           kind: "picking"
@@ -84,6 +90,13 @@ interface ShareState {
     pick: (area: Rect | null, panels?: readonly Element[]) => void
     cancel: () => void
     dismiss: () => void
+    /** Opens the post composer (C). */
+    compose: () => void
+    /** Shares a card of `title` over `text`. Called from the click or key press, so the clipboard takes it. */
+    post: (title: string, text: string) => void
+    /** What was last written in the composer, kept if it's closed without sharing. */
+    draft: { title: string; text: string }
+    setDraft: (draft: { title: string; text: string }) => void
 }
 
 const slug = (s: string) =>
@@ -103,6 +116,44 @@ export const useShare = create<ShareState>((set, get) => {
         const r = get().result
         if (r?.image) URL.revokeObjectURL(r.image)
         set({ result: null })
+    }
+    /** Copies `image` to the clipboard and shows it in the toast; the result's id. */
+    const deliver = (
+        image: Promise<Blob>,
+        fileName: string,
+        kind: Pick<Result, "moment" | "post">
+    ) => {
+        // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
+        let copied: Promise<boolean>
+        try {
+            copied = navigator.clipboard
+                .write([new ClipboardItem({ "image/png": image })])
+                .then(
+                    () => true,
+                    () => false
+                )
+        } catch {
+            copied = Promise.resolve(false)
+        }
+        const id = nextId++
+        set({
+            phase: { kind: "idle" },
+            result: {
+                id,
+                image: null,
+                blob: null,
+                fileName,
+                link: null,
+                copied: "pending",
+                ...kind
+            }
+        })
+        image.then(
+            (blob) => update(id, { blob, image: URL.createObjectURL(blob) }),
+            () => update(id, { error: "The image couldn't be made." })
+        )
+        void copied.then((ok) => update(id, { copied: ok ? "yes" : "no" }))
+        return id
     }
     return {
         phase: { kind: "idle" },
@@ -206,38 +257,10 @@ export const useShare = create<ShareState>((set, get) => {
                 selection: card ? "card" : area ? "area" : "full_screen",
                 page: phase.page
             })
-            // Straight away, inside the click or key press: browsers only let a page write to the clipboard from one.
-            let copied: Promise<boolean>
-            try {
-                copied = navigator.clipboard
-                    .write([new ClipboardItem({ "image/png": image })])
-                    .then(
-                        () => true,
-                        () => false
-                    )
-            } catch {
-                copied = Promise.resolve(false)
-            }
             URL.revokeObjectURL(phase.image)
-            const id = nextId++
-            set({
-                phase: { kind: "idle" },
-                result: {
-                    id,
-                    image: null,
-                    blob: null,
-                    fileName: phase.fileName,
-                    link: null,
-                    moment: phase.page === "session",
-                    copied: "pending"
-                }
+            const id = deliver(image, phase.fileName, {
+                moment: phase.page === "session"
             })
-            image.then(
-                (blob) =>
-                    update(id, { blob, image: URL.createObjectURL(blob) }),
-                () => update(id, { error: "The image couldn't be made." })
-            )
-            void copied.then((ok) => update(id, { copied: ok ? "yes" : "no" }))
             void phase.link.then((link) => update(id, { link }))
         },
         cancel: () => {
@@ -245,7 +268,40 @@ export const useShare = create<ShareState>((set, get) => {
             if (phase.kind === "picking") URL.revokeObjectURL(phase.image)
             set({ phase: { kind: "idle" } })
         },
-        dismiss: clearResult
+        dismiss: clearResult,
+        compose: () => {
+            if (get().phase.kind !== "idle") return
+            clearResult()
+            set({ phase: { kind: "composing" } })
+        },
+        post: (title, text) => {
+            if (get().phase.kind !== "composing") return
+            let job!: CardJob
+            const image = new Promise<Blob>((done, fail) => {
+                job = {
+                    panels: [
+                        {
+                            render: () => <PostText text={text.trim()} />,
+                            width: CARD_WIDTH
+                        }
+                    ],
+                    heading: title.trim() ? { title: title.trim() } : null,
+                    host: new URL(siteOrigin()).host,
+                    done,
+                    fail
+                }
+            })
+            set({ card: job })
+            const clear = () => get().card === job && set({ card: null })
+            image.then(clear, clear)
+            track("post_card_created")
+            const fileName = `pitwall-${slug(title) || "post"}.png`
+            deliver(image, fileName, { post: true, moment: false })
+            // Shared: the next one starts blank.
+            set({ draft: { title: "", text: "" } })
+        },
+        draft: { title: "", text: "" },
+        setDraft: (draft) => set({ draft })
     }
 })
 
@@ -527,7 +583,7 @@ function Picker({
     )
 }
 
-const Kbd = ({ children }: { children: string }) => (
+export const Kbd = ({ children }: { children: string }) => (
     <kbd className="rounded border border-zinc-700 bg-zinc-800 px-1.5 py-0.5 font-mono text-[11px] text-zinc-200">
         {children}
     </kbd>
@@ -565,18 +621,23 @@ function ShareToast({ result }: { result: Result }) {
         a.click()
     }
 
+    const what = result.post ? "Post" : "Screenshot"
     const title = result.error
-        ? "Couldn't share the screen"
+        ? result.post
+            ? "Couldn't make the post"
+            : "Couldn't share the screen"
         : result.copied === "yes"
-          ? "Screenshot copied"
+          ? `${what} copied`
           : result.copied === "no"
-            ? "Screenshot ready"
-            : "Copying the screenshot…"
+            ? `${what} ready`
+            : `Copying the ${what.toLowerCase()}…`
     const note =
         result.error ??
         (result.copied === "no"
             ? "This browser wouldn't copy it: save it instead."
-            : `Paste it anywhere. The link opens ${result.moment ? "this moment, as you see it" : "this page"}.`)
+            : result.post
+              ? "Paste it anywhere."
+              : `Paste it anywhere. The link opens ${result.moment ? "this moment, as you see it" : "this page"}.`)
     return (
         <div
             data-shot-ignore=""
@@ -669,6 +730,7 @@ export function ShareShot() {
                     className="fixed inset-0 z-50 cursor-wait"
                 />
             )}
+            {phase.kind === "composing" && <PostComposer />}
             {phase.kind === "picking" && (
                 <Picker
                     shot={phase.shot}
@@ -790,6 +852,19 @@ export function ShareButton() {
                         <Icon name="camera" size={14} />
                         <span className="flex-1">Capture screenshot</span>
                         <Kbd>S</Kbd>
+                    </button>
+                    <button
+                        type="button"
+                        role="menuitem"
+                        onClick={() => {
+                            setOpen(false)
+                            useShare.getState().compose()
+                        }}
+                        className={MENU_ITEM}
+                    >
+                        <Icon name="pencil" size={14} />
+                        <span className="flex-1">Write a post</span>
+                        <Kbd>C</Kbd>
                     </button>
                     <button
                         type="button"

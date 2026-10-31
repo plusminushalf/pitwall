@@ -39,7 +39,8 @@ const SHORTCUTS: [string, string][] = [
     ["Swipe sideways / shift + wheel", "Pan the zoomed charts"],
     ["Double-click", "Reset zoom"],
     ["Esc", "Clear the comparison"],
-    ["S", "Share a screenshot and a link"]
+    ["S", "Share a screenshot and a link"],
+    ["C", "Write a post as an image"]
 ]
 
 function Help() {

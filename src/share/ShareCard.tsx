@@ -26,7 +26,7 @@ import { captureCard } from "./capture"
 import { sessionMoment } from "./moment"
 
 /** A card of widgets' width, in CSS px; a section's may be wider (useCardSection). */
-const CARD_WIDTH = 480
+export const CARD_WIDTH = 480
 /** A card of charts that read across (laps along the bottom): wider, so a race's worth of laps isn't squeezed. */
 const WIDE_WIDTH = 640
 /** Image px per CSS px: a card of widgets is drawn 1200 px wide, a wide one 1600. */
@@ -225,6 +225,48 @@ export function cardPanels(
     )
 }
 
+/** A card's title and the line under it. */
+export function CardHeading({ heading }: { heading: ShareHeading }) {
+    return (
+        <header className="mb-4">
+            <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-zinc-50">
+                {heading.country && (
+                    <Flag country={heading.country} className="h-5" />
+                )}
+                {heading.title}
+            </h1>
+            {heading.detail && (
+                <p className="mt-0.5 text-sm text-zinc-400">{heading.detail}</p>
+            )}
+        </header>
+    )
+}
+
+/** Pitwall's logo, the sources credited and the site's address, under a card. */
+export function CardFooter({
+    credits,
+    host
+}: {
+    credits: string
+    host: string
+}) {
+    return (
+        <footer className="mt-5 flex items-center gap-4">
+            <img
+                src="/pitwall-logo.svg"
+                alt="Pitwall"
+                className="h-4 shrink-0"
+            />
+            <span className="min-w-0 flex-1 text-xs text-zinc-400">
+                {credits}
+            </span>
+            <span className="shrink-0 text-[13px] font-medium text-zinc-300">
+                {host}
+            </span>
+        </footer>
+    )
+}
+
 export interface CardJob {
     panels: CardPanel[]
     heading: ShareHeading | null
@@ -323,21 +365,7 @@ export function ShareCard({ job }: { job: CardJob }) {
             className="pointer-events-none fixed left-0 top-0 -z-10 bg-zinc-950 px-6 pb-5 pt-6 text-zinc-100 opacity-0 [&_[data-shot-control]]:hidden [&_[data-shot-credit]]:hidden"
             style={{ width }}
         >
-            {heading && (
-                <header className="mb-4">
-                    <h1 className="flex items-center gap-2.5 text-2xl font-bold tracking-tight text-zinc-50">
-                        {heading.country && (
-                            <Flag country={heading.country} className="h-5" />
-                        )}
-                        {heading.title}
-                    </h1>
-                    {heading.detail && (
-                        <p className="mt-0.5 text-sm text-zinc-400">
-                            {heading.detail}
-                        </p>
-                    )}
-                </header>
-            )}
+            {heading && <CardHeading heading={heading} />}
             {panels.map((p, i) => {
                 // Widgets framed and divided by hairlines, as on the page; a section after anything is spaced from it.
                 const prev = panels[i - 1]
@@ -367,19 +395,7 @@ export function ShareCard({ job }: { job: CardJob }) {
                     </div>
                 )
             })}
-            <footer className="mt-5 flex items-center gap-4">
-                <img
-                    src="/pitwall-logo.svg"
-                    alt="Pitwall"
-                    className="h-4 shrink-0"
-                />
-                <span className="min-w-0 flex-1 text-xs text-zinc-400">
-                    {credits}
-                </span>
-                <span className="shrink-0 text-[13px] font-medium text-zinc-300">
-                    {host}
-                </span>
-            </footer>
+            <CardFooter credits={credits} host={host} />
         </div>,
         document.body
     )

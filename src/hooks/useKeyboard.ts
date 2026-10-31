@@ -4,11 +4,11 @@ import { CAPTURE_SPEED, comparing, SPEEDS, useReplay } from "../store"
 
 /**
  * space / p: play/pause · ←/→: ±5 s (shift: ±30 s) · [ / ]: previous/next lap (the leader's;
- * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× (8: a hidden 128×, for captures) · esc: clear selection · s: share a screenshot
+ * practice: the driver shown) · - / +: slower/faster · 1–7: 1× to 64× (8: a hidden 128×, for captures) · esc: clear selection · s: share a screenshot · c: write a post as an image
  *
- * S works on every page (Home, a circuit's); the others need a session.
+ * S and C work on every page (Home, a circuit's); the others need a session.
  *
- * The lap comparison (qualifying, practice's Fastest laps) keeps space, P (its ghost laps), S and esc; its other keys
+ * The lap comparison (qualifying, practice's Fastest laps) keeps space, P (its ghost laps), S, C and esc; its other keys
  * are its own (QualiView), so they don't move the replay behind it. While a screenshot's area is being picked, keys
  * are the picker's (share/ShareShot.tsx).
  */
@@ -25,24 +25,20 @@ export function useKeyboard() {
                 return
             if (useShare.getState().phase.kind !== "idle") return
             const s = useReplay.getState()
-            // Off a session (Home, a circuit's page; the session left there stays paused) there's only the screenshot.
+            // Off a session (Home, a circuit's page; the session left there stays paused) there's only sharing.
             if (!s.session || s.view !== "replay") {
-                if (
-                    (e.key !== "s" && e.key !== "S") ||
-                    e.ctrlKey ||
-                    e.metaKey ||
-                    e.altKey ||
-                    e.repeat
-                )
-                    return
+                if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+                if (e.key === "s" || e.key === "S") useShare.getState().start()
+                else if (e.key === "c" || e.key === "C")
+                    useShare.getState().compose()
+                else return
                 e.preventDefault()
-                useShare.getState().start()
                 return
             }
             const compare = comparing(s)
             // The spoiler prompt is open (over the replay): keys are its own.
             if (s.noSpoilers === null && !compare) return
-            if (compare && !" pPsS".includes(e.key) && e.key !== "Escape")
+            if (compare && !" pPsScC".includes(e.key) && e.key !== "Escape")
                 return
             // Don't let space/arrows also activate whatever button was clicked last.
             if (e.target instanceof HTMLButtonElement) e.target.blur()
@@ -88,6 +84,11 @@ export function useKeyboard() {
                 case "S":
                     if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
                     useShare.getState().start()
+                    break
+                case "c":
+                case "C":
+                    if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return
+                    useShare.getState().compose()
                     break
                 default: {
                     // 1 → 1×, 2 → 2×, 3 → 4× … 7 → 64×, and 8 → the hidden 128×.
