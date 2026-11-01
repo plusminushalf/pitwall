@@ -86,6 +86,7 @@ export function CompareCharts({
     const hover = useQuali((s) => s.hover)
     const zoom = useQuali((s) => s.zoom)
     const ghostT = useQuali((s) => s.ghostT)
+    const gear = useQuali((s) => s.gear)
     const { setHover, setZoom } = useQuali.getState()
     const [brush, setBrush] = useState<[number, number] | null>(null)
     const drag = useRef<{ x: number; moved: boolean; touch: boolean } | null>(
@@ -156,14 +157,15 @@ export function CompareCharts({
         const sMax = Math.ceil((hi + 12) / 10) * 10
         const dRange = Math.max(0.05, dmax * 1.15)
         const brakeH = Math.max(1, withTrace.length) * LANE_H + 4
-        const fixed = brakeH + STRIP_GAP * 4
-        const avail = Math.max(120, size.h - M.top - M.bottom - fixed)
         const hasDelta = withTrace.length > 1
+        const gaps = 2 + (hasDelta ? 1 : 0) + (gear ? 1 : 0)
+        const fixed = brakeH + STRIP_GAP * gaps
+        const avail = Math.max(120, size.h - M.top - M.bottom - fixed)
         const weights = {
             speed: 5,
             delta: hasDelta ? 2.6 : 0,
             throttle: 1.6,
-            gear: 1.7
+            gear: gear ? 1.7 : 0
         }
         const total =
             weights.speed + weights.delta + weights.throttle + weights.gear
@@ -219,17 +221,18 @@ export function CompareCharts({
             ticks: [],
             fmt: () => ""
         })
-        push({
-            key: "gear",
-            label: "Gear",
-            height: hOf("gear"),
-            min: 1,
-            max: 8,
-            ticks: [2, 4, 6, 8],
-            fmt: (v) => String(v)
-        })
+        if (gear)
+            push({
+                key: "gear",
+                label: "Gear",
+                height: hOf("gear"),
+                min: 1,
+                max: 8,
+                ticks: [2, 4, 6, 8],
+                fmt: (v) => String(v)
+            })
         return out
-    }, [size.h, withTrace, deltas, x0, x1])
+    }, [size.h, withTrace, deltas, x0, x1, gear])
 
     // biome-ignore lint/correctness/useExhaustiveDependencies: xOf reads x0, x1 and plotW, which are listed
     useEffect(() => {

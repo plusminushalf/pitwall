@@ -37,6 +37,8 @@ interface QualiState {
     miniCount: number
     /** Corner names on the map and charts instead of numbers. */
     cornerNames: boolean
+    /** The gear strip under the charts (off for a cleaner screenshot). Kept from one session to the next. */
+    gear: boolean
     ghostT: number
     ghostSpeed: number
     /**
@@ -54,6 +56,7 @@ interface QualiState {
     setZoom: (zoom: [number, number] | null) => void
     setMiniCount: (n: number) => void
     setCornerNames: (on: boolean) => void
+    setGear: (on: boolean) => void
     /** A shared link's set-up for session `key`: now if it's the one compared, else when it is (reset()). */
     applyLink: (key: number, link: CompareLink) => void
     /** The set-up as a shared link says it (the defaults left out). */
@@ -76,6 +79,7 @@ export const useQuali = create<QualiState>((set, get) => ({
     zoom: null,
     miniCount: MINI_SECTORS,
     cornerNames: false,
+    gear: true,
     ghostT: 0,
     ghostSpeed: 1,
     autoPicked: null,
@@ -137,6 +141,7 @@ export const useQuali = create<QualiState>((set, get) => ({
     setZoom: (zoom) => set({ zoom }),
     setMiniCount: (miniCount) => set({ miniCount }),
     setCornerNames: (cornerNames) => set({ cornerNames }),
+    setGear: (gear) => set({ gear }),
     applyLink: (key, link) => {
         if (get().sessionKey !== key) {
             pendingLink = { key, link }
@@ -148,17 +153,19 @@ export const useQuali = create<QualiState>((set, get) => ({
             laps: link.laps ?? {},
             miniCount:
                 MINI_SECTOR_COUNTS.find((n) => n === link.mini) ?? MINI_SECTORS,
-            cornerNames: link.names ?? false
+            cornerNames: link.names ?? false,
+            gear: link.gear ?? true
         })
     },
     link: () => {
-        const { zoom, preset, laps, miniCount, cornerNames } = get()
+        const { zoom, preset, laps, miniCount, cornerNames, gear } = get()
         return {
             ...(zoom ? { zoom } : {}),
             ...(preset !== "best" ? { preset } : {}),
             ...(Object.keys(laps).length > 0 ? { laps } : {}),
             ...(miniCount !== MINI_SECTORS ? { mini: miniCount } : {}),
-            ...(cornerNames ? { names: true as const } : {})
+            ...(cornerNames ? { names: true as const } : {}),
+            ...(gear ? {} : { gear: false as const })
         }
     },
     seekGhost: (t) => {

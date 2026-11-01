@@ -339,7 +339,8 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
     const zoom = useQuali((s) => s.zoom)
     const miniCount = useQuali((s) => s.miniCount)
     const cornerNames = useQuali((s) => s.cornerNames)
-    const { setMiniCount, setCornerNames } = useQuali.getState()
+    const gear = useQuali((s) => s.gear)
+    const { setMiniCount, setCornerNames, setGear } = useQuali.getState()
 
     // A fresh session: reset the compare state, and start with pole vs P2 (practice: the two fastest) unless a link
     // (or the replay, in practice) picked drivers.
@@ -436,6 +437,15 @@ export function QualiView({ overlay }: { overlay?: ReactNode }) {
                     )}
                 </span>
                 <span className="flex shrink-0 items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={() => setGear(!gear)}
+                        aria-pressed={gear}
+                        title="Show or hide the gear strip"
+                        className={`rounded px-1.5 pointer-coarse:px-3 pointer-coarse:py-1 ${gear ? "bg-zinc-100 font-bold text-zinc-900" : "text-zinc-400 hover:bg-zinc-800"}`}
+                    >
+                        Gear
+                    </button>
                     {zoom ? (
                         <>
                             {!coarse && (

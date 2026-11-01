@@ -12,8 +12,9 @@
 //   /session/11377?dash=strategy                     a dashboard other than the first (grid/dashboards.ts); live too
 // Shared links (share/ShareShot.tsx) can also say how the screen was set up:
 //   layout=…                                         the widget layout (share/layoutCode.ts), if it isn't a preset's
-//   zoom=120-560&preset=2&laps=1:14,63:12&mini=50&names=1   the lap comparison: its charts' distance window (m), the
-//                                                    segment its laps come from, hand-picked laps, mini-sectors, corner names
+//   zoom=120-560&preset=2&laps=1:14,63:12&mini=50&names=1&gear=0   the lap comparison: its charts' distance window
+//                                                    (m), the segment its laps come from, hand-picked laps, mini-sectors,
+//                                                    corner names, the gear strip hidden
 // Links from before paths (`/?session=11377&t=…`, `/?live=1`, the single `driver=63`) still open, and are upgraded.
 
 /** What a URL asks for. `t` is in ms of replay time. */
@@ -55,6 +56,8 @@ export interface CompareLink {
     mini?: number
     /** Corner names on the map instead of numbers. */
     names?: true
+    /** The gear strip hidden under the charts. */
+    gear?: false
 }
 
 const SESSION_PATH = /^\/session\/(\d+)\/?$/
@@ -77,6 +80,7 @@ const OWN = new Set([
     "laps",
     "mini",
     "names",
+    "gear",
     "layout",
     "range"
 ])
@@ -171,6 +175,7 @@ function readShared(q: URLSearchParams): Pick<UrlState, "compare" | "layout"> {
     const mini = positive(q.get("mini"))
     if (mini != null) compare.mini = mini
     if (q.get("names") === "1") compare.names = true
+    if (q.get("gear") === "0") compare.gear = false
     if (Object.keys(compare).length > 0) out.compare = compare
     const layout = q.get("layout")
     if (layout && LAYOUT_CODE.test(layout)) out.layout = layout
@@ -213,6 +218,7 @@ export function urlFor(v: UrlState): string {
             )
         if (c.mini != null) q.push(`mini=${c.mini}`)
         if (c.names) q.push("names=1")
+        if (c.gear === false) q.push("gear=0")
         if (v.layout) q.push(`layout=${v.layout}`)
     }
     const path = v.live || v.session == null ? livePath : sessionPath(v.session)
