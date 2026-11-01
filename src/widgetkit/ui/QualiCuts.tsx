@@ -18,7 +18,7 @@ export function QualiCuts({
     return (
         <>
             {cut != null && (
-                <Line
+                <CutLine
                     top={cut * rowH}
                     label={
                         phase.settled
@@ -29,7 +29,7 @@ export function QualiCuts({
                 />
             )}
             {phase.out.map((o) => (
-                <Line
+                <CutLine
                     key={o.segment.number}
                     top={(o.from - 1) * rowH}
                     label={`Knocked out in ${o.segment.name}`}
@@ -39,7 +39,8 @@ export function QualiCuts({
     )
 }
 
-function Line({
+/** A cut line across a list, at `top` px (0 in a zero-height list item: drawn there, in flow). */
+export function CutLine({
     top,
     label,
     red = false

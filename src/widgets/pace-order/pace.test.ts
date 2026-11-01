@@ -10,6 +10,7 @@ import {
     fitLaps,
     fitPace,
     gapAhead,
+    groupedRows,
     leftOf,
     type PaceLap,
     type PaceStint,
@@ -213,6 +214,24 @@ describe("pace rows", () => {
         ).toEqual([
             [81, 1, 0],
             [44, 2, 200]
+        ])
+    })
+
+    test("qualifying groups: each ranked within itself, ranks running on, gaps to the first group's quickest", () => {
+        const rows = groupedRows([
+            [best(16, 90.9), best(1, 90.5)],
+            [best(44, 90.4)],
+            [],
+            [best(4, 91.0), best(81, 90.8)]
+        ])
+        expect(
+            rows.map((r) => [r.best.driver, r.rank, Math.round(r.gap * 1000)])
+        ).toEqual([
+            [1, 1, 0],
+            [16, 2, 400],
+            [44, 3, -100],
+            [81, 4, 300],
+            [4, 5, 500]
         ])
     })
 })

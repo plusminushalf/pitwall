@@ -1,7 +1,9 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react"
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef } from "react"
 import {
+    CutLine,
     type DriverInfo,
     defineWidget,
+    inSegment,
     LABEL_CLASS,
     Label,
     type Lap,
@@ -17,6 +19,8 @@ import {
     useDrivers,
     useNeutralPeriods,
     usePlayback,
+    useQualiPhase,
+    useRunningOrder,
     useSelection,
     useSessionInfo,
     useSettings,
@@ -24,8 +28,10 @@ import {
     useWidgetSize
 } from "widget-kit"
 import {
+    type Best,
     bestLap,
     CLEAR_AIR,
+    groupedRows,
     leftOf,
     type PaceFit,
     type PaceRow,
@@ -42,6 +48,8 @@ type Show = "drivers" | "teams"
 /** In a race: rank by race pace (fuel and tyres taken out) or by best lap. Other sessions rank by best lap. */
 type By = "pace" | "best"
 type Settings = { show: Show; by: By }
+/** A line across the list before a row: live qualifying's cut (red) or a group knocked out. */
+type Cut = { label: string; red?: boolean }
 
 /** Rank, driver (or team), tyre, the gap bar, best, gap, ideal, left on the table. */
 const COLS =
@@ -217,7 +225,9 @@ function PaceRowView({
                     {lapTime(best.time)}
                 </span>
                 <span className="text-right text-xs tabular-nums text-zinc-400">
-                    {first ? "" : `+${gap.toFixed(3)}`}
+                    {first
+                        ? ""
+                        : `${gap < 0 ? "−" : "+"}${Math.abs(gap).toFixed(3)}`}
                 </span>
                 {!narrow && (
                     <span className="text-right text-xs tabular-nums text-zinc-300">
@@ -328,14 +338,79 @@ function PaceOrder() {
         () => (teams ? (n: number) => info.get(n)?.team ?? `#${n}` : undefined),
         [teams, info]
     )
-    const rows = useMemo(() => {
-        if (byPace) return []
-        const bests = [...laps].flatMap(
-            ([n, own]) =>
-                bestLap(n, own, stints.get(n) ?? [], neutral, deletedBy) ?? []
+    // Live qualifying (by driver): ranked as the timing screen, by best lap in the segment, with its cut, and the cars
+    // knocked out in earlier segments below, each group by its best lap in the segment it went out in.
+    const order = useRunningOrder()
+    const phase = useQualiPhase((p) =>
+        p ? { ...p, left: 0, red: false } : null
+    )
+    const segments = phase?.segment && !teams ? phase : null
+    const { rows, cuts } = useMemo(() => {
+        const none = { rows: [] as PaceRow[], cuts: new Map<number, Cut>() }
+        if (byPace) return none
+        const bestOf = (n: number, own: readonly Lap[]) =>
+            bestLap(n, own, stints.get(n) ?? [], neutral, deletedBy)
+        if (!segments?.segment) {
+            const bests = [...laps].flatMap(([n, own]) => bestOf(n, own) ?? [])
+            return {
+                rows: paceRows(withPin(bests, watched ? pin : null), teamOf),
+                cuts: none.cuts
+            }
+        }
+        const current = segments.segment
+        const out = [...segments.out].sort((a, b) => a.from - b.from)
+        const groups = [current, ...out.map((o) => o.segment)].map(
+            () => [] as Best[]
         )
-        return paceRows(withPin(bests, watched ? pin : null), teamOf)
-    }, [byPace, laps, stints, neutral, deletedBy, pin, watched, teamOf])
+        order.forEach((n, i) => {
+            const k = out.findIndex((o) => i + 1 >= o.from && i + 1 <= o.to)
+            const seg = k < 0 ? current : out[k].segment
+            const b = bestOf(
+                n,
+                (laps.get(n) ?? []).filter((l) => inSegment(seg, l))
+            )
+            if (b) groups[k + 1].push(b)
+        })
+        const pinned = watched ? pin : null
+        const rows = groupedRows(
+            groups.map((g) =>
+                pinned && g.some((b) => b.driver === pinned.best.driver)
+                    ? withPin(g, pinned)
+                    : g
+            )
+        )
+        // A line before the row at each index: the cut in the segment running, then each group knocked out.
+        const cuts = new Map<number, Cut>()
+        if (
+            current.advance != null &&
+            segments.field > current.advance &&
+            groups[0].length > current.advance
+        )
+            cuts.set(current.advance, {
+                label: segments.settled
+                    ? `Knocked out in ${current.name}`
+                    : "Drop zone",
+                red: true
+            })
+        let at = groups[0].length
+        out.forEach((o, k) => {
+            if (groups[k + 1].length > 0)
+                cuts.set(at, { label: `Knocked out in ${o.segment.name}` })
+            at += groups[k + 1].length
+        })
+        return { rows, cuts }
+    }, [
+        byPace,
+        laps,
+        stints,
+        neutral,
+        deletedBy,
+        pin,
+        watched,
+        teamOf,
+        segments,
+        order
+    ])
     const { racePaceRows, fit } = useMemo(() => {
         if (!byPace) return { racePaceRows: [], fit: null }
         const { paces, fit } = racePaces(laps, stints, neutral, deletedBy)
@@ -387,7 +462,9 @@ function PaceOrder() {
                         ? "Each team's quicker driver"
                         : byPace
                           ? "Fuel and tyres taken out"
-                          : "Best lap so far"}
+                          : segments?.segment
+                            ? `Best lap in ${segments.segment.name}`
+                            : "Best lap so far"}
                 </span>
                 {race && (
                     <div
@@ -517,20 +594,30 @@ function PaceOrder() {
                             onPick={follow}
                         />
                     ))}
-                    {rows.map((row) => (
-                        <PaceRowView
-                            key={row.best.driver}
-                            row={row}
-                            info={info.get(row.best.driver)}
-                            scale={scale}
-                            narrow={narrow}
-                            teams={teams}
-                            pinned={
-                                watched && pin?.best.driver === row.best.driver
-                            }
-                            onPick={onPick}
-                        />
-                    ))}
+                    {rows.map((row, i) => {
+                        const cut = cuts.get(i)
+                        return (
+                            <Fragment key={row.best.driver}>
+                                {cut && (
+                                    <li aria-hidden className="relative h-0">
+                                        <CutLine top={0} {...cut} />
+                                    </li>
+                                )}
+                                <PaceRowView
+                                    row={row}
+                                    info={info.get(row.best.driver)}
+                                    scale={scale}
+                                    narrow={narrow}
+                                    teams={teams}
+                                    pinned={
+                                        watched &&
+                                        pin?.best.driver === row.best.driver
+                                    }
+                                    onPick={onPick}
+                                />
+                            </Fragment>
+                        )
+                    })}
                 </ol>
             </div>
             <p

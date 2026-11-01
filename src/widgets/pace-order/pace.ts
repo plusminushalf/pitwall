@@ -176,6 +176,26 @@ export const paceRows = (
         gap
     }))
 
+/**
+ * Qualifying: the bests in groups shown one after the other (the cars still in it, then those knocked out in each
+ * earlier segment), each group ranked within itself. Ranks run on across the groups; gaps are to the first group's
+ * quickest (the first group with a time, if it has none).
+ */
+export function groupedRows(groups: readonly (readonly Best[])[]): PaceRow[] {
+    const ranks = groups.map((g) => paceRows(g))
+    const leader = ranks.find((r) => r.length > 0)?.[0].best.time ?? 0
+    let offset = 0
+    return ranks.flatMap((rows) => {
+        const out = rows.map((r) => ({
+            best: r.best,
+            rank: offset + r.rank,
+            gap: r.best.time - leader
+        }))
+        offset += rows.length
+        return out
+    })
+}
+
 // ---------------------------------------------------------------- race pace
 //
 // A median lap mixes laps on new and old tyres, full and light: whoever stopped later had fresher tyres at the end and
