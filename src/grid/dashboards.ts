@@ -9,6 +9,7 @@ import type { WidgetDefinition } from "../widgetkit/defineWidget"
 import {
     DEBRIEF_LAYOUT,
     DEFAULT_LAYOUT,
+    GRID_LAYOUT,
     PRACTICE_LAYOUT,
     QUALI_LAYOUT,
     RACE_DEBRIEF_LAYOUT,
@@ -101,6 +102,13 @@ export const PRESETS: Record<GridKind, readonly Preset[]> = {
             description:
                 "What the session says: the pace order and its tyres, push laps, sectors, top speeds, each team's runs and the track's evolution",
             layout: DEBRIEF_LAYOUT
+        },
+        {
+            id: "grid",
+            name: "Grid",
+            description:
+                "The order as the starting grid, two by two, with the lap time that put each car there",
+            layout: GRID_LAYOUT
         },
         {
             id: "telemetry",

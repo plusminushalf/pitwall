@@ -96,6 +96,17 @@ export const QUALI_LAYOUT: Layout = {
     }
 }
 
+/** Qualifying's grid: the order as the starting grid, two by two, beside the map. */
+const GRID_SIDE = 18
+export const GRID_LAYOUT: Layout = {
+    version: 1,
+    columns: COLUMNS,
+    widgets: {
+        "starting-grid": at(0, 0, GRID_SIDE),
+        "track-map": at(GRID_SIDE, 0, COLUMNS - GRID_SIDE, { height: TOP })
+    }
+}
+
 export const DEFAULT_LAYOUTS: Record<GridKind, Layout> = {
     race: DEFAULT_LAYOUT,
     practice: PRACTICE_LAYOUT,

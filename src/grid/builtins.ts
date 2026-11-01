@@ -30,6 +30,7 @@ import sessionBests from "../widgets/session-bests"
 import speedGear from "../widgets/speed-gear"
 import speedTrace from "../widgets/speed-trace"
 import speedVsPace from "../widgets/speed-vs-pace"
+import startingGrid from "../widgets/starting-grid"
 import stintPace from "../widgets/stint-pace"
 import strategyHistory from "../widgets/strategy-history"
 import throttleBrakeRpm from "../widgets/throttle-brake-rpm"
@@ -80,7 +81,8 @@ const ALL: WidgetDefinition<any>[] = [
     speedVsPace,
     runPlans,
     trackEvolution,
-    trackLimits
+    trackLimits,
+    startingGrid
 ]
 
 export const BUILTIN_WIDGETS: ReadonlyMap<string, WidgetDefinition> = new Map(

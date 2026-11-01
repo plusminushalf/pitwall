@@ -377,7 +377,8 @@ describe("driver layout", () => {
         "top-speeds",
         "pit-crews",
         "lap-chart",
-        "race-strategy"
+        "race-strategy",
+        "starting-grid"
     ]
 
     test("places every built-in widget but those off its screen once, within its width range", () => {
